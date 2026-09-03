@@ -306,6 +306,16 @@
   an H2 (plain-text for panel `jcr:title` + HTML-wrapped for the titledraw
   `_value`). H3+ headings register HTML-wrapped; plain field labels register as
   plain text. (`bed8998`, `006b750`)
+- **R12.9** A colon-terminated static text stranded beside a field that has no
+  label becomes that field's label, and is dropped. Positional label
+  attachment leaves such a caption unclaimed when it sits too far from its
+  field, and the output then renders it twice: a static draw and an input
+  title saying the same thing. Captions preceding their field are paired one
+  by one; a group closing with K captions preceded by K unlabeled fields is
+  paired positionally as a whole, since one at a time would attach each
+  caption to the wrong field. In a grid the caption is emptied in place, never
+  removed, because the columns are positional. (AABF_019)
+
 - **R12.8** A colon-terminated static text between a choice control and its
   inline field is the **field's caption**, and becomes the field's label on its
   own; the control's own label stays with the control, which renders it. Only a

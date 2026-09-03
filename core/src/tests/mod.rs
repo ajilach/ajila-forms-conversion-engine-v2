@@ -31532,6 +31532,46 @@ fn collect_custom_template_keys(node: &crate::aem::AemNode, out: &mut Vec<String
     }
 }
 
+/// A caption stranded beside an unlabeled field becomes that field's label,
+/// instead of being rendered a second time as static text.
+///
+/// Positional label attachment binds the nearest free text block to a field;
+/// when the caption sits too far away nothing claims it, and it survives as a
+/// paragraph next to a field with no label. The output then carries both — a
+/// static draw reading "Betrag:" beside an input whose own title says the same
+/// thing, which is what the AABF_019 conversion shipped.
+#[test]
+fn test_aabf_de_orphan_caption_becomes_the_field_label() {
+    use crate::run_exhaustive_to_merged;
+    let structured = run_exhaustive_to_merged(input_path("AABF_019_DE.pdf"))
+        .expect("Failed to process AABF_019_DE.pdf");
+
+    let labels = collect_field_labels_trimmed(&structured);
+    println!("field labels: {labels:?}");
+    for caption in ["Betrag:", "Betrag bisher:", "Betrag neu:"] {
+        assert!(
+            labels.iter().any(|l| l == caption),
+            "{caption} must label its field, got {labels:?}"
+        );
+    }
+
+    // And it must not also survive as a paragraph.
+    let mut paragraphs = Vec::new();
+    walk_structured_nodes(&structured, &mut |node| {
+        if let crate::structured::StructuredNode::Paragraph(p) = node {
+            paragraphs.push(p.content.as_plain_text().trim().to_string());
+        }
+    });
+    let duplicated: Vec<&String> = paragraphs
+        .iter()
+        .filter(|t| labels.iter().any(|l| l == *t))
+        .collect();
+    assert!(
+        duplicated.is_empty(),
+        "these captions are rendered twice, as a paragraph and as a field label: {duplicated:?}"
+    );
+}
+
 /// A field captioned next to a radio option takes the caption as its label,
 /// not the option's label plus the caption.
 ///

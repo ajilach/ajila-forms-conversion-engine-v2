@@ -214,6 +214,7 @@ pub fn convert_with_language(doc: &Document, language: &str) -> Vec<StructuredNo
         .collect();
 
     inherit_heading_labels_for_choice_fields(&mut content);
+    bind_orphan_captions_to_unlabeled_fields(&mut content);
     move_number_prefixes_to_headings(&mut content);
 
     content
@@ -282,6 +283,148 @@ fn extract_header_text(doc: &Document) -> Option<String> {
 /// preceding sibling is a heading, copy the heading text as the field's label.
 /// The heading stays in place — only the text is copied.
 /// Recurses into Groups, Repeatables, Conditionals, GridLayouts, and Tables.
+/// The longest a paragraph may be to still read as a field's caption rather
+/// than as prose. "Vorheriger Betrag:" fits comfortably; a sentence does not.
+const MAX_CAPTION_CHARS: usize = 40;
+
+/// Is this paragraph a caption left stranded beside its field?
+///
+/// Positional label attachment binds the nearest free text block to a field,
+/// but when the caption sits far enough away — a wide gap, a different line,
+/// the far side of a grid cell — nothing claims it. It then survives as a
+/// paragraph next to a field with no label at all, and the two are rendered
+/// twice over: a static draw reading "Betrag:" beside an input whose own title
+/// is empty or, once an agent fills the gap, the very same "Betrag:".
+fn is_orphan_caption(node: &StructuredNode) -> bool {
+    let StructuredNode::Paragraph(p) = node else {
+        return false;
+    };
+    let texts = p.content.all_plain_texts();
+    if texts.is_empty() {
+        return false;
+    }
+    texts.iter().all(|text| {
+        let text = text.trim();
+        !text.is_empty() && text.chars().count() <= MAX_CAPTION_CHARS && text.ends_with(':')
+    })
+}
+
+/// Give an unlabeled field the caption stranded next to it, and drop the
+/// paragraph.
+///
+/// Runs after [`inherit_heading_labels_for_choice_fields`] so a heading still
+/// wins for a choice field. The caption is moved whole, every language with
+/// it, so the field is labelled in each of them and no duplicate reaches the
+/// output.
+/// A field that reached this point with no label of its own.
+fn is_unlabeled_field(node: &StructuredNode) -> bool {
+    matches!(node, StructuredNode::Field(f) if f.label.is_none())
+}
+
+/// The caption's text, every language with it.
+fn caption_label(node: &StructuredNode) -> TranslatedText {
+    let StructuredNode::Paragraph(p) = node else {
+        unreachable!("checked by is_orphan_caption");
+    };
+    p.content.to_plain()
+}
+
+/// Give the field its label.
+fn set_field_label(node: &mut StructuredNode, label: TranslatedText) {
+    let StructuredNode::Field(f) = node else {
+        unreachable!("checked by is_unlabeled_field");
+    };
+    f.label = Some(label);
+}
+
+fn bind_orphan_captions_to_unlabeled_fields(nodes: &mut Vec<StructuredNode>) {
+    // A caption normally precedes its field, so pair those first; whatever is
+    // left is then matched by the trailing-run rule below.
+    let mut i = 0;
+    while i + 1 < nodes.len() {
+        if is_orphan_caption(&nodes[i]) && is_unlabeled_field(&nodes[i + 1]) {
+            let label = caption_label(&nodes[i]);
+            set_field_label(&mut nodes[i + 1], label);
+            nodes.remove(i);
+        }
+        i += 1;
+    }
+
+    // Some layouts put every caption after every field ("[__] [__] Betrag
+    // bisher: Betrag neu:"), which reads unambiguously only as a whole: K
+    // captions closing the group, preceded by exactly K unlabeled fields, in
+    // the same order. Pairing them one at a time would attach each caption to
+    // the wrong field.
+    let captions = nodes
+        .iter()
+        .rev()
+        .take_while(|n| is_orphan_caption(n))
+        .count();
+    if captions > 0 && nodes.len() >= captions * 2 {
+        let fields_at = nodes.len() - captions * 2;
+        let fields_are_unlabeled = nodes[fields_at..fields_at + captions]
+            .iter()
+            .all(is_unlabeled_field);
+        if fields_are_unlabeled {
+            for offset in 0..captions {
+                let label = caption_label(&nodes[fields_at + captions + offset]);
+                set_field_label(&mut nodes[fields_at + offset], label);
+            }
+            nodes.truncate(fields_at + captions);
+        }
+    }
+
+    for node in nodes.iter_mut() {
+        match node {
+            StructuredNode::Group(g) => bind_orphan_captions_to_unlabeled_fields(&mut g.children),
+            StructuredNode::Repeatable(r) => {
+                if let StructuredNode::Group(g) = r.item.as_mut() {
+                    bind_orphan_captions_to_unlabeled_fields(&mut g.children);
+                }
+            }
+            StructuredNode::Conditional(c) => {
+                if let StructuredNode::Group(g) = c.content.as_mut() {
+                    bind_orphan_captions_to_unlabeled_fields(&mut g.children);
+                }
+            }
+            StructuredNode::GridLayout(gl) => {
+                // A grid cell cannot simply be dropped -- the columns are
+                // positional -- so the caption is emptied in place instead.
+                // `StructuredNode::Empty` converts to nothing.
+                for i in 0..gl.elements.len().saturating_sub(1) {
+                    let (left, right) = gl.elements.split_at_mut(i + 1);
+                    let first = &mut left[i].node;
+                    let second = &mut right[0].node;
+                    let (caption, field) = if is_orphan_caption(first) && is_unlabeled_field(second) {
+                        (first, second)
+                    } else if is_unlabeled_field(first) && is_orphan_caption(second) {
+                        (second, first)
+                    } else {
+                        continue;
+                    };
+                    let label = caption_label(caption);
+                    set_field_label(field, label);
+                    *caption = StructuredNode::Empty;
+                }
+                for elem in &mut gl.elements {
+                    if let StructuredNode::Group(g) = &mut elem.node {
+                        bind_orphan_captions_to_unlabeled_fields(&mut g.children);
+                    }
+                }
+            }
+            StructuredNode::Table(t) => {
+                for row in &mut t.rows {
+                    bind_orphan_captions_to_unlabeled_fields(&mut row.cells);
+                }
+                if let Some(header) = &mut t.header {
+                    bind_orphan_captions_to_unlabeled_fields(&mut header.cells);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 fn inherit_heading_labels_for_choice_fields(nodes: &mut [StructuredNode]) {
     // First pass: copy heading text into immediately following unlabeled fields
     for i in 1..nodes.len() {
