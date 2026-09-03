@@ -31,6 +31,19 @@ use super::{AemAttrs, AemNode};
 /// exemption `static_text_wrap.py` makes.
 const SUBTITLE_CSS: &str = "subtitle-after-form-title";
 
+/// The CSS class the step-title template stamps on a step's own canonical
+/// heading (`panel.xml`). It is synthesised entirely from the panel's `title`
+/// field -- never a node in `children` -- so a `TitleDraw` carrying it can only
+/// reach `is_run_member` from an agent-authored or loaded tree, never from this
+/// engine's own conversion.
+///
+/// An ordinary `heading_level == 2` sub-heading is NOT this, and must join the
+/// run like any other body text: reading every level-2 draw as the step title
+/// is where PROBLEM-static-text-dor-excluded-step over-reached, and
+/// PROBLEM-static-text-orphan-step (2026-09-02) narrows the exemption to this
+/// class specifically.
+const STEP_TITLE_CSS: &str = "stepTitle";
+
 /// The Italy infobox fragment: the only infobox in any UBS fragment library.
 const INFOBOX_FRAGMENT: &str = "affrg_italy_infobox";
 
@@ -61,14 +74,20 @@ pub fn normalize(root: &mut AemNode) {
 // ── PROBLEM-static-text-dor-excluded-step ───────────────────────────────────
 
 /// Wrap every run of adjacent static texts that sits directly under a panel
-/// whose title is DoR-excluded.
+/// whose title is DoR-excluded -- which, since every wizard step carries
+/// `dorExcludeTitle` itself, includes any static text left as a direct child
+/// of a step: PROBLEM-static-text-orphan-step's "orphan" is this same shape,
+/// named for what breaks in Redacto rather than in the DoR pipeline this
+/// docstring first measured against.
 ///
 /// The mechanism inside the DoR pipeline is not established -- what is
 /// established is that the same texts render when they sit one panel deeper
 /// (AAOV `PN_Dichiarazione`, whose whole declaration was missing from the DoR,
 /// against `PN_Info_Last`, which renders). A run is broken by anything that is
 /// not a static text, and by the two draws that are headings rather than body:
-/// a step title (`heading_level == 2`) and the first page's subtitle.
+/// the step's own canonical title (`css="stepTitle"`) and the first page's
+/// subtitle. An ordinary heading is not either of those, whatever level it
+/// draws at, and joins the run like any other body text.
 pub fn wrap_static_text(root: &mut AemNode) {
     walk_panels(root, &mut |parent, children, excludes_title| {
         if !excludes_title {
@@ -93,11 +112,9 @@ pub fn wrap_static_text(root: &mut AemNode) {
 fn is_run_member(node: &AemNode) -> bool {
     match node {
         AemNode::TextDraw { attrs, .. } => !has_class(attrs, SUBTITLE_CSS),
-        AemNode::TitleDraw {
-            heading_level,
-            attrs,
-            ..
-        } => *heading_level != 2 && !has_class(attrs, SUBTITLE_CSS),
+        AemNode::TitleDraw { attrs, .. } => {
+            !has_class(attrs, STEP_TITLE_CSS) && !has_class(attrs, SUBTITLE_CSS)
+        }
         // The HTML component is static content too, but it is a BLOCK: a table,
         // a chart, an image. It stays out of the run, which is exactly how the
         // `TBL_` panel it replaces behaved, so no existing form's wrapping
@@ -470,30 +487,34 @@ mod tests {
         assert_eq!(child_names(&page_children[2]), ["ST_Three"]);
     }
 
-    /// A step title and the first page's subtitle are headings, not body text:
-    /// they break a run instead of joining it, and are left where they are.
+    /// A titledraw carrying a class breaks a run rather than joining it, but
+    /// only the two classes that mean something: the step's own canonical title
+    /// (`css="stepTitle"`) and the first page's subtitle. Both are headings, not
+    /// body text, and are left where they are.
     #[test]
-    fn headings_separate_runs_and_are_never_wrapped() {
-        let subtitle = match draw("ST_Subtitle") {
+    fn the_two_marked_headings_separate_runs_and_are_never_wrapped() {
+        let with_css = |node: AemNode, css: &str| match node {
             AemNode::TextDraw { uuid, name, content, visible, colspan, dor_colspan, .. } => {
                 AemNode::TextDraw {
-                    uuid,
-                    name,
-                    content,
-                    attrs: AemAttrs {
-                        css: Some(SUBTITLE_CSS.into()),
-                        ..AemAttrs::default()
-                    },
-                    visible,
-                    colspan,
-                    dor_colspan,
+                    uuid, name, content,
+                    attrs: AemAttrs { css: Some(css.into()), ..AemAttrs::default() },
+                    visible, colspan, dor_colspan,
                 }
             }
-            _ => unreachable!(),
+            AemNode::TitleDraw { uuid, name, content, heading_level, visible, colspan, dor_colspan, .. } => {
+                AemNode::TitleDraw {
+                    uuid, name, content, heading_level,
+                    attrs: AemAttrs { css: Some(css.into()), ..AemAttrs::default() },
+                    visible, colspan, dor_colspan,
+                }
+            }
+            other => other,
         };
+        let subtitle = with_css(draw("ST_Subtitle"), SUBTITLE_CSS);
+        let step_title = with_css(title("TTL_Step", 2), STEP_TITLE_CSS);
         let mut tree = root(vec![page(
             "PN_First",
-            vec![subtitle, draw("ST_Body"), title("TTL_Step", 2), draw("ST_After")],
+            vec![subtitle, draw("ST_Body"), step_title, draw("ST_After")],
         )]);
         wrap_static_text(&mut tree);
 
@@ -501,8 +522,35 @@ mod tests {
         let names = child_names(&children[0]);
         assert_eq!(names[0], "ST_Subtitle", "the subtitle stays put: {names:?}");
         assert!(names[1].starts_with("PN_StaticText_"), "{names:?}");
-        assert_eq!(names[2], "TTL_Step", "a step title stays put: {names:?}");
+        assert_eq!(names[2], "TTL_Step", "the step title stays put: {names:?}");
         assert!(names[3].starts_with("PN_StaticText_"), "{names:?}");
+    }
+
+    /// An h2 with no `stepTitle` class is an ordinary sub-heading, not the
+    /// step's own title -- and this engine never puts the real one in
+    /// `children` at all; the template synthesises it from the panel's own
+    /// `title` field. So any level-2 draw reaching this code is agent-authored
+    /// content, and joins the run like any other body text
+    /// (PROBLEM-static-text-orphan-step, 2026-09-02): reading every h2 as a step
+    /// title is exactly what PROBLEM-static-text-dor-excluded-step over-read.
+    #[test]
+    fn an_unmarked_h2_is_ordinary_content_and_joins_the_run() {
+        let mut tree = root(vec![page(
+            "PN_First",
+            vec![draw("ST_Before"), title("TTL_Sub", 2), draw("ST_After")],
+        )]);
+        wrap_static_text(&mut tree);
+
+        let AemNode::Root { children, .. } = &tree else { unreachable!() };
+        let names = child_names(&children[0]);
+        assert_eq!(names.len(), 1, "one run, the heading included: {names:?}");
+        assert!(names[0].starts_with("PN_StaticText_"), "{names:?}");
+        let AemNode::Panel { children: run, .. } = &children[0] else { unreachable!() };
+        assert_eq!(
+            child_names(&run[0]),
+            ["ST_Before", "TTL_Sub", "ST_After"],
+            "the unmarked heading must sit inside the run, not break it"
+        );
     }
 
     /// A run of draws that are all excluded from the DoR anyway needs no wrapper,
