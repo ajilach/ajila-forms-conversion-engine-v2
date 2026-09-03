@@ -162,6 +162,17 @@
   section panel; emit `bindRef` only when set; `strip_bind_refs` clears it on
   Repeatables when `bind_to_xsd` is off but **always keeps it on Fragment
   nodes**. (`07cd62c`)
+- **R7.16** A candidate type may declare **element aliases** (`[typeAliases.<Type>]`
+  in the XSD profile), applied to the resolved leaf while that type alone is
+  tested. Label resolution is context-free, so `Ort` / `Località` always resolve
+  to `Place` — correct in a signature row (`SignatureType.Place`), wrong for the
+  city of an address — and `N.` resolves to a bare `N` that no type declares.
+  Two of an Italian address's five leaves therefore sat outside `AddressType`
+  and it could match nothing. `AddressType` aliases `Place` → `City` and
+  `N` → `StreetNumber`; every other type, and the default resolution, is
+  untouched. The profile is `rename_all = "camelCase"`, so the table is
+  `typeAliases` — a snake_case key is silently ignored.
+
 - **R7.15** A fragment also matches a **run of consecutive sibling children**,
   not just a whole panel. Whole-panel matching fires only when a section holds
   the fragment's own fields and nothing else, and a layout row holds too few of

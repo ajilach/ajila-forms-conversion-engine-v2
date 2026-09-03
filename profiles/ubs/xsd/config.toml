@@ -98,6 +98,18 @@ type = "xs:string"
 synonyms = ["Company", "Firma", "Società"]
 type = "xs:string"
 
+# Per-type element aliases. Label resolution is context-free -- one element
+# name per label -- but a word can mean different things in different blocks.
+# `Ort` / `Località` resolve to `Place`, which is right in a signature row
+# (SignatureType.Place) and wrong for the city of an address; `N.` resolves to
+# a bare `N`, which is in no type at all. Without these an Italian address
+# matches no type, so `affrg_AddressGeneric1` can never be selected for it.
+# Consulted only while AddressType itself is being tested, so SignatureType and
+# every other type keep the default resolution.
+[typeAliases.AddressType]
+Place = "City"
+N = "StreetNumber"
+
 # --- Address fields ---
 
 [elements.Street]

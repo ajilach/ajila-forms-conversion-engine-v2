@@ -281,6 +281,21 @@ pub struct XsdProfile {
     #[serde(default)]
     pub elements: HashMap<String, ElementMapping>,
 
+    /// Per-type element aliases: `type name → (leaf as resolved → leaf as that
+    /// type calls it)`.
+    ///
+    /// Label resolution is context-free — one element name per label — but a
+    /// word can mean different things in different blocks. `Località` and `Ort`
+    /// resolve to `Place`, which is a `SignatureType` element, and in a
+    /// signature row that is right; in an address row the same word is the
+    /// city. Without this an Italian address can match no type at all, because
+    /// two of its five leaves sit outside `AddressType`.
+    ///
+    /// Consulted only while a specific candidate type is being tested, so the
+    /// default resolution — and every other type — is untouched.
+    #[serde(default)]
+    pub type_aliases: HashMap<String, HashMap<String, String>>,
+
     /// Mapping from canonical section names to their regex-based config.
     ///
     /// When a section's full text (heading + body until next heading) matches
@@ -613,6 +628,7 @@ impl Default for XsdProfile {
     fn default() -> Self {
         Self {
             elements: HashMap::new(),
+            type_aliases: HashMap::new(),
             sections: HashMap::new(),
             schema_location_prefix: default_schema_location_prefix(),
             master_language: None,

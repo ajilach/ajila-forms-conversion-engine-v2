@@ -2373,14 +2373,25 @@ fn find_best_fragment_inner<'a>(
 
     // Determine which registered XSD types match this panel's leaf elements.
     // All panel leaves must be contained in the type's elements (subset check).
-    let mut matching_types: Vec<&str> = Vec::new();
+    //
+    // A leaf is first read through that type's own aliases: label resolution is
+    // context-free, so `Località`/`Ort` always resolve to `Place`, which is
+    // right for a signature row and wrong for the city of an address. Each
+    // candidate type gets the leaves as it names them, and every other type is
+    // unaffected.
+    let mut matching_types: Vec<(&str, Vec<String>)> = Vec::new();
     for (type_name, reg_type) in &xsd_config.registered_types {
-        let type_elements: Vec<&str> = reg_type.elements.iter().map(|e| e.name.as_str()).collect();
-        let all_present = panel_leaves
+        let aliases = xsd_config.profile.type_aliases.get(type_name);
+        let leaves: Vec<String> = panel_leaves
             .iter()
-            .all(|l| type_elements.contains(&l.as_str()));
-        if all_present {
-            matching_types.push(type_name);
+            .map(|l| match aliases.and_then(|a| a.get(l)) {
+                Some(alias) => alias.clone(),
+                None => l.clone(),
+            })
+            .collect();
+        let type_elements: Vec<&str> = reg_type.elements.iter().map(|e| e.name.as_str()).collect();
+        if leaves.iter().all(|l| type_elements.contains(&l.as_str())) {
+            matching_types.push((type_name, leaves));
         }
     }
 
@@ -2400,9 +2411,13 @@ fn find_best_fragment_inner<'a>(
     let mut best_type_size: usize = usize::MAX;
     let mut best_overlap: usize = 0;
     for fragment in fragments {
-        if !matching_types.contains(&fragment.xsd_type_name.as_str()) {
+        // The leaves as this fragment's own type names them.
+        let Some((_, panel_leaves)) = matching_types
+            .iter()
+            .find(|(t, _)| *t == fragment.xsd_type_name.as_str())
+        else {
             continue;
-        }
+        };
         if strict && !panel_leaves_subset_of_fragment(fragment, panel_leaves) {
             continue;
         }

@@ -29099,6 +29099,28 @@ fn test_custom_templates_reference_only_ubs_generic_fragments() {
     );
 }
 
+/// An Italian address becomes the address fragment despite `Località`.
+///
+/// Label resolution is context-free, so `Località` (like German `Ort`) resolves
+/// to `Place` -- a `SignatureType` element, which is right in a signature row
+/// and wrong for the city of an address -- and `N.` resolves to a bare `N` that
+/// is in no type at all. Two of the five leaves therefore sat outside
+/// `AddressType` and AAOV_033 could match no type. A per-type alias fixes it
+/// for `AddressType` only; `SignatureType.Place` keeps its meaning.
+#[test]
+fn test_aaov_italian_address_matches_despite_the_place_collision() {
+    let (_, root, config) = helpers::build_aem_test_output_bound(&[("AAOV_033_IT.pdf", "it")]);
+    let xml = crate::aem::generate_aem_xml(&root, &config);
+    assert!(
+        xml.contains("affrg_AddressGeneric1"),
+        "the Italian address block must reach the package as the address fragment"
+    );
+    // That `Place` was not stolen from SignatureType is pinned by the exact
+    // signature-fragment counts in `test_aaai_has_exactly_two_signature_fragments`
+    // and `test_bage_has_exactly_five_signature_fragments`, which match through
+    // SignatureType and would drop to zero if the alias leaked.
+}
+
 /// A fragment's fields sitting among other fields still become the fragment.
 ///
 /// Whole-panel matching only fires when a section holds the fragment's own
