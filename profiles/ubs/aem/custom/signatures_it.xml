@@ -237,7 +237,7 @@
                     alwaysInPdf="true"
                     completionExpReq="{Boolean}false"
                     dorFieldStyling="Default"
-                    fragRef="/content/dam/formsanddocuments/afforms_italy_fragmentlib/affrg_italy_internalbankuse_ouref"
+                    fragRef="/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature"
                     guideNodeClass="guidePanel"
                     maxOccur="4"
                     minOccur="1"

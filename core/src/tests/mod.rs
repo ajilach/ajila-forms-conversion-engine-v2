@@ -29099,6 +29099,49 @@ fn test_custom_templates_reference_only_ubs_generic_fragments() {
     );
 }
 
+/// The internal-bank-use block uses the global fragment, in both markets.
+///
+/// The deployed corpus migrated: of the 78 Italian packages issued 2026-09-01,
+/// 57 reference `afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature`
+/// and 4 still carry `afforms_italy_fragmentlib/affrg_italy_internalbankuse_ouref`
+/// -- three of those un-migrated with the canonical block underneath, one
+/// (AAOM_033) a legacy form predating fragments. The German reference AABF_019
+/// uses the global fragment too. `specs/feedback/consistent-problems.md:663`
+/// still records the pre-migration counts and `:721` an owner decision not to
+/// re-route this family; both predate the migration.
+#[test]
+fn custom_templates_use_the_global_internal_bank_use_fragment() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../profiles/ubs/aem/custom");
+    let mut seen = 0usize;
+    for entry in std::fs::read_dir(&dir).expect("custom templates dir") {
+        let path = entry.expect("dir entry").path();
+        if path.extension().and_then(|e| e.to_str()) != Some("xml") {
+            continue;
+        }
+        let xml = std::fs::read_to_string(&path).expect("read template");
+        for cap in xml.split("fragRef=\"").skip(1) {
+            let frag = cap.split('"').next().unwrap_or_default();
+            if !(frag.contains("internalbankuse")
+                || frag.contains("InternalBankUse")
+                || frag.contains("internal_bank_use"))
+            {
+                continue;
+            }
+            seen += 1;
+            assert!(
+                frag.contains("afforms_global_fragmentlib"),
+                "{:?} references the market internal-bank-use fragment {frag:?}; the corpus \
+                 uses afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature",
+                path.file_name().unwrap()
+            );
+        }
+    }
+    assert_eq!(
+        seen, 2,
+        "both signature templates carry an internal-bank-use block"
+    );
+}
+
 #[test]
 fn test_aagz_no_empty_panels_in_tree() {
     let root = build_aem_test_output_with_custom_elements(&[("AAGZ_019_DE.pdf", "de")]);

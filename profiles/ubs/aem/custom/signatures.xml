@@ -290,7 +290,7 @@
                     alwaysInPdf="true"
                     completionExpReq="{Boolean}false"
                     dorFieldStyling="Default"
-                    fragRef="/content/dam/formsanddocuments/afforms_germany_fragmentlib/affrg_germany_InternalBankUse_OURef_Signature"
+                    fragRef="/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature"
                     guideNodeClass="guidePanel"
                     maxOccur="4"
                     minOccur="1"

@@ -162,6 +162,17 @@
   section panel; emit `bindRef` only when set; `strip_bind_refs` clears it on
   Repeatables when `bind_to_xsd` is off but **always keeps it on Fragment
   nodes**. (`07cd62c`)
+- **R7.14** The internal-bank-use block uses
+  `afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature`
+  in **both** markets. The corpus migrated: of the 78 Italian packages issued
+  2026-09-01, 57 use the global fragment and 4 the Italian one (three
+  un-migrated, one legacy); the German reference AABF_019 uses the global one
+  too. `specs/feedback/consistent-problems.md:663` records the pre-migration
+  counts and `:721` an owner decision not to re-route this family — both are
+  dated 2026-08-27 and predate the migration, so do not restore them from that
+  snapshot. Pinned by
+  `custom_templates_use_the_global_internal_bank_use_fragment`.
+
 - **R7.13** A fragment the converter derives from a source must survive into
   the shipped tree. `review_output`'s `dropped_fragments` re-converts the same
   input and reports every `fragRef` the reviewed tree references fewer times
