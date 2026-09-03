@@ -31532,6 +31532,45 @@ fn collect_custom_template_keys(node: &crate::aem::AemNode, out: &mut Vec<String
     }
 }
 
+/// A field captioned next to a radio option takes the caption as its label,
+/// not the option's label plus the caption.
+///
+/// AABF_019's standing-order step reads `Neuer Auftrag ( ) Währung: [__]`
+/// three times over, once per order type. Appending the caption to the
+/// option's label gave the same field three different names
+/// ("Neuer Auftrag Währung:", "Änderung Währung:", …) where the reference form
+/// says "Währung:" once. The option's label belongs to the radio group, which
+/// renders it itself.
+#[test]
+fn test_aabf_de_inline_field_caption_is_not_prefixed_with_the_option_label() {
+    use crate::run_exhaustive_to_merged;
+    let structured = run_exhaustive_to_merged(input_path("AABF_019_DE.pdf"))
+        .expect("Failed to process AABF_019_DE.pdf");
+    let labels = collect_field_labels_trimmed(&structured);
+    println!("field labels: {labels:?}");
+
+    let leaked: Vec<&String> = labels
+        .iter()
+        .filter(|l| {
+            let l = l.as_str();
+            (l.starts_with("Neuer Auftrag ")
+                || l.starts_with("Änderung ")
+                || l.starts_with("Löschung ")
+                || l.starts_with("Auftrag sperren "))
+                && l.ends_with(':')
+        })
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "an option label leaked into a field caption: {leaked:?}"
+    );
+
+    assert!(
+        labels.iter().any(|l| l == "Währung:"),
+        "the bare caption must survive as the field's label, got {labels:?}"
+    );
+}
+
 /// Rebuild `root` the way a hand-authored tree does: every `Fragment` node is
 /// gone and no panel carries a `fragRef` any more, but the tree is otherwise
 /// intact.

@@ -306,6 +306,14 @@
   an H2 (plain-text for panel `jcr:title` + HTML-wrapped for the titledraw
   `_value`). H3+ headings register HTML-wrapped; plain field labels register as
   plain text. (`bed8998`, `006b750`)
+- **R12.8** A colon-terminated static text between a choice control and its
+  inline field is the **field's caption**, and becomes the field's label on its
+  own; the control's own label stays with the control, which renders it. Only a
+  text with no caption marker continues the label (`Nur für Benutzer Nr. [__]`).
+  Prefixing gave one field a different name per option
+  ("Neuer Auftrag Währung:", "Änderung Währung:") where the reference says
+  "Währung:" once. (AABF_019)
+
 - **R12.5** Use `Option<String>` for missing translations; merge orphan
   paragraphs (a non-master language entry the master lacks) into a single
   static-text element so **no missing-translation dictionary entry** is

@@ -17,9 +17,10 @@
 //!
 //! 1. Get the label text and field bounds from the checkbox/radio.
 //! 2. Find unclaimed root `Field` groups on the same line, to the right.
-//! 3. Collect any unclaimed root text blocks between the control and the field
-//!    (e.g. "Nr." in "Nur für Benutzer Nr. [field]") – these are appended to
-//!    the label.
+//! 3. Collect any unclaimed root text blocks between the control and the field.
+//!    A colon-terminated one is the field's own caption and becomes its label
+//!    ("Währung:" in "Neuer Auftrag ( ) Währung: [field]"); otherwise it
+//!    continues the control's label ("Nr." in "Nur für Benutzer Nr. [field]").
 //! 4. Merge the text blocks and the field into a `SelectionInlineField` group
 //!    carrying the condition SOM path, optional radio option name, and the
 //!    combined label text.
@@ -100,6 +101,41 @@ impl SelectionInlineFieldDetector {
     /// square fields (checkbox/radio indicators, date field components) that happen
     /// to be on the same line. Genuine text input fields are typically 100+ pt wide.
     const MIN_FIELD_WIDTH: &str = "30.0";
+
+    /// Build the inline field's label from the control's own label and the
+    /// text blocks sitting between the control and the field.
+    ///
+    /// A colon-terminated interstitial is the field's own **caption**, not a
+    /// continuation of the control's label: in `Neuer Auftrag ( ) Währung: [__]`
+    /// the field is captioned `Währung:`, and `Neuer Auftrag` is the radio
+    /// option's label, which the radio group renders itself. Prefixing it
+    /// yields `Neuer Auftrag Währung:` — a caption no reference form carries,
+    /// and one that changes per option, so the same field reads differently in
+    /// each branch.
+    ///
+    /// With no caption marker the interstitials genuinely continue the label
+    /// (`Nur für Benutzer Nr. [__]`), so both parts are kept.
+    fn inline_field_label(doc: &Document, base_label: String, extra_text_indices: &[usize]) -> String {
+        let parts: Vec<String> = extra_text_indices
+            .iter()
+            .map(|&idx| doc.get_text_content(idx).trim().to_string())
+            .filter(|text| !text.is_empty())
+            .collect();
+
+        let captions_the_field = parts.last().is_some_and(|text| text.ends_with(':'));
+        let mut label = if captions_the_field {
+            String::new()
+        } else {
+            base_label
+        };
+        for part in parts {
+            if !label.is_empty() {
+                label.push(' ');
+            }
+            label.push_str(&part);
+        }
+        label
+    }
 
     /// Find an unclaimed root Field on the same line to the right of the control,
     /// along with any text blocks between them. Returns `(extra_text_indices, field_idx)`.
@@ -206,16 +242,7 @@ impl AnalysisModule for SelectionInlineFieldDetector {
             }
             claimed_fields.insert(field_idx);
 
-            // Build combined label: base_label + extra text
-            let mut label = base_label;
-            for &text_idx in &extra_text_indices {
-                let text = doc.get_text_content(text_idx);
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    label.push(' ');
-                    label.push_str(trimmed);
-                }
-            }
+            let label = Self::inline_field_label(doc, base_label, &extra_text_indices);
 
             let mut children = extra_text_indices;
             let field_child_index = children.len();
@@ -255,16 +282,7 @@ impl AnalysisModule for SelectionInlineFieldDetector {
             }
             claimed_fields.insert(field_idx);
 
-            // Build combined label
-            let mut label = base_label;
-            for &text_idx in &extra_text_indices {
-                let text = doc.get_text_content(text_idx);
-                let trimmed = text.trim();
-                if !trimmed.is_empty() {
-                    label.push(' ');
-                    label.push_str(trimmed);
-                }
-            }
+            let label = Self::inline_field_label(doc, base_label, &extra_text_indices);
 
             let mut children = extra_text_indices;
             let field_child_index = children.len();
