@@ -654,7 +654,19 @@ fn inject_custom_elements(children: &mut Vec<AemNode>, rules: &[ResolvedCustomEl
         if page_indices.is_empty() {
             continue;
         }
-        let Some(target) = resolve_page_index(rule.page.unwrap_or(-1), &page_indices) else {
+        // An appended block belongs beside the template it depends on, not on
+        // whatever happens to be page N: the account holder goes on the
+        // configurator's own step, and the configurator is page 0 in one form
+        // and page 1 in the next. Fall back to `page` when no dependency is on
+        // a page of its own.
+        let target = match mode {
+            crate::aem::InjectMode::Append => page_holding_any(children, &page_indices, &rule.depends_on)
+                .or_else(|| resolve_page_index(rule.page.unwrap_or(-1), &page_indices)),
+            crate::aem::InjectMode::Step => {
+                resolve_page_index(rule.page.unwrap_or(-1), &page_indices)
+            }
+        };
+        let Some(target) = target else {
             continue;
         };
 
@@ -710,6 +722,37 @@ fn inject_custom_elements(children: &mut Vec<AemNode>, rules: &[ResolvedCustomEl
             }
         }
     }
+}
+
+/// The page holding a `Custom` node for any of `templates`, if there is one.
+///
+/// Used to place an injected block next to the cluster member that did match,
+/// which is what makes the placement independent of where the form happens to
+/// put that section.
+fn page_holding_any(
+    children: &[AemNode],
+    page_indices: &[usize],
+    templates: &[String],
+) -> Option<usize> {
+    fn holds(node: &AemNode, templates: &[String]) -> bool {
+        if let AemNode::Custom { template_key, .. } = node {
+            if templates.iter().any(|t| t == template_key) {
+                return true;
+            }
+        }
+        match node {
+            AemNode::Root { children, .. }
+            | AemNode::Panel { children, .. }
+            | AemNode::Repeatable { children, .. } => {
+                children.iter().any(|c| holds(c, templates))
+            }
+            _ => false,
+        }
+    }
+    page_indices
+        .iter()
+        .copied()
+        .find(|&idx| holds(&children[idx], templates))
 }
 
 /// The JCR node name an injected custom element carries: the template name in

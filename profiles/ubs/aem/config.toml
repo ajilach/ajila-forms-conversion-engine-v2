@@ -271,6 +271,9 @@ field_name = '(?i)^\s*Dati\s+del/i\s+cliente/i\s*(?:\(.*\))?\s*$'
 template = "account_holder_it"
 page = 0
 depends_on = ["signatures_it", "tipo_radio"]
+# Same reason as the German variant: AAOV_033 heads this section "Titolare del
+# conto", not "Dati del/i cliente/i", and the whole cycle used to drop with it.
+inject = "append"
 
 # Italian variant of signatures: two conditional containers driven by
 # `RB_GroupTipo` from `tipo_radio` (no Minor branch).
@@ -279,3 +282,4 @@ field_name = '^Firma/e$'
 template = "signatures_it"
 page = -1
 depends_on = ["tipo_radio", "account_holder_it"]
+inject = "step"

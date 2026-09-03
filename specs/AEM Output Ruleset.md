@@ -232,6 +232,14 @@
   that does not spell out `Kundendaten` / `Unterschrift(en)`, leaving a bare
   optional dropdown and hand-built person blocks. (AABF_019)
 
+- **R9.14** An `inject = "append"` block goes on the page holding one of its
+  `depends_on` templates, falling back to `page` only when none is on a page of
+  its own. The account holder belongs on the configurator's step, and the
+  configurator is page 0 in one form (AABF_019) and page 1 in the next
+  (AAOV_033), so a fixed index puts it on the wrong step. Both Italian and
+  German cluster members declare `inject`; keying it to one lineage left the
+  other dropping the whole cycle.
+
 - **R9.10** Cross-link add/remove buttons between account-holder and signature
   panels (`BT_Add`/`BT_AddLR`/`BT_RemoveLR` call `addInstance`/`removeInstance`
   on both the holder panel and its matching signature panel), cap at 4
