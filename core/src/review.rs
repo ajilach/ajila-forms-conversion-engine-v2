@@ -93,7 +93,7 @@ pub struct LabelIssue {
     /// The offending `jcr:title`, unescaped and truncated for readability
     /// (empty for `missing`).
     pub title: String,
-    /// `missing` | `parenthetical` | `markup` | `quoted`.
+    /// `missing` | `parenthetical` | `markup` | `quoted` | `duplicate`.
     pub kind: String,
     /// `high` for a missing title or a structurally wrong one (parenthetical /
     /// markup); `low` for `quoted`, which also occurs on genuine labels in the
@@ -234,6 +234,8 @@ pub fn review_output(
 
     let dropped_fragments = find_dropped_fragments(input, output, config);
 
+    collect_duplicate_sibling_titles(output, &mut label_issues);
+
     let (coverage, mut missing) =
         coverage_against(&input_texts, &output_texts, &output_rows);
 
@@ -339,6 +341,72 @@ pub fn review_output(
         legacy_tables,
         dropped_fragments,
         notes,
+    }
+}
+
+/// An input's `(name, label, resourceType leaf)`, or `None` for anything that
+/// is not an input.
+fn input_identity(node: &AemNode) -> Option<(&str, &str, &'static str)> {
+    match node {
+        AemNode::TextField { name, label, .. } => Some((name, label, "textbox")),
+        AemNode::NumberField { name, label, .. } => Some((name, label, "numericbox")),
+        AemNode::DatePicker { name, label, .. } => Some((name, label, "datepicker")),
+        AemNode::Dropdown { name, label, .. } => Some((name, label, "dropdownlist")),
+        AemNode::Checkbox { name, label, .. } => Some((name, label, "checkbox")),
+        AemNode::RadioButton { name, label, .. } => Some((name, label, "radiobutton")),
+        _ => None,
+    }
+}
+
+/// Report inputs that sit side by side under one parent carrying the very same
+/// title.
+///
+/// Two sibling inputs reading the same thing cannot be told apart -- not on
+/// screen, not in the summary, not in the DoR, and not by anyone filling the
+/// form. It happens when a source group holds several fields with no captions
+/// of their own and each is given the same stand-in: AABF_019 shipped seven
+/// date pickers in one panel, every one of them titled "Date". The engine's own
+/// fallback is an empty title, which `classify_title` already reports as
+/// `missing`; this catches the other half, where something plausible was filled
+/// in for all of them at once.
+fn collect_duplicate_sibling_titles(node: &AemNode, out: &mut Vec<LabelIssue>) {
+    let children = match node {
+        AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } => children,
+        _ => return,
+    };
+
+    let mut seen: std::collections::BTreeMap<&str, Vec<(&str, &'static str, &AemNode)>> =
+        std::collections::BTreeMap::new();
+    for child in children {
+        let Some((name, label, rt)) = input_identity(child) else {
+            continue;
+        };
+        let title = label.trim();
+        if title.is_empty() {
+            continue;
+        }
+        seen.entry(title).or_default().push((name, rt, child));
+    }
+    for (title, inputs) in seen {
+        if inputs.len() < 2 {
+            continue;
+        }
+        for (name, rt, child) in inputs {
+            out.push(LabelIssue {
+                node: child.element_name(),
+                name: name.to_string(),
+                rt: rt.to_string(),
+                title: title.chars().take(160).collect(),
+                kind: "duplicate".to_string(),
+                confidence: "high".to_string(),
+            });
+        }
+    }
+
+    for child in children {
+        collect_duplicate_sibling_titles(child, out);
     }
 }
 

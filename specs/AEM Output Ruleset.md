@@ -268,6 +268,12 @@
   the form ships (synonyms included, for the same reason a synonym dictionary
   file is written). The language → locale spelling is `[html_locales]` in the
   profile.
+- **R10.5** Two sibling inputs may not carry the same `jcr:title`. Nothing
+  tells them apart afterwards — on screen, in the summary or in the DoR — and
+  it is what filling one stand-in title into a group of caption-less fields
+  looks like (AABF_019 shipped seven date pickers in one panel, all titled
+  "Date"). `review_output` reports them as `label_issues` of kind `duplicate`.
+
 - **R10.4** Drive each field's `mandatory` attribute from the source field's
   `required` flag; do not hardcode. (`8c85784`, `e7a0034`)
 

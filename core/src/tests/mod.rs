@@ -31532,6 +31532,94 @@ fn collect_custom_template_keys(node: &crate::aem::AemNode, out: &mut Vec<String
     }
 }
 
+/// Two sibling inputs may not carry the same title.
+///
+/// Nothing tells them apart afterwards — not on screen, not in the summary,
+/// not in the DoR. It happens when a source group holds several fields with no
+/// caption of their own and one stand-in title is filled in for all of them:
+/// AABF_019's conversion shipped seven date pickers in a single panel, each
+/// titled "Date".
+#[test]
+fn review_output_reports_sibling_inputs_that_share_a_title() {
+    use crate::aem::{AemAttrs, AemNode};
+
+    let field = |name: &str, label: &str| AemNode::DatePicker {
+        uuid: uuid::Uuid::new_v4(),
+        name: name.to_string(),
+        label: label.to_string(),
+        mandatory: false,
+        visible: true,
+        attrs: AemAttrs::default(),
+        colspan: 6,
+        dor_colspan: None,
+        bind_ref: None,
+    };
+
+    let (input, root, config) = helpers::build_aem_test_output(&[("AAAI_019_DE.pdf", "de")]);
+    let master = config.master_language.clone();
+
+    let clean = crate::review_output(&input, &root, &config, &master);
+    assert!(
+        !clean.label_issues.iter().any(|l| l.kind == "duplicate"),
+        "the engine's own output must not carry duplicate sibling titles: {:?}",
+        clean
+            .label_issues
+            .iter()
+            .filter(|l| l.kind == "duplicate")
+            .collect::<Vec<_>>()
+    );
+
+    // Same panel, same title twice over.
+    let AemNode::Root {
+        title,
+        children: root_children,
+    } = &root
+    else {
+        unreachable!("conversion always yields a Root");
+    };
+    let mut children = root_children.clone();
+    children.push(AemNode::Panel {
+        attrs: AemAttrs::default(),
+        uuid: uuid::Uuid::new_v4(),
+        name: "PN_Dates".to_string(),
+        title: String::new(),
+        children: vec![
+            field("DATE_One", "Date"),
+            field("DATE_Two", "Date"),
+            field("DATE_Three", "Datum"),
+        ],
+        is_page: true,
+        is_conditional: false,
+        frag_ref: None,
+        bind_ref: None,
+        visible: true,
+        colspan: 12,
+        dor_colspan: Some(12),
+        dor_num_cols: None,
+    });
+    let defective = AemNode::Root {
+        title: title.clone(),
+        children,
+    };
+
+    let report = crate::review_output(&input, &defective, &config, &master);
+    let duplicates: Vec<&crate::LabelIssue> = report
+        .label_issues
+        .iter()
+        .filter(|l| l.kind == "duplicate")
+        .collect();
+    println!("duplicates: {duplicates:?}");
+    assert_eq!(
+        duplicates.len(),
+        2,
+        "both inputs sharing a title are reported, and the third is not: {duplicates:?}"
+    );
+    assert!(
+        duplicates.iter().all(|l| l.title == "Date"),
+        "the reported title is the shared one: {duplicates:?}"
+    );
+}
+
 /// A caption stranded beside an unlabeled field becomes that field's label,
 /// instead of being rendered a second time as static text.
 ///
