@@ -29084,7 +29084,7 @@ fn test_custom_templates_reference_only_ubs_generic_fragments() {
         let name = path.file_name().unwrap().to_string_lossy().into_owned();
         if name.starts_with("signatures") {
             assert!(
-                xml.contains("TXT_Donotdelete") && xml.contains("fd:calc"),
+                xml.contains("TXT_Signatures_Name_Calc") && xml.contains("fd:calc"),
                 "{name} must carry the signer-name calc anchor"
             );
             assert!(

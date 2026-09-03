@@ -265,7 +265,7 @@ inject = "step"
 
 # Italian variant of account_holder: visibility/scripts reference
 # `RB_GroupTipo` (Individual=1, Legal entity=2) and cross-reference
-# `PN_SGN_CPGRP` / `PN_Sign_AR` from `signatures_it`.
+# `PN_SGN_CPGRP` / `PN_Sign_AHGRP` from `signatures_it`.
 [[custom_elements]]
 field_name = '(?i)^\s*Dati\s+del/i\s+cliente/i\s*(?:\(.*\))?\s*$'
 template = "account_holder_it"
