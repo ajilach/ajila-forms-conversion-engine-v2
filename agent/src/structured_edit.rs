@@ -389,6 +389,7 @@ fn describe(node: &StructuredNode) -> (String, String) {
         StructuredNode::Heading(h) => text_node_desc(&h.content.as_plain_text()),
         StructuredNode::Paragraph(p) => text_node_desc(&p.content.as_plain_text()),
         StructuredNode::Footnote(f) => text_node_desc(&f.content.as_plain_text()),
+        StructuredNode::Notice(n) => text_node_desc(&n.content.as_plain_text()),
         StructuredNode::Group(g) => {
             // `column_flow` becomes a multi-column panel in the Redacto output,
             // so it has to be visible (and settable) in the outline.
@@ -466,6 +467,7 @@ fn node_type(node: &StructuredNode) -> &'static str {
         StructuredNode::List(_) => "list",
         StructuredNode::Footnote(_) => "footnote",
         StructuredNode::Html(_) => "html",
+        StructuredNode::Notice(_) => "notice",
     }
 }
 

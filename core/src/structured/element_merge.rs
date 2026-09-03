@@ -58,6 +58,7 @@ fn node_type_name(node: &StructuredNode) -> &'static str {
         StructuredNode::List(_) => "List",
         StructuredNode::Footnote(_) => "Footnote",
         StructuredNode::Html(_) => "Html",
+        StructuredNode::Notice(_) => "Notice",
     }
 }
 

@@ -358,6 +358,9 @@ fn count_translation_slots(nodes: &[StructuredNode]) -> (usize, usize) {
             StructuredNode::Heading(h) => {
                 count_inline_text_slots(&h.content, &mut total, &mut missing)
             }
+            StructuredNode::Notice(n) => {
+                count_inline_text_slots(&n.content, &mut total, &mut missing)
+            }
             StructuredNode::Paragraph(p) => {
                 count_inline_text_slots(&p.content, &mut total, &mut missing)
             }
@@ -530,6 +533,9 @@ fn collect_translated_text_groups(nodes: &[StructuredNode], out: &mut Vec<Vec<St
             }
             StructuredNode::Paragraph(p) => {
                 collect_from_inline_text(&p.content, out);
+            }
+            StructuredNode::Notice(n) => {
+                collect_from_inline_text(&n.content, out);
             }
             StructuredNode::Field(f) => {
                 if let Some(label) = &f.label {

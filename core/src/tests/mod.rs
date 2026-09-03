@@ -7218,6 +7218,7 @@ fn test_aaoe_h2_sections() {
             StructuredNode::List(_) => "List",
             StructuredNode::Footnote(_) => "Footnote",
             StructuredNode::Html(_) => "Html",
+            StructuredNode::Notice(_) => "Notice",
         };
         println!("  [{}] {}", i, ty);
     }
@@ -16466,6 +16467,7 @@ fn test_aais_019_structural_similarity_diagnostic() {
             StructuredNode::Empty => "Empty".to_string(),
             StructuredNode::GridLayout(g) => format!("GridLayout(cols={})", g.columns),
             StructuredNode::List(_) => "List".to_string(),
+            StructuredNode::Notice(_) => "Notice".to_string(),
             StructuredNode::Footnote(_) => "Footnote".to_string(),
             StructuredNode::Html(_) => "Html".to_string(),
         }
@@ -20915,6 +20917,11 @@ fn debug_aacs_regression_investigation() {
                         .map(|l| l.as_plain_text())
                         .unwrap_or_default()
                 ),
+                StructuredNode::Notice(n) => {
+                    let t = n.content.as_plain_text();
+                    let truncated: String = t.chars().take(60).collect();
+                    format!("N: {}", truncated)
+                }
                 StructuredNode::Conditional(_) => "COND".to_string(),
                 StructuredNode::Table(_) => "TABLE".to_string(),
                 StructuredNode::List(_) => "LIST".to_string(),
@@ -31617,6 +31624,100 @@ fn review_output_reports_sibling_inputs_that_share_a_title() {
     assert!(
         duplicates.iter().all(|l| l.title == "Date"),
         "the reported title is the shared one: {duplicates:?}"
+    );
+}
+
+/// A screen-only source notice survives into the model.
+///
+/// The XFA marks it `relevant="-print"` and the engine used to drop every such
+/// element — a rule meant for the add/remove buttons that carry the same
+/// attribute. AABF_019's note ("Der unterschriebene Scan … SEC-SH-Dauerauftrag-DE")
+/// reached no output at all, so it had to be retyped into AEM by hand; the
+/// reference form carries it as the `TB_Info` message box.
+#[test]
+fn test_aabf_de_screen_only_notice_survives() {
+    use crate::run_exhaustive_to_merged;
+    let structured = run_exhaustive_to_merged(input_path("AABF_019_DE.pdf"))
+        .expect("Failed to process AABF_019_DE.pdf");
+    let notices = helpers::collect_notices(&structured);
+    println!("notices: {notices:?}");
+
+    assert_eq!(
+        notices.len(),
+        1,
+        "the source draw is one notice, not several: {notices:?}"
+    );
+    assert!(
+        notices[0].contains("SEC-SH-Dauerauftrag-DE"),
+        "the notice must carry the source text, got {:?}",
+        notices[0]
+    );
+    // Both sentences of the draw, joined back into the one paragraph they are.
+    assert!(
+        notices[0].contains("Postfach 26"),
+        "the whole draw must be joined, got {:?}",
+        notices[0]
+    );
+}
+
+/// A screen-only draw laid out repeatedly is one notice, not the same sentence
+/// several times over.
+///
+/// `NoPrintDetector` wraps each leaf on its own, so a draw that appears on
+/// every instance of a repeated subform arrives as N notices carrying identical
+/// text. Joining those verbatim said it five times in AAAM_019.
+#[test]
+fn test_aaam_de_repeated_screen_only_draw_is_one_notice() {
+    use crate::run_exhaustive_to_merged;
+    let structured = run_exhaustive_to_merged(input_path("AAAM_019_DE.pdf"))
+        .expect("Failed to process AAAM_019_DE.pdf");
+    let notices = helpers::collect_notices(&structured);
+    println!("notices: {notices:?}");
+
+    let repeated = notices
+        .iter()
+        .find(|n| n.contains("manuell angekreuzt"))
+        .expect("AAAM carries the manual-tick notice");
+    assert_eq!(
+        repeated.matches("manuell angekreuzt").count(),
+        1,
+        "the notice must say it once, got {repeated:?}"
+    );
+}
+
+/// A notice merges across languages instead of being orphaned.
+///
+/// `merge_node`, `node_matches_for_similarity` and `structural_cmp` each have a
+/// `_ =>` fallback that compiles and then quietly corrupts the merge: the
+/// second language is discarded, the pair is never aligned, or the notice is
+/// duplicated. This pins all three.
+#[test]
+fn test_aabf_screen_only_notice_merges_across_languages() {
+    let envelopes: Vec<_> = [("AABF_019_DE.pdf", "de"), ("AABF_019_EN.pdf", "en")]
+        .iter()
+        .map(|(file, lang)| {
+            crate::run_exhaustive_to_envelope(input_path(file), lang)
+                .unwrap_or_else(|e| panic!("Failed to process {file}: {e}"))
+        })
+        .collect();
+    let structured = crate::structured::merge_translations(envelopes, None)
+        .expect("Failed to merge AABF DE + EN")
+        .content;
+
+    let mut langs = std::collections::BTreeSet::new();
+    let mut count = 0;
+    helpers::walk_structured_nodes(&structured, &mut |node| {
+        if let crate::structured::StructuredNode::Notice(n) = node {
+            count += 1;
+            n.content.collect_languages(&mut langs);
+        }
+    });
+    println!("notice count: {count}, languages: {langs:?}");
+
+    assert_eq!(count, 1, "the two languages merge into one notice");
+    assert!(
+        langs.contains("de") && langs.contains("en"),
+        "both languages must survive the merge, got {langs:?}"
     );
 }
 

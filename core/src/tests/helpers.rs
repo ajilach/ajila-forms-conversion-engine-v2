@@ -386,6 +386,17 @@ pub fn collect_footnotes(nodes: &[StructuredNode]) -> Vec<(Option<String>, Strin
     out
 }
 
+/// Collect every screen-only notice's text.
+pub fn collect_notices(nodes: &[StructuredNode]) -> Vec<String> {
+    let mut out = Vec::new();
+    walk_structured_nodes(nodes, &mut |node| {
+        if let StructuredNode::Notice(n) = node {
+            out.push(n.content.as_plain_text());
+        }
+    });
+    out
+}
+
 /// Collect all `ConditionalNode`s from the tree.
 pub fn collect_conditionals(nodes: &[StructuredNode]) -> Vec<ConditionalNode> {
     let mut out = Vec::new();

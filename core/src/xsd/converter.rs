@@ -259,7 +259,7 @@ fn collect_node_text(node: &StructuredNode, config: &XsdConfig, parts: &mut Vec<
         StructuredNode::Footnote(n) => {
             parts.push(config.label_text(&n.content));
         }
-        StructuredNode::Image(_) | StructuredNode::Empty => {}
+        StructuredNode::Image(_) | StructuredNode::Notice(_) | StructuredNode::Empty => {}
     }
 }
 
@@ -521,6 +521,7 @@ fn collect_node_bind_refs(
         | StructuredNode::Table(_)
         | StructuredNode::List(_)
         | StructuredNode::Footnote(_)
+        | StructuredNode::Notice(_)
         | StructuredNode::Empty => {}
     }
 }

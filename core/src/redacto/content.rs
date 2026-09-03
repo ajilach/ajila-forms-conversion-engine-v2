@@ -4,7 +4,7 @@
 //! trips and the renderer injects verbatim via Thymeleaf `th:utext`.
 
 use crate::structured::{
-    FootnoteNode, HeadingNode, ListNode, ParagraphNode, QUILL_TAGS, StructuredNode, TableNode,
+    FootnoteNode, NoticeNode, HeadingNode, ListNode, ParagraphNode, QUILL_TAGS, StructuredNode, TableNode,
     TranslatedText, inline_text_to_html_with, render_plain_list_html, render_table_html,
     strip_footnote_marker,
 };
@@ -33,6 +33,7 @@ pub fn render_block_html(
         // Already markup -- pass it through rather than re-render it.
         StructuredNode::Html(h) => Some(h.markup_in(language).to_string()),
         StructuredNode::Footnote(f) => Some(render_footnote(f, language)),
+        StructuredNode::Notice(n) => Some(render_notice(n, language, markers)),
         _ => None,
     }
 }
@@ -145,6 +146,17 @@ fn render_heading(h: &HeadingNode, language: &str, markers: &FootnoteMarkers) ->
         "<h{level}>{}</h{level}>",
         inline(&h.content, language, markers)
     )
+}
+
+/// A screen-only notice. Redacto renders the document a person reads, so the
+/// notice belongs in it; the class is what keeps it distinguishable.
+fn render_notice(n: &NoticeNode, language: &str, markers: &FootnoteMarkers) -> String {
+    let body = inline(&n.content, language, markers);
+    if body.trim().is_empty() {
+        SPACER.to_string()
+    } else {
+        format!("<p class=\"screen-only-notice\">{body}</p>")
+    }
 }
 
 fn render_paragraph(p: &ParagraphNode, language: &str, markers: &FootnoteMarkers) -> String {

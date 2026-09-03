@@ -160,6 +160,7 @@ pub enum StructuredNode {
     GridLayout(GridLayout),
     List(ListNode),
     Footnote(FootnoteNode),
+    Notice(NoticeNode),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -569,6 +570,26 @@ pub struct FootnoteNode {
     /// The footnote marker (e.g. "1", "2") parsed from the leading text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub marker: Option<String>,
+    #[serde(skip, default)]
+    pub som_path: Option<SomPath>,
+    #[serde(skip, default)]
+    pub source_name: Option<String>,
+}
+
+/// A notice addressed to whoever fills the form, and to nobody else.
+///
+/// The source marks these `relevant="-print"`: they belong on screen and are
+/// deliberately kept off the printed document. The engine used to drop every
+/// such element, a rule written for the add/remove buttons that carry the same
+/// attribute — and with them went prose the bank wrote on purpose, which then
+/// had to be retyped into AEM by hand.
+///
+/// Only static text becomes a notice. A screen-only button or input is still
+/// dropped: it is furniture, not content.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct NoticeNode {
+    pub content: TranslatedText,
     #[serde(skip, default)]
     pub som_path: Option<SomPath>,
     #[serde(skip, default)]
@@ -1026,6 +1047,7 @@ impl StructuredNode {
             StructuredNode::Heading(h) => h.som_path.as_ref(),
             StructuredNode::Conditional(c) => c.content.som_path(),
             StructuredNode::Footnote(n) => n.som_path.as_ref(),
+            StructuredNode::Notice(n) => n.som_path.as_ref(),
             _ => None,
         }
     }
@@ -1048,6 +1070,7 @@ impl StructuredNode {
             StructuredNode::Paragraph(p) => p.source_name.clone(),
             StructuredNode::Heading(h) => h.source_name.clone(),
             StructuredNode::Footnote(n) => n.source_name.clone(),
+            StructuredNode::Notice(n) => n.source_name.clone(),
             StructuredNode::Group(g) => g
                 .children
                 .iter()
@@ -1173,6 +1196,9 @@ impl StructuredNode {
             (StructuredNode::Footnote(a), StructuredNode::Footnote(b)) => {
                 mode == CompareMode::IgnoreText || a.content.structural_eq(&b.content)
             }
+            (StructuredNode::Notice(a), StructuredNode::Notice(b)) => {
+                mode == CompareMode::IgnoreText || a.content.structural_eq(&b.content)
+            }
             (StructuredNode::Html(a), StructuredNode::Html(b)) => {
                 mode == CompareMode::IgnoreText || a.content == b.content
             }
@@ -1198,6 +1224,7 @@ impl StructuredNode {
             StructuredNode::List(_) => 10,
             StructuredNode::Footnote(_) => 11,
             StructuredNode::Html(_) => 12,
+            StructuredNode::Notice(_) => 13,
         }
     }
 
@@ -1209,6 +1236,7 @@ impl StructuredNode {
         match self {
             StructuredNode::Heading(h) => h.content.collect_languages(langs),
             StructuredNode::Paragraph(p) => p.content.collect_languages(langs),
+            StructuredNode::Notice(n) => n.content.collect_languages(langs),
             StructuredNode::Field(f) => {
                 if let Some(label) = &f.label {
                     label.collect_languages(langs);

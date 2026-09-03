@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use crate::structured::{
     ConditionalNode, FieldNode, FieldType, FootnoteNode, GridLayout, GridLayoutElement, GroupNode,
-    HeadingNode, HtmlNode, InlineNode, InlineText, ListItem, ListNode, NameValue, ParagraphNode,
+    HeadingNode, HtmlNode, InlineNode, InlineText, ListItem, ListNode, NameValue, NoticeNode,
+    ParagraphNode,
     RepeatableNode, StructuredNode, TableHeader, TableNode, TableRow, TranslatableString,
     TranslatedText, TranslationMap,
 };
@@ -452,6 +453,7 @@ fn fill_node(node: &mut StructuredNode, all_languages: &[String], _primary_langu
             }
         }
         StructuredNode::Footnote(n) => fill_translated_text(&mut n.content, all_languages),
+        StructuredNode::Notice(n) => fill_translated_text(&mut n.content, all_languages),
         StructuredNode::Image(_) | StructuredNode::Empty => {}
     }
 }
@@ -794,6 +796,9 @@ pub(crate) fn node_matches_for_similarity(a: &StructuredNode, b: &StructuredNode
         (StructuredNode::Paragraph(pa), StructuredNode::Paragraph(pb)) => {
             inline_text_shape_compatible(&pa.content, &pb.content)
         }
+        (StructuredNode::Notice(na), StructuredNode::Notice(nb)) => {
+            inline_text_shape_compatible(&na.content, &nb.content)
+        }
         (StructuredNode::Image(_), StructuredNode::Image(_)) => true,
         (StructuredNode::Table(ta), StructuredNode::Table(tb)) => {
             let a_cols = ta.header.as_ref().map_or(0, |h| h.cells.len());
@@ -1089,6 +1094,11 @@ fn localize_structured_node(node: &StructuredNode, lang: &str) -> StructuredNode
         StructuredNode::Footnote(n) => StructuredNode::Footnote(FootnoteNode {
             content: localize_translated_text(&n.content, lang),
             marker: n.marker.clone(),
+            som_path: n.som_path.clone(),
+            source_name: n.source_name.clone(),
+        }),
+        StructuredNode::Notice(n) => StructuredNode::Notice(NoticeNode {
+            content: localize_translated_text(&n.content, lang),
             som_path: n.som_path.clone(),
             source_name: n.source_name.clone(),
         }),
@@ -1935,6 +1945,13 @@ fn merge_node(
         }
         (StructuredNode::Paragraph(a), StructuredNode::Paragraph(b)) => {
             StructuredNode::Paragraph(ParagraphNode {
+                content: merge_translated_text(&a.content, base_lang, &b.content, other_lang),
+                som_path: a.som_path.clone(),
+                source_name: a.source_name.clone(),
+            })
+        }
+        (StructuredNode::Notice(a), StructuredNode::Notice(b)) => {
+            StructuredNode::Notice(NoticeNode {
                 content: merge_translated_text(&a.content, base_lang, &b.content, other_lang),
                 som_path: a.som_path.clone(),
                 source_name: a.source_name.clone(),

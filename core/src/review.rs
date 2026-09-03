@@ -745,7 +745,9 @@ fn collect_input(node: &StructuredNode, lang: &str, out: &mut Vec<String>, field
         }
         StructuredNode::Table(t) => collect_table(t, lang, out, fields),
         // Images carry no text that maps to an AEM node; Empty is a placeholder.
-        StructuredNode::Image(_) | StructuredNode::Empty => {}
+        // A screen-only notice reaches no AEM node yet, so counting its text
+        // would make every notice a false `missing_text` entry.
+        StructuredNode::Image(_) | StructuredNode::Notice(_) | StructuredNode::Empty => {}
     }
 }
 

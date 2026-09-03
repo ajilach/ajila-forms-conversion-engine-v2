@@ -1226,6 +1226,10 @@ fn convert_node(
             Some(convert_grid_layout(gl, config, ctx, colspan, dor_colspan))
         }
         StructuredNode::List(l) => Some(convert_list(l, config, ctx, colspan, dor_colspan)),
+        // A screen-only notice reaches AEM as its own component, wired up in
+        // the commit that adds `AemNode::MessageBox`. Until then it lives in
+        // the model, the HTML preview and the Redacto document only.
+        StructuredNode::Notice(_) => None,
         StructuredNode::Empty => None,
         StructuredNode::Footnote(_) => None,
     }

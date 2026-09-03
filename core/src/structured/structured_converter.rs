@@ -26,7 +26,7 @@ use crate::structured::contact_field;
 use crate::structured::{
     ConditionalNode, FieldCondition, FieldId, FieldNode, FieldType, FootnoteNode, GroupNode,
     HeadingLevel, HeadingNode, InlineNode, InlineText, InputValue, ListItem, ListNode, NameValue,
-    ParagraphNode, RepeatableNode, StructuredNode, TranslatableString, TranslatedText,
+    NoticeNode, ParagraphNode, RepeatableNode, StructuredNode, TranslatableString, TranslatedText,
 };
 use crate::xfa::scripting::SomPath;
 use rust_decimal::Decimal;
@@ -49,6 +49,7 @@ fn contains_fields(node: &StructuredNode) -> bool {
         | StructuredNode::Html(_)
         | StructuredNode::List(_)
         | StructuredNode::Footnote(_)
+        | StructuredNode::Notice(_)
         | StructuredNode::Empty => false,
     }
 }
@@ -215,6 +216,7 @@ pub fn convert_with_language(doc: &Document, language: &str) -> Vec<StructuredNo
 
     inherit_heading_labels_for_choice_fields(&mut content);
     bind_orphan_captions_to_unlabeled_fields(&mut content);
+    merge_adjacent_notices(&mut content);
     move_number_prefixes_to_headings(&mut content);
 
     content
@@ -283,6 +285,66 @@ fn extract_header_text(doc: &Document) -> Option<String> {
 /// preceding sibling is a heading, copy the heading text as the field's label.
 /// The heading stays in place — only the text is copied.
 /// Recurses into Groups, Repeatables, Conditionals, GridLayouts, and Tables.
+/// Join notices that the same source draw produced.
+///
+/// `NoPrintDetector` wraps each leaf on its own, so a screen-only draw whose
+/// text spans two lines arrives as two notices. They are one paragraph in the
+/// source and must be one in the output; only notices carrying the same
+/// `source_name` are joined, so two genuinely separate notices stay separate.
+/// A draw laid out repeatedly gives the identical text back each time, which is
+/// deduplicated rather than joined.
+fn merge_adjacent_notices(nodes: &mut Vec<StructuredNode>) {
+    let mut i = 0;
+    while i + 1 < nodes.len() {
+        let joinable = match (&nodes[i], &nodes[i + 1]) {
+            (StructuredNode::Notice(a), StructuredNode::Notice(b)) => {
+                a.source_name.is_some() && a.source_name == b.source_name
+            }
+            _ => false,
+        };
+        if !joinable {
+            i += 1;
+            continue;
+        }
+        let StructuredNode::Notice(next) = nodes.remove(i + 1) else {
+            unreachable!("checked above");
+        };
+        let StructuredNode::Notice(current) = &mut nodes[i] else {
+            unreachable!("checked above");
+        };
+        // The same draw laid out more than once (a master page, a repeated
+        // subform) yields the identical text again rather than a continuation
+        // of it, so joining those would say it twice.
+        if current.content.as_plain_text().trim() != next.content.as_plain_text().trim() {
+            current.content.concat(next.content);
+        }
+    }
+
+    for node in nodes.iter_mut() {
+        match node {
+            StructuredNode::Group(g) => merge_adjacent_notices(&mut g.children),
+            StructuredNode::Repeatable(r) => {
+                if let StructuredNode::Group(g) = r.item.as_mut() {
+                    merge_adjacent_notices(&mut g.children);
+                }
+            }
+            StructuredNode::Conditional(c) => {
+                if let StructuredNode::Group(g) = c.content.as_mut() {
+                    merge_adjacent_notices(&mut g.children);
+                }
+            }
+            StructuredNode::GridLayout(gl) => {
+                for elem in &mut gl.elements {
+                    if let StructuredNode::Group(g) = &mut elem.node {
+                        merge_adjacent_notices(&mut g.children);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// The longest a paragraph may be to still read as a field's caption rather
 /// than as prose. "Vorheriger Betrag:" fits comfortably; a sentence does not.
 const MAX_CAPTION_CHARS: usize = 40;
@@ -1185,7 +1247,44 @@ impl<'a, 'b> Converter<'a, 'b> {
             } => self.convert_inline_field(group_idx, before, *field, after),
 
             // Skip non-printable elements (relevant="-print")
-            GroupKind::NoPrint => None,
+            // A screen-only element: the source marked it `relevant="-print"`.
+            // Buttons and inputs carry that attribute too and stay dropped --
+            // they are furniture. Static text is content the bank wrote for
+            // whoever fills the form, and dropping it silently is what made
+            // someone retype it into AEM by hand.
+            GroupKind::NoPrint => {
+                // `PlaceholderFilter` emits `NoPrint` as well, for dotted-line
+                // placeholders; only the XFA attribute makes a notice.
+                let from_relevant_print = matches!(
+                    &group.source,
+                    crate::document::GroupSource::Inferred { module }
+                        if module == "NoPrintDetector"
+                );
+                if !from_relevant_print
+                    || self.doc.contains_field(group_idx)
+                    || matches!(
+                        self.doc.widget_kind(group_idx),
+                        Some(
+                            crate::flattened::WidgetKind::Button
+                                | crate::flattened::WidgetKind::Signature
+                                | crate::flattened::WidgetKind::Image
+                        )
+                    )
+                {
+                    return None;
+                }
+                let text = self.extract_inline_text(group_idx);
+                // The parser hangs the same hint on an empty background-fill
+                // carrier, which is not a notice either.
+                if text.as_plain_text().trim().is_empty() {
+                    return None;
+                }
+                Some(StructuredNode::Notice(NoticeNode {
+                    content: self.translated(text),
+                    som_path: self.extract_group_som_path(group_idx),
+                    source_name: self.extract_group_source_name(group_idx),
+                }))
+            }
 
             // Heading → HeadingNode
             GroupKind::Heading { level } => {

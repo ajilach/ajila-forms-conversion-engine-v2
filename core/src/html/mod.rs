@@ -4,7 +4,7 @@
 //! with embedded JavaScript for dynamic repeatables and conditionals.
 
 use crate::structured::{
-    ConditionalNode, FieldCondition, FieldId, FieldNode, FieldType, FootnoteNode, GroupNode,
+    ConditionalNode, FieldCondition, FieldId, FieldNode, FieldType, FootnoteNode, NoticeNode, GroupNode,
     HeadingLevel, HeadingNode, ImageNode, InlineNode, InlineText, InputValue, ListNode,
     ParagraphNode, RepeatableNode, StructuredNode, TableNode, TranslatedText,
     collect_footnote_nodes,
@@ -279,6 +279,7 @@ fn generate_node(node: &StructuredNode, ctx: &mut GeneratorContext, indent: usiz
     match node {
         StructuredNode::Heading(h) => generate_heading(h, &ind),
         StructuredNode::Paragraph(p) => generate_paragraph(p, &ind),
+        StructuredNode::Notice(n) => generate_notice(n, &ind),
         StructuredNode::Image(img) => generate_image(img, ctx, &ind),
         StructuredNode::Table(t) => generate_table(t, ctx, &ind),
         StructuredNode::Html(h) => generate_html_block(h, &ind),
@@ -370,6 +371,15 @@ fn generate_heading(h: &HeadingNode, ind: &str) -> String {
 
 fn generate_paragraph(p: &ParagraphNode, ind: &str) -> String {
     format!("{}<p>{}</p>\n", ind, generate_translated_text(&p.content))
+}
+
+/// A screen-only notice: shown to whoever fills the form, never printed.
+fn generate_notice(n: &NoticeNode, ind: &str) -> String {
+    format!(
+        "{}<div class=\"screen-only-notice\"><p>{}</p></div>\n",
+        ind,
+        generate_translated_text(&n.content)
+    )
 }
 
 fn generate_footnote(f: &FootnoteNode, ind: &str) -> String {

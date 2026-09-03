@@ -89,6 +89,7 @@ impl<'a> DumpBuilder<'a> {
                 | StructuredNode::Paragraph(_)
                 | StructuredNode::List(_)
                 | StructuredNode::Table(_)
+                | StructuredNode::Notice(_)
                 | StructuredNode::Html(_) => {
                     if let Some(reference) = self.emit_asset(node) {
                         run.push(reference);
