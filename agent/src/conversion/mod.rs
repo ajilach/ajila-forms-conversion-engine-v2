@@ -81,6 +81,7 @@ pub(crate) fn collect_translated_languages(
                 add_opts(options, out);
             }
             AemNodeTranslated::TextDraw { content, .. }
+            | AemNodeTranslated::MessageBox { content, .. }
             | AemNodeTranslated::TitleDraw { content, .. }
             | AemNodeTranslated::HtmlDisplayer { content, .. } => add(content, out),
             AemNodeTranslated::Fragment { .. }

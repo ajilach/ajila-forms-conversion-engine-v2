@@ -632,6 +632,7 @@ fn holds_input(node: &AemNode) -> bool {
         AemNode::TextDraw { .. }
         | AemNode::TitleDraw { .. }
         | AemNode::HtmlDisplayer { .. }
+        | AemNode::MessageBox { .. }
         | AemNode::Preface { .. }
         | AemNode::Appendix { .. }
         | AemNode::FootnotePlaceholder { .. } => false,
@@ -878,6 +879,7 @@ fn render_node(
         AemNode::TextDraw { .. } => "textdraw",
         AemNode::TitleDraw { .. } => "titledraw",
         AemNode::HtmlDisplayer { .. } => "htmldisplayer",
+        AemNode::MessageBox { .. } => "messagebox",
         AemNode::Repeatable { .. } => "repeatable",
         AemNode::Fragment { .. } => "fragment",
         AemNode::Preface { .. } => "preface",
@@ -973,6 +975,7 @@ fn node_uuid(node: &AemNode) -> Option<Uuid> {
         | AemNode::TextDraw { uuid, .. }
         | AemNode::TitleDraw { uuid, .. }
         | AemNode::HtmlDisplayer { uuid, .. }
+        | AemNode::MessageBox { uuid, .. }
         | AemNode::Repeatable { uuid, .. }
         | AemNode::Fragment { uuid, .. }
         | AemNode::Preface { uuid, .. }
@@ -1419,6 +1422,23 @@ fn build_node_context(
             ctx.insert("dor_colspan", dor_colspan);
         }
 
+        AemNode::MessageBox {
+            uuid,
+            name,
+            content,
+            attrs: _,
+            visible,
+            colspan,
+            dor_colspan,
+        } => {
+            ctx.insert("uuid", &uuid.as_simple().to_string());
+            ctx.insert("name", name);
+            ctx.insert("content", &xml_escape(content));
+            ctx.insert("visible", visible);
+            ctx.insert("colspan", colspan);
+            ctx.insert("dor_colspan", dor_colspan);
+        }
+
         AemNode::TitleDraw {
             uuid,
             name,
@@ -1661,6 +1681,7 @@ fn node_name(node: &AemNode) -> Option<&str> {
         | AemNode::TextDraw { name, .. }
         | AemNode::TitleDraw { name, .. }
         | AemNode::HtmlDisplayer { name, .. }
+        | AemNode::MessageBox { name, .. }
         | AemNode::Repeatable { name, .. }
         | AemNode::Fragment { name, .. }
         | AemNode::Preface { name, .. }

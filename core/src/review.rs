@@ -702,6 +702,7 @@ fn collect_input(node: &StructuredNode, lang: &str, out: &mut Vec<String>, field
         StructuredNode::Heading(h) => out.push(h.content.plain_text_in(lang)),
         StructuredNode::Paragraph(p) => out.push(p.content.plain_text_in(lang)),
         StructuredNode::Footnote(f) => out.push(f.content.plain_text_in(lang)),
+        StructuredNode::Notice(n) => out.push(n.content.plain_text_in(lang)),
         StructuredNode::Field(f) => {
             *fields += 1;
             if let Some(label) = &f.label {
@@ -745,9 +746,7 @@ fn collect_input(node: &StructuredNode, lang: &str, out: &mut Vec<String>, field
         }
         StructuredNode::Table(t) => collect_table(t, lang, out, fields),
         // Images carry no text that maps to an AEM node; Empty is a placeholder.
-        // A screen-only notice reaches no AEM node yet, so counting its text
-        // would make every notice a false `missing_text` entry.
-        StructuredNode::Image(_) | StructuredNode::Notice(_) | StructuredNode::Empty => {}
+        StructuredNode::Image(_) | StructuredNode::Empty => {}
     }
 }
 
@@ -813,7 +812,9 @@ fn collect_output(
             out.push(label.clone());
             push_options(out, options);
         }
-        AemNode::TextDraw { content, .. } | AemNode::TitleDraw { content, .. } => {
+        AemNode::TextDraw { content, .. }
+        | AemNode::MessageBox { content, .. }
+        | AemNode::TitleDraw { content, .. } => {
             out.push(content.clone());
         }
         // The markup is not a label, so its text has to be pulled out of the

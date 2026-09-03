@@ -31627,6 +31627,86 @@ fn review_output_reports_sibling_inputs_that_share_a_title() {
     );
 }
 
+/// A screen-only notice ships as the UBS message box, kept out of the DoR.
+///
+/// `relevant="-print"` means the note addresses whoever fills the form and not
+/// the printed document, so the component carries `dorExclusion` and
+/// `summaryExclusion`. The reference form calls its own `TB_Info`.
+#[test]
+fn test_aabf_screen_only_notice_is_a_dor_excluded_message_box() {
+    let (_, root, config) = helpers::build_aem_test_output(&[
+        ("AABF_019_DE.pdf", "de"),
+        ("AABF_019_EN.pdf", "en"),
+        ("AABF_019_SP.pdf", "sp"),
+    ]);
+    let xml = crate::aem::generate_aem_xml(&root, &config);
+
+    let boxes: Vec<&str> = xml
+        .lines()
+        .filter(|l| l.contains("name=\"TB_"))
+        .collect();
+    println!("message boxes: {boxes:?}");
+    assert_eq!(
+        boxes.len(),
+        1,
+        "the source notice must reach the tree exactly once, got {boxes:?}"
+    );
+
+    let block = xml
+        .split("<messagebox_")
+        .nth(1)
+        .expect("a messagebox element is emitted");
+    for attr in [
+        "SEC-SH-Dauerauftrag-DE",
+        "dorExclusion=\"true\"",
+        "summaryExclusion=\"true\"",
+        "controls/messagebox",
+    ] {
+        assert!(
+            block.contains(attr),
+            "the message box must carry {attr}, got:\n{}",
+            &block[..block.len().min(900)]
+        );
+    }
+}
+
+/// A message box loaded back out of a package stays a message box.
+///
+/// Before it had its own node it degraded to a `TextDraw` on load, which loses
+/// what makes it a notice: it came back as ordinary static text and would land
+/// in the DoR on the next write.
+#[test]
+fn a_loaded_message_box_round_trips_as_a_notice() {
+    let (_, root, config) = helpers::build_aem_test_output(&[("AABF_019_DE.pdf", "de")]);
+    let xml = crate::aem::generate_aem_xml(&root, &config);
+    let zip = helpers::aem_zip_from_form_xml(&config.form_code, &xml);
+    let parsed = crate::aem::parse_aem_zip(&zip).expect("parse the package back");
+
+    let mut kinds = Vec::new();
+    fn walk(node: &crate::aem::AemNode, out: &mut Vec<String>) {
+        if let crate::aem::AemNode::MessageBox { name, content, .. } = node {
+            out.push(format!("{name}|{content}"));
+        }
+        match node {
+            crate::aem::AemNode::Root { children, .. }
+            | crate::aem::AemNode::Panel { children, .. }
+            | crate::aem::AemNode::Repeatable { children, .. } => {
+                for c in children {
+                    walk(c, out);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(&parsed.root, &mut kinds);
+    println!("message boxes after the round trip: {kinds:?}");
+
+    assert!(
+        kinds.iter().any(|k| k.contains("SEC-SH-Dauerauftrag-DE")),
+        "the notice must come back as a MessageBox, got {kinds:?}"
+    );
+}
+
 /// A screen-only source notice survives into the model.
 ///
 /// The XFA marks it `relevant="-print"` and the engine used to drop every such
@@ -32105,6 +32185,7 @@ fn node_name_of(node: &crate::aem::AemNode) -> Option<&str> {
         | N::Preface { name, .. }
         | N::Appendix { name, .. }
         | N::FootnotePlaceholder { name, .. }
+        | N::MessageBox { name, .. }
         | N::Custom { name, .. } => Some(name),
     }
 }

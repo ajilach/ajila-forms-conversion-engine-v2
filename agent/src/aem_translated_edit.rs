@@ -26,6 +26,7 @@ fn node_type(node: &AemNodeTranslated) -> &'static str {
         Checkbox { .. } => "Checkbox",
         RadioButton { .. } => "RadioButton",
         TextDraw { .. } => "TextDraw",
+        MessageBox { .. } => "MessageBox",
         TitleDraw { .. } => "TitleDraw",
         HtmlDisplayer { .. } => "HtmlDisplayer",
         Repeatable { .. } => "Repeatable",

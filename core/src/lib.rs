@@ -885,6 +885,9 @@ fn collect_aem_field_names_recursive(node: &AemNode, names: &mut Vec<(String, bo
         AemNode::TextDraw { name, .. } => {
             names.push((name.clone(), true));
         }
+        AemNode::MessageBox { name, .. } => {
+            names.push((name.clone(), true));
+        }
         AemNode::TitleDraw { name, .. } => {
             names.push((name.clone(), true));
         }

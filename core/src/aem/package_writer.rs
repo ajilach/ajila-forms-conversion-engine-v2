@@ -801,6 +801,7 @@ fn extract_merged_block(
     for item in items {
         match item {
             StructuredNode::Paragraph(p) => p.content.collect_languages(&mut langs),
+            StructuredNode::Notice(n) => n.content.collect_languages(&mut langs),
             StructuredNode::List(l) => list_languages(l, &mut langs),
             _ => {}
         }
@@ -877,6 +878,17 @@ fn extract_from_node(
         StructuredNode::Paragraph(p) => {
             extract_rich_text_translations_with_footnotes(
                 &p.content,
+                master_lang,
+                map,
+                |html| format!("<p>{html}</p>"),
+                footnote_embeds,
+            );
+        }
+        StructuredNode::Notice(n) => {
+            // The key has to match the `messageboxBody` the converter emits,
+            // byte for byte, or the dictionary never resolves it.
+            extract_rich_text_translations_with_footnotes(
+                &n.content,
                 master_lang,
                 map,
                 |html| format!("<p>{html}</p>"),

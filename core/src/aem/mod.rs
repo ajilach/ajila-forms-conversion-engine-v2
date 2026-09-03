@@ -1038,6 +1038,28 @@ pub enum AemNode {
         dor_colspan: Option<u32>,
     },
 
+    /// An on-screen notice: the UBS message box.
+    ///
+    /// The source marks such a note `relevant="-print"` — it addresses whoever
+    /// fills the form and never the printed document, which is why it carries
+    /// `dorExclusion` and `summaryExclusion` from its template. Rendering it as
+    /// an ordinary static draw would put it in the DoR.
+    MessageBox {
+        uuid: Uuid,
+        name: String,
+        /// The notice body, as rich text.
+        content: String,
+        /// Where this node shows up: screen, summary, DoR, PDF. See [`AemAttrs`].
+        #[serde(default, flatten)]
+        attrs: AemAttrs,
+        /// Whether the node is visible. Default `true`.
+        #[serde(default = "default_true")]
+        visible: bool,
+        colspan: u32,
+        /// Column span in Document of Record layout (`dorColspan`).
+        dor_colspan: Option<u32>,
+    },
+
     /// Repeatable panel with add/remove buttons.
     Repeatable {
         uuid: Uuid,
@@ -1165,6 +1187,7 @@ impl AemNode {
             | AemNode::TextDraw { attrs, .. }
             | AemNode::TitleDraw { attrs, .. }
             | AemNode::HtmlDisplayer { attrs, .. }
+            | AemNode::MessageBox { attrs, .. }
             | AemNode::Repeatable { attrs, .. }
             | AemNode::Fragment { attrs, .. }
             | AemNode::Custom { attrs, .. } => Some(attrs),
@@ -1189,6 +1212,7 @@ impl AemNode {
             | AemNode::TextDraw { attrs, .. }
             | AemNode::TitleDraw { attrs, .. }
             | AemNode::HtmlDisplayer { attrs, .. }
+            | AemNode::MessageBox { attrs, .. }
             | AemNode::Repeatable { attrs, .. }
             | AemNode::Fragment { attrs, .. }
             | AemNode::Custom { attrs, .. } => Some(attrs),
@@ -1217,6 +1241,7 @@ impl AemNode {
             AemNode::HtmlDisplayer { uuid, .. } => {
                 format!("htmldisplayer_{}", uuid.as_simple())
             }
+            AemNode::MessageBox { uuid, .. } => format!("messagebox_{}", uuid.as_simple()),
             AemNode::Repeatable { uuid, .. } => format!("repeatable_{}", uuid.as_simple()),
             AemNode::Fragment { uuid, .. } => format!("fragment_{}", uuid.as_simple()),
             AemNode::Preface { uuid, .. } => format!("preface_{}", uuid.as_simple()),

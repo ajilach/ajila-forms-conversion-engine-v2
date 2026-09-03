@@ -182,6 +182,7 @@ fn visit_bind_ref_slots(node: &mut AemNode, f: &mut impl FnMut(Uuid, &mut Option
         AemNode::TextDraw { .. }
         | AemNode::TitleDraw { .. }
         | AemNode::HtmlDisplayer { .. }
+        | AemNode::MessageBox { .. }
         | AemNode::Preface { .. }
         | AemNode::Appendix { .. }
         | AemNode::FootnotePlaceholder { .. } => {}
@@ -459,6 +460,7 @@ fn node_uuid(node: &AemNode) -> Option<Uuid> {
         | AemNode::Dropdown { uuid, .. }
         | AemNode::Checkbox { uuid, .. }
         | AemNode::RadioButton { uuid, .. }
+        | AemNode::MessageBox { uuid, .. }
         | AemNode::Fragment { uuid, .. }
         | AemNode::Custom { uuid, .. }
         | AemNode::TextDraw { uuid, .. }
@@ -478,6 +480,7 @@ fn is_presentational(node: &AemNode) -> bool {
         AemNode::TextDraw { .. }
             | AemNode::TitleDraw { .. }
             | AemNode::HtmlDisplayer { .. }
+            | AemNode::MessageBox { .. }
             | AemNode::Preface { .. }
             | AemNode::Appendix { .. }
             | AemNode::FootnotePlaceholder { .. }
@@ -519,6 +522,7 @@ fn node_kind(node: &AemNode) -> &'static str {
         AemNode::Custom { .. } => "custom",
         AemNode::TextDraw { .. } => "textdraw",
         AemNode::TitleDraw { .. } => "titledraw",
+        AemNode::MessageBox { .. } => "messagebox",
         AemNode::HtmlDisplayer { .. } => "htmldisplayer",
         AemNode::Preface { .. } => "preface",
         AemNode::Appendix { .. } => "appendix",
@@ -538,6 +542,7 @@ fn node_name(node: &AemNode) -> &str {
         | AemNode::Dropdown { name, .. }
         | AemNode::Checkbox { name, .. }
         | AemNode::RadioButton { name, .. }
+        | AemNode::MessageBox { name, .. }
         | AemNode::Fragment { name, .. }
         | AemNode::Custom { name, .. }
         | AemNode::TextDraw { name, .. }
@@ -656,6 +661,8 @@ fn classify(node: &AemNode, next: Option<&AemNode>, ctx: &Ctx) -> Emit {
         | AemNode::TextDraw { .. }
         | AemNode::TitleDraw { .. }
         | AemNode::HtmlDisplayer { .. }
+        // A notice is prose shown on screen; it holds no data.
+        | AemNode::MessageBox { .. }
         | AemNode::Preface { .. }
         | AemNode::Appendix { .. }
         | AemNode::FootnotePlaceholder { .. } => return Emit::Skip,

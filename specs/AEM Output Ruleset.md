@@ -268,6 +268,16 @@
   the form ships (synonyms included, for the same reason a synonym dictionary
   file is written). The language → locale spelling is `[html_locales]` in the
   profile.
+- **R10.6** Source content marked `relevant="-print"` is a **notice**, not
+  furniture: it becomes `controls/messagebox` (`TB_` prefix, `messageboxType`
+  `{Long}2`, `hideTitle`), carrying `dorExclusion` and `summaryExclusion`
+  because it addresses whoever fills the form and never the printed document.
+  Only static text qualifies — a screen-only button or input is still dropped.
+  A draw laid out repeatedly is one notice, and a draw whose text spans several
+  leaves is joined back into one. Before this the engine dropped every such
+  element, so the text had to be retyped into AEM by hand (the reference form's
+  `TB_Info`). (AABF_019)
+
 - **R10.5** Two sibling inputs may not carry the same `jcr:title`. Nothing
   tells them apart afterwards — on screen, in the summary or in the DoR — and
   it is what filling one stand-in title into a group of caption-less fields

@@ -630,7 +630,11 @@ fn convert_jcr_to_aem(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<A
         "radiobutton" | "guideRadioButton" => Ok(Some(convert_radiobutton(node, ctx))),
         "checkbox" | "guideCheckBox" => Ok(Some(convert_checkbox(node, ctx))),
         "dropdownlist" | "guideDropDownList" => Ok(Some(convert_dropdown(node, ctx))),
-        "textdraw" | "guideTextDraw" | "messagebox" => Ok(Some(convert_textdraw(node, ctx))),
+        "textdraw" | "guideTextDraw" => Ok(Some(convert_textdraw(node, ctx))),
+        // The UBS message box. Without its own arm it degraded to a textdraw,
+        // which loses what makes it a notice: it would come back as ordinary
+        // static text and land in the DoR.
+        "messagebox" => Ok(Some(convert_messagebox(node, ctx))),
         "titledraw" | "guideTitleDraw" => Ok(Some(convert_titledraw(node, ctx))),
         // The UBS HTML component. It has no `items` child and no `fragRef`, so
         // without this arm it falls into the unknown `_ =>` arm below and the
@@ -936,6 +940,29 @@ fn convert_textdraw(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
     );
 
     AemNode::TextDraw {
+        uuid,
+        name,
+        content,
+        attrs: parse_attrs(node),
+        visible: parse_visible(node),
+        colspan: parse_colspan(node),
+        dor_colspan: parse_dor_colspan(node),
+    }
+}
+
+fn convert_messagebox(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
+    let name = node.component_name().unwrap_or("messagebox").to_string();
+    let uuid = ctx.next_uuid(&name);
+    let content = node.attr("messageboxBody").unwrap_or("").to_string();
+
+    ctx.record_passthrough(
+        uuid,
+        node,
+        &[&["name", "messageboxBody", "dorColspan", "visible"][..], ATTR_NAMES].concat(),
+        REGENERATED_CHILD_TAGS,
+    );
+
+    AemNode::MessageBox {
         uuid,
         name,
         content,

@@ -436,6 +436,7 @@ fn node_name(node: &AemNode) -> Option<&str> {
         | AemNode::Checkbox { name, .. }
         | AemNode::RadioButton { name, .. }
         | AemNode::TextDraw { name, .. }
+        | AemNode::MessageBox { name, .. }
         | AemNode::TitleDraw { name, .. }
         | AemNode::HtmlDisplayer { name, .. }
         | AemNode::Repeatable { name, .. }

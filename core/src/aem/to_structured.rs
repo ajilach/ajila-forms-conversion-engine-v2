@@ -17,7 +17,7 @@ use super::{AemNode, AemOption};
 use crate::structured::{
     ConditionalNode, FieldCondition, FieldId, FieldNode, FieldType, GridLayout, GridLayoutElement,
     GroupNode, HeadingLevel, HeadingNode, HtmlNode, InlineText, InputValue, NameValue,
-    ParagraphNode, RepeatableNode, StructuredNode, TranslatableString, TranslatedText,
+    NoticeNode, ParagraphNode, RepeatableNode, StructuredNode, TranslatableString, TranslatedText,
     TranslationMap,
 };
 use crate::xfa::scripting::SomPath;
@@ -357,6 +357,19 @@ fn convert_node(node: &AemNode, ctx: &ConversionContext) -> Option<StructuredNod
             }
         }
 
+        AemNode::MessageBox { name, content, .. } => {
+            let text = translate_string(content, name, "messageboxBody", ctx);
+            if strip_html_tags(text.as_str()).trim().is_empty() {
+                return None;
+            }
+            Some(StructuredNode::Notice(NoticeNode {
+                content: inline_from_translatable(&TranslatableString::Plain(
+                    strip_html_tags(text.as_str()),
+                )),
+                som_path: None,
+                source_name: Some(name.clone()),
+            }))
+        }
         AemNode::TextDraw {
             name,
             content,

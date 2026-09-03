@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::structured::{
     AEM_TAGS, ConditionalNode, FieldId, FieldNode, FieldType, FootnoteNode, GridLayout, GroupNode,
-    HeadingLevel, HeadingNode, HtmlNode, ImageNode, InputValue, ListNode, NameValue, ParagraphNode,
+    HeadingLevel, HeadingNode, HtmlNode, ImageNode, InputValue, ListNode, NameValue, NoticeNode, ParagraphNode,
     RepeatableNode, StructuredNode, TableNode, TranslatableString, TranslatedText,
     collect_footnote_nodes, inline_text_to_html_with, render_table_html, strip_footnote_marker,
 };
@@ -1226,10 +1226,7 @@ fn convert_node(
             Some(convert_grid_layout(gl, config, ctx, colspan, dor_colspan))
         }
         StructuredNode::List(l) => Some(convert_list(l, config, ctx, colspan, dor_colspan)),
-        // A screen-only notice reaches AEM as its own component, wired up in
-        // the commit that adds `AemNode::MessageBox`. Until then it lives in
-        // the model, the HTML preview and the Redacto document only.
-        StructuredNode::Notice(_) => None,
+        StructuredNode::Notice(n) => Some(convert_notice(n, ctx, colspan, dor_colspan)),
         StructuredNode::Empty => None,
         StructuredNode::Footnote(_) => None,
     }
@@ -1282,6 +1279,33 @@ fn convert_paragraph(
     let name = ctx.make_name("ST", &source_text);
     let uuid = ctx.uuid(&name);
     AemNode::TextDraw {
+        visible: true,
+        uuid,
+        name,
+        content,
+        attrs: AemAttrs::default(),
+        colspan,
+        dor_colspan,
+    }
+}
+
+/// A screen-only notice becomes the UBS message box.
+///
+/// `TB_` is the prefix the corpus uses for it (the reference form's `TB_Info`),
+/// and the template supplies the exclusions: the notice addresses whoever fills
+/// the form, so it belongs on screen and nowhere else.
+fn convert_notice(
+    n: &NoticeNode,
+    ctx: &mut ConversionContext,
+    colspan: u32,
+    dor_colspan: Option<u32>,
+) -> AemNode {
+    let html = inline_text_to_html(&n.content, &ctx.language);
+    let content = format!("<p>{html}</p>");
+    let source_text = n.content.plain_text_in(&ctx.language);
+    let name = ctx.make_name("TB", &source_text);
+    let uuid = ctx.uuid(&name);
+    AemNode::MessageBox {
         visible: true,
         uuid,
         name,
@@ -2955,6 +2979,7 @@ fn strip_bind_refs(nodes: &mut [AemNode]) {
             AemNode::TextDraw { .. }
             | AemNode::TitleDraw { .. }
             | AemNode::HtmlDisplayer { .. }
+            | AemNode::MessageBox { .. }
             | AemNode::Preface { .. }
             | AemNode::Appendix { .. }
             | AemNode::FootnotePlaceholder { .. } => {}

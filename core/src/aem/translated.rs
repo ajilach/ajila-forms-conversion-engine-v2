@@ -271,6 +271,25 @@ pub enum AemNodeTranslated {
         colspan: u32,
         dor_colspan: Option<u32>,
     },
+    /// An on-screen notice: the UBS message box. Screen-only by construction,
+    /// so its template carries `dorExclusion` and `summaryExclusion`.
+    /// See [`AemNode::MessageBox`].
+    MessageBox {
+        uuid: Uuid,
+        /// Fidelity passthrough captured on load (empty for engine-built nodes).
+        #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
+        passthrough: Passthrough,
+        name: String,
+        content: AemI18nText,
+        /// Where this node shows up: screen, summary, DoR, PDF. See [`AemAttrs`].
+        #[serde(default, flatten)]
+        attrs: AemAttrs,
+        /// Whether the node is visible. Default `true`.
+        #[serde(default = "super::default_true")]
+        visible: bool,
+        colspan: u32,
+        dor_colspan: Option<u32>,
+    },
     TitleDraw {
         uuid: Uuid,
         /// Fidelity passthrough captured on load (empty for engine-built nodes).
@@ -515,6 +534,7 @@ impl AemNodeTranslated {
             | AemNodeTranslated::Checkbox { uuid, passthrough, .. }
             | AemNodeTranslated::RadioButton { uuid, passthrough, .. }
             | AemNodeTranslated::TextDraw { uuid, passthrough, .. }
+            | AemNodeTranslated::MessageBox { uuid, passthrough, .. }
             | AemNodeTranslated::TitleDraw { uuid, passthrough, .. }
             | AemNodeTranslated::HtmlDisplayer { uuid, passthrough, .. }
             | AemNodeTranslated::Fragment { uuid, passthrough, .. }
@@ -743,6 +763,24 @@ impl AemNodeTranslated {
                 dor_colspan,
                 ..
             } => AemNode::TextDraw {
+                visible: *visible,
+                uuid: *uuid,
+                name: name.clone(),
+                content: text!(content),
+                attrs: attrs.clone(),
+                colspan: *colspan,
+                dor_colspan: *dor_colspan,
+            },
+            AemNodeTranslated::MessageBox {
+                uuid,
+                name,
+                content,
+                attrs,
+                visible,
+                colspan,
+                dor_colspan,
+                ..
+            } => AemNode::MessageBox {
                 visible: *visible,
                 uuid: *uuid,
                 name: name.clone(),
