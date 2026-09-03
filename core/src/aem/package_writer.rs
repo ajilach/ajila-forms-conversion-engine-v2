@@ -855,9 +855,15 @@ fn extract_from_node(
                         format!("<p>{html}</p>")
                     });
                 }
-                // H3+ become TitleDraw _value (HTML-wrapped), so use HTML-wrapped keys.
-                // Footnotes may be embedded inline.
+                // H3+ become TitleDraw _value (HTML-wrapped) -- but the same
+                // heading can also donate its text, unwrapped, as a repeating
+                // panel's subject (`jcr:title`/`accessibilityLabel`/
+                // `ajilaPanelSubject`, PROBLEM-repeating-panel): a heading with
+                // no repeatable following it never needed the plain key, one
+                // that does now does. Same both-keys shape as H2, for the same
+                // reason.
                 _ => {
+                    extract_from_translated_text(&h.content, master_lang, map);
                     extract_rich_text_translations_with_footnotes(
                         &h.content,
                         master_lang,
@@ -1817,6 +1823,49 @@ mod tests {
         assert_eq!(sling_key, "fd_<p>Agreement</p>");
 
         assert_eq!(translations[expected_key]["de"], "<p>Vereinbarung</p>");
+    }
+
+    /// An H3+ heading also needs the plain-text key H2 already carries: a
+    /// repeating panel following it can donate the heading's text, unwrapped, as
+    /// its own subject (`jcr:title`/`accessibilityLabel`/`ajilaPanelSubject`,
+    /// PROBLEM-repeating-panel) -- the same way an H2 donates its text to an
+    /// ordinary panel's `jcr:title`. Without the plain key, a subject drawn from
+    /// an H3 heading silently went untranslated on every non-master locale: only
+    /// the wrapped key existed, which the panel's own `jcr:title` never matches.
+    #[test]
+    fn translation_key_for_h3_titledraw_also_includes_the_plain_text_key() {
+        use crate::structured::{
+            HeadingLevel, HeadingNode, InlineText, StructuredNode, TranslatedText,
+        };
+        use std::collections::HashMap;
+
+        let mut tmap: HashMap<String, Option<String>> = HashMap::new();
+        tmap.insert("en".into(), Some("Authorized representative(s)".into()));
+        tmap.insert("de".into(), Some("Vertretungsberechtigte(r)".into()));
+
+        let node = StructuredNode::Heading(HeadingNode {
+            level: HeadingLevel::H3,
+            content: TranslatedText::new(
+                tmap.into_iter()
+                    .filter_map(|(k, v)| v.map(|s| (k, InlineText::plain(s))))
+                    .collect::<std::collections::HashMap<_, _>>(),
+            ),
+            som_path: None,
+            source_name: None,
+        });
+
+        let translations = extract_translations(&[node], "en");
+
+        let plain_key = "Authorized representative(s)";
+        assert!(
+            translations.contains_key(plain_key),
+            "an H3 heading must also carry the plain-text key a repeatable's subject needs, got keys: {:?}",
+            translations.keys().collect::<Vec<_>>()
+        );
+        assert_eq!(translations[plain_key]["de"], "Vertretungsberechtigte(r)");
+
+        // The wrapped key survives alongside it, for the TitleDraw's own _value.
+        assert!(translations.contains_key("<p>Authorized representative(s)</p>"));
     }
 
     #[test]

@@ -177,7 +177,14 @@ fn collect_add_subjects_rec(
         match child {
             AemNode::TitleDraw { content, .. } => heading = sane_subject(content),
             AemNode::Repeatable { name, title, .. } => {
-                if let Some(subject) = sane_subject(title)
+                // A title equal to the repeatable's own name is the
+                // deterministic converter's sentinel for "nothing names this" --
+                // `convert_repeatable` always sets it to the generated name, so
+                // treating it as real text would write that hex-suffixed name as
+                // the row heading (`Add RCP_1120c`). Only a title that differs
+                // from the node's own name can be someone's real subject.
+                let own_title = (title != name).then(|| sane_subject(title)).flatten();
+                if let Some(subject) = own_title
                     .or_else(|| heading.clone())
                     .or_else(|| in_force.map(String::from))
                 {
@@ -3575,6 +3582,77 @@ mod tests {
             !panel.contains("dorExcludeTitle"),
             "the row heading must not be excluded from the DoR. Got:\n{}",
             panel
+        );
+    }
+
+    /// The deterministic converter's own sentinel for "nothing titles this
+    /// repeatable" is a `title` equal to the node's own generated `name`
+    /// (`convert_repeatable` always sets `title: name`) -- never a heading's or
+    /// a panel's, so treating it as real text wrote the auto-generated name
+    /// itself onto screen (`jcr:title="RCP_e42e142a"`, `Add RCP_e42e142a`, found
+    /// on a real conversion, AAOS). It must fall through to the heading above
+    /// the repeatable, or the enclosing panel's title, exactly as a blank title
+    /// does.
+    #[test]
+    fn a_repeatable_titled_with_its_own_name_falls_through_like_a_blank_one() {
+        let sentinel = |name: &str, children: Vec<AemNode>, panel_title: &str| AemNode::Panel {
+            uuid: fixed_uuid(),
+            name: "PN_Outer".into(),
+            title: panel_title.into(),
+            children: {
+                let mut all = children;
+                all.push(AemNode::Repeatable {
+                    attrs: AemAttrs::default(),
+                    visible: true,
+                    uuid: fixed_uuid(),
+                    name: name.into(),
+                    title: name.into(), // the converter's sentinel
+                    children: vec![],
+                    min_occur: 1,
+                    max_occur: 5,
+                    bind_ref: None,
+                    frag_ref: None,
+                });
+                all
+            },
+            is_page: false,
+            attrs: AemAttrs::default(),
+            visible: true,
+            is_conditional: false,
+            dor_num_cols: None,
+            colspan: 12,
+            dor_colspan: None,
+            bind_ref: None,
+            frag_ref: None,
+        };
+
+        // Nothing above it but the enclosing panel: falls through to that.
+        let xml = render_tree(vec![sentinel("RCP_e42e142a", vec![], "Client details")]);
+        assert!(
+            xml.contains("jcr:title=\"Client details\""),
+            "expected the panel's own title, not the sentinel name. Got:\n{}",
+            xml
+        );
+        for leaked in [
+            "jcr:title=\"RCP_e42e142a\"",
+            "accessibilityLabel=\"RCP_e42e142a\"",
+            "ajilaPanelSubject=\"RCP_e42e142a\"",
+            "jcr:title=\"Add RCP_e42e142a\"",
+        ] {
+            assert!(
+                !xml.contains(leaked),
+                "the generated name must never reach a title or the Add label. Got:\n{}",
+                xml
+            );
+        }
+
+        // Nothing above it and no panel title either: the placeholder, not the
+        // sentinel name.
+        let xml = render_tree(vec![sentinel("RCP_9f8e7d6c", vec![], "")]);
+        assert!(
+            xml.contains("jcr:title=\"(Repeatable name)\""),
+            "expected the placeholder, not the sentinel name. Got:\n{}",
+            xml
         );
     }
 
