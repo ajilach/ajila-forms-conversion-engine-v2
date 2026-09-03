@@ -243,6 +243,16 @@
   that does not spell out `Kundendaten` / `Unterschrift(en)`, leaving a bare
   optional dropdown and hand-built person blocks. (AABF_019)
 
+- **R9.15** A custom template's conditional container pairs `this.visible` with
+  `window.forms.ubs.showAFShowDor(this)` / `hideAFHideDor(this)`, the same idiom
+  `conditional.xml` already emits — without it a hidden addressee branch still
+  prints into the DoR. The outer `PN_AccountHolder` is the exception and carries
+  no toggle (AABF_019). Add-button instance caps read
+  `<panel>.instanceManager.maxOccur`, never a hardcoded count, since R11.1 sets
+  `maxOccur` from the node. Each add button targets the remove button its own
+  fragment exposes: `affrg_ContractualPartnerGeneric1` has `BT_RemoveCPG`,
+  `affrg_PartnertoPartnerGeneric1` has `BT_RemoveAHG`.
+
 - **R9.14** An `inject = "append"` block goes on the page holding one of its
   `depends_on` templates, falling back to `page` only when none is on a page of
   its own. The account holder belongs on the configurator's step, and the
