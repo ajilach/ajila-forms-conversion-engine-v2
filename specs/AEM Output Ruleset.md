@@ -162,6 +162,15 @@
   section panel; emit `bindRef` only when set; `strip_bind_refs` clears it on
   Repeatables when `bind_to_xsd` is off but **always keeps it on Fragment
   nodes**. (`07cd62c`)
+- **R7.15** A fragment also matches a **run of consecutive sibling children**,
+  not just a whole panel. Whole-panel matching fires only when a section holds
+  the fragment's own fields and nothing else, and a layout row holds too few of
+  them to clear R7.3's floor — so an address sitting among other fields was
+  matched by neither. A run stops at a conditional or a repeatable (R7.8/R7.9),
+  matching stays strict, and the fragment lands where the replaced fields were
+  (R7.5) because the run is what it replaces. Corpus effect: `affrg_AddressGeneric1`
+  9 → 71 instances across 25 of 110 forms, every other fragment count unchanged.
+
 - **R7.14** The internal-bank-use block uses
   `afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature`
   in **both** markets. The corpus migrated: of the 78 Italian packages issued

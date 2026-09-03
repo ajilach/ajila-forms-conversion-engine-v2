@@ -2589,6 +2589,102 @@ fn make_fragment_nodes(
         .collect()
 }
 
+/// Replace a run of consecutive sibling children whose combined leaves match a
+/// fragment, in place, with that fragment.
+///
+/// Whole-panel matching only fires when a section holds the fragment's own
+/// fields and nothing else. A real form does not oblige: AAOV_033 puts the
+/// client advisor's address among `Qualifica`, `Numero di fax` and
+/// `Delibera Consob N.`, so the panel's combined leaves match no registered
+/// type, while the individual layout rows carry two or three of the address
+/// fragment's ten elements — under the R7.3 floor. The address is therefore
+/// invisible to both. Scanning runs of adjacent siblings finds it wherever it
+/// sits, and because the run itself is what gets replaced, the fragment lands
+/// at the position of the fields it replaces (R7.5) by construction.
+///
+/// A run never crosses a conditional or a repeatable (R7.8/R7.9) — those
+/// wrappers are addressed by name from visibility scripts and must survive —
+/// and matching stays strict (leaves ⊆ the fragment's bound elements, plus the
+/// overlap floor), so a generic pair like `LastName`/`FirstName` cannot claim a
+/// larger fragment. The longest matching run starting at each position wins,
+/// which keeps the result independent of how the source happened to group the
+/// fields into rows.
+fn replace_sibling_runs_with_fragments(
+    nodes: &mut Vec<AemNode>,
+    fragments: &[ParsedFragment],
+    xsd_config: Option<&crate::xsd::XsdConfig>,
+    ctx: &mut ConversionContext,
+) {
+    /// A node a run may absorb: a plain field, or a plain panel of fields.
+    /// Anything that carries visibility or repetition stops the run.
+    fn runnable(node: &AemNode) -> bool {
+        match node {
+            AemNode::TextField { .. }
+            | AemNode::NumberField { .. }
+            | AemNode::DatePicker { .. }
+            | AemNode::Dropdown { .. }
+            | AemNode::Checkbox { .. }
+            | AemNode::RadioButton { .. } => true,
+            AemNode::Panel {
+                is_conditional: false,
+                children,
+                ..
+            } => children.iter().all(runnable),
+            _ => false,
+        }
+    }
+
+    let Some(xsd) = xsd_config else {
+        return;
+    };
+    let mut start = 0;
+    while start < nodes.len() {
+        if !runnable(&nodes[start]) {
+            start += 1;
+            continue;
+        }
+        // Longest run from `start` that matches something.
+        let mut best: Option<(usize, ParsedFragment)> = None;
+        let mut end = start;
+        while end < nodes.len() && runnable(&nodes[end]) {
+            end += 1;
+            let leaves = collect_child_bind_ref_leaves(&nodes[start..end]);
+            if leaves.len() < 2 {
+                continue;
+            }
+            if let Some(frag) = find_best_fragment(&leaves, fragments, Some(xsd)) {
+                best = Some((end, frag.clone()));
+            }
+        }
+        let Some((run_end, fragment)) = best else {
+            start += 1;
+            continue;
+        };
+        // A run covering every child is the whole-panel case the callers
+        // already handled; leaving it to them keeps their titles and bind refs.
+        if start == 0 && run_end == nodes.len() {
+            start += 1;
+            continue;
+        }
+        let full_paths = collect_child_bind_ref_full_paths(&nodes[start..run_end]);
+        let bind_ref =
+            compute_common_bind_ref_prefix(&full_paths).map(|p| to_fragment_bind_ref(&p, Some(xsd)));
+        let name = ctx.make_name("PN_affrg", &fragment.dir_name);
+        let uuid = ctx.uuid(&name);
+        let node = AemNode::Fragment {
+            attrs: AemAttrs::default(),
+            visible: true,
+            uuid,
+            name,
+            title: String::new(),
+            frag_ref: fragment.frag_ref.clone(),
+            bind_ref,
+        };
+        nodes.splice(start..run_end, std::iter::once(node));
+        start += 1;
+    }
+}
+
 fn replace_with_fragments(
     nodes: &mut [AemNode],
     fragments: &[ParsedFragment],
@@ -2891,6 +2987,18 @@ fn replace_with_fragments(
                     }
                 }
             }
+        }
+
+        // Whatever the whole-node handlers above left behind, try a run of
+        // adjacent children: a fragment's fields sitting among other fields is
+        // the shape none of them can see.
+        match &mut nodes[i] {
+            AemNode::Root { children, .. }
+            | AemNode::Panel { children, .. }
+            | AemNode::Repeatable { children, .. } => {
+                replace_sibling_runs_with_fragments(children, fragments, xsd_config, ctx);
+            }
+            _ => {}
         }
 
         // After attempting to match the current node, recurse into its

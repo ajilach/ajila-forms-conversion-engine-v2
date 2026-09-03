@@ -29099,6 +29099,28 @@ fn test_custom_templates_reference_only_ubs_generic_fragments() {
     );
 }
 
+/// A fragment's fields sitting among other fields still become the fragment.
+///
+/// Whole-panel matching only fires when a section holds the fragment's own
+/// fields and nothing else, and a layout row holds too few of them to clear the
+/// R7.3 overlap floor. AABF_019's beneficiary address (Straße / Nr. / PLZ /
+/// Stadt / Land) sits beside `Zahlungsgrund` and an IBAN, so it was emitted as
+/// five loose textboxes where the reference form carries
+/// `affrg_AddressGeneric1`.
+#[test]
+fn test_aabf_loose_address_block_becomes_the_address_fragment() {
+    let (_, root, config) = helpers::build_aem_test_output_bound(&[
+        ("AABF_019_DE.pdf", "de"),
+        ("AABF_019_EN.pdf", "en"),
+        ("AABF_019_SP.pdf", "sp"),
+    ]);
+    let xml = crate::aem::generate_aem_xml(&root, &config);
+    assert!(
+        xml.contains("affrg_AddressGeneric1"),
+        "the address block must reach the package as the UBS address fragment"
+    );
+}
+
 /// The internal-bank-use block uses the global fragment, in both markets.
 ///
 /// The deployed corpus migrated: of the 78 Italian packages issued 2026-09-01,
