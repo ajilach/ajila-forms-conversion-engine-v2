@@ -591,7 +591,17 @@ fn apply_custom_elements(
     // all matched. Iterate to a fixed point so that transitive dependencies
     // are honoured.
     let matching_templates = discover_matching_templates(children, config, alt_titles);
-    let enabled_templates = resolve_enabled_templates(&config.custom_elements, &matching_templates);
+
+    // An injectable rule stands in for its own match, so a cycle whose other
+    // members are present can still close. Whether it was really matched is
+    // what decides replacement versus injection below.
+    let mut candidates = matching_templates.clone();
+    for rule in &config.custom_elements {
+        if rule.inject.is_some() {
+            candidates.insert(rule.template.clone());
+        }
+    }
+    let enabled_templates = resolve_enabled_templates(&config.custom_elements, &candidates);
     let enabled_rules: Vec<ResolvedCustomElement> = config
         .custom_elements
         .iter()
@@ -602,11 +612,121 @@ fn apply_custom_elements(
         return;
     }
 
+    // Rules that actually found a node are applied by replacement; the rest
+    // are the injectable ones, placed below.
+    let (matched_rules, injectable_rules): (Vec<_>, Vec<_>) = enabled_rules
+        .into_iter()
+        .partition(|r| matching_templates.contains(&r.template));
+
     // First pass: replace matching nodes in-place with Custom nodes.
-    apply_custom_elements_recursive(children, &enabled_rules, alt_titles);
+    apply_custom_elements_recursive(children, &matched_rules, alt_titles);
 
     // Second pass: move custom elements that have a `page` target.
-    move_custom_elements_to_pages(children, &enabled_rules);
+    move_custom_elements_to_pages(children, &matched_rules);
+
+    // Third pass: place the blocks the form is entitled to but does not spell
+    // out as a section of its own.
+    inject_custom_elements(children, &injectable_rules);
+}
+
+/// Place a custom element whose pattern matched nothing but whose whole
+/// dependency cycle is present.
+///
+/// The UBS clusters are circular by design (R9.7): the account holder, the
+/// signatures and the addressee configurator reference each other's node
+/// names. A form that carries the configurator therefore has an account
+/// holder and signatures, however it happens to head those sections -- and a
+/// great many forms head them not at all, which used to drop the entire
+/// cycle and leave the configurator radio as a bare dropdown.
+fn inject_custom_elements(children: &mut Vec<AemNode>, rules: &[ResolvedCustomElement]) {
+    for rule in rules {
+        let Some(mode) = rule.inject else {
+            continue;
+        };
+        let page_indices: Vec<usize> = children
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, node)| match node {
+                AemNode::Panel { is_page: true, .. } => Some(idx),
+                _ => None,
+            })
+            .collect();
+        if page_indices.is_empty() {
+            continue;
+        }
+        let Some(target) = resolve_page_index(rule.page.unwrap_or(-1), &page_indices) else {
+            continue;
+        };
+
+        let name = custom_element_node_name(&rule.template);
+        let custom = AemNode::Custom {
+            attrs: AemAttrs::default(),
+            uuid: uuid::Uuid::new_v4(),
+            name: name.clone(),
+            template_key: rule.template.clone(),
+            label: String::new(),
+            options: Vec::new(),
+            mandatory: false,
+            visible: true,
+            colspan: 12,
+            dor_colspan: Some(12),
+            bind_ref: None,
+        };
+
+        match mode {
+            crate::aem::InjectMode::Append => {
+                if let AemNode::Panel {
+                    children: page_children,
+                    ..
+                } = &mut children[target]
+                {
+                    page_children.push(custom);
+                }
+            }
+            crate::aem::InjectMode::Step => {
+                let page = AemNode::Panel {
+                    attrs: AemAttrs::default(),
+                    uuid: uuid::Uuid::new_v4(),
+                    name,
+                    title: String::new(),
+                    children: vec![custom],
+                    is_page: true,
+                    is_conditional: false,
+                    frag_ref: None,
+                    bind_ref: None,
+                    visible: true,
+                    colspan: 12,
+                    dor_colspan: Some(12),
+                    dor_num_cols: None,
+                };
+                // `page` is the index the block takes, so a trailing target
+                // lands after the last page rather than before it.
+                let at = if rule.page.unwrap_or(-1) < 0 {
+                    target + 1
+                } else {
+                    target
+                };
+                children.insert(at, page);
+            }
+        }
+    }
+}
+
+/// The JCR node name an injected custom element carries: the template name in
+/// CamelCase under the panel prefix, e.g. `account_holder` -> `PN_AccountHolder`.
+///
+/// Deterministic on purpose -- the templates' own scripts address these blocks
+/// by name, and two runs of the same form must produce the same tree.
+fn custom_element_node_name(template: &str) -> String {
+    let mut out = String::from("PN_");
+    for word in template.split('_') {
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.extend(first.to_uppercase());
+            out.push_str(chars.as_str());
+        }
+    }
+    out
 }
 
 /// Return the set of template names whose regex matches at least one node in
@@ -4364,6 +4484,7 @@ mod tests {
             template: template.to_string(),
             page: None,
             depends_on: deps.iter().map(|s| s.to_string()).collect(),
+            inject: None,
         }
     }
 

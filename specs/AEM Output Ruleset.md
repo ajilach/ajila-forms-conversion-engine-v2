@@ -222,6 +222,16 @@
 - **R9.9** Account-holder visibility rules compare `RB_FormularAdressat` against
   **textual** values (`Private Person`, `Minderjährige`, `Firma`/`GbR`), not
   numeric codes `1`/`2`/`3`/`4`. (`ac7396b`)
+- **R9.13** A cluster member may declare `inject = "append"` / `"step"`: when
+  its own pattern matches nothing but every `depends_on` template does, the
+  block is placed rather than dropped — appended to the page named by `page`,
+  or inserted there as a new wizard step. `account_holder` and `signatures`
+  use it, so an addressee-driven form gets both blocks however it words (or
+  omits) those section headings; the configurator stays match-only and remains
+  the cluster's trigger. Without this, R9.6 dropped the whole cycle on any form
+  that does not spell out `Kundendaten` / `Unterschrift(en)`, leaving a bare
+  optional dropdown and hand-built person blocks. (AABF_019)
+
 - **R9.10** Cross-link add/remove buttons between account-holder and signature
   panels (`BT_Add`/`BT_AddLR`/`BT_RemoveLR` call `addInstance`/`removeInstance`
   on both the holder panel and its matching signature panel), cap at 4

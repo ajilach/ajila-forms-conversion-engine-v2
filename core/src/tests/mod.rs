@@ -31483,6 +31483,55 @@ fn review_output_reports_no_feedback_violations_for_the_engine() {
     }
 }
 
+/// An addressee-driven form gets its account-holder and signature blocks even
+/// when it heads neither section.
+///
+/// The UBS custom-element cluster is circular by design (R9.7): the account
+/// holder, the signatures and the addressee configurator name each other in
+/// their scripts, so R9.6 applies them all-or-nothing. Keying two of the three
+/// on a section heading meant a form that words those sections differently --
+/// AABF_019 calls its partner the ordering customer and gives it no heading --
+/// dropped the whole cycle, leaving the configurator as a bare optional
+/// dropdown and every person block hand-built out of loose fields. The
+/// configurator is the trigger; the blocks are injected.
+#[test]
+fn test_aabf_addressee_form_gets_the_account_holder_cluster_without_a_heading() {
+    let root = helpers::build_aem_test_output_with_custom_elements(&[
+        ("AABF_019_DE.pdf", "de"),
+        ("AABF_019_EN.pdf", "en"),
+        ("AABF_019_SP.pdf", "sp"),
+    ]);
+
+    let mut keys = Vec::new();
+    collect_custom_template_keys(&root, &mut keys);
+    println!("custom templates applied: {keys:?}");
+    for template in ["formular_adressat_radio", "account_holder", "signatures"] {
+        assert!(
+            keys.iter().any(|k| k == template),
+            "the whole cycle must be applied, but {template} is missing from {keys:?}"
+        );
+    }
+}
+
+/// Every `template_key` a `Custom` node in the tree carries.
+#[cfg(test)]
+fn collect_custom_template_keys(node: &crate::aem::AemNode, out: &mut Vec<String>) {
+    use crate::aem::AemNode;
+    if let AemNode::Custom { template_key, .. } = node {
+        out.push(template_key.clone());
+    }
+    match node {
+        AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } => {
+            for child in children {
+                collect_custom_template_keys(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
 /// Rebuild `root` the way a hand-authored tree does: every `Fragment` node is
 /// gone and no panel carries a `fragRef` any more, but the tree is otherwise
 /// intact.

@@ -246,6 +246,11 @@ field_name = '^Kundendaten$'
 template = "account_holder"
 page = 0
 depends_on = ["signatures", "formular_adressat_radio"]
+# Most addressee-driven forms never head this section at all -- AABF_019 calls
+# its partner the ordering customer and gives it no heading of its own. The
+# configurator is what makes the form addressee-driven, so the block is placed
+# on the configurator's own step when no section matches.
+inject = "append"
 
 # signatures' three conditional containers use `RB_FormularAdressat` in their
 # visibility rules, so `formular_adressat_radio` must also be present.
@@ -255,6 +260,8 @@ field_name = '^(Signature\(s\)|Unterschrift\(en\))$'
 template = "signatures"
 page = -1
 depends_on = ["formular_adressat_radio", "account_holder"]
+# Signatures are their own wizard step, so an unheaded form gets one appended.
+inject = "step"
 
 # Italian variant of account_holder: visibility/scripts reference
 # `RB_GroupTipo` (Individual=1, Legal entity=2) and cross-reference

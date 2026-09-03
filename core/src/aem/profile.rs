@@ -46,6 +46,33 @@ pub struct CustomElementRule {
     /// form, otherwise none of them are applied.
     #[serde(default)]
     pub depends_on: Vec<String>,
+
+    /// How to place this template when its own pattern matches nothing but
+    /// every `depends_on` template does.
+    ///
+    /// Without this, a rule that finds no node is dropped, and — because the
+    /// UBS clusters are circular — takes the rest of its cycle with it. That
+    /// is right for a template that only ever rewrites an existing section,
+    /// and wrong for one whose block a form is entitled to by virtue of what
+    /// else it carries: an addressee-driven form has an account holder and
+    /// signatures whether or not it spells those sections out as headings.
+    ///
+    /// `None` keeps the old behaviour (match or be dropped).
+    #[serde(default)]
+    pub inject: Option<InjectMode>,
+}
+
+/// Where an injected custom element goes, when [`CustomElementRule::inject`]
+/// is set and the rule's pattern matched nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum InjectMode {
+    /// Append the block to the existing page named by `page` (the account
+    /// holder belongs on the configurator's own step, not a step of its own).
+    Append,
+    /// Insert the block as a new wizard step at `page` (signatures are their
+    /// own step).
+    Step,
 }
 
 /// Connection details for uploading the generated package to an AEM instance

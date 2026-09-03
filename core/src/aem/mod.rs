@@ -46,7 +46,7 @@ pub use parser::{
     AemScript, ParsedAemPackage, TranslationData, VisibilityCondition, detect_aem_zip,
     parse_aem_zip,
 };
-pub use profile::{AemConnectionProfile, AemProfile};
+pub use profile::{AemConnectionProfile, AemProfile, InjectMode};
 pub use script_engine::AemScriptEngine;
 pub use to_structured::aem_to_structured;
 pub use to_translated::aem_to_translated;
@@ -84,6 +84,10 @@ pub struct ResolvedCustomElement {
     /// may be circular — in that case the whole cycle is added only when all
     /// of its members match, otherwise none of them are added.
     pub depends_on: Vec<String>,
+    /// How to place this template when its pattern matched nothing but every
+    /// dependency did. `None` means match or be dropped. See
+    /// [`profile::InjectMode`].
+    pub inject: Option<InjectMode>,
 }
 
 /// Configuration for AEM Forms XML generation.
@@ -348,6 +352,7 @@ impl AemConfig {
                         template: rule.template.clone(),
                         page: rule.page,
                         depends_on: rule.depends_on.clone(),
+                        inject: rule.inject,
                     })
                 })
                 .collect::<Result<Vec<_>, crate::Error>>()?,
