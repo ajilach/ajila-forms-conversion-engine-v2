@@ -67,8 +67,91 @@ pub(crate) const INTERNAL_BANK_USE_FRAGMENTS: &[&str] = &[
 /// page that gains the copy is seen in its final shape.
 pub fn normalize(root: &mut AemNode) {
     internal_bank_use_is_pdf_only(root);
+    drop_captions_an_input_already_carries(root);
     copy_infobox_into_the_dor(root);
     wrap_static_text(root);
+}
+
+// ── A caption rendered twice ────────────────────────────────────────────────
+
+/// Drop a static text that says exactly what the input beside it already says.
+///
+/// `structured_converter`'s caption binding fixes this at the source, but only
+/// for a tree the engine converted itself. A tree the agent authored, or one
+/// loaded back out of a deployed package, arrives here already shaped -- and
+/// authoring a caption twice over, once as a draw and once as the field's own
+/// title, is exactly what a model does when the source shows it the caption
+/// twice. AABF_019 shipped `ST_Amount` reading "Amount:" next to a textbox
+/// titled "Amount:", three times over.
+///
+/// Only an immediate sibling counts, and only an exact match after stripping
+/// markup, so a draw that introduces a group of fields is left alone.
+/// Idempotent: a second run finds nothing left to drop.
+pub fn drop_captions_an_input_already_carries(root: &mut AemNode) {
+    if let Some(children) = children_mut(root) {
+        for child in children.iter_mut() {
+            drop_captions_an_input_already_carries(child);
+        }
+    }
+    let Some(children) = children_mut(root) else {
+        return;
+    };
+    let mut i = 0;
+    while i + 1 < children.len() {
+        let dropped = match (&children[i], &children[i + 1]) {
+            (AemNode::TextDraw { content, .. }, input) => {
+                input_title(input).is_some_and(|t| captions_match(content, t))
+            }
+            _ => false,
+        } || match (&children[i], &children[i + 1]) {
+            (input, AemNode::TextDraw { content, .. }) => {
+                input_title(input).is_some_and(|t| captions_match(content, t))
+            }
+            _ => false,
+        };
+        if !dropped {
+            i += 1;
+            continue;
+        }
+        let draw_at = if matches!(children[i], AemNode::TextDraw { .. }) {
+            i
+        } else {
+            i + 1
+        };
+        children.remove(draw_at);
+    }
+}
+
+/// The title an input renders, or `None` for anything that is not an input.
+fn input_title(node: &AemNode) -> Option<&str> {
+    match node {
+        AemNode::TextField { label, .. }
+        | AemNode::NumberField { label, .. }
+        | AemNode::DatePicker { label, .. }
+        | AemNode::Dropdown { label, .. }
+        | AemNode::Checkbox { label, .. }
+        | AemNode::RadioButton { label, .. } => Some(label),
+        _ => None,
+    }
+}
+
+/// Do a draw and a title read the same, once markup and whitespace are gone?
+fn captions_match(draw: &str, title: &str) -> bool {
+    let plain = |s: &str| {
+        let mut out = String::new();
+        let mut in_tag = false;
+        for c in s.chars() {
+            match c {
+                '<' => in_tag = true,
+                '>' => in_tag = false,
+                _ if !in_tag => out.push(c),
+                _ => {}
+            }
+        }
+        out.split_whitespace().collect::<Vec<_>>().join(" ")
+    };
+    let (draw, title) = (plain(draw), plain(title));
+    !draw.is_empty() && draw == title
 }
 
 // ── PROBLEM-static-text-dor-excluded-step ───────────────────────────────────
@@ -727,6 +810,54 @@ mod tests {
             !attrs.dor_exclude,
             "dorExclusion would undo alwaysInPdf on the Redacto path"
         );
+    }
+
+    /// A draw that repeats the input's own title is dropped, whichever side of
+    /// it it sits on.
+    #[test]
+    fn a_caption_the_input_already_carries_is_dropped() {
+        for children in [
+            vec![draw("Amount:"), field("Amount:")],
+            vec![field("Amount:"), draw("Amount:")],
+        ] {
+            let mut tree = root(vec![page("PN_Order", children)]);
+            drop_captions_an_input_already_carries(&mut tree);
+            let json = serde_json::to_string(&tree).unwrap();
+            assert!(
+                !json.contains("TextDraw"),
+                "the duplicated draw must be gone: {json}"
+            );
+            assert!(
+                json.contains("\"label\":\"Amount:\""),
+                "the input keeps its own title: {json}"
+            );
+        }
+    }
+
+    /// A draw that says something else is left alone, and so is one that
+    /// introduces a group rather than captioning the field next to it.
+    #[test]
+    fn an_unrelated_draw_is_not_dropped() {
+        let mut tree = root(vec![page(
+            "PN_Order",
+            vec![draw("All costs to be borne by the:"), field("Amount:")],
+        )]);
+        let before = serde_json::to_value(&tree).unwrap();
+        drop_captions_an_input_already_carries(&mut tree);
+        assert_eq!(before, serde_json::to_value(&tree).unwrap());
+    }
+
+    /// Running it twice changes nothing the first run did not already do.
+    #[test]
+    fn dropping_captions_is_idempotent() {
+        let mut tree = root(vec![page(
+            "PN_Order",
+            vec![draw("Amount:"), field("Amount:"), draw("Amount:")],
+        )]);
+        drop_captions_an_input_already_carries(&mut tree);
+        let once = serde_json::to_value(&tree).unwrap();
+        drop_captions_an_input_already_carries(&mut tree);
+        assert_eq!(once, serde_json::to_value(&tree).unwrap());
     }
 
     /// Any other fragment is left exactly as it is.

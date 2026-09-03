@@ -312,6 +312,14 @@
   an H2 (plain-text for panel `jcr:title` + HTML-wrapped for the titledraw
   `_value`). H3+ headings register HTML-wrapped; plain field labels register as
   plain text. (`bed8998`, `006b750`)
+- **R12.10** A static text that says exactly what the input beside it already
+  says is dropped on the way into the writer (`normalize.rs`). R12.9 fixes this
+  at the source, but only for a tree the engine converted itself; an authored
+  or loaded tree arrives already shaped, and authoring the caption twice — once
+  as a draw, once as the field's title — is what a model does when the source
+  shows it twice. Immediate siblings only, exact match after stripping markup.
+  (AABF_019 `ST_Amount`)
+
 - **R12.9** A colon-terminated static text stranded beside a field that has no
   label becomes that field's label, and is dropped. Positional label
   attachment leaves such a caption unclaimed when it sits too far from its
