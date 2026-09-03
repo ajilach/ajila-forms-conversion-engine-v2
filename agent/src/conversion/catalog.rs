@@ -417,7 +417,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "review_output",
-                "Fidelity review: compare the input (the engine's merged structured parse) against the converted AEM tree and report input text/elements missing from the output, with a coverage score. Compares the master language only (spot-check other languages with search_xfa). Also reports naming_violations, label_issues, and feedback_violations \u{2014} the swept UBS rules (DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments \u{2014} the UBS partner and signature generics replace them), checked on the rendered JCR XML, which is the artefact that ships. Reports legacy_tables too: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. Run once the tree is authored and before you report the stage done; investigate every miss (fix the tree, or confirm it was intentionally dropped) and re-run.",
+                "Fidelity review: compare the input (the engine's merged structured parse) against the converted AEM tree and report input text/elements missing from the output, with a coverage score. Compares the master language only (spot-check other languages with search_xfa). Also reports naming_violations, label_issues, dropped_fragments (standard fragments the engine derives from this same source that the tree does not reference \u{2014} a section rebuilt out of loose fields), and feedback_violations \u{2014} the swept UBS rules (DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments \u{2014} the UBS partner and signature generics replace them), checked on the rendered JCR XML, which is the artefact that ships. Reports legacy_tables too: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. Run once the tree is authored and before you report the stage done; investigate every miss (fix the tree, or confirm it was intentionally dropped) and re-run.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
@@ -594,6 +594,7 @@ mod catalog_guards {
         "is_page",
         "jump_to_field",
         "jcr_root",
+        "dropped_fragments",
         "feedback_violations",
         "label_issues",
         "legacy_tables",

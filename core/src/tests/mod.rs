@@ -31483,6 +31483,96 @@ fn review_output_reports_no_feedback_violations_for_the_engine() {
     }
 }
 
+/// Rebuild `root` the way a hand-authored tree does: every `Fragment` node is
+/// gone and no panel carries a `fragRef` any more, but the tree is otherwise
+/// intact.
+#[cfg(test)]
+fn strip_fragments(node: &crate::aem::AemNode) -> crate::aem::AemNode {
+    use crate::aem::AemNode;
+    let mut out = node.clone();
+    match &mut out {
+        AemNode::Root { children, .. } => {
+            children.retain(|c| !matches!(c, AemNode::Fragment { .. }));
+            *children = children.iter().map(strip_fragments).collect();
+        }
+        AemNode::Panel {
+            children, frag_ref, ..
+        } => {
+            *frag_ref = None;
+            children.retain(|c| !matches!(c, AemNode::Fragment { .. }));
+            *children = children.iter().map(strip_fragments).collect();
+        }
+        AemNode::Repeatable {
+            children, frag_ref, ..
+        } => {
+            *frag_ref = None;
+            children.retain(|c| !matches!(c, AemNode::Fragment { .. }));
+            *children = children.iter().map(strip_fragments).collect();
+        }
+        _ => {}
+    }
+    out
+}
+
+/// A section the bank ships as a reusable fragment must reach the package as a
+/// `fragRef`, not as a hand-built set of loose fields.
+///
+/// The engine matches the fragment library against the source itself, so the
+/// deterministic conversion of an input is the authority on which fragments
+/// that form is entitled to -- which is what makes this rule hold for every
+/// form without a per-form list. An authored or re-authored tree that rebuilds
+/// such a section drops the fragment with no other signal: the package still
+/// builds, validates and deploys. `review_output` reports the drop.
+///
+/// AABF_019 is the form that exposed this: the agent-authored tree referenced
+/// none of the four fragments the converter derives from the same source.
+#[test]
+fn review_output_reports_a_fragment_the_tree_dropped() {
+    let (input, root, config) = helpers::build_aem_test_output_bound(&[
+        ("AABF_019_DE.pdf", "de"),
+        ("AABF_019_EN.pdf", "en"),
+        ("AABF_019_SP.pdf", "sp"),
+    ]);
+    let master = config.master_language.clone();
+
+    // The engine's own conversion references every fragment it derives, so the
+    // rule is silent on it.
+    let clean = crate::review_output(&input, &root, &config, &master);
+    assert!(
+        clean.dropped_fragments.is_empty(),
+        "the engine's own tree should reference every fragment it derives, but dropped: {:?}",
+        clean.dropped_fragments
+    );
+
+    // A tree that rebuilt those sections by hand loses them.
+    let stripped = strip_fragments(&root);
+    let report = crate::review_output(&input, &stripped, &config, &master);
+    let dropped: Vec<&str> = report
+        .dropped_fragments
+        .iter()
+        .map(|d| d.frag_ref.as_str())
+        .collect();
+    println!("dropped fragments: {dropped:?}");
+    assert!(
+        !report.dropped_fragments.is_empty(),
+        "a tree with every fragRef removed must report dropped fragments"
+    );
+    assert!(
+        dropped
+            .iter()
+            .any(|f| f.ends_with("affrg_SignatureGeneric1")),
+        "the signature fragment the converter derives must be reported, got {dropped:?}"
+    );
+    assert!(
+        report
+            .notes
+            .iter()
+            .any(|n| n.contains("standard fragment")),
+        "the drop must also reach the agent as a note, got {:?}",
+        report.notes
+    );
+}
+
 // ============================================================================
 // Presentation attributes (`AemAttrs`)
 //

@@ -52,6 +52,12 @@ pub struct ReviewReport {
     /// blocks a conversion of an already-deployed package has to convert. Empty
     /// for anything this engine converts from a PDF.
     pub legacy_tables: Vec<String>,
+    /// Standard fragments the deterministic conversion of this very input
+    /// derives, that the reviewed tree does not reference. A hand-authored or
+    /// re-authored tree that rebuilds a section by hand silently loses the
+    /// fragment the converter had matched for it; the corpus expects the
+    /// fragment, so every drop is reported here. See [`DroppedFragment`].
+    pub dropped_fragments: Vec<DroppedFragment>,
     /// Human-readable observations (field-count mismatch, empty tree, truncation).
     pub notes: Vec<String>,
 }
@@ -95,6 +101,29 @@ pub struct LabelIssue {
     pub confidence: String,
 }
 
+/// A standard fragment the converter derives from this input but the
+/// reviewed tree does not reference.
+///
+/// The engine matches the bank's reusable fragments against the source itself
+/// (`use_fragments`), so the deterministic conversion of an input is the
+/// authority on which fragments that form is entitled to. When a tree is
+/// authored or re-authored by hand, rebuilding such a section out of loose
+/// fields drops the fragment without any other signal -- the package still
+/// builds, still validates, and still deploys. This is that signal.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct DroppedFragment {
+    /// JCR path of the missing fragment, e.g.
+    /// `/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1`.
+    pub frag_ref: String,
+    /// How many times the deterministic conversion references it.
+    pub expected: usize,
+    /// How many times the reviewed tree references it.
+    pub present: usize,
+}
+
+/// Cap on how many dropped fragments to list, so the report stays readable.
+const MAX_DROPPED_FRAGMENTS: usize = 100;
+
 /// Cap on how many missing texts to list, so the report stays readable.
 const MAX_MISSING: usize = 200;
 
@@ -103,6 +132,67 @@ const MAX_LABEL_ISSUES: usize = 400;
 
 /// Cap on how many naming violations to list, so the report stays readable.
 const MAX_NAMING: usize = 400;
+
+/// Count every `fragRef` the tree references, keyed by JCR path.
+///
+/// Only fragment references carried by the nodes themselves are counted, so
+/// the comparison stays symmetric: the ones a profile template injects on its
+/// own (the banking-relationship preface, the form-metadata appendix) never
+/// appear on either side.
+fn collect_frag_refs(node: &AemNode, out: &mut std::collections::BTreeMap<String, usize>) {
+    let own = match node {
+        AemNode::Fragment { frag_ref, .. } => Some(frag_ref.clone()),
+        AemNode::Panel { frag_ref, .. } | AemNode::Repeatable { frag_ref, .. } => frag_ref.clone(),
+        _ => None,
+    };
+    if let Some(frag_ref) = own {
+        *out.entry(frag_ref).or_insert(0) += 1;
+    }
+    match node {
+        AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } => {
+            for child in children {
+                collect_frag_refs(child, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Fragments the deterministic conversion of `input` derives that `output`
+/// does not reference, or references fewer times.
+///
+/// Converting the input a second time is what makes this form-independent: the
+/// engine's own fragment matching is the reference, so no list of fragments
+/// has to be maintained anywhere.
+fn find_dropped_fragments(
+    input: &[StructuredNode],
+    output: &AemNode,
+    config: &AemConfig,
+) -> Vec<DroppedFragment> {
+    if !config.use_fragments {
+        return Vec::new();
+    }
+    let baseline = crate::aem::convert_to_aem(input, config);
+    let mut expected = std::collections::BTreeMap::new();
+    collect_frag_refs(&baseline, &mut expected);
+    let mut present = std::collections::BTreeMap::new();
+    collect_frag_refs(output, &mut present);
+
+    expected
+        .into_iter()
+        .filter_map(|(frag_ref, want)| {
+            let have = present.get(&frag_ref).copied().unwrap_or(0);
+            (have < want).then_some(DroppedFragment {
+                frag_ref,
+                expected: want,
+                present: have,
+            })
+        })
+        .take(MAX_DROPPED_FRAGMENTS)
+        .collect()
+}
 
 /// Review the converted AEM `output` against the engine's parse of the `input`
 /// (the merged structured tree), comparing text in `master_language`.
@@ -141,6 +231,8 @@ pub fn review_output(
 
     let mut legacy_tables = Vec::new();
     collect_legacy_tables(output, &mut legacy_tables);
+
+    let dropped_fragments = find_dropped_fragments(input, output, config);
 
     let (coverage, mut missing) =
         coverage_against(&input_texts, &output_texts, &output_rows);
@@ -214,6 +306,20 @@ pub fn review_output(
         legacy_tables.truncate(MAX_LEGACY_TABLES);
     }
 
+    if !dropped_fragments.is_empty() {
+        let list: Vec<&str> = dropped_fragments
+            .iter()
+            .map(|d| d.frag_ref.as_str())
+            .collect();
+        notes.push(format!(
+            "{} standard fragment(s) the converter derives from this source are not referenced by \
+             the tree; reference the fragment instead of rebuilding the section out of loose \
+             fields ({})",
+            dropped_fragments.len(),
+            list.join(", ")
+        ));
+    }
+
     if feedback_violations.len() > MAX_FEEDBACK {
         notes.push(format!(
             "feedback_violations truncated to {MAX_FEEDBACK} of {} entries",
@@ -231,6 +337,7 @@ pub fn review_output(
         label_issues,
         feedback_violations,
         legacy_tables,
+        dropped_fragments,
         notes,
     }
 }
@@ -358,6 +465,8 @@ pub fn review_redacto(
         legacy_tables: Vec::new(),
         // Redacto is a text-only target: it has no AEM inputs to label.
         label_issues: Vec::new(),
+        // Fragments are an AEM concept; a Redacto document references none.
+        dropped_fragments: Vec::new(),
         notes,
     }
 }

@@ -162,6 +162,13 @@
   section panel; emit `bindRef` only when set; `strip_bind_refs` clears it on
   Repeatables when `bind_to_xsd` is off but **always keeps it on Fragment
   nodes**. (`07cd62c`)
+- **R7.13** A fragment the converter derives from a source must survive into
+  the shipped tree. `review_output`'s `dropped_fragments` re-converts the same
+  input and reports every `fragRef` the reviewed tree references fewer times
+  than the engine's own conversion does, so a hand-authored rebuild of a
+  fragment-backed section cannot pass silently. Needs no per-form list: the
+  deterministic conversion is the authority.
+
 - **R7.12** Point all custom-element fragRefs at the shared
   `afforms_ubs_fragmentlib` (not per-country libs), and use the single generic
   `affrg_SignatureGeneric1` (not per-role signature fragments). (`3bbdd5f`)

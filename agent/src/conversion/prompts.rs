@@ -518,7 +518,11 @@ feedback_violations reports every fragRef still pointing into the germany/italy 
 PROBLEM-fragment-library-consolidation (the deliberately market-specific internal-bank-use, \
 footnote, infobox and banking-relationship families excepted); the package must carry ZERO such \
 entries, and every one is an authorable defect to return — name the panel and the UBS generic that \
-replaces it. DoR exclusions set; no invented text; \
+replaces it. VERIFY equally that no fragment was LOST: review_output's dropped_fragments lists every \
+standard fragment the engine derives from this very source that the tree does not reference, which \
+is what rebuilding such a section out of loose fields looks like from the outside — the package \
+still builds, validates and deploys. Every entry is a defect to return: reference the fragment \
+instead of the hand-built fields. DoR exclusions set; no invented text; \
 every source language present and non-stub — but a packager-derived synonym locale (de-ch from de, es \
 from sp) matching its base language is CORRECT, not a stub, so never flag it as one; cascading \
 dropdowns implemented as static visibility-gated \
