@@ -23,7 +23,7 @@ static CFG_CONTEXT_WINDOW: AtomicUsize = AtomicUsize::new(0);
 /// Prefer the value learned from the API; otherwise fall back to a heuristic that
 /// is **optimistic** — modern large-context families default to 1M. Guessing high
 /// is the safe direction: too-high costs at most one `400` (caught and learned
-/// from by [`anthropic_stream_turn`]), whereas too-low silently shrinks the budget
+/// from by [`crate::stream::call_model`]), whereas too-low silently shrinks the budget
 /// and makes the agent evict its own context every turn (an amnesia loop). Only
 /// known-small models (Haiku, pre-4 families) default to 200K.
 pub fn context_window_for(model: &str) -> usize {
@@ -116,7 +116,7 @@ const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 16_000;
 
 /// The output-token ceiling to request for a given model.
 ///
-/// The agent loop streams every turn (see [`anthropic_stream_turn`]), so we can
+/// The agent loop streams every turn (see [`crate::stream::call_model`]), so we can
 /// request up to the model's true max output without risking the HTTP timeouts
 /// that cap non-streaming requests near 16k. `max_tokens` is a ceiling, not a
 /// target — we're billed only for tokens actually generated — so requesting the

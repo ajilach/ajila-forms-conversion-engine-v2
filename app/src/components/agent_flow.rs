@@ -656,9 +656,6 @@ fn status_glyph(status: AgentStepStatus) -> Element {
     }
 }
 
-/// How much of the model's context window the run has filled. Renders nothing
-/// until the agent reports a window.
-#[component]
 /// What the run has cost so far, beside the context gauge.
 ///
 /// Absent until the first turn reports usage. A model with no published rate
@@ -678,6 +675,8 @@ fn SpendTag(spend: Option<pipeline::Spend>) -> Element {
     }
 }
 
+/// How much of the model's context window the run has filled. Renders nothing
+/// until the agent reports a window.
 #[component]
 fn ContextGauge(used: usize, window: usize) -> Element {
     if window == 0 {

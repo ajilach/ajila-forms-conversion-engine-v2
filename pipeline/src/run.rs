@@ -14,7 +14,8 @@ use crate::roles::{
     self, MAX_AUTO_RETRIES, MAX_MAX_TOKEN_NUDGES, MAX_RETRY_BACKOFF_SECS, MAX_VALIDATE_REPEATS,
     RETRY_BACKOFF_SECS, RETRY_POLL_MS, Role,
 };
-use rig_agent::agent::hook::RetryRequest;
+use rig_agent::agent::hook::{InvalidToolCallAction, RetryRequest};
+use rig_agent::agent::run::streamed::{PartialStreamedTurn, StreamedInvalidToolCall};
 use rig_agent::agent::run::{AgentRun, AgentRunStep};
 use rig_core::completion::request::ResponseIdentity;
 use rig_core::completion::{FinishReason, ToolDefinition};
@@ -259,9 +260,9 @@ fn finalize(
 
 // ── Turn-level failure recovery ──────────────────────────────────────────────
 
-/// Whether a turn error looks transient — i.e. worth re-sending the same turn
+/// Whether a model-call error looks transient — i.e. worth re-sending the same turn
 /// unchanged.
-pub(crate) fn is_transient_error(err: &str) -> bool {
+pub fn is_transient_error(err: &str) -> bool {
     let e = err.to_ascii_lowercase();
     const TRANSIENT: &[&str] = &[
         "timed out",
@@ -285,9 +286,18 @@ pub(crate) fn is_transient_error(err: &str) -> bool {
         "internal server error",
         "api_error",
     ];
-    // `Anthropic API error (429 Too Many Requests): …` — retry the statuses the
-    // API documents as retryable, but not 4xx client errors we'd just repeat.
-    const RETRYABLE_STATUSES: &[&str] = &["(429", "(500", "(502", "(503", "(504", "(529"];
+    // The transport appends `[status: N]` verbatim, so this matches a token it
+    // controls rather than an error type's prose. Retry what the APIs document
+    // as retryable, and nothing else: a 4xx we would only repeat goes straight
+    // to the operator.
+    const RETRYABLE_STATUSES: &[&str] = &[
+        "[status: 429]",
+        "[status: 500]",
+        "[status: 502]",
+        "[status: 503]",
+        "[status: 504]",
+        "[status: 529]",
+    ];
 
     TRANSIENT
         .iter()
@@ -406,13 +416,21 @@ async fn turn_with_retry(
     abort: &AbortFlag,
     turns: &impl TurnProvider,
     obs: &mut impl RunObserver,
+    resolve_invalid: crate::turns::ResolveInvalidCall<'_>,
 ) -> Option<ModelReply> {
     let mut auto_retries = 0usize;
     loop {
         // The prompt and history are cloned per attempt: a retry must re-send
         // exactly what failed, and the provider evicts its own copy.
         match turns
-            .call_model(prompt.clone(), history.to_vec(), tools, system, abort)
+            .call_model(
+                prompt.clone(),
+                history.to_vec(),
+                tools,
+                system,
+                abort,
+                resolve_invalid,
+            )
             .await
         {
             Ok(turn) => return Some(turn),
@@ -575,9 +593,40 @@ pub(crate) async fn run_stage(
                 // Transient failures are retried automatically, then handed to
                 // the operator — a dropped connection must not throw away a
                 // long run.
-                let reply =
-                    turn_with_retry(&prompt, &history, &tools, role, system, abort, turns, obs)
-                        .await?;
+                let reply = {
+                    let run = &mut run;
+                    let mut resolve = move |partial: &PartialStreamedTurn,
+                                            invalid: &StreamedInvalidToolCall| {
+                        // The hand-rolled loop answered an unknown tool with a
+                        // failed tool result and let the model try again. Skip
+                        // is the same bargain: the model is told, in its own
+                        // transcript, that the call did not happen and why.
+                        let name = &invalid.tool_call.function.name;
+                        let reason = format!(
+                            "Unknown tool: {name}. It is not available to the {} at this \
+                             stage. Use one of the tools you were given.",
+                            role.name
+                        );
+                        run.resolve_streamed_invalid_tool_call(
+                            partial,
+                            invalid,
+                            InvalidToolCallAction::skip(reason),
+                        )
+                        .map_err(|e| e.to_string())
+                    };
+                    turn_with_retry(
+                        &prompt,
+                        &history,
+                        &tools,
+                        role,
+                        system,
+                        abort,
+                        turns,
+                        obs,
+                        &mut resolve,
+                    )
+                    .await?
+                };
 
                 // Per-stage context-window fill indicator.
                 if reply.prompt_tokens > 0 {
@@ -608,6 +657,12 @@ pub(crate) async fn run_stage(
                 ) {
                     obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
                     break;
+                }
+                // A turn the run already rolled back while resolving a bad
+                // tool call must not be fed in: its corrective messages are
+                // in the history, and the usage above is all that was owed.
+                if reply.abandoned {
+                    continue;
                 }
                 if let Err(e) = run.streamed_turn(reply.turn) {
                     obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
@@ -862,25 +917,34 @@ mod tests {
         fn transient_errors_are_retried_automatically() {
             // The failure seen when the machine is left alone mid-run.
             assert!(is_transient_error(
-                "Anthropic API error: error decoding response body — error reading a body \
-                 from connection — timed out"
+                "LLM API error: HttpError: error decoding response body — error reading a \
+                 body from connection — timed out"
+            ));
+            // The transport's wording for a status error. `runner`'s
+            // `transient_statuses_match_what_the_transport_writes` is what keeps
+            // these two in step across the crate boundary.
+            assert!(is_transient_error(
+                "LLM API error: ProviderResponseError: status 529: overloaded [status: 529]"
             ));
             assert!(is_transient_error(
-                "Anthropic API error (529 ): {\"type\":\"overloaded_error\"}"
+                "LLM API error: ProviderResponseError: status 429: rate limit [status: 429] \
+                 [retry-after: 30]"
             ));
             assert!(is_transient_error(
-                "Anthropic API error (429 Too Many Requests): rate limit"
+                "LLM API error: ProviderResponseError: status 503: upstream [status: 503]"
             ));
             assert!(is_transient_error(
-                "Anthropic API error (503 Service Unavailable): upstream"
+                "LLM API error: ProviderResponseError: status 502: upstream [status: 502]"
             ));
             // Client-side mistakes would just fail again — those go straight to the
             // user's Retry prompt instead of burning automatic attempts.
             assert!(!is_transient_error(
-                "Anthropic API error (401 Unauthorized): invalid x-api-key"
+                "LLM API error: ProviderResponseError: status 401: invalid x-api-key \
+                 [status: 401]"
             ));
             assert!(!is_transient_error(
-                "Anthropic API error (400 Bad Request): prompt is too long"
+                "LLM API error: ProviderResponseError: status 400: prompt is too long \
+                 [status: 400]"
             ));
             assert!(!is_transient_error(
                 "Anthropic API key is not configured. Open Settings and paste your API key."
@@ -1072,6 +1136,7 @@ mod controller {
             _tools: &[ToolDefinition],
             system: &str,
             _abort: &AbortFlag,
+            _resolve_invalid: crate::turns::ResolveInvalidCall<'_>,
         ) -> Result<ModelReply, String> {
             self.seen.borrow_mut().push(system.to_string());
             let next = self.script.borrow_mut().pop_front();
@@ -1165,6 +1230,7 @@ mod controller {
             text: text.to_string(),
             prompt_tokens,
             cost_usd: None,
+            abandoned: false,
         })
     }
 

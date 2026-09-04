@@ -27,6 +27,30 @@ use crate::provider::{DEFAULT_OPENAI_BASE_URL, LlmEndpoint, Provider};
 const STATIC_PREFIX_TTL: anthropic::completion::CacheTtl =
     anthropic::completion::CacheTtl::OneHour;
 
+/// How long a streamed turn may go without receiving any bytes before the
+/// request is failed.
+///
+/// The stream emits deltas continuously, so a long silence means the connection
+/// is dead — typically because the machine slept or the network dropped
+/// mid-run. Failing fast turns that into a retryable error instead of a run
+/// that hangs forever on a socket nobody is talking on: the abort flag is only
+/// polled between chunks, so a stalled stream is unstoppable without this.
+const STREAM_READ_TIMEOUT_SECS: u64 = 300;
+
+/// The HTTP client every provider is built over: one connection pool for the
+/// process, with an inactivity timeout on the response body.
+fn http_client() -> reqwest::Client {
+    static CLIENT: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+    CLIENT
+        .get_or_init(|| {
+            reqwest::Client::builder()
+                .read_timeout(std::time::Duration::from_secs(STREAM_READ_TIMEOUT_SECS))
+                .build()
+                .unwrap_or_default()
+        })
+        .clone()
+}
+
 /// Build the model `endpoint` names.
 ///
 /// Fails with the operator-facing message from [`LlmEndpoint::check`] when the
@@ -40,6 +64,7 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
             let client = anthropic::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
+                .http_client(http_client())
                 .build()
                 .map_err(|e| format!("Anthropic client: {e}"))?;
             // `automatic_caching` lets Anthropic own the moving breakpoint on
@@ -58,6 +83,7 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
             let client = openrouter::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
+                .http_client(http_client())
                 .build()
                 .map_err(|e| format!("OpenRouter client: {e}"))?;
             Ok(ModelHandle::named(
@@ -66,11 +92,17 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
             ))
         }
         Provider::OpenAi => {
+            // `.completions_api()` matters: rig's default OpenAI model speaks
+            // the Responses API, which is OpenAI's own and which a vLLM,
+            // Ollama or LiteLLM gateway does not implement. This switch exists
+            // for those gateways, and `/chat/completions` is what they serve.
             let client = openai::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
+                .http_client(http_client())
                 .build()
-                .map_err(|e| format!("OpenAI-compatible client at {}: {e}", endpoint.base_url))?;
+                .map_err(|e| format!("OpenAI-compatible client at {}: {e}", endpoint.base_url))?
+                .completions_api();
             Ok(ModelHandle::named(
                 "openai",
                 client.completion_model(&endpoint.model),
@@ -90,6 +122,7 @@ pub async fn list_models(endpoint: &LlmEndpoint) -> Result<Vec<Model>, String> {
             let client = anthropic::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
+                .http_client(http_client())
                 .build()
                 .map_err(|e| format!("Anthropic client: {e}"))?;
             anthropic::model_listing::AnthropicModelLister::new(client)
@@ -100,6 +133,7 @@ pub async fn list_models(endpoint: &LlmEndpoint) -> Result<Vec<Model>, String> {
             let client = openrouter::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
+                .http_client(http_client())
                 .build()
                 .map_err(|e| format!("OpenRouter client: {e}"))?;
             openrouter::model_listing::OpenRouterModelLister::new(client)
@@ -110,6 +144,7 @@ pub async fn list_models(endpoint: &LlmEndpoint) -> Result<Vec<Model>, String> {
             let client = openai::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
+                .http_client(http_client())
                 .build()
                 .map_err(|e| format!("OpenAI-compatible client at {}: {e}", endpoint.base_url))?;
             openai::model_listing::OpenAIModelLister::new(client)

@@ -1,10 +1,10 @@
 //! Which API a run talks to, and where.
 //!
-//! Two transports serve the same [`pipeline::TurnProvider`]: the Anthropic
-//! Messages API ([`crate::llm`]) and any OpenAI-compatible `/chat/completions`
-//! endpoint ([`crate::openai`]) — OpenRouter, a local vLLM/Ollama gateway, or
-//! OpenAI itself. The rest of the app never branches on this: it resolves one
-//! [`LlmEndpoint`] from the settings and hands it to [`crate::TurnPlan`].
+//! One dialect is picked per endpoint and [`crate::client`] turns it into a
+//! model: the Anthropic Messages API, or any OpenAI-compatible endpoint —
+//! OpenRouter, a local vLLM/Ollama gateway, or OpenAI itself. The rest of the
+//! app never branches on this: it resolves one [`LlmEndpoint`] from the
+//! settings and hands it to [`crate::TurnPlan`].
 
 use serde::{Deserialize, Serialize};
 

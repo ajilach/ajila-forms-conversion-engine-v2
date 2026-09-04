@@ -84,7 +84,6 @@ impl TurnPlan {
             model: crate::client::model_for(&self.endpoint)?,
             endpoint: self.endpoint.clone(),
             max_tokens: self.max_tokens,
-            prompt_target: self.prompt_target,
             max_concurrent: self.max_concurrent,
         })
     }
@@ -95,8 +94,6 @@ pub struct ConfiguredTurns {
     model: ModelHandle,
     endpoint: LlmEndpoint,
     max_tokens: u32,
-    /// Estimated-token budget a request's prompt must fit inside.
-    prompt_target: usize,
     /// Snapshotted from the plan, so a run keeps the cap it started under even
     /// if the operator changes the setting while it is going.
     max_concurrent: usize,
@@ -110,6 +107,7 @@ impl TurnProvider for ConfiguredTurns {
         tools: &[ToolDefinition],
         system: &str,
         abort: &AbortFlag,
+        resolve_invalid: pipeline::ResolveInvalidCall<'_>,
     ) -> Result<ModelReply, String> {
         // Held for the whole call, streamed response included. Releasing it when
         // the response headers arrive would cap the rate at which requests are
@@ -132,10 +130,10 @@ impl TurnProvider for ConfiguredTurns {
                 tools,
                 system,
                 max_tokens: self.max_tokens,
-                target: self.prompt_target,
                 model_id: &self.endpoint.model,
             },
             abort,
+            resolve_invalid,
         )
         .await
     }

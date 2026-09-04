@@ -9,7 +9,9 @@
 
 use std::future::Future;
 
-use rig_agent::agent::run::streamed::StreamedTurn;
+use rig_agent::agent::run::streamed::{
+    PartialStreamedTurn, StreamedInvalidToolCall, StreamedResolution, StreamedTurn,
+};
 use rig_core::completion::{ToolDefinition, Usage};
 use rig_core::message::{Message, ToolResultContent, UserContent};
 
@@ -29,11 +31,31 @@ pub struct ModelReply {
     /// Real prompt-token count the API billed for this request — i.e. how full
     /// the context window was. 0 if the API didn't report usage.
     pub prompt_tokens: usize,
+    /// Whether the run already rolled this turn back while resolving a bad
+    /// tool call. The corrective messages are in the run's history, so the turn
+    /// must not be fed back in — only its usage recorded.
+    pub abandoned: bool,
     /// What this call cost in USD, when the model has a published rate. The
     /// provider knows its own model id, so it prices; the controller only adds
     /// up. `None` propagates as "not priced" rather than as zero.
     pub cost_usd: Option<f64>,
 }
+
+/// Decides what to do about a tool call the model invented or reached for
+/// outside the stage's scope.
+///
+/// The provider owns the stream, so it is the one that meets the bad call; the
+/// controller owns the run state machine, so it is the only one that can
+/// resolve it. Hence the inversion. Left unresolved, the next stream item fails
+/// the whole stage — where the hand-rolled loop simply answered the model
+/// "Unknown tool" and let it correct itself.
+///
+/// `Send` because a consumer may drive the whole run on a spawned task.
+pub type ResolveInvalidCall<'a> = &'a mut (dyn FnMut(
+    &PartialStreamedTurn,
+    &StreamedInvalidToolCall,
+) -> Result<StreamedResolution, String>
+             + Send);
 
 /// Runs one model call.
 ///
@@ -50,6 +72,7 @@ pub trait TurnProvider {
         tools: &[ToolDefinition],
         system: &str,
         abort: &AbortFlag,
+        resolve_invalid: ResolveInvalidCall<'_>,
     ) -> impl Future<Output = Result<ModelReply, String>>;
 }
 

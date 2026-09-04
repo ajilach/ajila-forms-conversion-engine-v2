@@ -23,5 +23,8 @@ pub mod run;
 pub mod turns;
 
 pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver, Spend};
-pub use run::{RunConfig, RunOutcome, RunSeed, run};
-pub use turns::{ModelReply, TurnProvider, tool_definitions, tool_result_content, tool_results};
+pub use run::{RunConfig, RunOutcome, RunSeed, is_transient_error, run};
+pub use turns::{
+    ModelReply, ResolveInvalidCall, TurnProvider, tool_definitions, tool_result_content,
+    tool_results,
+};

@@ -16,8 +16,6 @@ use rig_core::message::{
     AssistantContent, DocumentSourceKind, Message, ToolResultContent, UserContent,
 };
 
-use crate::models::prompt_token_target;
-
 /// Default trailing messages kept verbatim by [`evict_stale_history_with`]. Even,
 /// so whole assistant+`tool_result` turn-pairs survive (the latest data stays
 /// intact). Overridable at runtime via [`configure_eviction`].
@@ -201,11 +199,6 @@ pub fn assembled_prompt_estimate(
     tools.iter().map(estimate_tool_tokens).sum::<usize>()
         + system.map_or(0, |s| s.len() / 4)
         + history.iter().map(estimate_message_tokens).sum::<usize>()
-}
-
-/// The estimated-token budget for the assembled prompt, for `model`'s window.
-pub fn target_for(model: &str, max_tokens: u32) -> usize {
-    prompt_token_target(model, max_tokens)
 }
 
 // ── The eviction ladder ──────────────────────────────────────────────────────

@@ -110,8 +110,11 @@ impl Spend {
     /// cache pulls: a healthy long run reads far more than it writes.
     pub fn describe(&self) -> String {
         let mut text = format!(
-            "Spend: {} in ({} cached) · {} out",
-            self.input_tokens, self.cached_input_tokens, self.output_tokens
+            "Spend: {} in ({} cached, {} written) · {} out",
+            self.input_tokens,
+            self.cached_input_tokens,
+            self.cache_write_tokens,
+            self.output_tokens
         );
         if self.reasoning_tokens > 0 {
             text.push_str(&format!(" · {} reasoning", self.reasoning_tokens));
