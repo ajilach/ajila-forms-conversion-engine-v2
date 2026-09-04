@@ -113,7 +113,7 @@ impl Default for AppSettings {
             always_on_top: false,
             llm_provider: Provider::default(),
             anthropic_api_key: String::new(),
-            anthropic_model: crate::llm::DEFAULT_MODEL.to_string(),
+            anthropic_model: crate::models::DEFAULT_MODEL.to_string(),
             openai_base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
             openai_api_key: String::new(),
             openai_model: String::new(),

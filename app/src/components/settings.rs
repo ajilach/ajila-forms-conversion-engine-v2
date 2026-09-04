@@ -13,9 +13,9 @@ use super::page::{FullPage, PageTabs, RowInfo};
 use crate::settings::AppSettings;
 
 /// Offered when the model list cannot be fetched from the API. Derived from
-/// `llm::KNOWN_MODELS` so the picker cannot drift from the limits table.
+/// `runner::models::KNOWN_MODELS` so the picker cannot drift from the limits table.
 fn anthropic_fallback_models() -> Vec<String> {
-    crate::llm::KNOWN_MODELS
+    runner::models::KNOWN_MODELS
         .iter()
         .map(|m| m.id.to_string())
         .collect()

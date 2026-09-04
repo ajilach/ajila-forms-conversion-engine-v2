@@ -33,10 +33,10 @@ pub struct TurnPlan {
 
 impl TurnPlan {
     pub fn for_endpoint(endpoint: LlmEndpoint) -> Self {
-        let max_tokens = crate::llm::max_output_tokens_for(&endpoint.model);
+        let max_tokens = crate::models::max_output_tokens_for(&endpoint.model);
         Self {
-            context_window: crate::llm::context_window_for(&endpoint.model),
-            prompt_target: crate::llm::prompt_token_target(&endpoint.model, max_tokens),
+            context_window: crate::models::context_window_for(&endpoint.model),
+            prompt_target: crate::models::prompt_token_target(&endpoint.model, max_tokens),
             max_tokens,
             // No cap unless a consumer supplies one: a lone run has nothing to
             // contend with, and the CLI is one run by construction.
@@ -147,17 +147,17 @@ mod tests {
     /// reported as the fallback is how a silent eviction loop stays invisible.
     #[test]
     fn the_plan_reports_the_model_it_resolved() {
-        let plan = TurnPlan::for_endpoint(LlmEndpoint::anthropic("k", crate::llm::DEFAULT_MODEL));
+        let plan = TurnPlan::for_endpoint(LlmEndpoint::anthropic("k", crate::models::DEFAULT_MODEL));
         let text = plan.describe();
-        assert!(text.contains(crate::llm::DEFAULT_MODEL), "{text}");
+        assert!(text.contains(crate::models::DEFAULT_MODEL), "{text}");
         assert!(text.contains(&plan.context_window.to_string()), "{text}");
         assert_eq!(
             plan.context_window,
-            crate::llm::context_window_for(plan.model())
+            crate::models::context_window_for(plan.model())
         );
         assert_eq!(
             plan.max_tokens,
-            crate::llm::max_output_tokens_for(plan.model())
+            crate::models::max_output_tokens_for(plan.model())
         );
     }
 
