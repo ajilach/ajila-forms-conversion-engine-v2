@@ -569,6 +569,7 @@ fn ActivityTimeline(
                         used: state.context_used_tokens,
                         window: state.context_window,
                     }
+                    SpendTag { spend: state.spend }
                 } else {
                     // Collapsed: show only the latest step.
                     match steps.last() {
@@ -657,6 +658,26 @@ fn status_glyph(status: AgentStepStatus) -> Element {
 
 /// How much of the model's context window the run has filled. Renders nothing
 /// until the agent reports a window.
+#[component]
+/// What the run has cost so far, beside the context gauge.
+///
+/// Absent until the first turn reports usage. A model with no published rate
+/// shows its token counts and says the cost is unknown, rather than showing a
+/// figure that is really a zero.
+#[component]
+fn SpendTag(spend: Option<pipeline::Spend>) -> Element {
+    let Some(spend) = spend else {
+        return rsx! {};
+    };
+    let label = match spend.cost_usd {
+        Some(cost) => format!("USD {cost:.2}"),
+        None => "cost n/a".to_string(),
+    };
+    rsx! {
+        span { class: "ag-spend", title: "{spend.describe()}", "{label}" }
+    }
+}
+
 #[component]
 fn ContextGauge(used: usize, window: usize) -> Element {
     if window == 0 {

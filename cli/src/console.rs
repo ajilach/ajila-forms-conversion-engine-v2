@@ -24,6 +24,8 @@ pub struct ConsoleObserver {
     running: Option<Instant>,
     /// Whether the abort notice has been printed (it is emitted repeatedly).
     aborted: bool,
+    /// The run's cumulative spend, reported once when it finishes.
+    spend: Option<pipeline::Spend>,
     transcript: Vec<String>,
 }
 
@@ -35,6 +37,7 @@ impl ConsoleObserver {
             retry_action: None,
             running: None,
             aborted: false,
+            spend: None,
             transcript: vec!["# Agent Conversion Log\n".to_string()],
         }
     }
@@ -42,7 +45,18 @@ impl ConsoleObserver {
     /// The run's Markdown transcript, in the same shape the app's log download
     /// uses: thoughts as block quotes, tool calls as a checked list.
     pub fn transcript(&self) -> String {
-        self.transcript.join("\n")
+        let mut text = self.transcript.join("\n");
+        if let Some(spend) = self.spend {
+            text.push_str(&format!("\n\n{}\n", spend.describe()));
+        }
+        text
+    }
+
+    /// Print what the run cost. Called once, after it finishes.
+    pub fn report_spend(&mut self) {
+        if let Some(spend) = self.spend {
+            self.say(format!("\n{}", spend.describe()));
+        }
     }
 
     fn say(&mut self, line: impl AsRef<str>) {
@@ -57,6 +71,9 @@ impl RunObserver for ConsoleObserver {
                 self.say(format!("\n── {role} — {doing} ──"));
                 self.transcript.push(format!("\n## {role} — {doing}\n"));
             }
+            // Cumulative, so only the last one matters; it goes to the
+            // transcript at the end rather than a line per turn.
+            RunEvent::Spend(spend) => self.spend = Some(spend),
             RunEvent::Thought(text) => {
                 self.say(&text);
                 self.transcript

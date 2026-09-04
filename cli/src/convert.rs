@@ -244,6 +244,8 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     // recorded its history under this id, and that is what a resume needs.
     println!("\n── Result ──");
     println!("Session: {}", completed.session_id);
+    // Reported even when the run stopped early: those turns were still billed.
+    observer.report_spend();
 
     let Some(outcome) = completed.outcome else {
         // Aborted, or the retry budget ran out. The observer said why.

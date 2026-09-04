@@ -57,7 +57,10 @@ pub enum RetryAction {
 }
 
 /// Everything the controller tells the outside world while a run is in flight.
-#[derive(Clone, Debug, Eq, PartialEq)]
+///
+/// Only `PartialEq`: [`Spend`] carries a currency amount, and a float has no
+/// total equality.
+#[derive(Clone, Debug, PartialEq)]
 pub enum RunEvent {
     /// A pipeline stage started.
     Stage { role: &'static str, doing: String },
@@ -73,10 +76,66 @@ pub enum RunEvent {
     Warning(String),
     /// Prompt tokens sent on the latest turn, for a context-fill indicator.
     ContextUsed(usize),
+    /// What the run has spent so far. Cumulative, emitted after every model
+    /// call, so a long run's cost is visible while it is still running rather
+    /// than only in hindsight.
+    Spend(Spend),
     /// The run stopped because the abort flag was set. May be emitted more than
     /// once — every abort checkpoint reports it, and implementations are
     /// expected to be idempotent.
     Aborted,
+}
+
+/// A run's cumulative token use and what it cost.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Spend {
+    pub input_tokens: u64,
+    pub output_tokens: u64,
+    /// Input tokens served from the provider's cache, billed at a tenth.
+    pub cached_input_tokens: u64,
+    /// Input tokens written to the cache on this run.
+    pub cache_write_tokens: u64,
+    /// Tokens the model spent on hidden reasoning.
+    pub reasoning_tokens: u64,
+    /// USD, or `None` when nothing can price this model — the provider reported
+    /// no cost and the local table does not know the id. Tokens are still
+    /// reported; a missing figure is honest, a zero would not be.
+    pub cost_usd: Option<f64>,
+}
+
+impl Spend {
+    /// The one-line rendering both consumers show.
+    ///
+    /// Cached input is called out separately because it is the lever the prompt
+    /// cache pulls: a healthy long run reads far more than it writes.
+    pub fn describe(&self) -> String {
+        let mut text = format!(
+            "Spend: {} in ({} cached) · {} out",
+            self.input_tokens, self.cached_input_tokens, self.output_tokens
+        );
+        if self.reasoning_tokens > 0 {
+            text.push_str(&format!(" · {} reasoning", self.reasoning_tokens));
+        }
+        match self.cost_usd {
+            Some(cost) => text.push_str(&format!(" · USD {cost:.2}")),
+            // No published rate for this model. Saying so beats printing 0.00.
+            None => text.push_str(" · cost unknown for this model"),
+        }
+        text
+    }
+
+    /// Fold one call's usage in. `cost` is the provider's own figure when it
+    /// reported one.
+    pub fn add(&mut self, usage: &rig_core::completion::Usage, cost: Option<f64>) {
+        self.input_tokens += usage.input_tokens;
+        self.output_tokens += usage.output_tokens;
+        self.cached_input_tokens += usage.cached_input_tokens;
+        self.cache_write_tokens += usage.cache_creation_input_tokens;
+        self.reasoning_tokens += usage.reasoning_tokens;
+        if let Some(cost) = cost {
+            *self.cost_usd.get_or_insert(0.0) += cost;
+        }
+    }
 }
 
 /// Receives a run's progress and answers its retry prompts.

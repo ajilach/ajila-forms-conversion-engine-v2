@@ -103,7 +103,9 @@ pub struct AgentStep {
     pub status: AgentStepStatus,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+// Only `PartialEq`: the run's spend carries a currency amount, and a float has
+// no total equality.
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProcessingState {
     pub step: ProcessingStep,
     /// What the finished run produced. Recorded here rather than read from the
@@ -144,6 +146,9 @@ pub struct ProcessingState {
     /// reported usage), for the context-window fill indicator. 0 before the first
     /// turn reports usage.
     pub context_used_tokens: usize,
+    /// What the run has spent so far. `None` before the first turn reports
+    /// usage, and it stays `None` for a run that never reached the model.
+    pub spend: Option<pipeline::Spend>,
     /// The model's context window in tokens — the denominator of the fill
     /// indicator. 0 until the agent run sets it.
     pub context_window: usize,

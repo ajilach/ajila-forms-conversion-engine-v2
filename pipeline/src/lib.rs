@@ -22,6 +22,6 @@ pub mod roles;
 pub mod run;
 pub mod turns;
 
-pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver};
+pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver, Spend};
 pub use run::{RunConfig, RunOutcome, RunSeed, run};
 pub use turns::{ModelReply, TurnProvider, tool_definitions, tool_result_content, tool_results};

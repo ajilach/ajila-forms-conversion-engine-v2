@@ -17,6 +17,7 @@ pub mod artifacts;
 pub mod client;
 pub mod context;
 pub mod models;
+pub mod pricing;
 pub mod provider;
 pub mod ratelimit;
 pub mod run;

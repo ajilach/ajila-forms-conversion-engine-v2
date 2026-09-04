@@ -9,7 +9,7 @@
 use agent::{ConversionAgent, ToolReply};
 use blueprint::{DocumentEnvelope, OutputTarget};
 
-use crate::observer::{AbortFlag, RetryAction, RunEvent, RunObserver};
+use crate::observer::{AbortFlag, RetryAction, RunEvent, RunObserver, Spend};
 use crate::roles::{
     self, MAX_AUTO_RETRIES, MAX_MAX_TOKEN_NUDGES, MAX_RETRY_BACKOFF_SECS, MAX_VALIDATE_REPEATS,
     RETRY_BACKOFF_SECS, RETRY_POLL_MS, Role,
@@ -545,6 +545,7 @@ pub(crate) async fn run_stage(
 
     let mut stuck_watch = StuckWatch::new(role.stuck_tool);
     let mut consecutive_max_tokens: usize = 0;
+    let mut spend = Spend::default();
 
     let mut run = AgentRun::new(seed_user_msg)
         .max_turns(role.max_iterations)
@@ -582,6 +583,8 @@ pub(crate) async fn run_stage(
                 if reply.prompt_tokens > 0 {
                     obs.emit(RunEvent::ContextUsed(reply.prompt_tokens));
                 }
+                spend.add(&reply.usage, reply.cost_usd);
+                obs.emit(RunEvent::Spend(spend));
                 if !reply.text.trim().is_empty() {
                     final_text = reply.text.trim().to_string();
                     obs.emit(RunEvent::Thought(final_text.clone()));
@@ -1161,6 +1164,7 @@ mod controller {
             usage: rig_core::completion::Usage::new(),
             text: text.to_string(),
             prompt_tokens,
+            cost_usd: None,
         })
     }
 

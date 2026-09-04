@@ -34,6 +34,8 @@ pub struct CallPlan<'a> {
     pub max_tokens: u32,
     /// Estimated-token budget the assembled prompt must fit inside.
     pub target: usize,
+    /// The model id, for pricing. The handle has erased it.
+    pub model_id: &'a str,
 }
 
 /// Run one streamed model call and assemble the turn.
@@ -49,6 +51,7 @@ pub async fn call_model(
         system,
         max_tokens,
         target,
+        model_id,
     } = plan;
 
     let system = (!system.is_empty()).then_some(system);
@@ -59,7 +62,7 @@ pub async fn call_model(
     // harder eviction and try again — and remember the real window the error
     // reported, so the next turn starts from the truth instead of the guess.
     let mut target = target;
-    let (response, sent_estimate) = loop {
+    let (mut response, sent_estimate) = loop {
         // Shrinking happens off the caller's thread: the run loop is spawned on
         // Dioxus's main-thread executor, and a deep clone plus a recursive token
         // walk over a multi-MB history freezes rendering. Ownership goes in and
@@ -119,7 +122,6 @@ pub async fn call_model(
     let mut assembler = StreamedTurnAssembler::new(tool_names.clone(), tool_names);
 
     let mut text = String::new();
-    let mut response = response;
     while let Some(item) = response.next().await {
         // Checked per chunk, not per turn: a stage's turn can run for minutes,
         // and a stop control that only takes effect at the end of one is not a
@@ -147,10 +149,13 @@ pub async fn call_model(
         + usage.cache_creation_input_tokens) as usize;
     context::record_token_calibration(prompt_tokens, sent_estimate);
 
+    let cost_usd = crate::pricing::cost_usd(model_id, &usage);
+
     Ok(ModelReply {
         turn,
         usage,
         text,
         prompt_tokens,
+        cost_usd,
     })
 }

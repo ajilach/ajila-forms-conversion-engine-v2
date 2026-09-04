@@ -133,6 +133,7 @@ impl TurnProvider for ConfiguredTurns {
                 system,
                 max_tokens: self.max_tokens,
                 target: self.prompt_target,
+                model_id: &self.endpoint.model,
             },
             abort,
         )

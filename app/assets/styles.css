@@ -1239,6 +1239,10 @@ body > div, #main {
 }
 .ag-tl-title { font-weight: 700; font-size: 13px; color: var(--text); }
 /* Context-window fill indicator: a small donut that fills as the prompt grows. */
+.ag-spend {
+  margin-left: 10px; font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
 .ag-ctx { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; }
 .ag-ctx-ring {
     position: relative;

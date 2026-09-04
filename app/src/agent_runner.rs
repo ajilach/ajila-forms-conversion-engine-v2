@@ -87,6 +87,7 @@ impl RunObserver for DioxusObserver {
             }
             RunEvent::Warning(w) => self.state.write().warnings.push(w),
             RunEvent::ContextUsed(tokens) => self.state.write().context_used_tokens = tokens,
+            RunEvent::Spend(spend) => self.state.write().spend = Some(spend),
             // Emitted at every abort checkpoint, so record it only once.
             RunEvent::Aborted => {
                 if !self.state.read().aborted {

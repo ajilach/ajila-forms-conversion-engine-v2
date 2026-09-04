@@ -29,6 +29,10 @@ pub struct ModelReply {
     /// Real prompt-token count the API billed for this request — i.e. how full
     /// the context window was. 0 if the API didn't report usage.
     pub prompt_tokens: usize,
+    /// What this call cost in USD, when the model has a published rate. The
+    /// provider knows its own model id, so it prices; the controller only adds
+    /// up. `None` propagates as "not priced" rather than as zero.
+    pub cost_usd: Option<f64>,
 }
 
 /// Runs one model call.
