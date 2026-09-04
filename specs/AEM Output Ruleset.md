@@ -94,6 +94,14 @@
   `summaryComponent` (`replaceEmptyValues="true"`, `showStaticText="true"`), and
   `submitErrorMessage`; and set `redactoSummary="true"` on the DAM asset.
   (`88b7eed`)
+- **R5.5** The `summaryPanel` carries `dorFieldStyling="Default"` and
+  `visible="{Boolean}true"` on the panel itself, besides its five ordered
+  children. `PROBLEM-summary-step-redacto` re-based its reference on the
+  hand-authored AAOS_033 (2026-09-01) after the rule was first derived from
+  `root.xml`; without these two the guard buckets **every** form the engine
+  converts as `off-shape`. Both are inert defaults — this is conformance, not
+  behaviour. Pinned by `the_summary_step_carries_the_redacto_panel_attributes`.
+
 - **R5.4** The hidden `doroptionsubs` and `metadata` control nodes live inside
   the `summarypanel` (not `previewpanel`), and each carries `dorExclusion="true"`
   and `visible="false"`. (`e6f2f80`)

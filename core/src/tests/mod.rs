@@ -29143,6 +29143,35 @@ fn test_aabf_loose_address_block_becomes_the_address_fragment() {
     );
 }
 
+/// The summary step carries the two attributes the Redacto rule requires.
+///
+/// `PROBLEM-summary-step-redacto`'s reference was re-based on the hand-authored
+/// AAOS_033 on 2026-09-01, after the rule had originally been derived from this
+/// very template, and gained `dorFieldStyling="Default"` and
+/// `visible="{Boolean}true"` on the panel itself. Both are inert defaults, so
+/// nothing behaves differently -- but without them the detector buckets every
+/// form the engine converts as `off-shape`, on both the deterministic and the
+/// agent path.
+#[test]
+fn the_summary_step_carries_the_redacto_panel_attributes() {
+    for (pdf, xml) in rendered_ubs_forms() {
+        let panel = xml
+            .split("<summarypanel")
+            .nth(1)
+            .unwrap_or_else(|| panic!("{pdf}: no summary panel"));
+        let open_tag = panel.split('>').next().unwrap_or_default();
+        for attr in [
+            "dorFieldStyling=\"Default\"",
+            "visible=\"{Boolean}true\"",
+        ] {
+            assert!(
+                open_tag.contains(attr),
+                "{pdf}: the summary panel must carry {attr}, got:\n{open_tag}"
+            );
+        }
+    }
+}
+
 /// The internal-bank-use block uses the global fragment, in both markets.
 ///
 /// The deployed corpus migrated: of the 78 Italian packages issued 2026-09-01,

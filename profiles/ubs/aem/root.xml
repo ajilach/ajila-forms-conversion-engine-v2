@@ -100,11 +100,13 @@
                         jcr:title="Summary of form information"
                         sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
                         dorExclusion="true"
+                        dorFieldStyling="Default"
                         summaryExclusion="true"
                         guideNodeClass="guidePanel"
                         name="summaryPanel"
                         textIsRich="true"
-                        validateOnStepCompletion="{Boolean}false">
+                        validateOnStepCompletion="{Boolean}false"
+                        visible="{Boolean}true">
                         <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
                             <messagebox_ElsigCheck
                                 jcr:primaryType="nt:unstructured"
