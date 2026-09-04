@@ -9,7 +9,8 @@
 //! its own, and neither is the controller's business.
 
 use rig_agent::agent::model::ModelHandle;
-use rig_core::client::{CompletionClient, ProviderClient};
+use rig_core::client::{CompletionClient, ModelLister};
+use rig_core::model::Model;
 use rig_core::providers::{anthropic, openai, openrouter};
 
 use crate::provider::{DEFAULT_OPENAI_BASE_URL, LlmEndpoint, Provider};
@@ -76,6 +77,49 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
             ))
         }
     }
+}
+
+/// The models `endpoint` offers, as the provider reports them.
+///
+/// Anthropic populates only the id and display name; OpenRouter also fills in
+/// `context_length` and `max_output_tokens`, which is why the limits table is a
+/// fallback rather than dead weight.
+pub async fn list_models(endpoint: &LlmEndpoint) -> Result<Vec<Model>, String> {
+    let listed = match endpoint.provider {
+        Provider::Anthropic => {
+            let client = anthropic::Client::builder()
+                .api_key(endpoint.api_key.clone())
+                .base_url(endpoint.base_url.clone())
+                .build()
+                .map_err(|e| format!("Anthropic client: {e}"))?;
+            anthropic::model_listing::AnthropicModelLister::new(client)
+                .list_all()
+                .await
+        }
+        Provider::OpenAi if endpoint.base_url == DEFAULT_OPENAI_BASE_URL => {
+            let client = openrouter::Client::builder()
+                .api_key(endpoint.api_key.clone())
+                .base_url(endpoint.base_url.clone())
+                .build()
+                .map_err(|e| format!("OpenRouter client: {e}"))?;
+            openrouter::model_listing::OpenRouterModelLister::new(client)
+                .list_all()
+                .await
+        }
+        Provider::OpenAi => {
+            let client = openai::Client::builder()
+                .api_key(endpoint.api_key.clone())
+                .base_url(endpoint.base_url.clone())
+                .build()
+                .map_err(|e| format!("OpenAI-compatible client at {}: {e}", endpoint.base_url))?;
+            openai::model_listing::OpenAIModelLister::new(client)
+                .list_all()
+                .await
+        }
+    };
+    listed
+        .map(|list| list.data)
+        .map_err(|e| format!("Could not list models at {}: {e}", endpoint.base_url))
 }
 
 #[cfg(test)]

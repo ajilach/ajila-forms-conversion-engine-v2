@@ -140,11 +140,16 @@ impl LlmEndpoint {
     }
 
     /// The model ids the endpoint offers, sorted. Used by the settings picker.
+    ///
+    /// Anthropic's listing reports ids and display names only, so the limits
+    /// still come from [`crate::models::KNOWN_MODELS`]; OpenRouter reports the
+    /// context window and output ceiling too. Either way the ids are the live
+    /// ones, so a model released after this build still shows up.
     pub async fn list_models(&self) -> Result<Vec<String>, String> {
-        match self.provider {
-            Provider::Anthropic => crate::llm::anthropic_list_models(self).await,
-            Provider::OpenAi => crate::openai::openai_list_models(self).await,
-        }
+        let models = crate::client::list_models(self).await?;
+        let mut ids: Vec<String> = models.into_iter().map(|m| m.id).collect();
+        ids.sort();
+        Ok(ids)
     }
 }
 

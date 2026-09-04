@@ -42,8 +42,8 @@
 |---|---|
 | `core` (`blueprint`) | The engine: parsing, analysis, and every renderer. No UI, no network, no LLM. |
 | `agent` | The headless conversion agent: the tool catalog and executor, the edit-history store, the reference store, the AEM HTTP client, and the browser client (`browser.rs`: a Playwright MCP server spawned per run and driven over stdio). No UI and no LLM. |
-| `pipeline` | The conversion controller: Analyst → Author → Reviewer sequencing, retry recovery, the stuck watchdog. Reaches the outside world only through `TurnProvider` (the model) and `RunObserver` (progress), so it needs neither a UI framework nor a network to test. |
-| `runner` | The host side of a run, shared by `app` and `cli`: the Anthropic transport, the operator settings, and the entry points that build the agent, open a history session and record the result. |
+| `pipeline` | The conversion controller: Analyst → Author → Reviewer sequencing, retry recovery, the stuck watchdog. The per-stage loop is rig's sans-IO `AgentRun`, stepped by `run_stage` so every piece of I/O stays here. Reaches the outside world only through `TurnProvider` (the model) and `RunObserver` (progress), so it needs neither a UI framework nor a network to test. |
+| `runner` | The host side of a run, shared by `app` and `cli`: the rig client factory (`client.rs`, the only place a provider is named), the streamed model call (`stream.rs`), the context budget (`context.rs`) and model limits (`models.rs`), the operator settings, and the entry points that build the agent, open a history session and record the result. |
 | `app` | The Dioxus desktop app: the observer implementation and all UI state. |
 | `mcp` | A stdio MCP server exposing `agent`'s tools to an external LLM client. |
 | `cli` | Thin arg-parse and dispatch over `core`, plus `convert`/`sessions` — the AI conversion run headless, over `runner`. |

@@ -3,14 +3,17 @@
 //!
 //! The model id and the output cap live here rather than in the controller —
 //! they are provider knowledge, and keeping them on this side is what lets the
-//! `pipeline` crate carry no model tables at all. Which transport runs the turn
-//! (Anthropic Messages or an OpenAI-compatible endpoint) is decided here too, so
-//! nothing above this line branches on it.
+//! `pipeline` crate carry no model tables at all. Which provider answers is
+//! decided once in [`crate::client`], so nothing above this line branches on it.
 
-use pipeline::{AbortFlag, TurnOutput, TurnProvider};
+use pipeline::{AbortFlag, ModelReply, TurnProvider};
+use rig_agent::agent::model::ModelHandle;
+use rig_core::completion::ToolDefinition;
+use rig_core::message::Message;
 
 use crate::provider::{LlmEndpoint, Provider};
 use crate::settings::AppSettings;
+use crate::stream::{CallPlan, call_model};
 
 /// The provider-side numbers a run is about to work with.
 ///
@@ -73,33 +76,42 @@ impl TurnPlan {
     }
 
     /// The turn provider these numbers describe.
-    pub fn provider(&self) -> ConfiguredTurns {
-        ConfiguredTurns {
+    ///
+    /// Resolving the model here means a missing key or an unbuildable client is
+    /// reported before the run starts, not on its first turn.
+    pub fn provider(&self) -> Result<ConfiguredTurns, String> {
+        Ok(ConfiguredTurns {
+            model: crate::client::model_for(&self.endpoint)?,
             endpoint: self.endpoint.clone(),
             max_tokens: self.max_tokens,
+            prompt_target: self.prompt_target,
             max_concurrent: self.max_concurrent,
-        }
+        })
     }
 }
 
-/// Runs the controller's turns against the configured endpoint.
+/// Runs the controller's model calls against the configured endpoint.
 pub struct ConfiguredTurns {
+    model: ModelHandle,
     endpoint: LlmEndpoint,
     max_tokens: u32,
+    /// Estimated-token budget a request's prompt must fit inside.
+    prompt_target: usize,
     /// Snapshotted from the plan, so a run keeps the cap it started under even
     /// if the operator changes the setting while it is going.
     max_concurrent: usize,
 }
 
 impl TurnProvider for ConfiguredTurns {
-    async fn turn(
+    async fn call_model(
         &self,
-        history: &mut Vec<serde_json::Value>,
-        tools: &[serde_json::Value],
+        prompt: Message,
+        history: Vec<Message>,
+        tools: &[ToolDefinition],
         system: &str,
         abort: &AbortFlag,
-    ) -> Result<TurnOutput, String> {
-        // Held for the whole turn, streamed response included. Releasing it when
+    ) -> Result<ModelReply, String> {
+        // Held for the whole call, streamed response included. Releasing it when
         // the response headers arrive would cap the rate at which requests are
         // *started* while leaving any number of them streaming — which is not
         // what a provider's rate limit counts.
@@ -112,30 +124,19 @@ impl TurnProvider for ConfiguredTurns {
             None => None,
         };
 
-        match self.endpoint.provider {
-            Provider::Anthropic => {
-                crate::llm::anthropic_stream_turn(
-                    history,
-                    tools,
-                    &self.endpoint,
-                    self.max_tokens,
-                    Some(system),
-                    abort,
-                )
-                .await
-            }
-            Provider::OpenAi => {
-                crate::openai::openai_stream_turn(
-                    history,
-                    tools,
-                    &self.endpoint,
-                    self.max_tokens,
-                    Some(system),
-                    abort,
-                )
-                .await
-            }
-        }
+        call_model(
+            &self.model,
+            CallPlan {
+                prompt,
+                history,
+                tools,
+                system,
+                max_tokens: self.max_tokens,
+                target: self.prompt_target,
+            },
+            abort,
+        )
+        .await
     }
 }
 

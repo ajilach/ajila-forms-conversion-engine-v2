@@ -237,7 +237,7 @@ pub async fn describe_reference(
     package_zip: Vec<u8>,
     endpoint: LlmEndpoint,
 ) -> Result<String, String> {
-    let turns = TurnPlan::for_endpoint(endpoint).provider();
+    let turns = TurnPlan::for_endpoint(endpoint).provider()?;
     pipeline::describe::describe_reference(
         profile,
         pdfs,

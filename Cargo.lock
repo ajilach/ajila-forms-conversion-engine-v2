@@ -5397,6 +5397,8 @@ version = "0.1.0"
 dependencies = [
  "agent",
  "blueprint",
+ "rig-agent",
+ "rig-core",
  "serde_json",
  "tokio",
  "uuid",

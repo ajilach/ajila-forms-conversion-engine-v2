@@ -14,7 +14,13 @@ use crate::roles::{
     self, MAX_AUTO_RETRIES, MAX_MAX_TOKEN_NUDGES, MAX_RETRY_BACKOFF_SECS, MAX_VALIDATE_REPEATS,
     RETRY_BACKOFF_SECS, RETRY_POLL_MS, Role,
 };
-use crate::turns::{ToolCall, TurnOutput, TurnProvider, tool_result_message};
+use rig_agent::agent::hook::RetryRequest;
+use rig_agent::agent::run::{AgentRun, AgentRunStep};
+use rig_core::completion::request::ResponseIdentity;
+use rig_core::completion::{FinishReason, ToolDefinition};
+use rig_core::message::{AssistantContent, Message};
+
+use crate::turns::{ModelReply, TurnProvider, tool_definitions, tool_results};
 
 /// The choices that shape a run, independent of who is driving it.
 pub struct RunConfig {
@@ -390,18 +396,25 @@ async fn await_user_retry(
 /// Run one turn, absorbing transient failures: automatic retries with
 /// exponential backoff first, then a pause that hands the decision to the
 /// operator. `None` means the run should stop.
+#[allow(clippy::too_many_arguments)]
 async fn turn_with_retry(
-    history: &mut Vec<serde_json::Value>,
-    tools: &[serde_json::Value],
+    prompt: &Message,
+    history: &[Message],
+    tools: &[ToolDefinition],
     role: &Role,
     system: &str,
     abort: &AbortFlag,
     turns: &impl TurnProvider,
     obs: &mut impl RunObserver,
-) -> Option<TurnOutput> {
+) -> Option<ModelReply> {
     let mut auto_retries = 0usize;
     loop {
-        match turns.turn(history, tools, system, abort).await {
+        // The prompt and history are cloned per attempt: a retry must re-send
+        // exactly what failed, and the provider evicts its own copy.
+        match turns
+            .call_model(prompt.clone(), history.to_vec(), tools, system, abort)
+            .await
+        {
             Ok(turn) => return Some(turn),
             Err(e) => {
                 // An aborted turn is a stop, not a failure: it must not be
@@ -508,31 +521,16 @@ impl StuckWatch {
     }
 }
 
-/// The message injected when a turn is cut off at the output-token cap: mark
-/// every unexecuted call as failed, then steer toward incremental authoring.
-fn max_tokens_nudge(role: &Role, tool_calls: &[ToolCall]) -> serde_json::Value {
-    let mut content: Vec<serde_json::Value> = tool_calls
-        .iter()
-        .map(|tc| {
-            serde_json::json!({
-                "type": "tool_result",
-                "tool_use_id": tc.id,
-                "is_error": true,
-                "content": [{
-                    "type": "text",
-                    "text": "This call was cut off at the output-token limit and was not executed.",
-                }],
-            })
-        })
-        .collect();
-    content.push(serde_json::json!({"type": "text", "text": role.max_tokens_nudge}));
-    serde_json::json!({"role": "user", "content": content})
-}
-
-/// Drive one stage to completion: fresh bounded history seeded with
-/// `seed_user_msg`, the stage's scoped tool subset, and its `system` prompt, over
-/// the same [`TurnProvider`] as every other stage. Returns the last non-tool
-/// assistant message; `None` if the run should stop.
+/// Drive one stage to completion: a fresh run seeded with `seed_user_msg`, the
+/// stage's scoped tool subset, and its `system` prompt, over the same
+/// [`TurnProvider`] as every other stage. Returns the last non-tool assistant
+/// message; `None` if the run should stop.
+///
+/// The loop is rig's [`AgentRun`] — a sans-IO state machine that owns turn
+/// counting, tool-call validation and history threading, and hands every piece
+/// of I/O back here. That is what lets the abort flag, the operator retry
+/// prompt, the stuck watchdog and the observer events keep working exactly as
+/// they did when this loop was hand-rolled.
 pub(crate) async fn run_stage(
     agent: &mut ConversionAgent,
     role: &Role,
@@ -542,101 +540,161 @@ pub(crate) async fn run_stage(
     turns: &impl TurnProvider,
     obs: &mut impl RunObserver,
 ) -> Option<String> {
-    let tools = agent.tools_for_stage(role.scope);
-    let mut history: Vec<serde_json::Value> = vec![serde_json::json!({
-        "role": "user",
-        "content": [{"type": "text", "text": seed_user_msg}],
-    })];
+    let tools = tool_definitions(&agent.tools_for_stage(role.scope));
     let mut final_text = String::new();
 
     let mut stuck_watch = StuckWatch::new(role.stuck_tool);
     let mut consecutive_max_tokens: usize = 0;
 
-    for _ in 0..role.max_iterations {
+    let mut run = AgentRun::new(seed_user_msg)
+        .max_turns(role.max_iterations)
+        // A truncated argument stream is the model's mistake to correct, not a
+        // reason to fail the stage; repairing it is what the hand-rolled loop
+        // approximated by substituting an empty input.
+        .max_invalid_tool_call_retries(MAX_AUTO_RETRIES);
+
+    loop {
         if abort.is_aborted() {
             obs.emit(RunEvent::Aborted);
             return None;
         }
 
-        // Transient failures are retried automatically, then handed to the
-        // operator — a dropped connection must not throw away a long run.
-        let turn =
-            turn_with_retry(&mut history, &tools, role, system, abort, turns, obs).await?;
-
-        // Per-stage context-window fill indicator.
-        if turn.prompt_tokens > 0 {
-            obs.emit(RunEvent::ContextUsed(turn.prompt_tokens));
-        }
-
-        if !turn.text.trim().is_empty() {
-            final_text = turn.text.trim().to_string();
-            obs.emit(RunEvent::Thought(final_text.clone()));
-        }
-
-        if turn.stop_reason.as_deref() != Some("tool_use") || turn.tool_calls.is_empty() {
-            // A turn cut off at the output-token cap didn't decide to stop —
-            // nudge toward incremental authoring and retry rather than ending.
-            if turn.stop_reason.as_deref() == Some("max_tokens")
-                && consecutive_max_tokens < MAX_MAX_TOKEN_NUDGES
-            {
-                consecutive_max_tokens += 1;
-                history.push(max_tokens_nudge(role, &turn.tool_calls));
-                obs.emit(RunEvent::Thought(
-                    "Turn hit the output-token limit — asking the agent to build the \
-                     result incrementally instead of in one call."
-                        .into(),
-                ));
-                continue;
+        let step = match run.next_step() {
+            Ok(step) => step,
+            Err(e) => {
+                obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
+                break;
             }
-            break; // natural stage completion (no tool use)
-        }
-        consecutive_max_tokens = 0;
+        };
 
-        let mut results: Vec<(String, ToolReply)> = Vec::new();
-        let mut stuck = false;
-        let mut terminal = false;
-        for tc in &turn.tool_calls {
-            if abort.is_aborted() {
-                obs.emit(RunEvent::Aborted);
-                return None;
+        match step {
+            AgentRunStep::CallModel {
+                prompt, history, ..
+            } => {
+                // Transient failures are retried automatically, then handed to
+                // the operator — a dropped connection must not throw away a
+                // long run.
+                let reply =
+                    turn_with_retry(&prompt, &history, &tools, role, system, abort, turns, obs)
+                        .await?;
+
+                // Per-stage context-window fill indicator.
+                if reply.prompt_tokens > 0 {
+                    obs.emit(RunEvent::ContextUsed(reply.prompt_tokens));
+                }
+                if !reply.text.trim().is_empty() {
+                    final_text = reply.text.trim().to_string();
+                    obs.emit(RunEvent::Thought(final_text.clone()));
+                }
+
+                let finish_reason = reply.turn.finish_reason.clone();
+                let had_tool_calls = reply
+                    .turn
+                    .choice
+                    .iter()
+                    .any(|c| matches!(c, AssistantContent::ToolCall(_)));
+
+                // Usage does not reach the run on its own on the streamed path:
+                // `StreamedTurn` carries none, so without this the run's totals
+                // stay at zero and the spend report reads as free.
+                if let Err(e) = run.record_streamed_completion_call(
+                    reply.usage,
+                    ResponseIdentity::default(),
+                    finish_reason.clone(),
+                    serde_json::Value::Null,
+                ) {
+                    obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
+                    break;
+                }
+                if let Err(e) = run.streamed_turn(reply.turn) {
+                    obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
+                    break;
+                }
+
+                // A turn cut off at the output-token cap didn't decide to stop —
+                // nudge toward incremental authoring rather than ending the
+                // stage. Only a tool-free turn can be retried this way; one that
+                // did request tools carries them into the next step as usual.
+                if finish_reason == Some(FinishReason::Length)
+                    && !had_tool_calls
+                    && consecutive_max_tokens < MAX_MAX_TOKEN_NUDGES
+                {
+                    consecutive_max_tokens += 1;
+                    if run
+                        .retry_model_turn(RetryRequest::Feedback(role.max_tokens_nudge.to_string()))
+                        .is_ok()
+                    {
+                        obs.emit(RunEvent::Thought(
+                            "Turn hit the output-token limit — asking the agent to build the \
+                             result incrementally instead of in one call."
+                                .into(),
+                        ));
+                        continue;
+                    }
+                }
+                if had_tool_calls {
+                    consecutive_max_tokens = 0;
+                }
             }
-            obs.emit(RunEvent::ToolStarted {
-                id: tc.id.clone(),
-                name: tc.name.clone(),
-                input_summary: summarize_input(&tc.input),
-            });
-            let reply = agent.execute(&tc.name, &tc.input).await;
-            let ok = !matches!(reply, ToolReply::Error(_));
-            obs.emit(RunEvent::ToolFinished {
-                id: tc.id.clone(),
-                ok,
-            });
-            // A browser restart is the agent's business to perform and the
-            // operator's to know about.
-            for warning in agent.take_warnings() {
-                obs.emit(RunEvent::Warning(warning));
+
+            AgentRunStep::CallTools { calls } => {
+                let mut results = Vec::new();
+                let mut stuck = false;
+                let mut terminal = false;
+
+                for call in calls {
+                    if abort.is_aborted() {
+                        obs.emit(RunEvent::Aborted);
+                        return None;
+                    }
+                    let name = call.tool_call.function.name.clone();
+                    let id = call.tool_call.id.clone();
+                    let input = call.tool_call.function.arguments.clone();
+
+                    obs.emit(RunEvent::ToolStarted {
+                        id: id.as_str().to_string(),
+                        name: name.clone(),
+                        input_summary: summarize_input(&input),
+                    });
+                    let reply = agent.execute(&name, &input).await;
+                    let ok = !matches!(reply, ToolReply::Error(_));
+                    obs.emit(RunEvent::ToolFinished {
+                        id: id.as_str().to_string(),
+                        ok,
+                    });
+                    // A browser restart is the agent's business to perform and
+                    // the operator's to know about.
+                    for warning in agent.take_warnings() {
+                        obs.emit(RunEvent::Warning(warning));
+                    }
+
+                    // `submit_review` ends the stage after its result is recorded.
+                    if name == "submit_review" {
+                        terminal = true;
+                    }
+                    stuck |= stuck_watch.observe(&name, &reply);
+
+                    results.push((id, name, reply));
+                }
+
+                if let Err(e) = run.tool_results(tool_results(results)) {
+                    obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
+                    break;
+                }
+
+                if terminal {
+                    break;
+                }
+                if stuck {
+                    obs.emit(RunEvent::Warning(format!(
+                        "{}: {} produced the same result {} times in a row — moving on.",
+                        role.name, role.stuck_activity, MAX_VALIDATE_REPEATS
+                    )));
+                    break;
+                }
             }
 
-            // `submit_review` ends the stage after its result is recorded.
-            if tc.name == "submit_review" {
-                terminal = true;
-            }
-
-            stuck |= stuck_watch.observe(&tc.name, &reply);
-
-            results.push((tc.id.clone(), reply));
-        }
-        history.push(tool_result_message(results));
-
-        if terminal {
-            break;
-        }
-        if stuck {
-            obs.emit(RunEvent::Warning(format!(
-                "{}: {} produced the same result {} times in a row — moving on.",
-                role.name, role.stuck_activity, MAX_VALIDATE_REPEATS
-            )));
-            break;
+            AgentRunStep::Done(_) => break,
         }
     }
 
@@ -979,37 +1037,39 @@ mod controller {
     use std::cell::RefCell;
     use std::collections::VecDeque;
 
-    /// Replays a fixed script, one turn per call. A script that runs dry fails
-    /// the test rather than hanging, so an unexpected extra stage is loud.
+    /// Replays a fixed script, one model call per invocation. A script that
+    /// runs dry fails the test rather than hanging, so an unexpected extra
+    /// stage is loud.
     struct ScriptedTurns {
-        script: RefCell<VecDeque<Result<TurnOutput, String>>>,
+        script: RefCell<VecDeque<Result<ModelReply, String>>>,
         /// Every `system` prompt the controller asked with, in order — the
         /// record of which stage ran.
         seen: RefCell<Vec<String>>,
     }
 
     impl ScriptedTurns {
-        fn new(script: Vec<Result<TurnOutput, String>>) -> Self {
+        fn new(script: Vec<Result<ModelReply, String>>) -> Self {
             Self {
                 script: RefCell::new(script.into()),
                 seen: RefCell::new(Vec::new()),
             }
         }
 
-        /// How many turns the controller actually took.
+        /// How many model calls the controller actually made.
         fn turns_taken(&self) -> usize {
             self.seen.borrow().len()
         }
     }
 
     impl TurnProvider for ScriptedTurns {
-        async fn turn(
+        async fn call_model(
             &self,
-            _history: &mut Vec<serde_json::Value>,
-            _tools: &[serde_json::Value],
+            _prompt: Message,
+            _history: Vec<Message>,
+            _tools: &[ToolDefinition],
             system: &str,
             _abort: &AbortFlag,
-        ) -> Result<TurnOutput, String> {
+        ) -> Result<ModelReply, String> {
             self.seen.borrow_mut().push(system.to_string());
             let next = self.script.borrow_mut().pop_front();
             next.expect("the controller took more turns than the script provides")
@@ -1063,26 +1123,66 @@ mod controller {
         fn retry_resolved(&mut self, _action: RetryAction) {}
     }
 
-    fn text_turn(text: &str) -> Result<TurnOutput, String> {
-        Ok(TurnOutput {
-            text: text.into(),
-            tool_calls: Vec::new(),
-            stop_reason: Some("end_turn".into()),
-            prompt_tokens: 42,
+    /// Assemble a scripted reply the way a real streamed turn arrives.
+    fn scripted(
+        text: &str,
+        calls: Vec<rig_core::message::ToolCall>,
+        prompt_tokens: usize,
+    ) -> Result<ModelReply, String> {
+        let names: std::collections::BTreeSet<String> =
+            calls.iter().map(|c| c.function.name.clone()).collect();
+        let mut choice: Vec<AssistantContent> = Vec::new();
+        if !text.is_empty() {
+            choice.push(AssistantContent::text(text));
+        }
+        choice.extend(calls.into_iter().map(AssistantContent::ToolCall));
+
+        let finish_reason = if choice
+            .iter()
+            .any(|c| matches!(c, AssistantContent::ToolCall(_)))
+        {
+            FinishReason::ToolCalls
+        } else {
+            FinishReason::Stop
+        };
+
+        let turn = rig_agent::agent::run::streamed::StreamedTurnAssembler::new(
+            names.clone(),
+            names,
+        )
+        .finish(None, &choice);
+        let turn = rig_agent::agent::run::streamed::StreamedTurn {
+            finish_reason: Some(finish_reason),
+            ..turn
+        };
+
+        Ok(ModelReply {
+            turn,
+            usage: rig_core::completion::Usage::new(),
+            text: text.to_string(),
+            prompt_tokens,
         })
     }
 
-    fn review_turn(approved: bool, report: &str) -> Result<TurnOutput, String> {
-        Ok(TurnOutput {
-            text: String::new(),
-            tool_calls: vec![ToolCall {
-                id: "call-review".into(),
-                name: "submit_review".into(),
-                input: serde_json::json!({"approved": approved, "report": report}),
+    fn text_turn(text: &str) -> Result<ModelReply, String> {
+        scripted(text, Vec::new(), 42)
+    }
+
+    fn review_turn(approved: bool, report: &str) -> Result<ModelReply, String> {
+        scripted(
+            "",
+            vec![rig_core::message::ToolCall {
+                id: rig_core::message::ToolCallId::new("call-review").expect("a non-empty id"),
+                provider: None,
+                function: rig_core::message::ToolFunction {
+                    name: "submit_review".into(),
+                    arguments: serde_json::json!({"approved": approved, "report": report}),
+                },
+                signature: None,
+                additional_params: None,
             }],
-            stop_reason: Some("tool_use".into()),
-            prompt_tokens: 7,
-        })
+            7,
+        )
     }
 
     /// A Redacto agent with no source: the scripted turns decide what runs, so

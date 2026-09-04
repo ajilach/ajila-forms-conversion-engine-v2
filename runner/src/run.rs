@@ -270,7 +270,20 @@ async fn drive(
     // configuration. Idempotent, so applying it per run is free.
     opts.settings.apply_runtime_config();
 
-    let turns = TurnPlan::for_settings(&opts.settings).provider();
+    // An endpoint that cannot produce a model ends the run here, with the
+    // message that says what to configure — not on the first turn, after a
+    // session has been opened and the browser started.
+    let turns = match TurnPlan::for_settings(&opts.settings).provider() {
+        Ok(turns) => turns,
+        Err(e) => {
+            obs.emit(RunEvent::Warning(e));
+            return Completed {
+                session_id,
+                outcome: None,
+                elapsed_secs: started_at.elapsed().as_secs(),
+            };
+        }
+    };
 
     let run_config = pipeline::RunConfig {
         profile: opts.profile.clone(),

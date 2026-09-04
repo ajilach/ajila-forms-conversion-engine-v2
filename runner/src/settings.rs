@@ -80,7 +80,7 @@ pub struct AppSettings {
     #[serde(default)]
     pub browser_npx_path: String,
     /// History-eviction tuning for the agent's token usage. See
-    /// [`crate::llm::configure_eviction`]. Trailing messages kept verbatim
+    /// [`crate::context::configure_eviction`]. Trailing messages kept verbatim
     /// (even → whole turn-pairs). Missing/0 is normalized to the default in
     /// [`AppSettings::load`].
     pub evict_keep_recent_messages: usize,
@@ -123,9 +123,9 @@ impl Default for AppSettings {
             aem_password: "admin".to_string(),
             browser_enabled: default_browser_enabled(),
             browser_npx_path: String::new(),
-            evict_keep_recent_messages: crate::llm::DEFAULT_KEEP_RECENT_MESSAGES,
-            evict_text_over_chars: crate::llm::DEFAULT_ELIDE_TEXT_OVER_CHARS,
-            evict_input_over_chars: crate::llm::DEFAULT_ELIDE_INPUT_OVER_CHARS,
+            evict_keep_recent_messages: crate::context::DEFAULT_KEEP_RECENT_MESSAGES,
+            evict_text_over_chars: crate::context::DEFAULT_ELIDE_TEXT_OVER_CHARS,
+            evict_input_over_chars: crate::context::DEFAULT_ELIDE_INPUT_OVER_CHARS,
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
         }
@@ -141,10 +141,10 @@ fn default_browser_enabled() -> bool {
 }
 
 impl AppSettings {
-    /// Push runtime tuning (currently history eviction) into [`crate::llm`].
+    /// Push runtime tuning (currently history eviction) into [`crate::context`].
     /// Call at startup and whenever settings change.
     pub fn apply_runtime_config(&self) {
-        crate::llm::configure_eviction(
+        crate::context::configure_eviction(
             self.evict_keep_recent_messages,
             self.evict_text_over_chars,
             self.evict_input_over_chars,

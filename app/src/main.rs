@@ -13,7 +13,7 @@ mod workspace;
 // in `runner`, shared with the CLI. Re-export both under the historical
 // `crate::*` paths so the rest of the app is unchanged.
 pub use agent::{aem_client, db, references, session};
-pub use runner::{llm, settings};
+pub use runner::settings;
 
 use dioxus::prelude::*;
 

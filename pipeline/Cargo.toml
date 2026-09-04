@@ -8,6 +8,10 @@ rust-version.workspace = true
 agent = { path = "../agent" }
 blueprint = { path = "../core" }
 serde_json = { workspace = true }
+# The message model and tool-definition shape the controller speaks. Provider-
+# neutral: naming rig here does not name a provider, a model or a key.
+rig-core = { workspace = true }
+rig-agent = { workspace = true }
 tokio = { version = "1", features = ["rt", "time"] }
 
 [dev-dependencies]
