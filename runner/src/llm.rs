@@ -34,52 +34,16 @@ use crate::provider::LlmEndpoint;
 
 // ── Prompt caching + history eviction (shared by every Messages-API path) ────
 
-use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Default trailing messages kept verbatim by [`evict_stale_history_with`]. Even,
-/// so whole assistant+`tool_result` turn-pairs survive (the latest data stays
-/// intact). Overridable at runtime via [`configure_eviction`].
-pub const DEFAULT_KEEP_RECENT_MESSAGES: usize = 4;
-/// Default: tool-result text longer than this (chars) is elided once stale.
-pub const DEFAULT_ELIDE_TEXT_OVER_CHARS: usize = 2000;
-/// Default: `tool_use` input longer than this (chars) is elided once stale.
-pub const DEFAULT_ELIDE_INPUT_OVER_CHARS: usize = 2000;
-/// Sentinel prefix marking an already-elided block. Makes eviction idempotent:
-/// repeated passes are byte-identical, so the cached prefix is not invalidated.
-const ELIDED_MARKER: &str = "\u{1}elided";
-
-// Live, runtime-configurable eviction tuning (synced from `AppSettings`).
-static CFG_KEEP_RECENT: AtomicUsize = AtomicUsize::new(DEFAULT_KEEP_RECENT_MESSAGES);
-static CFG_TEXT_OVER: AtomicUsize = AtomicUsize::new(DEFAULT_ELIDE_TEXT_OVER_CHARS);
-static CFG_INPUT_OVER: AtomicUsize = AtomicUsize::new(DEFAULT_ELIDE_INPUT_OVER_CHARS);
-
-/// Override the history-eviction tuning (called from settings on startup and on
-/// change). A `0` argument resets that parameter to its default. `keep_recent`
-/// is clamped to an even number ≥ 2 so whole turn-pairs always stay verbatim.
-pub fn configure_eviction(keep_recent: usize, text_over: usize, input_over: usize) {
-    let keep = if keep_recent == 0 {
-        DEFAULT_KEEP_RECENT_MESSAGES
-    } else {
-        (keep_recent + (keep_recent & 1)).max(2) // round up to even, min 2
-    };
-    CFG_KEEP_RECENT.store(keep, Ordering::Relaxed);
-    CFG_TEXT_OVER.store(
-        if text_over == 0 {
-            DEFAULT_ELIDE_TEXT_OVER_CHARS
-        } else {
-            text_over
-        },
-        Ordering::Relaxed,
-    );
-    CFG_INPUT_OVER.store(
-        if input_over == 0 {
-            DEFAULT_ELIDE_INPUT_OVER_CHARS
-        } else {
-            input_over
-        },
-        Ordering::Relaxed,
-    );
-}
+// The eviction tuning lives in `context`, which owns the ported ladder. This
+// module reads the same statics through it, so one settings change configures
+// both passes for as long as they coexist.
+pub use crate::context::{
+    DEFAULT_ELIDE_INPUT_OVER_CHARS, DEFAULT_ELIDE_TEXT_OVER_CHARS, DEFAULT_KEEP_RECENT_MESSAGES,
+    configure_eviction,
+};
+use crate::context::{CFG_INPUT_OVER, CFG_KEEP_RECENT, CFG_TEXT_OVER, ELIDED_MARKER};
 
 /// Build a `tool_use_id -> tool name` map over the whole transcript. Shared by
 /// the eviction passes that need to label or target results by their originating

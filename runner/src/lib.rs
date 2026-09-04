@@ -14,6 +14,8 @@
 pub mod aem_lock;
 pub mod artifacts;
 pub mod llm;
+pub mod client;
+pub mod context;
 pub mod models;
 pub mod openai;
 pub mod provider;

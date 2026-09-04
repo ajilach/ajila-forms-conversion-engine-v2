@@ -12,6 +12,8 @@ base64 = { workspace = true }
 futures-util = "0.3"
 image = { workspace = true }
 reqwest = { workspace = true }
+rig-core = { workspace = true }
+rig-agent = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # `spawn_blocking` for request preparation; the runtime itself is the caller's.
