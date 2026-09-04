@@ -271,6 +271,13 @@
   that does not spell out `Kundendaten` / `Unterschrift(en)`, leaving a bare
   optional dropdown and hand-built person blocks. (AABF_019)
 
+- **R9.16** An Initialize copy of a visibility rule must contain the visibility
+  body **contiguously**. `PROBLEM-visible-on-init` tests it as a substring after
+  whitespace normalisation, so an add button whose `fd:init` runs the
+  remove-button loop *between* `var len = …` and
+  `this.visible = (len < …maxOccur)` fails even though it does everything the
+  visibility rule does. Assignment first, loop after.
+
 - **R9.15** A custom template's conditional container pairs `this.visible` with
   `window.forms.ubs.showAFShowDor(this)` / `hideAFHideDor(this)`, the same idiom
   `conditional.xml` already emits — without it a hidden addressee branch still
