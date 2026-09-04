@@ -29143,6 +29143,40 @@ fn test_aabf_loose_address_block_becomes_the_address_fragment() {
     );
 }
 
+/// The configurator reset carries the archetype the sweep recognises it by.
+///
+/// A sweep may rewrite its own rule document and must leave every other one
+/// alone, so each carries two marks: an `_archetype` field and a first line
+/// `// [<id>] Generated automatically…`. The engine wrote the pre-2026-08-19
+/// marker instead, so `PROBLEM-configurator-reset-on-change` read every reset
+/// it emitted as somebody else's and reported the form. `repeatable.xml`
+/// already stamps the repeating-panel archetype the same way.
+#[test]
+fn the_configurator_reset_carries_its_archetype() {
+    for (pdf, xml) in rendered_ubs_forms() {
+        if !xml.contains("configurator-reset-on-change") {
+            continue;
+        }
+        assert!(
+            xml.contains(
+                "// [configurator-reset-on-change] Generated automatically. \
+                 Do not edit: will be overwritten. Create your own different script."
+                    .replace("                 ", "")
+                    .as_str()
+            ),
+            "{pdf}: the reset must open with the canonical archetype comment"
+        );
+        assert!(
+            xml.contains("_archetype") && xml.contains("configurator-reset-on-change"),
+            "{pdf}: the reset document must carry the _archetype field"
+        );
+        assert!(
+            !xml.contains("emptied on change"),
+            "{pdf}: the pre-2026-08-19 marker must be gone"
+        );
+    }
+}
+
 /// The summary step carries the two attributes the Redacto rule requires.
 ///
 /// `PROBLEM-summary-step-redacto`'s reference was re-based on the hand-authored

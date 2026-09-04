@@ -281,6 +281,15 @@
   that does not spell out `Kundendaten` / `Unterschrift(en)`, leaving a bare
   optional dropdown and hand-built person blocks. (AABF_019)
 
+- **R9.17** A rule document the engine generates carries the sweep's archetype
+  twice: an `_archetype` field and a first line
+  `// [<id>] Generated automatically. Do not edit: will be overwritten. Create
+  your own different script.` Both, because the AEM visual editor round-trips
+  the document and drops fields it does not know, while the comment lives in the
+  code. The configurator reset uses `configurator-reset-on-change`; without it
+  `PROBLEM-configurator-reset-on-change` read every reset the engine emitted as
+  somebody else's. `repeatable.xml` already does this for `repeating-panel`.
+
 - **R9.16** An Initialize copy of a visibility rule must contain the visibility
   body **contiguously**. `PROBLEM-visible-on-init` tests it as a substring after
   whitespace normalisation, so an add button whose `fd:init` runs the
