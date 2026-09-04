@@ -51,6 +51,25 @@ fn http_client() -> reqwest::Client {
         .clone()
 }
 
+/// Whether this base URL is OpenRouter.
+///
+/// Matched on host rather than on the exact default string: an operator may
+/// point at a regional URL or a proxy in front of OpenRouter, and getting this
+/// wrong silently downgrades them to the plain OpenAI client — no caching, no
+/// usage details, no provider routing, with nothing to see in the UI.
+fn is_openrouter(base_url: &str) -> bool {
+    let after_scheme = base_url.split_once("://").map_or(base_url, |(_, rest)| rest);
+    after_scheme
+        .split('/')
+        .next()
+        .and_then(|authority| authority.rsplit('@').next())
+        .map(|host| {
+            let host = host.split(':').next().unwrap_or(host).to_ascii_lowercase();
+            host == "openrouter.ai" || host.ends_with(".openrouter.ai")
+        })
+        .unwrap_or(false)
+}
+
 /// Build the model `endpoint` names.
 ///
 /// Fails with the operator-facing message from [`LlmEndpoint::check`] when the
@@ -77,18 +96,24 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
             Ok(ModelHandle::named("anthropic", model))
         }
         // OpenRouter is the default and the one this switch was added for; it
-        // reports `cost` per response and places its own cache breakpoints.
-        // Any other base URL is somebody's OpenAI-compatible gateway.
-        Provider::OpenAi if endpoint.base_url == DEFAULT_OPENAI_BASE_URL => {
+        // reports usage details per response and takes explicit cache
+        // breakpoints. Any other host is somebody's OpenAI-compatible gateway.
+        Provider::OpenAi if is_openrouter(&endpoint.base_url) => {
             let client = openrouter::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
                 .http_client(http_client())
                 .build()
                 .map_err(|e| format!("OpenRouter client: {e}"))?;
+            // Opt-in, unlike Anthropic's: rig only writes a `cache_control`
+            // breakpoint on the system prompt when asked. Without it this path
+            // pays full input price every turn, which is what it did before the
+            // migration and is worth several francs on a long run.
             Ok(ModelHandle::named(
                 "openrouter",
-                client.completion_model(&endpoint.model),
+                client
+                    .completion_model(&endpoint.model)
+                    .with_prompt_caching(),
             ))
         }
         Provider::OpenAi => {
@@ -186,14 +211,30 @@ mod tests {
         }
     }
 
-    /// A non-default base URL is somebody else's gateway and must not be built
-    /// as an OpenRouter client — the two disagree about request extensions.
+    /// Somebody else's gateway must not be built as an OpenRouter client — the
+    /// two disagree about request extensions — and OpenRouter must not be built
+    /// as a plain one, which would cost it caching and usage details.
     #[test]
-    fn a_custom_base_url_resolves_to_the_plain_openai_client() {
-        let endpoint = LlmEndpoint::openai("https://vllm.internal/v1", "k", "m");
-        let handle = model_for(&endpoint).expect("a custom gateway resolves");
-        assert_eq!(handle.label(), Some("openai"));
-        let router = LlmEndpoint::openai(DEFAULT_OPENAI_BASE_URL, "k", "m");
-        assert_eq!(model_for(&router).unwrap().label(), Some("openrouter"));
+    fn the_client_follows_the_host_not_the_exact_url() {
+        let plain = LlmEndpoint::openai("https://vllm.internal/v1", "k", "m");
+        assert_eq!(model_for(&plain).expect("resolves").label(), Some("openai"));
+
+        for url in [
+            DEFAULT_OPENAI_BASE_URL,
+            "https://openrouter.ai/api/v1/",
+            "https://OpenRouter.ai/api/v1",
+            "https://eu.openrouter.ai/api/v1",
+        ] {
+            let endpoint = LlmEndpoint::openai(url, "k", "m");
+            assert_eq!(
+                model_for(&endpoint).expect("resolves").label(),
+                Some("openrouter"),
+                "{url} should reach the OpenRouter client"
+            );
+        }
+
+        // A host that merely mentions it is not it.
+        assert!(!is_openrouter("https://openrouter.ai.evil.test/v1"));
+        assert!(!is_openrouter("https://my-openrouter.internal/v1"));
     }
 }

@@ -6,6 +6,10 @@
 //! path produces, and that the request goes to the right URL with the right
 //! auth. Without it, only one of the two endpoints an operator can pick has any
 //! end-to-end coverage.
+//!
+//! Only the plain client is reachable here: the OpenRouter one is selected by
+//! host, and a local socket is not that host. Its wiring — including the
+//! opt-in prompt caching — is covered by `client`'s unit tests instead.
 
 use std::io::{Read, Write};
 use std::net::TcpListener;
