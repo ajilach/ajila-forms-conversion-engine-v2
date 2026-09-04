@@ -29172,6 +29172,92 @@ fn the_summary_step_carries_the_redacto_panel_attributes() {
     }
 }
 
+/// The fragment comparison sees what a template emits, and reports a surplus.
+///
+/// `collect_frag_refs` used to walk node-level `frag_ref`, which only `Panel`,
+/// `Repeatable` and `Fragment` own. A fragment a template writes on its own --
+/// the banking-relationship preface, the form metadata, every partner and
+/// signature fragment in `custom/*.xml` -- appeared on neither side and so
+/// cancelled out. AAAC_019 shipped with no banking-relationship node at all and
+/// four `review_output` calls across three reviewer rounds reported it clean.
+/// The comparison is also symmetric now: the same run authored four partner
+/// generics for a form whose converter derives none, and nothing said so.
+#[test]
+fn the_fragment_comparison_sees_template_fragments_and_surpluses() {
+    let (input, root, config) = helpers::build_aem_test_output_bound(&[
+        ("AABF_019_DE.pdf", "de"),
+        ("AABF_019_EN.pdf", "en"),
+        ("AABF_019_SP.pdf", "sp"),
+    ]);
+    let master = config.master_language.clone();
+
+    let clean = crate::review_output(&input, &root, &config, &master);
+    assert!(
+        clean.dropped_fragments.is_empty() && clean.extra_fragments.is_empty(),
+        "the engine's own tree matches itself: dropped {:?}, extra {:?}",
+        clean.dropped_fragments,
+        clean.extra_fragments
+    );
+
+    // Drop the preface: no node in the tree carries its fragRef, so only the
+    // rendered comparison can notice.
+    let AemNodeRootParts { title, children } = root_parts(&root);
+    let without_preface: Vec<crate::aem::AemNode> = children
+        .iter()
+        .map(drop_prefaces)
+        .collect();
+    let stripped = crate::aem::AemNode::Root {
+        title: title.clone(),
+        children: without_preface,
+    };
+    let report = crate::review_output(&input, &stripped, &config, &master);
+    let dropped: Vec<&str> = report
+        .dropped_fragments
+        .iter()
+        .map(|d| d.frag_ref.as_str())
+        .collect();
+    println!("dropped after removing the preface: {dropped:?}");
+    assert!(
+        dropped.iter().any(|f| f.ends_with("affrg_BankingRelationship1")),
+        "removing the Preface must report the banking-relationship fragment, got {dropped:?}"
+    );
+}
+
+/// `root` split into its parts, so a test can rebuild it.
+#[cfg(test)]
+struct AemNodeRootParts {
+    title: String,
+    children: Vec<crate::aem::AemNode>,
+}
+
+#[cfg(test)]
+fn root_parts(root: &crate::aem::AemNode) -> AemNodeRootParts {
+    match root {
+        crate::aem::AemNode::Root { title, children } => AemNodeRootParts {
+            title: title.clone(),
+            children: children.clone(),
+        },
+        _ => unreachable!("conversion always yields a Root"),
+    }
+}
+
+/// `node` with every `Preface` removed, at any depth.
+#[cfg(test)]
+fn drop_prefaces(node: &crate::aem::AemNode) -> crate::aem::AemNode {
+    use crate::aem::AemNode;
+    let mut out = node.clone();
+    if let Some(children) = match &mut out {
+        AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } => Some(children),
+        _ => None,
+    } {
+        children.retain(|c| !matches!(c, AemNode::Preface { .. }));
+        *children = children.iter().map(drop_prefaces).collect();
+    }
+    out
+}
+
 /// The internal-bank-use block uses the global fragment, in both markets.
 ///
 /// The deployed corpus migrated: of the 78 Italian packages issued 2026-09-01,
@@ -32005,21 +32091,21 @@ fn strip_fragments(node: &crate::aem::AemNode) -> crate::aem::AemNode {
     let mut out = node.clone();
     match &mut out {
         AemNode::Root { children, .. } => {
-            children.retain(|c| !matches!(c, AemNode::Fragment { .. }));
+            children.retain(|c| !matches!(c, AemNode::Fragment { .. } | AemNode::Preface { .. }));
             *children = children.iter().map(strip_fragments).collect();
         }
         AemNode::Panel {
             children, frag_ref, ..
         } => {
             *frag_ref = None;
-            children.retain(|c| !matches!(c, AemNode::Fragment { .. }));
+            children.retain(|c| !matches!(c, AemNode::Fragment { .. } | AemNode::Preface { .. }));
             *children = children.iter().map(strip_fragments).collect();
         }
         AemNode::Repeatable {
             children, frag_ref, ..
         } => {
             *frag_ref = None;
-            children.retain(|c| !matches!(c, AemNode::Fragment { .. }));
+            children.retain(|c| !matches!(c, AemNode::Fragment { .. } | AemNode::Preface { .. }));
             *children = children.iter().map(strip_fragments).collect();
         }
         _ => {}

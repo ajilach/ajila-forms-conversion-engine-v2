@@ -201,6 +201,16 @@
   snapshot. Pinned by
   `custom_templates_use_the_global_internal_bank_use_fragment`.
 
+- **R7.17** The fragment comparison reads the **rendered** `fragRef` attributes,
+  on both sides and in both directions. Only `Panel`, `Repeatable` and
+  `Fragment` own a `frag_ref` field; `preface.xml`, `root.xml` and every
+  `custom/*.xml` emit one from the template, so a node walk saw them on neither
+  side and cancelled them out — AAAC_019 shipped with no banking-relationship
+  preface at all and passed four `review_output` calls. `extra_fragments` is the
+  symmetric arm: advisory, because an authored tree legitimately adds signature
+  panels, but it is how a rule applied where the form has no such block becomes
+  visible.
+
 - **R7.13** A fragment the converter derives from a source must survive into
   the shipped tree. `review_output`'s `dropped_fragments` re-converts the same
   input and reports every `fragRef` the reviewed tree references fewer times

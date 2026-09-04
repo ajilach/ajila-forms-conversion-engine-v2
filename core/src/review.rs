@@ -58,6 +58,13 @@ pub struct ReviewReport {
     /// fragment the converter had matched for it; the corpus expects the
     /// fragment, so every drop is reported here. See [`DroppedFragment`].
     pub dropped_fragments: Vec<DroppedFragment>,
+    /// Standard fragments the reviewed tree references that the deterministic
+    /// conversion of the same input does not derive. Advisory, not a defect
+    /// list: an authored tree legitimately adds signature panels a source does
+    /// not spell out. It is how a rule applied where it does not belong becomes
+    /// visible — a form with no addressee configurator carrying four partner
+    /// generics, say. See [`ExtraFragment`].
+    pub extra_fragments: Vec<ExtraFragment>,
     /// Human-readable observations (field-count mismatch, empty tree, truncation).
     pub notes: Vec<String>,
 }
@@ -121,6 +128,18 @@ pub struct DroppedFragment {
     pub present: usize,
 }
 
+/// A fragment the reviewed tree references more often than the converter
+/// derives it from the same input.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ExtraFragment {
+    /// JCR path of the surplus fragment.
+    pub frag_ref: String,
+    /// How many times the deterministic conversion references it.
+    pub expected: usize,
+    /// How many times the reviewed tree references it.
+    pub present: usize,
+}
+
 /// Cap on how many dropped fragments to list, so the report stays readable.
 const MAX_DROPPED_FRAGMENTS: usize = 100;
 
@@ -133,65 +152,70 @@ const MAX_LABEL_ISSUES: usize = 400;
 /// Cap on how many naming violations to list, so the report stays readable.
 const MAX_NAMING: usize = 400;
 
-/// Count every `fragRef` the tree references, keyed by JCR path.
+/// Count every `fragRef` in a rendered form, keyed by JCR path.
 ///
-/// Only fragment references carried by the nodes themselves are counted, so
-/// the comparison stays symmetric: the ones a profile template injects on its
-/// own (the banking-relationship preface, the form-metadata appendix) never
-/// appear on either side.
-fn collect_frag_refs(node: &AemNode, out: &mut std::collections::BTreeMap<String, usize>) {
-    let own = match node {
-        AemNode::Fragment { frag_ref, .. } => Some(frag_ref.clone()),
-        AemNode::Panel { frag_ref, .. } | AemNode::Repeatable { frag_ref, .. } => frag_ref.clone(),
-        _ => None,
-    };
-    if let Some(frag_ref) = own {
-        *out.entry(frag_ref).or_insert(0) += 1;
-    }
-    match node {
-        AemNode::Root { children, .. }
-        | AemNode::Panel { children, .. }
-        | AemNode::Repeatable { children, .. } => {
-            for child in children {
-                collect_frag_refs(child, out);
-            }
+/// The rendered XML is read rather than the node tree because only three node
+/// variants own a `frag_ref` field (`Panel`, `Repeatable`, `Fragment`) while a
+/// template can emit one on its own: `preface.xml` writes the
+/// banking-relationship fragment, `root.xml` the form metadata, and each
+/// `custom/*.xml` its partner and signature fragments. Walking the nodes made
+/// every one of those invisible on both sides, so a tree that dropped the
+/// banking-relationship preface entirely was reported clean.
+fn collect_frag_refs(xml: &str) -> std::collections::BTreeMap<String, usize> {
+    let mut out = std::collections::BTreeMap::new();
+    for (_, tag) in open_tags(xml) {
+        if let Some(frag_ref) = attr(tag, "fragRef") {
+            *out.entry(frag_ref.to_string()).or_insert(0) += 1;
         }
-        _ => {}
     }
+    out
 }
 
-/// Fragments the deterministic conversion of `input` derives that `output`
-/// does not reference, or references fewer times.
+/// How the reviewed form's fragments differ from the ones the engine's own
+/// conversion of the same input derives.
 ///
 /// Converting the input a second time is what makes this form-independent: the
-/// engine's own fragment matching is the reference, so no list of fragments
-/// has to be maintained anywhere.
-fn find_dropped_fragments(
+/// engine's fragment matching is the reference, so no list of fragments has to
+/// be maintained anywhere.
+fn compare_fragments(
     input: &[StructuredNode],
-    output: &AemNode,
+    aem_xml: &str,
     config: &AemConfig,
-) -> Vec<DroppedFragment> {
+) -> (Vec<DroppedFragment>, Vec<ExtraFragment>) {
     if !config.use_fragments {
-        return Vec::new();
+        return (Vec::new(), Vec::new());
     }
     let baseline = crate::aem::convert_to_aem(input, config);
-    let mut expected = std::collections::BTreeMap::new();
-    collect_frag_refs(&baseline, &mut expected);
-    let mut present = std::collections::BTreeMap::new();
-    collect_frag_refs(output, &mut present);
+    let expected = collect_frag_refs(&generate_aem_xml(&baseline, config));
+    let present = collect_frag_refs(aem_xml);
 
-    expected
-        .into_iter()
-        .filter_map(|(frag_ref, want)| {
-            let have = present.get(&frag_ref).copied().unwrap_or(0);
-            (have < want).then_some(DroppedFragment {
-                frag_ref,
+    let dropped = expected
+        .iter()
+        .filter_map(|(frag_ref, &want)| {
+            let have = present.get(frag_ref).copied().unwrap_or(0);
+            (have < want).then(|| DroppedFragment {
+                frag_ref: frag_ref.clone(),
                 expected: want,
                 present: have,
             })
         })
         .take(MAX_DROPPED_FRAGMENTS)
-        .collect()
+        .collect();
+
+    let extra = present
+        .iter()
+        .filter_map(|(frag_ref, &have)| {
+            let want = expected.get(frag_ref).copied().unwrap_or(0);
+            (have > want).then(|| ExtraFragment {
+                frag_ref: frag_ref.clone(),
+                expected: want,
+                present: have,
+            })
+        })
+        .take(MAX_DROPPED_FRAGMENTS)
+        .collect();
+
+    (dropped, extra)
 }
 
 /// Review the converted AEM `output` against the engine's parse of the `input`
@@ -232,7 +256,7 @@ pub fn review_output(
     let mut legacy_tables = Vec::new();
     collect_legacy_tables(output, &mut legacy_tables);
 
-    let dropped_fragments = find_dropped_fragments(input, output, config);
+    let (dropped_fragments, extra_fragments) = compare_fragments(input, &aem_xml, config);
 
     collect_duplicate_sibling_titles(output, &mut label_issues);
 
@@ -322,6 +346,20 @@ pub fn review_output(
         ));
     }
 
+    if !extra_fragments.is_empty() {
+        let list: Vec<String> = extra_fragments
+            .iter()
+            .map(|e| format!("{} ({}x, the converter derives {})", e.frag_ref, e.present, e.expected))
+            .collect();
+        notes.push(format!(
+            "{} fragment(s) are referenced more often than the converter derives them from this \
+             source; confirm each belongs here, since a block the form does not have is how a \
+             rule applied out of place looks ({})",
+            extra_fragments.len(),
+            list.join(", ")
+        ));
+    }
+
     if feedback_violations.len() > MAX_FEEDBACK {
         notes.push(format!(
             "feedback_violations truncated to {MAX_FEEDBACK} of {} entries",
@@ -340,6 +378,7 @@ pub fn review_output(
         feedback_violations,
         legacy_tables,
         dropped_fragments,
+        extra_fragments,
         notes,
     }
 }
@@ -535,6 +574,7 @@ pub fn review_redacto(
         label_issues: Vec::new(),
         // Fragments are an AEM concept; a Redacto document references none.
         dropped_fragments: Vec::new(),
+        extra_fragments: Vec::new(),
         notes,
     }
 }
