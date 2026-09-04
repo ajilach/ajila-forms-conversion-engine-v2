@@ -289,6 +289,48 @@ pub(crate) fn is_transient_error(err: &str) -> bool {
         .any(|needle| e.contains(needle))
 }
 
+/// How long the provider asked us to wait, if it said.
+///
+/// The transports append `[retry-after: N]` to the error text when the response
+/// carried the header. Honouring it beats guessing: a provider that names a
+/// window knows when the quota actually refills, and retrying earlier just burns
+/// another rejection.
+pub(crate) fn parse_retry_after(err: &str) -> Option<u64> {
+    let start = err.rfind("[retry-after: ")? + "[retry-after: ".len();
+    let rest = &err[start..];
+    let end = rest.find(']')?;
+    rest[..end].trim().parse().ok()
+}
+
+/// Spread retries so parallel runs stop colliding.
+///
+/// Conversions run side by side against one API key, so they tend to hit the
+/// same rate limit at the same moment — and with a purely exponential backoff
+/// they would then wake at the same moment too, collide again, and keep step
+/// with each other. Jitter breaks that lockstep.
+///
+/// Returns a delay in `[base / 2, base * 3 / 2)`. The seed is the caller's to
+/// supply, so the spread is testable rather than genuinely random.
+pub(crate) fn jittered_backoff(base_secs: u64, seed: u64) -> u64 {
+    // xorshift64*: `pipeline` carries no rng dependency, and the quality bar
+    // here is "two runs pick different numbers".
+    let mut x = seed | 1;
+    x ^= x >> 12;
+    x ^= x << 25;
+    x ^= x >> 27;
+    let spread = base_secs.max(1);
+    (base_secs / 2) + (x.wrapping_mul(0x2545_F491_4F6C_DD1D) >> 33) % spread
+}
+
+/// A seed for [`jittered_backoff`] that differs between runs in one process.
+fn jitter_seed() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.subsec_nanos() as u64 ^ d.as_secs())
+        .unwrap_or(1)
+}
+
 /// Sleep for `total`, waking early if the run is aborted. Returns whether it was
 /// aborted.
 ///
@@ -370,8 +412,14 @@ async fn turn_with_retry(
                     return None;
                 }
                 if is_transient_error(&e) && auto_retries < MAX_AUTO_RETRIES {
-                    let wait =
+                    let backoff =
                         (RETRY_BACKOFF_SECS << auto_retries.min(4)).min(MAX_RETRY_BACKOFF_SECS);
+                    // The provider's own answer wins over the computed backoff;
+                    // otherwise spread the wait so parallel runs that failed
+                    // together do not retry together.
+                    let wait = parse_retry_after(&e)
+                        .map(|secs| secs.min(MAX_RETRY_BACKOFF_SECS))
+                        .unwrap_or_else(|| jittered_backoff(backoff, jitter_seed()));
                     auto_retries += 1;
                     obs.emit(RunEvent::Thought(format!(
                         "Request failed ({e}) — retrying in {wait}s \
@@ -650,6 +698,54 @@ pub(crate) fn summarize_input(input: &serde_json::Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A provider that names a retry window is telling us when the quota
+    /// actually refills; guessing earlier just earns another rejection.
+    #[test]
+    fn the_providers_own_retry_window_is_read_back() {
+        assert_eq!(
+            parse_retry_after("Anthropic API error (429 Too Many Requests): slow down [retry-after: 30]"),
+            Some(30)
+        );
+        // No header, or a form we do not read, falls back to the computed wait.
+        assert_eq!(parse_retry_after("Anthropic API error (429): slow down"), None);
+        assert_eq!(parse_retry_after("boom [retry-after: Wed, 21 Oct 2015 07:28:00 GMT]"), None);
+        assert_eq!(parse_retry_after("boom [retry-after: ]"), None);
+        // A message that happens to mention it twice reads the last one, which
+        // is the suffix this crate appends.
+        assert_eq!(parse_retry_after("[retry-after: 5] wrapped [retry-after: 9]"), Some(9));
+    }
+
+    /// Parallel conversions share one API key, so they hit a rate limit together
+    /// — and with a bare exponential backoff they would wake together, collide
+    /// again, and stay in step indefinitely.
+    #[test]
+    fn backoff_is_spread_so_parallel_runs_stop_colliding() {
+        let base = 20;
+        let waits: Vec<u64> = (0..64).map(|seed| jittered_backoff(base, seed)).collect();
+
+        for wait in &waits {
+            assert!(
+                (base / 2..base + base / 2).contains(wait),
+                "{wait}s is outside the intended spread around {base}s"
+            );
+        }
+        let distinct: std::collections::HashSet<_> = waits.iter().collect();
+        assert!(
+            distinct.len() > 8,
+            "the spread collapsed to {} values — runs would still retry in lockstep",
+            distinct.len()
+        );
+    }
+
+    /// The shortest backoff must not divide down to an instant retry loop.
+    #[test]
+    fn the_smallest_backoff_still_waits() {
+        for seed in 0..32 {
+            assert!(jittered_backoff(1, seed) <= 1);
+            assert!(jittered_backoff(5, seed) >= 2);
+        }
+    }
 
     
         /// The stuck guard is what stops a stage burning its whole turn budget

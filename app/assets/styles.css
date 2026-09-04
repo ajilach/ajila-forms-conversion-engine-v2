@@ -844,6 +844,193 @@ body > div, #main {
     flex-direction: column;
 }
 
+/* A reopened tab looks like a finished one but is not: the outputs were never
+   stored. The band is what makes an empty download row read as expected. */
+.ag-restored {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin: var(--space-4) 0 0;
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    background: var(--surface-2);
+}
+
+.ag-restored-title {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--text);
+}
+
+.ag-restored-detail {
+    font-size: var(--font-size-sm);
+    color: var(--muted);
+}
+
+/* ---- The form-tab strip ---- */
+
+/* One row, never wrapping: the window is a fixed 880px, so the strip scrolls
+   sideways rather than growing a second row and stealing height from the box. */
+.form-tabs {
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-xs);
+    padding: var(--space-xs) var(--space-md) 0;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    min-width: 0;
+}
+
+.form-tabs-scroll {
+    display: flex;
+    align-items: stretch;
+    gap: var(--space-xs);
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: thin;
+}
+
+.form-tab {
+    display: flex;
+    align-items: center;
+    flex: 0 1 auto;
+    min-width: 92px;
+    max-width: 176px;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    margin-bottom: -1px;
+    background: transparent;
+    color: var(--muted);
+}
+
+.form-tab:hover {
+    color: var(--text);
+}
+
+.form-tab.active {
+    background: var(--surface);
+    color: var(--accent);
+    border-color: var(--border);
+    border-bottom-color: var(--surface);
+}
+
+.form-tab-label {
+    display: flex;
+    align-items: center;
+    gap: var(--space-xs);
+    flex: 1 1 auto;
+    min-width: 0;
+    padding: var(--space-sm) var(--space-xs) var(--space-sm) var(--space-sm);
+    border: none;
+    background: transparent;
+    color: inherit;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+}
+
+.form-tab-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Same vocabulary as the box's status badge, so a tab and its box can never
+   describe the same run differently. */
+.form-tab-dot {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--border-strong);
+}
+.form-tab-dot.run  { background: var(--accent); animation: form-tab-pulse 1.4s ease-in-out infinite; }
+.form-tab-dot.warn { background: var(--warn); }
+.form-tab-dot.ok   { background: var(--success); }
+.form-tab-dot.err  { background: var(--danger); }
+
+@keyframes form-tab-pulse {
+    0%, 100% { opacity: 1; }
+    50%      { opacity: 0.35; }
+}
+
+.form-tab-close {
+    flex: 0 0 auto;
+    padding: 0 var(--space-xs);
+    margin-right: var(--space-2);
+    border: none;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    opacity: 0;
+}
+
+/* Reachable on the tab being worked in, and on whichever one is hovered —
+   without putting a row of close buttons in front of the labels. */
+.form-tab:hover .form-tab-close,
+.form-tab.active .form-tab-close {
+    opacity: 1;
+}
+
+.form-tab-close:hover {
+    background: var(--danger-soft);
+    color: var(--danger);
+}
+
+.form-tab-add {
+    flex: 0 0 auto;
+    align-self: center;
+    width: 26px;
+    height: 26px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+}
+
+.form-tab-add:hover:not(:disabled) {
+    background: var(--accent-soft);
+    color: var(--accent);
+    border-color: var(--accent-ring);
+}
+
+.form-tab-add:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+/* Background runs are invisible from Settings and the references manager, so
+   the count is both the signal and the way back. */
+.app-header-running {
+    margin-left: auto;
+    padding: var(--space-2) var(--space-3);
+    border: 1px solid var(--header-border);
+    border-radius: var(--radius-sm);
+    background: transparent;
+    color: var(--header-text);
+    cursor: pointer;
+    font-family: inherit;
+    font-size: var(--font-size-sm);
+    white-space: nowrap;
+}
+
+.app-header-running:hover {
+    background: rgba(255, 255, 255, 0.12);
+}
+
 /* ---- The box ---- */
 .ag-box {
     flex: 1 0 auto;

@@ -88,12 +88,23 @@ pub struct AppSettings {
     pub evict_text_over_chars: usize,
     /// Tool-use input longer than this (chars) is elided once stale.
     pub evict_input_over_chars: usize,
-    /// Eviction is a no-op until the serialized history exceeds this many bytes.
-    pub evict_trigger_bytes: usize,
+    /// How many model requests may be in flight at once against one endpoint,
+    /// across every conversion running in parallel. `0` means no cap.
+    ///
+    /// Without one, N tabs mean N times the request rate on a single API key,
+    /// and a shared rate limit turns parallel runs into slower serial ones.
+    #[serde(default = "default_max_concurrent_requests")]
+    pub max_concurrent_requests: usize,
     /// Extra operator instructions appended to the autonomous conversion agent's
     /// system prompt. Empty = none.
     #[serde(default)]
     pub agent_instructions: String,
+}
+
+/// Requests in flight per endpoint. Three keeps several conversions moving
+/// without making a shared rate limit the bottleneck.
+fn default_max_concurrent_requests() -> usize {
+    3
 }
 
 impl Default for AppSettings {
@@ -115,7 +126,7 @@ impl Default for AppSettings {
             evict_keep_recent_messages: crate::llm::DEFAULT_KEEP_RECENT_MESSAGES,
             evict_text_over_chars: crate::llm::DEFAULT_ELIDE_TEXT_OVER_CHARS,
             evict_input_over_chars: crate::llm::DEFAULT_ELIDE_INPUT_OVER_CHARS,
-            evict_trigger_bytes: crate::llm::DEFAULT_EVICT_TRIGGER_BYTES,
+            max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
         }
     }
@@ -137,7 +148,6 @@ impl AppSettings {
             self.evict_keep_recent_messages,
             self.evict_text_over_chars,
             self.evict_input_over_chars,
-            self.evict_trigger_bytes,
         );
     }
 
@@ -217,7 +227,7 @@ impl AppSettings {
         );
         or_default(&mut self.evict_text_over_chars, d.evict_text_over_chars);
         or_default(&mut self.evict_input_over_chars, d.evict_input_over_chars);
-        or_default(&mut self.evict_trigger_bytes, d.evict_trigger_bytes);
+
         or_default(&mut self.max_review_rounds, d.max_review_rounds);
 
         // Settings saved before the provider switch existed carry no base URL.

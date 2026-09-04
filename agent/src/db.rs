@@ -46,9 +46,34 @@ mod imp {
     use super::{EditInfo, SessionInfo};
     use rusqlite::{Connection, OptionalExtension};
     use sha2::{Digest, Sha256};
-    use std::path::PathBuf;
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+    use std::sync::{Mutex, OnceLock};
+    use std::time::Duration;
+
+    /// How long a writer waits for another writer to commit before giving up.
+    ///
+    /// Conversions run in parallel and every tool call snapshots its tree, so
+    /// write contention is normal rather than exceptional. Without a timeout
+    /// SQLite fails the *instant* it finds the database locked, which is how a
+    /// snapshot used to go missing without anyone noticing.
+    const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
+
+    /// The schema revision this build expects. Bumped when a migration is added.
+    const SCHEMA_VERSION: i64 = 2;
+
+    /// Redirects the store to a scratch file. Tests only — see
+    /// [`set_db_path_for_test`].
+    static DB_PATH_OVERRIDE: OnceLock<PathBuf> = OnceLock::new();
+
+    /// Databases this process has already put through schema + migration, so the
+    /// DDL runs once rather than on every connection.
+    static INITIALIZED: Mutex<Option<HashSet<PathBuf>>> = Mutex::new(None);
 
     fn db_path() -> PathBuf {
+        if let Some(path) = DB_PATH_OVERRIDE.get() {
+            return path.clone();
+        }
         let base = dirs::config_dir().unwrap_or_else(|| {
             dirs::home_dir()
                 .unwrap_or_else(|| PathBuf::from("."))
@@ -57,18 +82,137 @@ mod imp {
         base.join("blueprint").join("history.db")
     }
 
+    /// Point the store at `path` instead of the user's config directory.
+    ///
+    /// Only ever takes effect once, and only before the first [`open`] — the
+    /// concurrency tests need a real file on disk (an in-memory database is
+    /// private to its connection, so it cannot show contention at all) without
+    /// writing over the developer's own history.
+    #[cfg(test)]
+    pub fn set_db_path_for_test(path: PathBuf) {
+        let _ = DB_PATH_OVERRIDE.set(path);
+    }
+
+    /// Report a database error instead of discarding it.
+    ///
+    /// The store is best-effort by design: a failed settings write must not take
+    /// the conversion down with it. But "best effort" used to mean "silent", and
+    /// a lost edit-history snapshot is invisible until someone tries to reopen
+    /// the session. The workspace has no logging framework, so this goes to
+    /// stderr — which the CLI shows directly, and where the desktop app's own
+    /// warning banner (see `insert_edit`'s callers) is the user-facing half.
+    fn warn_db<T>(result: rusqlite::Result<T>, what: &str) -> Option<T> {
+        match result {
+            Ok(value) => Some(value),
+            Err(e) => {
+                eprintln!("history store: {what} failed: {e}");
+                None
+            }
+        }
+    }
+
     /// Open the database connection, creating the file and schema if needed.
     ///
     /// Public so the reference store ([`crate::references`]) can share the same
     /// single `history.db` connection rather than opening a second database.
+    ///
+    /// Every caller gets its own connection. That is deliberate: in WAL mode any
+    /// number of readers run concurrently with one writer, so a reference import
+    /// no longer blocks a running conversion's snapshots. Serializing everything
+    /// behind one shared connection would have thrown that away.
     pub fn open() -> rusqlite::Result<Connection> {
         let path = db_path();
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
-        let conn = Connection::open(path)?;
-        ensure_schema(&conn)?;
+        let conn = Connection::open(&path)?;
+
+        // Per-connection, so they belong here rather than in the one-time init.
+        conn.busy_timeout(BUSY_TIMEOUT)?;
+        // The standard pairing with WAL: a power cut can cost the most recent
+        // commits but cannot corrupt the file. An edit-history snapshot is worth
+        // that trade; a synchronous fsync per tool call is not.
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+
+        initialize_once(&path, &conn)?;
         Ok(conn)
+    }
+
+    /// Run the schema and migrations for `path` the first time it is opened.
+    fn initialize_once(path: &Path, conn: &Connection) -> rusqlite::Result<()> {
+        let mut guard = INITIALIZED.lock().unwrap_or_else(|e| e.into_inner());
+        let seen = guard.get_or_insert_with(HashSet::new);
+        if seen.contains(path) {
+            return Ok(());
+        }
+
+        // Persistent property of the file, so it only has to be set once — but
+        // it reports the resulting mode as a row, which `execute` rejects.
+        let _: String = conn.query_row("PRAGMA journal_mode = WAL", [], |row| row.get(0))?;
+        ensure_schema(conn)?;
+        migrate(conn)?;
+
+        seen.insert(path.to_path_buf());
+        Ok(())
+    }
+
+    /// Bring an existing database up to [`SCHEMA_VERSION`].
+    ///
+    /// Split from [`ensure_schema`] because `CREATE TABLE IF NOT EXISTS` cannot
+    /// alter a table that already exists, and because the de-duplication below
+    /// is a full scan that should run once rather than on every connection.
+    fn migrate(conn: &Connection) -> rusqlite::Result<()> {
+        let version: i64 = conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = 'schema_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .optional()?
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(0);
+
+        if version < 1 {
+            // Until the unique index below existed, two concurrent writers could
+            // both read the same `MAX(seq) + 1` and both insert it. A duplicate
+            // is silent corruption: `snapshot_at` takes whichever row comes
+            // first, so one run's tree could be restored into another's session.
+            // Keep the earliest row for each `(session_id, seq)` and drop the
+            // rest, or the index cannot be created.
+            conn.execute(
+                "DELETE FROM edits WHERE id NOT IN (
+                     SELECT MIN(id) FROM edits GROUP BY session_id, seq
+                 )",
+                [],
+            )?;
+            conn.execute_batch(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_edits_session_seq
+                     ON edits(session_id, seq);
+                 -- Exactly the columns the unique index now covers.
+                 DROP INDEX IF EXISTS idx_edits_session;",
+            )?;
+        }
+
+        if version < 2 {
+            // What a run authored — an AEM tree or a structured document — is a
+            // property of the session, not of the view onto it: resuming with
+            // the wrong target gives a run that cannot see its own prior work.
+            // `profile` is already a column for the same reason.
+            //
+            // `CREATE TABLE IF NOT EXISTS` cannot add a column to a table that
+            // already exists, and there is no `ADD COLUMN IF NOT EXISTS`, so an
+            // error here means the column is already present.
+            let _ = conn.execute("ALTER TABLE sessions ADD COLUMN target TEXT", []);
+        }
+
+        if version < SCHEMA_VERSION {
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('schema_version', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [SCHEMA_VERSION.to_string()],
+            )?;
+        }
+        Ok(())
     }
 
     fn ensure_schema(conn: &Connection) -> rusqlite::Result<()> {
@@ -97,8 +241,20 @@ mod imp {
                 action_label   TEXT NOT NULL,
                 structure_json TEXT NOT NULL
             );
-            CREATE INDEX IF NOT EXISTS idx_edits_session ON edits(session_id, seq);
-            CREATE INDEX IF NOT EXISTS idx_sessions_doc ON sessions(doc_hash, created_at);",
+            CREATE INDEX IF NOT EXISTS idx_sessions_doc ON sessions(doc_hash, created_at);
+            -- The bytes a session was converted from. Keyed by the content hash
+            -- rather than the session, so re-uploading the same document, or
+            -- converting it in several tabs, shares one copy. Without these a
+            -- reopened session could be read but never continued: resuming
+            -- replays the sources through the agent.
+            CREATE TABLE IF NOT EXISTS session_sources (
+                doc_hash   TEXT NOT NULL,
+                file_index INTEGER NOT NULL,
+                name       TEXT NOT NULL,
+                bytes      BLOB NOT NULL,
+                created_at TEXT NOT NULL,
+                PRIMARY KEY (doc_hash, file_index)
+            );",
         )?;
         // Reference-form tables (shared schema with the `reference-builder`
         // crate, so dataset exports import without drift). Stored in the same
@@ -131,13 +287,17 @@ mod imp {
     }
 
     pub fn set_setting(key: &str, value: &str) {
-        if let Ok(conn) = open() {
-            let _ = conn.execute(
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return;
+        };
+        warn_db(
+            conn.execute(
                 "INSERT INTO settings (key, value) VALUES (?1, ?2)
                  ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 [key, value],
-            );
-        }
+            ),
+            "saving a setting",
+        );
     }
 
     // ── Documents & sessions ────────────────────────────────────────────────
@@ -150,25 +310,53 @@ mod imp {
     }
 
     pub fn upsert_document(doc_hash: &str, label: &str) {
-        if let Ok(conn) = open() {
-            let _ = conn.execute(
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return;
+        };
+        warn_db(
+            conn.execute(
                 "INSERT INTO documents (doc_hash, label, created_at) VALUES (?1, ?2, ?3)
                  ON CONFLICT(doc_hash) DO UPDATE SET label = excluded.label",
                 rusqlite::params![doc_hash, label, now()],
-            );
-        }
+            ),
+            "recording a document",
+        );
     }
 
-    pub fn create_session(doc_hash: &str, profile: Option<&str>, label: &str) -> Option<String> {
-        let conn = open().ok()?;
+    pub fn create_session(
+        doc_hash: &str,
+        profile: Option<&str>,
+        target: &str,
+        label: &str,
+    ) -> Option<String> {
+        let conn = warn_db(open(), "opening the store")?;
         let session_id = uuid::Uuid::new_v4().to_string();
-        conn.execute(
-            "INSERT INTO sessions (session_id, doc_hash, profile, label, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![session_id, doc_hash, profile, label, now()],
-        )
-        .ok()?;
+        warn_db(
+            conn.execute(
+                "INSERT INTO sessions (session_id, doc_hash, profile, target, label, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                rusqlite::params![session_id, doc_hash, profile, target, label, now()],
+            ),
+            "creating a session",
+        )?;
         Some(session_id)
+    }
+
+    /// The output target recorded for a session, if any.
+    ///
+    /// `None` for sessions written before the column existed; the caller falls
+    /// back to whatever the tab remembers.
+    pub fn session_target(session_id: &str) -> Option<String> {
+        let conn = warn_db(open(), "opening the store")?;
+        conn.query_row(
+            "SELECT target FROM sessions WHERE session_id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .flatten()
     }
 
     /// Look up the conversion profile stored for a session, if any.
@@ -242,41 +430,239 @@ mod imp {
         }
     }
 
+    /// The document hashes of the `limit` most recent sessions.
+    ///
+    /// What the source-document prune keeps beyond the open tabs: a session the
+    /// operator might still reopen has to keep the bytes that would let them
+    /// continue it.
+    pub fn recent_doc_hashes(limit: usize) -> Vec<String> {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return Vec::new();
+        };
+        let Some(mut stmt) = warn_db(
+            conn.prepare(
+                "SELECT DISTINCT doc_hash FROM sessions ORDER BY created_at DESC LIMIT ?1",
+            ),
+            "listing recent sessions",
+        ) else {
+            return Vec::new();
+        };
+        let rows = stmt.query_map([limit as i64], |row| row.get::<_, String>(0));
+        match rows {
+            Ok(iter) => iter.filter_map(Result::ok).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
     /// Permanently delete an editing session and all of its edits.
+    ///
+    /// One transaction, so a failure between the two statements cannot leave the
+    /// edits behind as orphans that no session lists any more.
     pub fn delete_session(session_id: &str) {
-        let Ok(conn) = open() else {
+        let Some(mut conn) = warn_db(open(), "opening the store") else {
             return;
         };
-        let _ = conn.execute("DELETE FROM edits WHERE session_id = ?1", [session_id]);
-        let _ = conn.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id]);
+        let Some(tx) = warn_db(conn.transaction(), "starting a delete") else {
+            return;
+        };
+        // The AEM tree is snapshotted under a sibling id, so it has to go too.
+        let aem_session = format!("{session_id}#aem");
+        let deleted = tx
+            .execute(
+                "DELETE FROM edits WHERE session_id IN (?1, ?2)",
+                [session_id, &aem_session],
+            )
+            .and_then(|_| tx.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id]));
+        if warn_db(deleted, "deleting a session").is_some() {
+            warn_db(tx.commit(), "committing a delete");
+        }
+    }
+
+    // ── Source documents ────────────────────────────────────────────────────
+
+    /// Store the bytes a document set was converted from.
+    ///
+    /// Content-addressed, so storing the same document twice is a no-op rather
+    /// than a second copy. One transaction: a half-written source set would look
+    /// present but reload short.
+    pub fn store_sources(doc_hash: &str, files: &[(String, Vec<u8>)]) {
+        let Some(mut conn) = warn_db(open(), "opening the store") else {
+            return;
+        };
+        let Some(tx) = warn_db(conn.transaction(), "starting a source write") else {
+            return;
+        };
+        let stored = (|| -> rusqlite::Result<()> {
+            let now = now();
+            for (index, (name, bytes)) in files.iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO session_sources (doc_hash, file_index, name, bytes, created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5)
+                     ON CONFLICT(doc_hash, file_index) DO NOTHING",
+                    rusqlite::params![doc_hash, index as i64, name, bytes, now],
+                )?;
+            }
+            Ok(())
+        })();
+        if warn_db(stored, "storing source documents").is_some() {
+            warn_db(tx.commit(), "committing source documents");
+        }
+    }
+
+    /// Load the sources stored for `doc_hash`, in their original order.
+    pub fn load_sources(doc_hash: &str) -> Vec<(String, Vec<u8>)> {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return Vec::new();
+        };
+        let Some(mut stmt) = warn_db(
+            conn.prepare(
+                "SELECT name, bytes FROM session_sources
+                 WHERE doc_hash = ?1 ORDER BY file_index ASC",
+            ),
+            "reading source documents",
+        ) else {
+            return Vec::new();
+        };
+        let rows = stmt.query_map([doc_hash], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, Vec<u8>>(1)?))
+        });
+        match rows {
+            Ok(iter) => iter.filter_map(Result::ok).collect(),
+            Err(e) => {
+                eprintln!("history store: reading source documents failed: {e}");
+                Vec::new()
+            }
+        }
+    }
+
+    /// Whether any bytes are stored for `doc_hash`.
+    ///
+    /// A cheap existence check, so deciding what a restored tab can do does not
+    /// pull megabytes off disk.
+    pub fn has_sources(doc_hash: &str) -> bool {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return false;
+        };
+        conn.query_row(
+            "SELECT 1 FROM session_sources WHERE doc_hash = ?1 LIMIT 1",
+            [doc_hash],
+            |_| Ok(()),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .is_some()
+    }
+
+    /// Total size of the stored source documents, in bytes.
+    pub fn sources_size() -> u64 {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return 0;
+        };
+        conn.query_row(
+            "SELECT COALESCE(SUM(LENGTH(bytes)), 0) FROM session_sources",
+            [],
+            |row| row.get::<_, i64>(0),
+        )
+        .map(|n| n.max(0) as u64)
+        .unwrap_or(0)
+    }
+
+    /// Every hash the source store holds.
+    pub fn stored_source_hashes() -> Vec<String> {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return Vec::new();
+        };
+        let Some(mut stmt) = warn_db(
+            conn.prepare("SELECT DISTINCT doc_hash FROM session_sources"),
+            "listing source documents",
+        ) else {
+            return Vec::new();
+        };
+        let rows = stmt.query_map([], |row| row.get::<_, String>(0));
+        match rows {
+            Ok(iter) => iter.filter_map(Result::ok).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Which stored hashes nothing refers to any more.
+    ///
+    /// Pure, so the pruning rule is testable without a database: `keep` is the
+    /// set still reachable from an open tab or a recent session.
+    pub fn orphan_hashes(stored: &[String], keep: &[String]) -> Vec<String> {
+        let keep: std::collections::HashSet<&str> = keep.iter().map(String::as_str).collect();
+        stored
+            .iter()
+            .filter(|hash| !keep.contains(hash.as_str()))
+            .cloned()
+            .collect()
+    }
+
+    /// Delete the stored sources for hashes nothing refers to any more.
+    ///
+    /// Returns how many documents were dropped. `VACUUM` is left to the caller
+    /// and only worth running when something actually went — SQLite does not
+    /// shrink the file on its own, but vacuuming rewrites the whole database.
+    pub fn prune_sources(keep: &[String]) -> usize {
+        let orphans = orphan_hashes(&stored_source_hashes(), keep);
+        if orphans.is_empty() {
+            return 0;
+        }
+        let Some(mut conn) = warn_db(open(), "opening the store") else {
+            return 0;
+        };
+        let Some(tx) = warn_db(conn.transaction(), "starting a source prune") else {
+            return 0;
+        };
+        let pruned = (|| -> rusqlite::Result<()> {
+            for hash in &orphans {
+                tx.execute("DELETE FROM session_sources WHERE doc_hash = ?1", [hash])?;
+            }
+            Ok(())
+        })();
+        if warn_db(pruned, "pruning source documents").is_none() {
+            return 0;
+        }
+        if warn_db(tx.commit(), "committing a source prune").is_none() {
+            return 0;
+        }
+        orphans.len()
+    }
+
+    /// Reclaim the space a prune freed. Only worth calling after one.
+    pub fn vacuum() {
+        if let Some(conn) = warn_db(open(), "opening the store") {
+            warn_db(conn.execute_batch("VACUUM"), "reclaiming space");
+        }
     }
 
     // ── Edits ───────────────────────────────────────────────────────────────
 
-    fn next_seq(conn: &Connection, session_id: &str) -> usize {
-        conn.query_row(
-            "SELECT COALESCE(MAX(seq) + 1, 0) FROM edits WHERE session_id = ?1",
-            [session_id],
-            |row| row.get::<_, i64>(0),
-        )
-        .map(|n| n as usize)
-        .unwrap_or(0)
-    }
-
+    /// Append a snapshot, choosing its sequence number in the same statement.
+    ///
+    /// Reading `MAX(seq) + 1` and then inserting it as two statements is a
+    /// lost-update race: two parallel conversions both read the same number and
+    /// both write it. One statement cannot be interleaved — SQLite holds the
+    /// write lock for its whole duration — and `idx_edits_session_seq` turns any
+    /// future regression into a loud error instead of a duplicate row.
+    ///
+    /// The aggregate has no `GROUP BY`, so it yields exactly one row even for a
+    /// session with no edits yet, and `COALESCE` starts that session at 0.
     fn insert_edit_conn(
         conn: &Connection,
         session_id: &str,
         action_label: &str,
         structure_json: &str,
     ) -> Option<usize> {
-        let seq = next_seq(conn, session_id);
-        conn.execute(
+        let seq = conn.query_row(
             "INSERT INTO edits (session_id, seq, created_at, action_label, structure_json)
-             VALUES (?1, ?2, ?3, ?4, ?5)",
-            rusqlite::params![session_id, seq as i64, now(), action_label, structure_json],
-        )
-        .ok()?;
-        Some(seq)
+             SELECT ?1, COALESCE(MAX(seq) + 1, 0), ?2, ?3, ?4 FROM edits WHERE session_id = ?1
+             RETURNING seq",
+            rusqlite::params![session_id, now(), action_label, structure_json],
+            |row| row.get::<_, i64>(0),
+        );
+        warn_db(seq, "recording an edit-history snapshot").map(|n| n as usize)
     }
 
     fn snapshot_at_conn(conn: &Connection, session_id: &str, seq: usize) -> Option<String> {
@@ -354,9 +740,12 @@ mod imp {
     mod tests {
         use super::*;
 
+        /// A scratch database carrying the same schema and indexes a real one
+        /// gets, so the unique constraint is under test rather than bypassed.
         fn mem() -> Connection {
             let conn = Connection::open_in_memory().unwrap();
             ensure_schema(&conn).unwrap();
+            migrate(&conn).unwrap();
             conn
         }
 
@@ -434,6 +823,237 @@ mod imp {
                 .filter_map(Result::ok)
                 .collect();
             assert_eq!(ids, vec!["new".to_string(), "old".to_string()]);
+        }
+
+        /// Two conversions running at once both snapshot after every tool call.
+        /// Choosing the sequence number in a separate statement let them both
+        /// read the same number and both write it, and a duplicate is not an
+        /// error anyone sees — `snapshot_at` just starts returning the wrong
+        /// tree. This is the assertion that the store survives parallel runs.
+        #[test]
+        fn parallel_writers_keep_every_snapshot_distinct() {
+            const THREADS_PER_SESSION: usize = 4;
+            const EDITS_PER_THREAD: usize = 50;
+            const PER_SESSION: usize = THREADS_PER_SESSION * EDITS_PER_THREAD;
+
+            // An in-memory database is private to its own connection, so it
+            // cannot show contention at all — this needs a real file.
+            let dir = std::env::temp_dir().join(format!(
+                "blueprint-db-test-{}",
+                uuid::Uuid::new_v4()
+            ));
+            std::fs::create_dir_all(&dir).unwrap();
+            let path = dir.join("history.db");
+            set_db_path_for_test(path.clone());
+            assert_eq!(
+                db_path(),
+                path,
+                "another test opened the store first — this one would write to \
+                 the developer's own history"
+            );
+
+            let recorded: Vec<(usize, String, usize)> = std::thread::scope(|scope| {
+                let handles: Vec<_> = (0..THREADS_PER_SESSION * 2)
+                    .map(|thread| {
+                        scope.spawn(move || {
+                            let session = if thread % 2 == 0 { "sess-a" } else { "sess-b" };
+                            (0..EDITS_PER_THREAD)
+                                .map(|i| {
+                                    let payload = format!("{thread}:{i}");
+                                    let seq = insert_edit(session, "edit", &payload)
+                                        .expect("every write has to be recorded");
+                                    (thread, payload, seq)
+                                })
+                                .collect::<Vec<_>>()
+                        })
+                    })
+                    .collect();
+                handles
+                    .into_iter()
+                    .flat_map(|h| h.join().unwrap())
+                    .collect()
+            });
+
+            assert_eq!(recorded.len(), PER_SESSION * 2);
+
+            for session in ["sess-a", "sess-b"] {
+                let seqs: Vec<usize> = list_edits(session).into_iter().map(|e| e.seq).collect();
+                assert_eq!(
+                    seqs,
+                    (0..PER_SESSION).collect::<Vec<_>>(),
+                    "{session} has to hold every sequence number exactly once"
+                );
+            }
+
+            // The numbering being intact is not enough: each snapshot has to
+            // still be readable under the number it was given.
+            for (thread, payload, seq) in &recorded {
+                let session = if thread % 2 == 0 { "sess-a" } else { "sess-b" };
+                assert_eq!(
+                    snapshot_at(session, *seq).as_deref(),
+                    Some(payload.as_str()),
+                    "{session} seq {seq} came back as another writer's snapshot"
+                );
+            }
+
+            let _ = std::fs::remove_dir_all(&dir);
+        }
+
+        /// The index is what turns a future regression into a loud failure
+        /// rather than a silently duplicated snapshot.
+        #[test]
+        fn a_duplicate_sequence_number_is_refused() {
+            let conn = mem();
+            insert_edit_conn(&conn, "s", "first", "{}");
+            let duplicate = conn.execute(
+                "INSERT INTO edits (session_id, seq, created_at, action_label, structure_json)
+                 VALUES ('s', 0, '2024-01-01T00:00:00Z', 'forced', '{}')",
+                [],
+            );
+            assert!(duplicate.is_err(), "the store accepted a duplicate seq");
+        }
+
+        /// Databases written before the unique index existed may already hold
+        /// duplicates, and the index cannot be created over them.
+        #[test]
+        fn migration_clears_duplicates_left_by_the_old_writer() {
+            let conn = Connection::open_in_memory().unwrap();
+            ensure_schema(&conn).unwrap();
+            conn.execute(
+                "INSERT INTO edits (session_id, seq, created_at, action_label, structure_json)
+                 VALUES ('s', 0, '2024-01-01T00:00:00Z', 'kept', 'first'),
+                        ('s', 0, '2024-01-01T00:00:01Z', 'lost', 'second'),
+                        ('s', 1, '2024-01-01T00:00:02Z', 'kept', 'third')",
+                [],
+            )
+            .unwrap();
+
+            migrate(&conn).unwrap();
+
+            let edits = list_edits_conn(&conn, "s");
+            assert_eq!(edits.len(), 2, "the duplicate should have been dropped");
+            // The earliest row wins, so the surviving history stays in order.
+            assert_eq!(snapshot_at_conn(&conn, "s", 0).as_deref(), Some("first"));
+            assert_eq!(snapshot_at_conn(&conn, "s", 1).as_deref(), Some("third"));
+        }
+
+        /// Resuming a session replays its sources, so the bytes have to come
+        /// back exactly — and in order, because the language variants are
+        /// positional to the caller.
+        #[test]
+        fn stored_sources_round_trip_in_order() {
+            let conn = mem();
+            let files = [
+                ("AAOV_033_DE.pdf".to_string(), vec![1u8, 2, 3]),
+                ("AAOV_033_FR.pdf".to_string(), vec![4u8, 5]),
+            ];
+            let now = now();
+            for (i, (name, bytes)) in files.iter().enumerate() {
+                conn.execute(
+                    "INSERT INTO session_sources (doc_hash, file_index, name, bytes, created_at)
+                     VALUES ('h', ?1, ?2, ?3, ?4)",
+                    rusqlite::params![i as i64, name, bytes, now],
+                )
+                .unwrap();
+            }
+
+            let mut stmt = conn
+                .prepare(
+                    "SELECT name, bytes FROM session_sources
+                     WHERE doc_hash = 'h' ORDER BY file_index ASC",
+                )
+                .unwrap();
+            let read: Vec<(String, Vec<u8>)> = stmt
+                .query_map([], |r| Ok((r.get(0)?, r.get(1)?)))
+                .unwrap()
+                .filter_map(Result::ok)
+                .collect();
+            assert_eq!(read, files);
+        }
+
+        /// Content-addressed: the same document converted in three tabs is one
+        /// copy on disk, not three.
+        #[test]
+        fn storing_the_same_document_twice_keeps_one_copy() {
+            let conn = mem();
+            for _ in 0..2 {
+                conn.execute(
+                    "INSERT INTO session_sources (doc_hash, file_index, name, bytes, created_at)
+                     VALUES ('h', 0, 'a.pdf', X'0102', '2024-01-01T00:00:00Z')
+                     ON CONFLICT(doc_hash, file_index) DO NOTHING",
+                    [],
+                )
+                .unwrap();
+            }
+            let rows: i64 = conn
+                .query_row("SELECT COUNT(*) FROM session_sources", [], |r| r.get(0))
+                .unwrap();
+            assert_eq!(rows, 1);
+        }
+
+        /// The prune must only ever drop what nothing points at any more.
+        #[test]
+        fn only_unreferenced_sources_are_pruned() {
+            let stored = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+            let keep = vec!["b".to_string(), "missing".to_string()];
+            assert_eq!(orphan_hashes(&stored, &keep), ["a", "c"]);
+            // Nothing stored, or everything referenced, is a no-op.
+            assert!(orphan_hashes(&[], &keep).is_empty());
+            assert!(orphan_hashes(&stored, &stored).is_empty());
+        }
+
+        /// Resuming with the wrong target gives a run that cannot see its own
+        /// prior work, so the session has to remember what it authored.
+        #[test]
+        fn a_session_remembers_its_target() {
+            let conn = mem();
+            conn.execute(
+                "INSERT INTO sessions (session_id, doc_hash, profile, target, label, created_at)
+                 VALUES ('s', 'h', 'ubs', 'redacto', 'l', '2024-01-01T00:00:00Z'),
+                        ('old', 'h', 'ubs', NULL, 'l', '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+
+            let read = |id: &str| {
+                conn.query_row(
+                    "SELECT target FROM sessions WHERE session_id = ?1",
+                    [id],
+                    |r| r.get::<_, Option<String>>(0),
+                )
+                .unwrap()
+            };
+            assert_eq!(read("s").as_deref(), Some("redacto"));
+            // Written before the column existed: the caller falls back to
+            // whatever the tab remembers.
+            assert_eq!(read("old"), None);
+        }
+
+        /// The AEM tree is snapshotted under a sibling id, so deleting a session
+        /// has to take it too — otherwise those rows outlive every reference to
+        /// them.
+        #[test]
+        fn deleting_a_session_leaves_no_orphan_snapshots() {
+            let conn = mem();
+            insert_edit_conn(&conn, "s", "structured", "{}");
+            insert_edit_conn(&conn, "s#aem", "tree", "{}");
+            conn.execute(
+                "INSERT INTO sessions (session_id, doc_hash, profile, label, created_at)
+                 VALUES ('s', 'h', NULL, 'l', '2024-01-01T00:00:00Z')",
+                [],
+            )
+            .unwrap();
+
+            conn.execute("DELETE FROM edits WHERE session_id IN ('s', 's#aem')", [])
+                .unwrap();
+            conn.execute("DELETE FROM sessions WHERE session_id = 's'", [])
+                .unwrap();
+
+            assert!(list_edits_conn(&conn, "s").is_empty());
+            assert!(
+                list_edits_conn(&conn, "s#aem").is_empty(),
+                "the AEM tree outlived the session it belonged to"
+            );
         }
     }
 }

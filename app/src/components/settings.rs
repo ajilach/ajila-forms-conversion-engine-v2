@@ -9,7 +9,7 @@ use dioxus::prelude::*;
 
 use runner::Provider;
 
-use super::page::{FullPage, RowInfo};
+use super::page::{FullPage, PageTabs, RowInfo};
 use crate::settings::AppSettings;
 
 /// Offered when the model list cannot be fetched from the API. Derived from
@@ -102,14 +102,14 @@ pub fn SettingsPage(
     rsx! {
         FullPage { title: "Settings", on_close,
 
-            div { class: "tabs",
-                for t in SettingsTab::ALL {
-                    button {
-                        class: if tab() == *t { "tab active" } else { "tab" },
-                        onclick: move |_| tab.set(*t),
-                        "{t.label()}"
+            PageTabs {
+                labels: SettingsTab::ALL.iter().map(|t| t.label().to_string()).collect::<Vec<_>>(),
+                active: SettingsTab::ALL.iter().position(|t| *t == tab()).unwrap_or(0),
+                on_select: move |index: usize| {
+                    if let Some(t) = SettingsTab::ALL.get(index) {
+                        tab.set(*t);
                     }
-                }
+                },
             }
 
             div { class: "page-content",
@@ -268,13 +268,13 @@ pub fn SettingsPage(
                                 },
                             }
                             NumberRow {
-                                label: "Eviction trigger (KB)",
-                                desc: "Start shrinking stale content once the conversation exceeds this size.",
-                                value: s.evict_trigger_bytes / 1000,
+                                label: "Parallel requests",
+                                desc: "How many model requests conversions may have in flight at once. 0 removes the cap.",
+                                value: s.max_concurrent_requests,
                                 min: 0,
-                                step: 10,
-                                on_change: move |kb: usize| {
-                                    update.call(Box::new(move |s| s.evict_trigger_bytes = kb * 1000))
+                                step: 1,
+                                on_change: move |v: usize| {
+                                    update.call(Box::new(move |s| s.max_concurrent_requests = v))
                                 },
                             }
                             NumberRow {

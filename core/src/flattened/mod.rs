@@ -6141,16 +6141,6 @@ impl Flattened {
         )
     }
 
-    /// Calculate the natural height for a text/draw element (convenience wrapper).
-    fn calculate_natural_text_height(
-        text: &str,
-        font: &Option<Font>,
-        para: &Option<Para>,
-        max_width: Num,
-    ) -> Num {
-        Self::calculate_natural_text_height_with_paragraphs(text, font, para, max_width, 0)
-    }
-
     /// Calculate the natural content height for a draw element that has rich text
     /// (HTML exData with multiple `<p>` paragraphs at potentially different font sizes).
     ///

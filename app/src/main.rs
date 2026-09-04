@@ -3,7 +3,10 @@ mod components;
 mod files;
 mod mcp_install;
 mod models;
+mod run_status;
+mod tabs;
 mod upload;
+mod workspace;
 
 // The headless engine layer (edit-history store, reference store, AEM client)
 // lives in the `agent` crate; the LLM transport and the operator settings live
@@ -14,9 +17,47 @@ pub use runner::{llm, settings};
 
 use dioxus::prelude::*;
 
-use components::{AgentFlow, ReferencesPage, SettingsPage};
-use models::{ProcessingState, ProcessingStep};
+use components::{AgentFlow, FormTabs, ReferencesPage, SettingsPage};
+use models::{ProcessingState, ProcessingStep, UploadState};
 use settings::AppSettings;
+use tabs::{restored_view, RestoredView, SavedTab, SavedWorkspace, WORKSPACE_KEY};
+use workspace::{Tab, Workspace};
+
+/// Work out what is still there for a saved tab: the sources it was converted
+/// from, and how much of its result survived.
+///
+/// A session that recorded nothing but its empty seed is not worth reopening —
+/// the run died during analysis — so it is deleted rather than left to litter
+/// the history with a shell nobody can load.
+fn reopen_tab(saved: &SavedTab) -> (Vec<(String, Vec<u8>)>, RestoredView) {
+    let files = saved
+        .doc_hash
+        .as_deref()
+        .map(db::load_sources)
+        .unwrap_or_default();
+
+    // Either stream holds the document: the structured envelope, or the AEM
+    // tree snapshotted after every mutating tool call. `> 0` because sequence
+    // zero is the empty seed a run writes before it does anything.
+    let has_snapshot = saved.session_id.as_deref().is_some_and(|session| {
+        db::latest_seq(session).is_some_and(|seq| seq > 0)
+            || db::latest_seq(&format!("{session}#aem")).is_some()
+    });
+
+    let view = restored_view(saved, has_snapshot);
+    if view == RestoredView::Orphaned
+        && let Some(session) = saved.session_id.as_deref()
+    {
+        db::delete_session(session);
+    }
+    (files, view)
+}
+
+/// How many recent sessions keep their source documents on disk.
+///
+/// A reopened session needs its sources to be continued at all, but keeping
+/// every document ever converted would grow the store without bound.
+const RETAINED_SESSIONS: usize = 50;
 
 fn main() {
     let saved = AppSettings::load();
@@ -49,48 +90,92 @@ fn load_window_icon() -> Option<dioxus::desktop::tao::window::Icon> {
 
 #[component]
 fn App() -> Element {
-    let mut processing_state = use_signal(ProcessingState::default);
-    let mut is_processing = use_signal(|| false);
     // The profile list is baked into the binary, so read it once and start on
     // the first entry rather than re-deriving the default during every render.
     let profiles = use_hook(blueprint::list_profiles);
-    let selected_profile = use_signal(|| profiles.first().cloned());
-    // What the next conversion run produces. Chosen before the run starts,
-    // because it decides what the agent authors, not just which file is offered
-    // at the end.
-    let selected_target = use_signal(blueprint::OutputTarget::default);
+    let mut app_settings = use_signal(AppSettings::load);
     let mut settings_open = use_signal(|| false);
     // Whether the full-page reference-forms manager is open.
     let mut references_open = use_signal(|| false);
-    let mut app_settings = use_signal(AppSettings::load);
-    // Edit-history session id for the currently loaded document.
-    let mut current_session = use_signal(|| None::<String>);
-    // Source PDF bytes of the currently loaded document, retained so a feedback
-    // re-run can resume the conversion from the same sources.
-    let mut source_pdfs = use_signal(Vec::<(String, Vec<u8>)>::new);
     // A hook, so it has to be called here rather than inside the settings
     // handler that uses it.
     let window = dioxus::desktop::use_window();
-    // Shared with the running conversion so the Abort button can stop it. One
-    // per app rather than per run: the button and the run must hold the same
-    // cell, and a run clears it before it starts.
-    // Held in a signal so the run-starting closures stay `Copy`; the flag itself
-    // never changes identity, so nothing subscribes to it.
-    let abort = use_signal(models::AbortFlag::default);
 
-    // Both entry points below start a run the same way: capture the user's
-    // choices, flip the flow into its running phase, and let the agent drive.
-    let run_config = move || agent_runner::RunConfig {
-        profile: selected_profile.read().clone(),
-        target: *selected_target.read(),
-        settings: app_settings.read().clone(),
-        abort: abort.peek().clone(),
+    // Every conversion the user has open. Each tab owns its own run state,
+    // profile, target and stop control, so tabs convert independently.
+    //
+    // Reopened from the last session, sources and all, so a restart picks up
+    // where the operator left off rather than discarding a batch of work.
+    let saved = use_hook(|| SavedWorkspace::parse(db::get_setting(WORKSPACE_KEY).as_deref()));
+    let mut workspace = Workspace::use_init(
+        &saved,
+        profiles.first().map(String::as_str),
+        blueprint::OutputTarget::default(),
+        reopen_tab,
+    );
+
+    // Written on the moments that matter — a tab opened, closed or switched, a
+    // run started or finished, files attached — rather than on every keystroke.
+    // The phases carry all the durable information; a half-typed feedback note
+    // rides along with whichever of those happens next.
+    let save_workspace = move || {
+        let snapshot = workspace.snapshot(|files| {
+            (!files.is_empty()).then(|| db::document_hash(files))
+        });
+        match serde_json::to_string(&snapshot) {
+            Ok(json) => db::set_setting(WORKSPACE_KEY, &json),
+            Err(e) => eprintln!("workspace: could not be recorded: {e}"),
+        }
     };
-    let mut begin_run = move || {
-        // A previous run may have left it set.
-        abort.peek().reset();
-        is_processing.set(true);
-        processing_state.set(ProcessingState {
+
+    // A quit is the one moment nothing else covers: profile, target and file
+    // choices made but not yet started have to survive it too.
+    dioxus::desktop::use_wry_event_handler(move |event, _| {
+        if matches!(
+            event,
+            dioxus::desktop::tao::event::Event::WindowEvent {
+                event: dioxus::desktop::tao::event::WindowEvent::CloseRequested,
+                ..
+            }
+        ) {
+            save_workspace();
+        }
+    });
+
+    // Drop the stored bytes of documents no open tab and no recent session
+    // refers to any more. Once, at startup, so a long-lived install does not
+    // accumulate every PDF it has ever seen.
+    use_hook(move || {
+        let mut keep: Vec<String> = workspace
+            .tabs()
+            .iter()
+            .filter_map(|tab| {
+                let files = tab.files.read();
+                (!files.is_empty()).then(|| db::document_hash(&files))
+            })
+            .collect();
+        keep.extend(db::recent_doc_hashes(RETAINED_SESSIONS));
+        if db::prune_sources(&keep) > 0 {
+            db::vacuum();
+        }
+    });
+
+    // Both entry points below start a run the same way: capture the tab's
+    // choices, flip it into its running phase, and let the agent drive.
+    let run_config = move |tab: Tab| agent_runner::RunConfig {
+        profile: tab.profile.read().clone(),
+        target: *tab.target.read(),
+        settings: app_settings.read().clone(),
+        abort: tab.abort.peek().clone(),
+    };
+    let begin_run = move |tab: Tab| {
+        // A previous run in this tab may have left it set.
+        tab.abort.peek().reset();
+        // Whatever the box was explaining about the last session no longer
+        // describes what is on screen.
+        tab.restored.clone().set(None);
+        tab.processing.clone().set(true);
+        tab.state.clone().set(ProcessingState {
             step: ProcessingStep::Running,
             ..ProcessingState::default()
         });
@@ -102,28 +187,32 @@ fn App() -> Element {
     // versioning each step, and finalizes the result. The full file set is passed
     // so an attached content-package ZIP can be pre-loaded as the agent's
     // editable working tree.
-    let mut on_ai_process = move |file_data: Vec<(String, Vec<u8>)>| {
-        let pdfs: Vec<(String, Vec<u8>)> = file_data
+    let on_ai_process = move |tab: Tab, file_data: Vec<(String, Vec<u8>)>| {
+        let has_pdf = file_data
             .iter()
-            .filter(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"))
-            .cloned()
-            .collect();
+            .any(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"));
         // An AEM content-package ZIP may be attached as an editable template for
         // the agent's working tree. Proceed with PDFs, a template, or both.
         let has_template = file_data
             .iter()
             .any(|(_, bytes)| blueprint::detect_aem_zip(bytes));
-        if pdfs.is_empty() && !has_template {
+        if !has_pdf && !has_template {
             return;
         }
 
-        current_session.set(None);
-        // Retain the PDF sources so a feedback re-run can reuse them.
-        source_pdfs.set(pdfs);
+        tab.session_id.clone().set(None);
+        tab.aem_upload.clone().set(UploadState::Idle);
 
-        let config = run_config();
-        begin_run();
+        let config = run_config(tab);
+        begin_run(tab);
+        save_workspace();
 
+        // Two layers on purpose. The run itself goes to a worker thread, so a
+        // package build or a PDF extraction in one tab cannot freeze the other
+        // tabs and the window along with them — it reaches the UI only through
+        // the run state, which is the one handle built to cross threads. The
+        // bookkeeping around it stays on the UI thread, where the rest of the
+        // tab's signals live.
         spawn(async move {
             let session_label = file_data
                 .iter()
@@ -131,47 +220,95 @@ fn App() -> Element {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            agent_runner::run_agent(
-                file_data,
-                config,
-                session_label,
-                processing_state,
-                current_session,
-            )
-            .await;
-            is_processing.set(false);
+            let run = tokio::spawn(async move {
+                agent_runner::run_agent(file_data, config, session_label, tab.state).await
+            });
+
+            if let Some(session) = run.await.ok().flatten() {
+                tab.session_id.clone().set(Some(session));
+            }
+            workspace.finish_run(tab.id);
+            save_workspace();
         });
     };
 
     // ── Agent feedback re-run ─────────────────────────────────────────────────
     // From the agent "done" screen the user can submit feedback; this resumes
-    // the agent in the same session to refine the result and returns the flow
+    // the agent in the same session to refine the result and returns the tab
     // to the in-progress (running) phase.
-    let mut on_ai_feedback = move |feedback: String| {
-        let Some(session) = current_session.read().clone() else {
+    let on_ai_feedback = move |tab: Tab, feedback: String| {
+        let Some(session) = tab.session_id.read().clone() else {
             return;
         };
-        let pdfs = source_pdfs.read().clone();
+        // The agent resumes from the same sources; the attached template is
+        // already part of the session's working tree.
+        let pdfs: Vec<(String, Vec<u8>)> = tab
+            .files
+            .read()
+            .iter()
+            .filter(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"))
+            .cloned()
+            .collect();
         if pdfs.is_empty() {
             return;
         }
 
-        let config = run_config();
-        begin_run();
+        let config = run_config(tab);
+        begin_run(tab);
+        save_workspace();
 
         spawn(async move {
-            agent_runner::run_agent_feedback(
-                feedback,
-                pdfs,
-                config,
-                session,
-                processing_state,
-                current_session,
-            )
-            .await;
-            is_processing.set(false);
+            let run = tokio::spawn(async move {
+                agent_runner::run_agent_feedback(feedback, pdfs, config, session, tab.state).await
+            });
+
+            if let Some(session) = run.await.ok().flatten() {
+                tab.session_id.clone().set(Some(session));
+            }
+            workspace.finish_run(tab.id);
+            save_workspace();
         });
     };
+
+    // ── On-demand AEM install ────────────────────────────────────────────────
+    // Started here rather than inside the result panel: switching tabs unmounts
+    // that panel, and Dioxus cancels a scope's tasks along with it, which would
+    // abandon an install already in flight.
+    let on_aem_upload = move |tab: Tab| {
+        let Some(connection) = app_settings.read().aem_connection() else {
+            return;
+        };
+        let (package, package_name) = {
+            let run = tab.state.read();
+            let Some(package) = run.aem_package.clone() else {
+                return;
+            };
+            (
+                package,
+                run.form_code
+                    .clone()
+                    .unwrap_or_else(|| "forms-package".to_string()),
+            )
+        };
+
+        let mut upload = tab.aem_upload;
+        upload.set(UploadState::Uploading);
+        spawn(async move {
+            match crate::aem_client::upload_and_install_package(
+                &connection,
+                package,
+                &package_name,
+            )
+            .await
+            {
+                Ok(()) => upload.set(UploadState::Success),
+                Err(e) => upload.set(UploadState::Error(e)),
+            }
+        });
+    };
+
+    let active = workspace.active_tab();
+    let running = workspace.running_count();
 
     // ── Render ────────────────────────────────────────────────────────────────
     rsx! {
@@ -188,6 +325,19 @@ fn App() -> Element {
                 h1 { class: "app-header-title", "Forms Conversion Engine" }
                 span { class: "app-header-version", "v{env!(\"CARGO_PKG_VERSION\")}" }
             }
+            // Background runs are invisible from the full-page views, so the
+            // count doubles as the way back to them.
+            if running > 0 {
+                button {
+                    class: "app-header-running",
+                    title: "Back to the conversions",
+                    onclick: move |_| {
+                        settings_open.set(false);
+                        references_open.set(false);
+                    },
+                    "▶ {running} running"
+                }
+            }
             button {
                 class: "settings-btn",
                 title: "Settings",
@@ -196,7 +346,7 @@ fn App() -> Element {
             }
         }
 
-        // Settings, the references manager, or the agent flow — full-page views
+        // Settings, the references manager, or the workspace — full-page views
         // under the persistent header.
         if *settings_open.read() {
             SettingsPage {
@@ -216,32 +366,37 @@ fn App() -> Element {
         } else if *references_open.read() {
             // Reference-forms manager (full page view)
             ReferencesPage {
-                profile: selected_profile.read().clone(),
+                profile: active.profile.read().clone(),
                 settings: app_settings,
                 on_close: move |_| references_open.set(false),
             }
         } else {
-            // The agent flow: upload → live timeline → done.
+            // The open conversions, and the active one's flow:
+            // upload → live timeline → done.
+            FormTabs { workspace, on_changed: move |()| save_workspace() }
             AgentFlow {
-                processing_state,
-                is_processing,
+                tab: active,
                 profiles,
-                selected_profile,
-                selected_target,
-                abort: abort.peek().clone(),
                 ai_available: !app_settings.read().active_api_key().is_empty(),
                 aem_connection: app_settings.read().aem_connection(),
                 on_ai_process: move |files: Vec<(String, Vec<u8>)>| {
-                    on_ai_process(files);
+                    on_ai_process(active, files);
                 },
                 on_feedback: move |text: String| {
-                    on_ai_feedback(text);
+                    on_ai_feedback(active, text);
+                },
+                on_aem_upload: move |()| {
+                    on_aem_upload(active);
                 },
                 on_reset: move |_| {
-                    is_processing.set(false);
-                    current_session.set(None);
-                    source_pdfs.set(Vec::new());
-                    processing_state.set(ProcessingState::default());
+                    active.processing.clone().set(false);
+                    active.session_id.clone().set(None);
+                    active.files.clone().set(Vec::new());
+                    active.feedback.clone().set(String::new());
+                    active.timeline_open.clone().set(false);
+                    active.aem_upload.clone().set(UploadState::Idle);
+                    active.state.clone().set(ProcessingState::default());
+                    save_workspace();
                 },
             }
         }

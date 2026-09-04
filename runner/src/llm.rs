@@ -43,9 +43,6 @@ pub const DEFAULT_KEEP_RECENT_MESSAGES: usize = 4;
 pub const DEFAULT_ELIDE_TEXT_OVER_CHARS: usize = 2000;
 /// Default: `tool_use` input longer than this (chars) is elided once stale.
 pub const DEFAULT_ELIDE_INPUT_OVER_CHARS: usize = 2000;
-/// Default: eviction is a no-op until the serialized history exceeds this size,
-/// so short runs are never touched.
-pub const DEFAULT_EVICT_TRIGGER_BYTES: usize = 200_000;
 /// Sentinel prefix marking an already-elided block. Makes eviction idempotent:
 /// repeated passes are byte-identical, so the cached prefix is not invalidated.
 const ELIDED_MARKER: &str = "\u{1}elided";
@@ -54,17 +51,11 @@ const ELIDED_MARKER: &str = "\u{1}elided";
 static CFG_KEEP_RECENT: AtomicUsize = AtomicUsize::new(DEFAULT_KEEP_RECENT_MESSAGES);
 static CFG_TEXT_OVER: AtomicUsize = AtomicUsize::new(DEFAULT_ELIDE_TEXT_OVER_CHARS);
 static CFG_INPUT_OVER: AtomicUsize = AtomicUsize::new(DEFAULT_ELIDE_INPUT_OVER_CHARS);
-static CFG_TRIGGER_BYTES: AtomicUsize = AtomicUsize::new(DEFAULT_EVICT_TRIGGER_BYTES);
 
 /// Override the history-eviction tuning (called from settings on startup and on
 /// change). A `0` argument resets that parameter to its default. `keep_recent`
 /// is clamped to an even number ≥ 2 so whole turn-pairs always stay verbatim.
-pub fn configure_eviction(
-    keep_recent: usize,
-    text_over: usize,
-    input_over: usize,
-    trigger_bytes: usize,
-) {
+pub fn configure_eviction(keep_recent: usize, text_over: usize, input_over: usize) {
     let keep = if keep_recent == 0 {
         DEFAULT_KEEP_RECENT_MESSAGES
     } else {
@@ -84,14 +75,6 @@ pub fn configure_eviction(
             DEFAULT_ELIDE_INPUT_OVER_CHARS
         } else {
             input_over
-        },
-        Ordering::Relaxed,
-    );
-    CFG_TRIGGER_BYTES.store(
-        if trigger_bytes == 0 {
-            DEFAULT_EVICT_TRIGGER_BYTES
-        } else {
-            trigger_bytes
         },
         Ordering::Relaxed,
     );
@@ -130,26 +113,16 @@ fn tool_name_by_id(history: &[serde_json::Value]) -> std::collections::HashMap<S
 /// `tool_use`↔`tool_result` pairing stays intact.
 ///
 /// Protects `history[0]` (the instruction prefix) and the last `keep_recent`
-/// messages. Size-gated by `trigger_bytes` and idempotent (already-stubbed blocks
-/// are skipped), so it cooperates with prompt caching instead of busting the
-/// cached prefix. [`evict_to_fit`] drives it with escalating tuning (a tiny recent
-/// window, near-zero thresholds, and `trigger_bytes = 0`) as a turn approaches the
-/// context window.
+/// messages. Idempotent (already-stubbed blocks are skipped), so it cooperates
+/// with prompt caching instead of busting the cached prefix. [`evict_to_fit`]
+/// drives it with escalating tuning — a tiny recent window and near-zero
+/// thresholds — as a turn approaches the context window.
 fn evict_stale_history_with(
     history: &mut [serde_json::Value],
     keep_recent: usize,
     text_over: usize,
     input_over: usize,
-    trigger_bytes: usize,
 ) {
-    if trigger_bytes > 0 {
-        let total = serde_json::to_string(&history)
-            .map(|s| s.len())
-            .unwrap_or(0);
-        if total < trigger_bytes {
-            return;
-        }
-    }
     let len = history.len();
     if len <= 1 + keep_recent {
         return;
@@ -496,8 +469,8 @@ fn evict_to_fit(
     // Under budget → keep the full transcript verbatim. This is the common case
     // and MUST not touch anything: stubbing while there is ample token headroom
     // (the old byte-gated behaviour) makes the agent re-fetch context it still
-    // had room for. All stages below force-run (`trigger_bytes = 0`) because we
-    // only reach them once genuinely over budget.
+    // had room for. Every stage below runs unconditionally, because we only
+    // reach them once genuinely over budget.
     if fits(history) {
         return;
     }
@@ -508,7 +481,6 @@ fn evict_to_fit(
         CFG_KEEP_RECENT.load(Ordering::Relaxed),
         CFG_TEXT_OVER.load(Ordering::Relaxed),
         CFG_INPUT_OVER.load(Ordering::Relaxed),
-        0,
     );
     if fits(history) {
         return;
@@ -516,7 +488,7 @@ fn evict_to_fit(
 
     // Stage 2: aggressive stubbing (keep only the last pair verbatim; stub any
     // text/input over ~200 chars).
-    evict_stale_history_with(history, 2, 200, 200, 0);
+    evict_stale_history_with(history, 2, 200, 200);
     if fits(history) {
         return;
     }
@@ -541,7 +513,7 @@ fn evict_to_fit(
     // (e.g. a whole-XFA `get_xfa`, or a monolithic `set_*` input) exceeds it on
     // its own. Stub with no protected window (`keep_recent = 0`) so even the last
     // pair is shrunk; the model re-fetches from the engine if it still needs it.
-    evict_stale_history_with(history, 0, 200, 200, 0);
+    evict_stale_history_with(history, 0, 200, 200);
 }
 
 /// Replace an oversized `tool_use` `input` with a small stub object. `input`
@@ -851,6 +823,10 @@ where
             return Ok((response, prepared.sent_estimate));
         }
 
+        // Read before the body is consumed. A provider that rejects a request
+        // for quota often says when to come back; the controller honours that
+        // over its own guessed backoff, so carry it out with the error.
+        let retry_after = retry_after_secs(response.headers());
         let body = response.text().await.unwrap_or_default();
         let msg = serde_json::from_str::<serde_json::Value>(&body)
             .ok()
@@ -865,8 +841,26 @@ where
             target = learned_target.min(target / 2).max(MIN_TARGET);
             continue;
         }
-        return Err(format!("{label} error ({status}): {msg}"));
+        let hint = retry_after
+            .map(|secs| format!(" [retry-after: {secs}]"))
+            .unwrap_or_default();
+        return Err(format!("{label} error ({status}): {msg}{hint}"));
     }
+}
+
+/// The `Retry-After` header in seconds, when the response carries one.
+///
+/// Only the delta-seconds form is read. The HTTP-date form is legal but is not
+/// what these APIs send, and mis-parsing a date into a wrong delay would be
+/// worse than falling back to the computed backoff.
+fn retry_after_secs(headers: &reqwest::header::HeaderMap) -> Option<u64> {
+    headers
+        .get(reqwest::header::RETRY_AFTER)?
+        .to_str()
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 /// Read an SSE body line by line, handing each `data:` payload to `on_data`.
@@ -1351,7 +1345,6 @@ mod tests {
             DEFAULT_KEEP_RECENT_MESSAGES,
             DEFAULT_ELIDE_TEXT_OVER_CHARS,
             DEFAULT_ELIDE_INPUT_OVER_CHARS,
-            DEFAULT_EVICT_TRIGGER_BYTES,
         );
     }
 
@@ -1406,10 +1399,11 @@ mod tests {
     }
 
     #[test]
-    fn images_survive_below_threshold() {
-        // Images are evicted by the same size-gated pass as text: below the
-        // trigger they are left intact (regression guard against an unconditional
-        // image pass that stubbed the just-fetched render mid-comparison).
+    fn images_survive_while_the_prompt_still_fits() {
+        // Images go through the same pass as text, so they are equally safe
+        // while there is budget left. This is the regression guard against an
+        // unconditional image pass stubbing a render the agent had just fetched
+        // and was in the middle of comparing.
         let original = vec![
             user_text("SYSTEM"),
             assistant_tool_use("tu1", "get_plain_state_image", &json!({})),
@@ -1420,13 +1414,13 @@ mod tests {
             result_image("tu3", "CCCC"),
         ];
         let mut h = original.clone();
-        evict_stale_history(&mut h);
+        evict_to_fit(&mut h, &[], None, 800_000);
         assert_eq!(h, original);
     }
 
     #[test]
-    fn verbose_text_results_survive_below_threshold() {
-        // Two get_xfa reads below the size gate must BOTH stay intact — the agent
+    fn several_verbose_results_survive_together() {
+        // Two get_xfa reads within budget must BOTH stay intact — the agent
         // legitimately holds several verbose results at once (regression guard:
         // an over-aggressive verbose-eviction once stubbed all but the latest,
         // forcing an endless re-fetch loop when comparing languages).
@@ -1438,7 +1432,7 @@ mod tests {
             result_text("tu2", &"y".repeat(400)),
         ];
         let mut h = original.clone();
-        evict_stale_history(&mut h);
+        evict_to_fit(&mut h, &[], None, 800_000);
         assert_eq!(h, original);
     }
 
@@ -1584,9 +1578,11 @@ mod tests {
     }
 
     #[test]
-    fn size_gated_below_threshold() {
-        // A small history (well under EVICT_TRIGGER_BYTES) is left untouched even
-        // though it contains an over-threshold text block.
+    fn nothing_is_touched_while_the_prompt_still_fits() {
+        // A history that fits the turn's budget is kept verbatim even though it
+        // holds an over-threshold text block. What guards this is the budget
+        // check in `evict_to_fit`, so the test has to go through it — calling
+        // the stubbing pass directly bypasses the very thing under test.
         let original = vec![
             user_text("SYSTEM"),
             assistant_tool_use("tu1", "get_xfa", &json!({})),
@@ -1597,7 +1593,7 @@ mod tests {
             result_text("tu3", "done"),
         ];
         let mut h = original.clone();
-        evict_stale_history(&mut h);
+        evict_to_fit(&mut h, &[], None, 800_000);
         assert_eq!(h, original);
     }
 }

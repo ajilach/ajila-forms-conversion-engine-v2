@@ -13,6 +13,7 @@ use agent::browser::BrowserSession;
 use blueprint::OutputTarget;
 use pipeline::{AbortFlag, RunEvent, RunObserver, RunOutcome, RunSeed};
 
+use crate::aem_lock::{self, AemLease};
 use crate::settings::AppSettings;
 use crate::turns::TurnPlan;
 
@@ -43,13 +44,17 @@ pub struct Completed {
 
 /// Run the autonomous conversion end to end on a fresh file set.
 ///
+/// The observer is `Send` because a run is driven on a worker thread: several
+/// conversions have to make progress at the same time, and the CPU-bound stretches
+/// (PDF extraction, package building) would otherwise block every one of them.
+///
 /// `files` may hold the source PDF(s), an AEM content-package ZIP to use as an
 /// editable template, or both.
 pub async fn run_fresh(
     files: Vec<(String, Vec<u8>)>,
     opts: &RunOptions,
     session_label: &str,
-    obs: &mut impl RunObserver,
+    obs: &mut (impl RunObserver + Send),
 ) -> Result<Completed, String> {
     // An attached AEM content-package ZIP is pre-loaded as the agent's editable
     // working tree (the ConversionAgent splits PDFs vs. template internally).
@@ -70,8 +75,19 @@ pub async fn run_fresh(
         .collect();
     let doc_hash = agent::db::document_hash(if pdfs.is_empty() { &files } else { &pdfs });
     agent::db::upsert_document(&doc_hash, session_label);
+    // Keep the bytes, not just their hash. Resuming a session replays the
+    // sources through the agent, so without them a run recorded here could be
+    // reopened and read but never continued — which is most of the point of
+    // recording it. Content-addressed, so converting the same document again
+    // stores nothing new.
+    agent::db::store_sources(&doc_hash, &files);
     let session_id =
-        match agent::db::create_session(&doc_hash, opts.profile.as_deref(), session_label) {
+        match agent::db::create_session(
+            &doc_hash,
+            opts.profile.as_deref(),
+            opts.target.as_str(),
+            session_label,
+        ) {
             Some(id) => id,
             None => {
                 close_browser(browser).await;
@@ -101,7 +117,27 @@ instead of authoring from scratch."
         ""
     };
 
-    Ok(drive(agent, opts, RunSeed::Fresh, template_note, session_id, obs).await)
+    // Before the first token is spent. A refused run leaves no session behind:
+    // an empty session is litter in the history the operator never asked for.
+    let lease = match claim_aem_form(&agent, opts) {
+        Ok(lease) => lease,
+        Err(e) => {
+            agent::db::delete_session(&session_id);
+            agent.shutdown_browser().await;
+            return Err(e);
+        }
+    };
+
+    Ok(drive(
+        agent,
+        opts,
+        RunSeed::Fresh,
+        template_note,
+        session_id,
+        lease,
+        obs,
+    )
+    .await)
 }
 
 /// Resume an existing session to apply the operator's feedback.
@@ -113,7 +149,7 @@ pub async fn run_feedback(
     pdfs: Vec<(String, Vec<u8>)>,
     opts: &RunOptions,
     session_id: String,
-    obs: &mut impl RunObserver,
+    obs: &mut (impl RunObserver + Send),
 ) -> Result<Completed, String> {
     // Seed the agent from the continuing session so feedback applies to the prior
     // result: both the structured content and the AEM tree the last run authored,
@@ -139,12 +175,24 @@ pub async fn run_feedback(
         }
     }
 
+    // A feedback re-run installs over the same form as the run it resumes, so
+    // it contends exactly like a fresh one. The session already exists and is
+    // the user's own history, so it is left alone.
+    let lease = match claim_aem_form(&agent, opts) {
+        Ok(lease) => lease,
+        Err(e) => {
+            agent.shutdown_browser().await;
+            return Err(e);
+        }
+    };
+
     Ok(drive(
         agent,
         opts,
         RunSeed::Feedback(feedback),
         "",
         session_id,
+        lease,
         obs,
     )
     .await)
@@ -156,7 +204,7 @@ pub async fn run_feedback(
 /// spends a token. Only an AEM target has anything to open.
 async fn browser_for(
     opts: &RunOptions,
-    obs: &mut impl RunObserver,
+    obs: &mut (impl RunObserver + Send),
 ) -> Result<Option<BrowserSession>, String> {
     if opts.target != OutputTarget::Aem {
         return Ok(None);
@@ -189,13 +237,31 @@ async fn close_browser(browser: Option<BrowserSession>) {
 }
 
 /// Drive the controller over `agent` and record what it produced.
+/// Claim this run's AEM form so no other run can install over it.
+///
+/// Only AEM runs against a configured instance can collide; a Redacto run
+/// touches no instance and is never blocked. A profile with no AEM config yields
+/// no path, and a run that cannot name its target cannot conflict over it.
+fn claim_aem_form(agent: &ConversionAgent, opts: &RunOptions) -> Result<Option<AemLease>, String> {
+    let Some(connection) = opts.settings.aem_connection() else {
+        return Ok(None);
+    };
+    let Some(path) = agent.planned_jcr_path() else {
+        return Ok(None);
+    };
+    aem_lock::acquire(&connection.host, &path).map(Some)
+}
+
 async fn drive(
     agent: ConversionAgent,
     opts: &RunOptions,
     seed: RunSeed,
     template_note: &'static str,
     session_id: String,
-    obs: &mut impl RunObserver,
+    // Held for the whole run and released when it returns, so the next run of
+    // the same form starts only once this one has stopped touching it.
+    _aem_lease: Option<AemLease>,
+    obs: &mut (impl RunObserver + Send),
 ) -> Completed {
     let started_at = Instant::now();
 
@@ -223,10 +289,25 @@ async fn drive(
     // Record the result in the structured history, so the run can be reopened
     // from the session browser. Without this the session holds nothing but the
     // empty seed and there is nothing to load.
-    if let Some(outcome) = &outcome
-        && let Ok(json) = serde_json::to_string(&outcome.envelope)
-    {
-        agent::db::insert_edit(&session_id, "Agent conversion", &json);
+    //
+    // A failure here costs the operator the whole result the moment the window
+    // closes, so it is reported rather than swallowed: the store already prints
+    // the cause, and this is what puts it in front of whoever ran the
+    // conversion.
+    if let Some(outcome) = &outcome {
+        match serde_json::to_string(&outcome.envelope) {
+            Ok(json) if agent::db::insert_edit(&session_id, "Agent conversion", &json).is_none() => {
+                obs.emit(RunEvent::Warning(format!(
+                    "The result could not be recorded in the edit history, so session \
+                     {session_id} cannot be reopened. Download the outputs before closing."
+                )));
+            }
+            Err(e) => obs.emit(RunEvent::Warning(format!(
+                "The result could not be recorded in the edit history ({e}), so session \
+                 {session_id} cannot be reopened. Download the outputs before closing."
+            ))),
+            _ => {}
+        }
     }
 
     Completed {

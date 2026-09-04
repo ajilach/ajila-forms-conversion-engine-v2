@@ -13,85 +13,13 @@ use dioxus::prelude::*;
 use super::spinner::{Spinner, SpinnerSize};
 use crate::files::download_file;
 use crate::models::{
-    AbortFlag, AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, ProcessingStep,
-    RetryAction,
+    AbortFlag, AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, RetryAction,
+    RunStateRead, UploadState,
 };
+use crate::run_status::{screen_for, RunStatus, Screen};
+use crate::tabs::RestoredView;
+use crate::workspace::Tab;
 use crate::upload::read_upload_files;
-
-/// What the box shows: either the upload form, or a run in one of its states.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum Screen {
-    Upload,
-    Run(RunStatus),
-}
-
-/// How a run is doing. `Paused` is a live run waiting on the user's answer to a
-/// failed request — the header, the phase rail and the badge all switch on it,
-/// so it is one value rather than a phase plus a flag.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum RunStatus {
-    Running,
-    Paused,
-    Done,
-    /// The run ended on an error (including the user giving up on a paused,
-    /// retryable request) — the box reports it and offers a fresh start.
-    Failed,
-}
-
-impl RunStatus {
-    /// Modifier class and glyph for the status badge. `None` glyph means the
-    /// badge shows a spinner instead.
-    fn badge(self) -> (&'static str, Option<&'static str>) {
-        match self {
-            Self::Running => ("run", None),
-            Self::Paused => ("warn", Some("⏸")),
-            Self::Done => ("ok", Some("✓")),
-            Self::Failed => ("err", Some("✗")),
-        }
-    }
-
-    fn title(self) -> &'static str {
-        match self {
-            Self::Running => "Agent is working",
-            Self::Paused => "Agent paused",
-            Self::Done => "Finished",
-            Self::Failed => "Agent stopped",
-        }
-    }
-
-    /// Whether the run reached the end successfully.
-    fn is_done(self) -> bool {
-        self == Self::Done
-    }
-}
-
-/// Derive what to show from the run state. The `Complete` step wins over
-/// everything; a stopped run that recorded an error, or that the user aborted,
-/// has ended; anything else with work in flight is a run in progress.
-fn screen_for(state: &ProcessingState, processing: bool) -> Screen {
-    if state.step == ProcessingStep::Complete {
-        Screen::Run(RunStatus::Done)
-    } else if !processing && (state.error.is_some() || state.aborted) {
-        Screen::Run(RunStatus::Failed)
-    } else if processing || state.step != ProcessingStep::Idle {
-        Screen::Run(if state.retry_pending {
-            RunStatus::Paused
-        } else {
-            RunStatus::Running
-        })
-    } else {
-        Screen::Upload
-    }
-}
-
-/// Lifecycle of the on-demand "Upload to AEM" action, surfaced inside the button.
-#[derive(Clone, Debug, Eq, PartialEq)]
-enum UploadState {
-    Idle,
-    Uploading,
-    Success,
-    Error(String),
-}
 
 /// Render the activity timeline as a Markdown transcript of the run.
 fn agent_log_markdown(steps: &[AgentStep]) -> String {
@@ -137,30 +65,30 @@ fn ext_badge(name: &str) -> (&'static str, &'static str) {
 
 #[component]
 pub fn AgentFlow(
-    processing_state: Signal<ProcessingState>,
-    is_processing: ReadSignal<bool>,
+    /// The conversion this box is showing. Everything it renders and everything
+    /// it lets the user change lives on the tab, so switching away and back
+    /// finds the box exactly as it was left.
+    tab: Tab,
     profiles: Vec<String>,
-    selected_profile: Signal<Option<String>>,
-    selected_target: Signal<blueprint::OutputTarget>,
-    /// Stops the running conversion when the Abort button is pressed.
-    abort: AbortFlag,
     /// Whether agent processing is available (an API key is configured).
     ai_available: bool,
     /// AEM upload connection from settings, or `None` if not configured.
     aem_connection: Option<blueprint::AemConnection>,
-    /// Start a fresh agent run from the uploaded files.
+    /// Start a fresh agent run in this tab from its uploaded files.
     on_ai_process: EventHandler<Vec<(String, Vec<u8>)>>,
     /// Re-run the agent in the same session with the user's feedback.
     on_feedback: EventHandler<String>,
+    /// Install the finished package on the configured AEM instance.
+    on_aem_upload: EventHandler<()>,
     /// Discard the finished result and return to a clean upload state.
     on_reset: EventHandler<()>,
 ) -> Element {
-    let mut uploaded_files = use_signal(Vec::<(String, Vec<u8>)>::new);
-    let mut feedback = use_signal(String::new);
-    // Whether the activity timeline is expanded to its full history.
-    let mut timeline_open = use_signal(|| false);
+    let mut processing_state = tab.state;
+    let mut uploaded_files = tab.files;
+    let mut feedback = tab.feedback;
+    let mut timeline_open = tab.timeline_open;
 
-    let screen = screen_for(&processing_state.read(), is_processing());
+    let screen = screen_for(&processing_state.read(), (tab.processing)());
 
     rsx! {
         div { class: "agent-flow",
@@ -170,8 +98,8 @@ pub fn AgentFlow(
                         Screen::Upload => rsx! {
                             UploadBox {
                                 profiles,
-                                selected_profile,
-                                selected_target,
+                                selected_profile: tab.profile,
+                                selected_target: tab.target,
                                 ai_available,
                                 uploaded_files,
                                 on_start: move |files: Vec<(String, Vec<u8>)>| on_ai_process.call(files),
@@ -180,13 +108,18 @@ pub fn AgentFlow(
                         Screen::Run(status) => rsx! {
                             RunBox {
                                 status,
-                                state: processing_state,
+                                state: processing_state.into(),
                                 files: uploaded_files,
-                                profile: selected_profile.read().clone(),
+                                profile: tab.profile.read().clone(),
                                 aem_connection,
-                                abort,
+                                abort: tab.abort.peek().clone(),
+                                aem_upload: tab.aem_upload,
+                                restored: *tab.restored.read(),
+                                can_continue: !uploaded_files.read().is_empty(),
+                                last_download: tab.last_download,
                                 timeline_open,
                                 feedback,
+                                on_aem_upload: move |()| on_aem_upload.call(()),
                                 on_feedback: move |text: String| on_feedback.call(text),
                                 // Answer a paused run's retry prompt; the agent loop
                                 // polls these on the shared processing state.
@@ -378,14 +311,25 @@ fn UploadBox(
 #[component]
 fn RunBox(
     status: RunStatus,
-    state: ReadSignal<ProcessingState>,
-    files: ReadSignal<Vec<(String, Vec<u8>)>>,
+    state: RunStateRead,
+    files: Signal<Vec<(String, Vec<u8>)>>,
     profile: Option<String>,
     aem_connection: Option<blueprint::AemConnection>,
     abort: AbortFlag,
+    /// Progress of the on-demand AEM install, held by the tab so switching away
+    /// mid-upload neither cancels the request nor forgets it was made.
+    aem_upload: Signal<UploadState>,
+    /// Set when this tab came back from a previous session, so the box can say
+    /// what did and did not survive the restart.
+    restored: Option<RestoredView>,
+    /// Whether a feedback re-run has the sources it would need to replay.
+    can_continue: bool,
+    /// Where this tab last saved each artefact.
+    last_download: Signal<std::collections::HashMap<String, std::path::PathBuf>>,
     timeline_open: Signal<bool>,
     feedback: Signal<String>,
     on_feedback: EventHandler<String>,
+    on_aem_upload: EventHandler<()>,
     /// Resume a paused run by re-sending the request that failed.
     on_retry: EventHandler<()>,
     /// Abandon a paused run instead of retrying it.
@@ -446,8 +390,13 @@ fn RunBox(
                         span { class: "ag-aem-path", "{path}" }
                     }
                 }
-                ResultActions { state, aem_connection }
-                FeedbackBox { feedback, on_feedback }
+                if let Some(restored) = restored {
+                    RestoredNotice { restored, can_continue }
+                }
+                ResultActions { state, aem_connection, aem_upload, last_download, on_aem_upload }
+                if can_continue {
+                    FeedbackBox { feedback, on_feedback }
+                }
             }
         }
     }
@@ -546,7 +495,7 @@ fn PhaseRail(status: RunStatus) -> Element {
 
 /// The uploaded source files as extension-badged chips.
 #[component]
-fn SourceFiles(files: ReadSignal<Vec<(String, Vec<u8>)>>) -> Element {
+fn SourceFiles(files: Signal<Vec<(String, Vec<u8>)>>) -> Element {
     if files.read().is_empty() {
         return rsx! {};
     }
@@ -572,22 +521,36 @@ fn SourceFiles(files: ReadSignal<Vec<(String, Vec<u8>)>>) -> Element {
 /// scrollable history with the context-window indicator.
 #[component]
 fn ActivityTimeline(
-    state: ReadSignal<ProcessingState>,
+    state: RunStateRead,
     mut timeline_open: Signal<bool>,
 ) -> Element {
+    // The scroll anchor has to name *this* timeline. Once several runs are open
+    // at once a shared id would let one timeline scroll another's box, so the id
+    // is minted per component instance rather than written as a constant.
+    let anchor = use_hook(|| {
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        format!(
+            "agent-flow-end-{}",
+            NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        )
+    });
+
     // Keep the timeline pinned to the newest step as the agent works. The memo
     // makes the dependency explicit — the effect must re-run on a new step, not
     // on every unrelated change to the run state.
     let step_count = use_memo(move || state.read().agent_steps.len());
-    use_effect(move || {
-        let _ = step_count();
-        if timeline_open() {
-            document::eval(
-                r#"setTimeout(() => {
-                    const el = document.getElementById('agent-flow-end');
-                    if (el) el.scrollIntoView({ block: 'end' });
-                }, 0);"#,
-            );
+    use_effect({
+        let anchor = anchor.clone();
+        move || {
+            let _ = step_count();
+            if timeline_open() {
+                document::eval(&format!(
+                    r#"setTimeout(() => {{
+                    const el = document.getElementById('{anchor}');
+                    if (el) el.scrollIntoView({{ block: 'end' }});
+                }}, 0);"#
+                ));
+            }
         }
     });
 
@@ -669,7 +632,7 @@ fn ActivityTimeline(
                                 }
                             }
                         }
-                        div { id: "agent-flow-end" }
+                        div { id: "{anchor}" }
                     }
                 }
             }
@@ -724,6 +687,43 @@ fn ContextGauge(used: usize, window: usize) -> Element {
     }
 }
 
+/// Says what a reopened tab actually carries.
+///
+/// A restored tab looks like a finished one, but it is not: the built package,
+/// the schema and the activity log were never stored — they are regenerated
+/// from the session, or from a re-run. Saying so is the difference between an
+/// empty download row that reads as a bug and one that reads as expected.
+#[component]
+fn RestoredNotice(restored: RestoredView, can_continue: bool) -> Element {
+    let headline = match restored {
+        RestoredView::Interrupted => "This run was interrupted when the app closed.",
+        _ => "Reopened from the saved session.",
+    };
+    let detail = match (restored, can_continue) {
+        (RestoredView::Interrupted, true) => {
+            "The agent kept a snapshot of everything it had built. Send feedback to carry on \
+             from there."
+        }
+        (_, true) => {
+            "The downloads are not kept between sessions. Send feedback to re-run the \
+             conversion and produce them again."
+        }
+        // Resuming replays the original PDFs through the agent, and those are
+        // the one thing that cannot be reconstructed.
+        (_, false) => {
+            "The source documents are no longer stored, so this conversion cannot be \
+             continued. Start over with the sources to re-run it."
+        }
+    };
+
+    rsx! {
+        div { class: "ag-restored",
+            span { class: "ag-restored-title", "{headline}" }
+            span { class: "ag-restored-detail", "{detail}" }
+        }
+    }
+}
+
 /// A failed request paused the run: offer to re-send it, or to give up.
 #[component]
 fn RetryPrompt(
@@ -765,18 +765,18 @@ fn RetryPrompt(
 /// the header instead would carry a stale "Stopping…" into a feedback re-run.
 #[component]
 fn AbortButton(abort: AbortFlag) -> Element {
-    let mut asked = use_signal(|| false);
+    // Read off the flag itself rather than a local signal: this component
+    // belongs to whichever tab is on screen, so a local "already asked" would
+    // follow the user to a tab whose run nobody stopped.
+    let asked = abort.is_aborted();
 
     rsx! {
         button {
             class: "btn btn-secondary btn-sm",
-            disabled: asked(),
+            disabled: asked,
             title: "Stop this conversion. Whatever the agent has built so far is kept.",
-            onclick: move |_| {
-                abort.abort();
-                asked.set(true);
-            },
-            if asked() { "Stopping…" } else { "✕ Abort" }
+            onclick: move |_| abort.abort(),
+            if asked { "Stopping…" } else { "✕ Abort" }
         }
     }
 }
@@ -785,10 +785,13 @@ fn AbortButton(abort: AbortFlag) -> Element {
 /// then the AEM install as the row's single emphasised action.
 #[component]
 fn ResultActions(
-    state: ReadSignal<ProcessingState>,
+    state: RunStateRead,
     aem_connection: Option<blueprint::AemConnection>,
+    aem_upload: Signal<UploadState>,
+    last_download: Signal<std::collections::HashMap<String, std::path::PathBuf>>,
+    on_aem_upload: EventHandler<()>,
 ) -> Element {
-    let mut upload_state = use_signal(|| UploadState::Idle);
+    let upload_state = aem_upload;
     let run = state.read();
 
     rsx! {
@@ -800,10 +803,11 @@ fn ResultActions(
                         class: "btn btn-secondary",
                         artifact,
                         state,
+                        last_download,
                     }
                 }
             }
-            if let Some(package) = run.aem_package.as_ref().filter(|_| Artifact::Package.is_offered(&run)) {
+            if run.aem_package.as_ref().filter(|_| Artifact::Package.is_offered(&run)).is_some() {
                 {
                     let st = upload_state.read().clone();
                     let uploading = st == UploadState::Uploading;
@@ -821,34 +825,11 @@ fn ResultActions(
                             class: "btn btn-primary",
                             disabled: uploading || no_connection,
                             title: upload_title,
-                            onclick: {
-                                let package = package.clone();
-                                let connection = aem_connection;
-                                let package_name = run
-                                    .form_code
-                                    .clone()
-                                    .unwrap_or_else(|| "forms-package".to_string());
-                                move |_| {
-                                    let Some(conn) = connection.clone() else {
-                                        return;
-                                    };
-                                    let package = package.clone();
-                                    let package_name = package_name.clone();
-                                    upload_state.set(UploadState::Uploading);
-                                    spawn(async move {
-                                        match crate::aem_client::upload_and_install_package(
-                                            &conn,
-                                            package,
-                                            &package_name,
-                                        )
-                                        .await
-                                        {
-                                            Ok(()) => upload_state.set(UploadState::Success),
-                                            Err(e) => upload_state.set(UploadState::Error(e)),
-                                        }
-                                    });
-                                }
-                            },
+                            // The request is started by the app, not here: this
+                            // scope unmounts the moment the user switches tab,
+                            // and Dioxus cancels a scope's tasks with it — which
+                            // would abandon an install already in flight.
+                            onclick: move |_| on_aem_upload.call(()),
                             match st {
                                 UploadState::Uploading => rsx! {
                                     Spinner { size: SpinnerSize::Sm }
@@ -978,7 +959,10 @@ impl Artifact {
 fn DownloadButton(
     class: &'static str,
     artifact: Artifact,
-    state: ReadSignal<ProcessingState>,
+    state: RunStateRead,
+    /// Where this tab last saved each artefact, so a second download replaces
+    /// its own file rather than landing beside it.
+    mut last_download: Signal<std::collections::HashMap<String, std::path::PathBuf>>,
 ) -> Element {
     // A failed save has to be visible: the user pressed a button and would
     // otherwise be left looking for a file that was never written.
@@ -992,10 +976,19 @@ fn DownloadButton(
                 let state = state.read();
                 let (prefix, ext) = artifact.naming();
                 let name = runner::artifact_filename(prefix, state.form_code.as_deref(), ext);
+                let previous = last_download.peek().get(&name).cloned();
                 error
                     .set(
                         match artifact.bytes(&state) {
-                            Some(bytes) => download_file(&bytes, &name).err(),
+                            Some(bytes) => {
+                                match download_file(&bytes, &name, previous.as_deref()) {
+                                    Ok(path) => {
+                                        last_download.write().insert(name, path);
+                                        None
+                                    }
+                                    Err(e) => Some(e),
+                                }
+                            }
                             None => Some("That output is no longer available.".to_string()),
                         },
                     );
@@ -1044,6 +1037,7 @@ fn FeedbackBox(mut feedback: Signal<String>, on_feedback: EventHandler<String>) 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ProcessingStep;
 
     fn step(kind: AgentStepKind, label: &str, detail: &str, status: AgentStepStatus) -> AgentStep {
         AgentStep {
@@ -1067,66 +1061,7 @@ mod tests {
         );
     }
 
-    /// The four states the box can be in are derived from three separate fields,
-    /// so pin the mapping down — a wrong screen strands the user.
-    #[test]
-    fn the_screen_follows_the_run_state() {
-        let idle = ProcessingState::default();
-        assert_eq!(screen_for(&idle, false), Screen::Upload);
 
-        let running = ProcessingState {
-            step: ProcessingStep::Running,
-            ..Default::default()
-        };
-        assert_eq!(screen_for(&running, true), Screen::Run(RunStatus::Running));
-
-        let paused = ProcessingState {
-            retry_pending: true,
-            error: Some("boom".into()),
-            ..running.clone()
-        };
-        assert_eq!(screen_for(&paused, true), Screen::Run(RunStatus::Paused));
-
-        // The run stopped and recorded an error: failed, not still running.
-        let failed = ProcessingState {
-            error: Some("boom".into()),
-            ..running
-        };
-        assert_eq!(screen_for(&failed, false), Screen::Run(RunStatus::Failed));
-
-        // A completed run reports Done even if it also collected an error.
-        let complete = ProcessingState {
-            step: ProcessingStep::Complete,
-            error: Some("boom".into()),
-            ..Default::default()
-        };
-        assert_eq!(screen_for(&complete, false), Screen::Run(RunStatus::Done));
-    }
-
-    /// An aborted run records no error, so without its own arm the box would sit
-    /// on "Agent is working" forever after the run had already stopped.
-    #[test]
-    fn an_aborted_run_reaches_a_terminal_screen() {
-        let aborting = ProcessingState {
-            step: ProcessingStep::Running,
-            aborted: true,
-            ..Default::default()
-        };
-
-        // The flag is set the moment the button is pressed, but the run is still
-        // unwinding — it must keep reporting as running until it has stopped.
-        assert_eq!(
-            screen_for(&aborting, true),
-            Screen::Run(RunStatus::Running),
-            "the box must not claim the run ended while it is still unwinding"
-        );
-
-        assert_eq!(
-            screen_for(&aborting, false),
-            Screen::Run(RunStatus::Failed),
-            "once the run has stopped the box has to leave the running state"
-        );
-    }
 
     /// The log is the only durable record of a run once the window is closed, so
     /// every step kind has to survive the transcript.

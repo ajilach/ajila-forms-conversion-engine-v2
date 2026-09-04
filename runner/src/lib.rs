@@ -11,10 +11,12 @@
 //! So the desktop app and the CLI start a run through the same code and differ
 //! only in how they report it and where they put the artefacts.
 
+pub mod aem_lock;
 pub mod artifacts;
 pub mod llm;
 pub mod openai;
 pub mod provider;
+pub mod ratelimit;
 pub mod run;
 pub mod settings;
 pub mod turns;

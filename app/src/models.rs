@@ -1,9 +1,24 @@
 //! The state the agent run publishes to the UI.
 
+use dioxus::prelude::{ReadSignal, SyncSignal, SyncStorage};
+
 // The run's cancellation flag and retry verdict are the controller's vocabulary,
 // not the UI's — they live in `pipeline` and are re-exported here so components
 // keep one import path for everything they render.
 pub use pipeline::{AbortFlag, RetryAction};
+
+/// A handle on one run's state, held by the run's own future for its whole life
+/// and by the components that render it.
+///
+/// Sync storage, because a run is driven on a worker thread rather than on the
+/// UI thread — conversions have to make progress at the same time, and a package
+/// build in one tab must not freeze every other tab and the window with it. The
+/// wake path from a cross-thread write is a `futures_channel` send to the
+/// scheduler, with no thread-locals in the way.
+pub type RunState = SyncSignal<ProcessingState>;
+
+/// A read-only view of [`RunState`], for the components that only render it.
+pub type RunStateRead = ReadSignal<ProcessingState, SyncStorage>;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProcessingStep {
@@ -12,6 +27,20 @@ pub enum ProcessingStep {
     /// The agent run is under way.
     Running,
     Complete,
+}
+
+/// Lifecycle of the on-demand "Upload to AEM" action, surfaced inside the button.
+///
+/// Held by the tab rather than by the button: the upload runs in the background
+/// and switching tabs unmounts the button, which would otherwise both cancel the
+/// request and lose the fact that it was ever made.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub enum UploadState {
+    #[default]
+    Idle,
+    Uploading,
+    Success,
+    Error(String),
 }
 
 /// Kind of an agent activity step.

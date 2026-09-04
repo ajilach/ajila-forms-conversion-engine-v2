@@ -9,7 +9,7 @@ use std::collections::HashSet;
 
 use dioxus::prelude::*;
 
-use super::page::{FullPage, RowInfo};
+use super::page::{FullPage, PageTabs, RowInfo};
 use crate::references::{ReferenceDocInfo, ReferenceInfo};
 use crate::settings::AppSettings;
 use crate::upload::read_files;
@@ -145,14 +145,17 @@ pub fn ReferencesPage(
             subtitle: format!("{} form(s) · {} document(s)", total_refs(), total_docs()),
             on_close,
 
-            div { class: "tabs",
-                for t in RefTab::ALL {
-                    button {
-                        class: if tab() == *t { "tab active" } else { "tab" },
-                        onclick: move |_| tab.set(*t),
-                        "{t.label(total_refs(), total_docs())}"
+            PageTabs {
+                labels: RefTab::ALL
+                    .iter()
+                    .map(|t| t.label(total_refs(), total_docs()))
+                    .collect::<Vec<_>>(),
+                active: RefTab::ALL.iter().position(|t| *t == tab()).unwrap_or(0),
+                on_select: move |index: usize| {
+                    if let Some(t) = RefTab::ALL.get(index) {
+                        tab.set(*t);
                     }
-                }
+                },
             }
 
             div { class: "page-content page-content-stack",
@@ -666,10 +669,8 @@ fn ImportExport(
                             let Some(profile) = require_profile(profile, status) else {
                                 return;
                             };
-                            let out = match crate::files::downloads_path(
-                                &format!("references-{profile}.db"),
-                            ) {
-                                Ok(path) => path,
+                            let out = match crate::files::downloads_dir() {
+                                Ok(dir) => dir.join(format!("references-{profile}.db")),
                                 Err(e) => {
                                     status.set(Some(Status::Err(e)));
                                     return;

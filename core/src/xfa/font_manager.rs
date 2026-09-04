@@ -477,17 +477,33 @@ impl FontManager {
             // Register under both the provided name and the detected family name
             let name_lower = font.name.to_lowercase();
             self.embedded_fonts.insert(name_lower.clone(), font.clone());
+            self.forget_resolution(&name_lower);
             if family != name_lower {
                 let mut family_font = font.clone();
                 family_font.name = family.clone();
-                self.embedded_fonts.insert(family, family_font);
+                self.embedded_fonts.insert(family.clone(), family_font);
+                self.forget_resolution(&family);
             }
         } else {
             let name_lower = font.name.to_lowercase();
-            self.embedded_fonts.insert(name_lower, font);
+            self.embedded_fonts.insert(name_lower.clone(), font);
+            self.forget_resolution(&name_lower);
         }
 
         Ok(())
+    }
+
+    /// Drop any memoized resolution for `family`.
+    ///
+    /// `get_font_data_with_generic` short-circuits on `loaded_fonts` *before* it
+    /// consults `embedded_fonts`, and it writes every resolution back into that
+    /// map. So without this, the first document to ask for a name pins whatever
+    /// answer it got for the life of the process: a later document that embeds
+    /// its own font under the same name would keep rendering with the earlier
+    /// one's glyphs, and nothing would report it.
+    fn forget_resolution(&mut self, family: &str) {
+        self.loaded_fonts.retain(|variant, _| variant.family != family);
+        self.loaded_embedded.remove(family);
     }
 
     /// Register multiple embedded fonts from a PDF
@@ -910,24 +926,6 @@ pub fn get_font_manager() -> &'static std::sync::Mutex<FontManager> {
     })
 }
 
-/// Convenience function to get a font for an XFA font style
-pub fn get_font_for_style(xfa_font: &Font) -> Result<FontRef<'static>, FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.get_font(xfa_font)
-}
-
-/// Convenience function to get the default fallback font
-pub fn get_fallback_font() -> Result<FontRef<'static>, FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.get_default_font()
-}
-
 /// Register an embedded font globally (for use with PDFs that contain embedded fonts)
 pub fn register_embedded_font_global(font: EmbeddedFont) -> Result<(), FontError> {
     let manager = get_font_manager();
@@ -935,70 +933,6 @@ pub fn register_embedded_font_global(font: EmbeddedFont) -> Result<(), FontError
         .lock()
         .map_err(|e| FontError::LockError(e.to_string()))?;
     manager.register_embedded_font(font)
-}
-
-/// Enable strict mode globally (returns errors instead of fallback)
-pub fn set_strict_mode_global(strict: bool) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.set_strict_mode(strict);
-    Ok(())
-}
-
-/// Register a font equate mapping globally per XFA spec section 28
-pub fn register_equate_global(equate: FontEquate) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equate(equate);
-    Ok(())
-}
-
-/// Register multiple font equate mappings globally
-pub fn register_equates_global(equates: Vec<FontEquate>) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equates(equates);
-    Ok(())
-}
-
-/// Register a font equate range globally for Unicode-based substitution
-pub fn register_equate_range_global(equate_range: FontEquateRange) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equate_range(equate_range);
-    Ok(())
-}
-
-/// Register multiple font equate ranges globally
-pub fn register_equate_ranges_global(equate_ranges: Vec<FontEquateRange>) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equate_ranges(equate_ranges);
-    Ok(())
-}
-
-/// Get fallback font for a specific codepoint globally
-pub fn get_fallback_for_codepoint_global(
-    font_family: &str,
-    codepoint: u32,
-) -> Result<Option<String>, FontError> {
-    let manager = get_font_manager();
-    let manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    Ok(manager
-        .get_fallback_for_codepoint(font_family, codepoint)
-        .map(|s| s.to_string()))
 }
 
 /// Register font data with an already-locked FontManager.
@@ -1018,6 +952,50 @@ mod tests {
         assert_eq!(variant.family, "arial");
         assert_eq!(variant.weight, FontWeight::Bold);
         assert_eq!(variant.posture, FontPosture::Italic);
+    }
+
+    /// Two documents in one process can embed different fonts under the same
+    /// name — an AEM document-of-record fetched during one conversion while
+    /// another conversion renders its own source, for instance.
+    ///
+    /// Resolution memoizes into `loaded_fonts`, which is consulted *before*
+    /// `embedded_fonts`. Without invalidating that memo on registration, the
+    /// first document to ask for a name pinned its answer for the life of the
+    /// process, and every later document silently rendered with the wrong
+    /// glyphs.
+    #[test]
+    fn a_later_document_is_not_stuck_with_an_earlier_ones_font() {
+        const BOLD: &[u8] = include_bytes!("../../../profiles/ubs/parser/fonts/frutiger-bold.ttf");
+        const LIGHT: &[u8] =
+            include_bytes!("../../../profiles/ubs/parser/fonts/frutiger-light.ttf");
+
+        fn embedded(data: &[u8]) -> EmbeddedFont {
+            EmbeddedFont {
+                // A name neither font reports as its own family, so it is the
+                // registration that decides what resolves — as with a PDF whose
+                // embedded font is referenced under the document's own name.
+                name: "SharedName".to_string(),
+                data: data.to_vec(),
+                weight: FontWeight::Normal,
+                posture: FontPosture::Normal,
+                generic_family: None,
+            }
+        }
+
+        let variant = FontVariant::new("SharedName", FontWeight::Normal, FontPosture::Normal);
+
+        let mut manager = FontManager::new();
+        manager.register_embedded_font(embedded(BOLD)).unwrap();
+        let first = manager.get_font_data(&variant).unwrap();
+        assert_eq!(first, BOLD);
+
+        // A second document registers its own font under the same name.
+        manager.register_embedded_font(embedded(LIGHT)).unwrap();
+        let second = manager.get_font_data(&variant).unwrap();
+        assert_eq!(
+            second, LIGHT,
+            "the second document kept rendering with the first document's font"
+        );
     }
 
     #[test]

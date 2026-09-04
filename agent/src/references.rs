@@ -122,11 +122,23 @@ mod imp {
         Ok(())
     }
 
+    /// Delete a reference and everything hanging off it.
+    ///
+    /// One transaction: the three tables describe one reference, so a failure
+    /// part-way through would leave PDFs and files belonging to a reference that
+    /// no longer exists. `add_reference` writes them together for the same
+    /// reason.
     pub fn delete_reference(ref_id: &str) {
-        let Ok(conn) = crate::db::open() else { return };
-        let _ = conn.execute("DELETE FROM reference_pdfs WHERE ref_id = ?1", [ref_id]);
-        let _ = conn.execute("DELETE FROM reference_files WHERE ref_id = ?1", [ref_id]);
-        let _ = conn.execute("DELETE FROM references_ WHERE ref_id = ?1", [ref_id]);
+        let Ok(mut conn) = crate::db::open() else { return };
+        let Ok(tx) = conn.transaction() else { return };
+        let deleted = tx
+            .execute("DELETE FROM reference_pdfs WHERE ref_id = ?1", [ref_id])
+            .and_then(|_| tx.execute("DELETE FROM reference_files WHERE ref_id = ?1", [ref_id]))
+            .and_then(|_| tx.execute("DELETE FROM references_ WHERE ref_id = ?1", [ref_id]));
+        match deleted.and_then(|_| tx.commit()) {
+            Ok(()) => {}
+            Err(e) => eprintln!("reference store: deleting reference {ref_id} failed: {e}"),
+        }
     }
 
     // ── Reference documentation (plain txt/md) ──────────────────────────────────
@@ -464,7 +476,12 @@ mod imp {
         conn.execute("ATTACH DATABASE ?1 AS imp", [path])
             .map_err(|e| format!("Cannot open dataset: {e}"))?;
 
+        // ATTACH and DETACH cannot run inside a transaction, so the guard sits
+        // between them and is driven by hand. A dropped connection rolls an open
+        // transaction back, so an early return cannot leave a half-import
+        // committed.
         let result = (|| -> Result<(usize, usize), String> {
+            conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
             conn.execute(
                 "INSERT OR REPLACE INTO references_
                  (ref_id, profile, label, description, description_embedding, model_version, created_at)
@@ -505,9 +522,13 @@ mod imp {
             let docs: i64 = conn
                 .query_row("SELECT COUNT(*) FROM imp.reference_docs", [], |r| r.get(0))
                 .unwrap_or(0);
+            conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
             Ok((refs as usize, docs as usize))
         })();
 
+        if result.is_err() {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
         let _ = conn.execute("DETACH DATABASE imp", []);
         let counts = result?;
         recompute_stale_embeddings(profile)?;
@@ -517,7 +538,7 @@ mod imp {
     /// Recompute embeddings for any reference whose stored `model_version`
     /// differs from the current model, so semantic search compares like with like.
     fn recompute_stale_embeddings(profile: &str) -> Result<(), String> {
-        let conn = crate::db::open().map_err(|e| e.to_string())?;
+        let mut conn = crate::db::open().map_err(|e| e.to_string())?;
         let stale: Vec<(String, String)> = {
             let Ok(mut stmt) = conn.prepare(
                 "SELECT ref_id, description FROM references_
@@ -535,15 +556,22 @@ mod imp {
             return Ok(());
         }
         let matcher = SemanticMatcher::new().map_err(|e| e.to_string())?;
+        // One transaction rather than one per row: each update is independently
+        // valid, but committing them separately takes and releases the write
+        // lock once per reference, which stalls every conversion snapshotting
+        // its tree at the same time.
+        let tx = conn.transaction().map_err(|e| e.to_string())?;
         for (ref_id, description) in stale {
             if let Ok(emb) = matcher.embed(&description) {
-                let _ = conn.execute(
+                tx.execute(
                     "UPDATE references_ SET description_embedding = ?2, model_version = ?3
                      WHERE ref_id = ?1",
                     params![ref_id, vec_to_blob(&emb), EMBEDDING_MODEL_VERSION],
-                );
+                )
+                .map_err(|e| e.to_string())?;
             }
         }
+        tx.commit().map_err(|e| e.to_string())?;
         Ok(())
     }
 
@@ -574,7 +602,11 @@ mod imp {
         conn.execute("ATTACH DATABASE ?1 AS exp", [out_path])
             .map_err(|e| format!("Cannot attach export file: {e}"))?;
 
+        // As in `import_reference_db`: the transaction has to live between the
+        // ATTACH and the DETACH, so a failed export leaves no half-written
+        // dataset behind.
         let result = (|| -> Result<(usize, usize), String> {
+            conn.execute_batch("BEGIN").map_err(|e| e.to_string())?;
             // profile is blanked to '' for portability; bound at import.
             let filter = match profile {
                 Some(_) => "WHERE profile = ?1",
@@ -619,9 +651,13 @@ mod imp {
             let docs: i64 = conn
                 .query_row("SELECT COUNT(*) FROM exp.reference_docs", [], |r| r.get(0))
                 .unwrap_or(0);
+            conn.execute_batch("COMMIT").map_err(|e| e.to_string())?;
             Ok((refs as usize, docs as usize))
         })();
 
+        if result.is_err() {
+            let _ = conn.execute_batch("ROLLBACK");
+        }
         let _ = conn.execute("DETACH DATABASE exp", []);
         result
     }

@@ -534,7 +534,10 @@ fn drain_stderr(stderr: tokio::process::ChildStderr, tail: StderrTail) {
 
 /// Make sure the pinned package is in the npm cache and runnable, streaming
 /// npm's progress to `progress`. Returns the version the package reported.
-pub async fn warm_cache(npx: &Path, progress: &mut dyn FnMut(&str)) -> Result<String, String> {
+pub async fn warm_cache(
+    npx: &Path,
+    progress: &mut (impl FnMut(&str) + ?Sized),
+) -> Result<String, String> {
     use tokio::io::AsyncBufReadExt;
 
     let mut child = node_command(npx, npx)
@@ -1111,10 +1114,15 @@ pub async fn prepare(
 ///
 /// Fails loudly, every error ending with [`DISABLE_HINT`]. The caller surfaces
 /// it before the run starts; nothing degrades on its own.
+///
+/// `progress` is `Send` because a trait object erases auto traits: without the
+/// bound the whole preflight future is non-`Send`, and a run could not be driven
+/// on a worker thread — which is what lets conversions make progress at the same
+/// time.
 pub async fn preflight(
     cfg: &BrowserConfig,
     conn: &AemConnection,
-    progress: &mut dyn FnMut(&str),
+    progress: &mut (dyn FnMut(&str) + Send),
 ) -> Result<(PreflightReport, BrowserSession), String> {
     preflight_steps(cfg, conn, progress).await.map_err(|e| {
         let e = e.trim_end_matches('.');
@@ -1125,7 +1133,7 @@ pub async fn preflight(
 async fn preflight_steps(
     cfg: &BrowserConfig,
     conn: &AemConnection,
-    progress: &mut dyn FnMut(&str),
+    progress: &mut (dyn FnMut(&str) + Send),
 ) -> Result<(PreflightReport, BrowserSession), String> {
     let (npx, node_version, chrome) = locate_tools(cfg).await?;
     progress(&format!("Logging in to {}...", conn.host));

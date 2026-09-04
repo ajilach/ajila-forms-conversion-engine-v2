@@ -15,7 +15,9 @@ use dioxus::prelude::*;
 use pipeline::{AbortFlag, RetryAction, RunEvent, RunObserver};
 use runner::{LlmEndpoint, TurnPlan};
 
-use crate::models::{AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, ProcessingStep};
+use crate::models::{
+    AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, ProcessingStep, RunState,
+};
 
 /// The choices the user made before starting a run.
 pub struct RunConfig {
@@ -42,7 +44,7 @@ impl RunConfig {
 /// Publishes the controller's progress into the signal the UI renders, and reads
 /// the Retry button's answer back out.
 struct DioxusObserver {
-    state: Signal<ProcessingState>,
+    state: RunState,
 }
 
 impl DioxusObserver {
@@ -119,17 +121,20 @@ impl RunObserver for DioxusObserver {
 // ── Public entry points ──────────────────────────────────────────────────────
 
 /// Run the autonomous conversion pipeline end-to-end on a fresh upload.
+///
+/// Returns the edit-history session the run recorded into, for the caller to
+/// keep against whichever conversion it started. Returned rather than written
+/// through a signal so this stays independent of how the app organises its runs.
 pub async fn run_agent(
     files: Vec<(String, Vec<u8>)>,
     config: RunConfig,
     session_label: String,
-    processing_state: Signal<ProcessingState>,
-    current_session: Signal<Option<String>>,
-) {
+    processing_state: RunState,
+) -> Option<String> {
     let opts = config.into_options();
     let mut observer = announce(&opts, processing_state);
     let completed = runner::run_fresh(files, &opts, &session_label, &mut observer).await;
-    publish(completed, opts.target, processing_state, current_session);
+    publish(completed, opts.target, processing_state)
 }
 
 /// Resume on an existing session to apply the user's feedback. Skips the Analyst;
@@ -140,21 +145,20 @@ pub async fn run_agent_feedback(
     pdfs: Vec<(String, Vec<u8>)>,
     config: RunConfig,
     structured_session: String,
-    processing_state: Signal<ProcessingState>,
-    current_session: Signal<Option<String>>,
-) {
+    processing_state: RunState,
+) -> Option<String> {
     let opts = config.into_options();
     let mut observer = announce(&opts, processing_state);
     let completed =
         runner::run_feedback(feedback, pdfs, &opts, structured_session, &mut observer).await;
-    publish(completed, opts.target, processing_state, current_session);
+    publish(completed, opts.target, processing_state)
 }
 
 /// Surface the run's token budget, so a mis-detected context window is visible,
 /// and hand back the observer the run will report through.
 fn announce(
     opts: &runner::RunOptions,
-    mut processing_state: Signal<ProcessingState>,
+    mut processing_state: RunState,
 ) -> DioxusObserver {
     let plan = TurnPlan::for_settings(&opts.settings);
     processing_state.write().context_window = plan.context_window;
@@ -166,47 +170,60 @@ fn announce(
     observer
 }
 
-/// Project a finished run onto the UI state.
-fn publish(
+/// Fold a finished run into the state the box renders, returning the edit-history
+/// session the run belongs to once there is one.
+///
+/// Pure so it can be tested without a desktop runtime: [`publish`] is only the
+/// signal plumbing around it.
+///
+/// Every branch *edits* the state rather than replacing it. The activity
+/// timeline is the run's only record of what happened, and a failed run is
+/// exactly when the user most needs to read it — so a failure records the error
+/// alongside the transcript instead of in place of it.
+fn apply_completed(
+    state: &mut ProcessingState,
     completed: Result<runner::Completed, String>,
     target: blueprint::OutputTarget,
-    mut processing_state: Signal<ProcessingState>,
-    mut current_session: Signal<Option<String>>,
-) {
+) -> Option<String> {
     let completed = match completed {
         Ok(completed) => completed,
         Err(e) => {
-            processing_state.set(ProcessingState {
-                step: ProcessingStep::Running,
-                error: Some(e),
-                ..ProcessingState::default()
-            });
-            return;
+            // The step stays as it was: `screen_for` reads a recorded error on a
+            // run that is no longer in flight as a failure, so nothing else has
+            // to be set for the box to reach its terminal screen.
+            state.error = Some(e);
+            return None;
         }
     };
 
     // Aborted, or the user gave up at a retry prompt. The observer has already
-    // recorded why; there is no result to publish.
-    let Some(outcome) = completed.outcome else {
-        return;
-    };
+    // recorded why; there is no result to publish. The session is deliberately
+    // not adopted — nothing can resume a run that produced no snapshot yet, and
+    // the restore work is what makes a stopped run continuable.
+    let outcome = completed.outcome?;
 
-    {
-        let mut state = processing_state.write();
-        state.warnings.extend(outcome.warnings);
-        state.step = ProcessingStep::Complete;
-        state.target = target;
-        state.xsd_schema = outcome.xsd_schema;
-        state.aem_package = outcome.aem_package;
-        state.aem_package_bound = outcome.aem_package_bound;
-        state.redacto_sql = outcome.redacto_sql;
-        state.form_code = outcome.form_code;
-        state.aem_uploaded = outcome.aem_uploaded;
-        state.aem_form_path = outcome.aem_form_path;
-        state.elapsed_secs = Some(completed.elapsed_secs);
-    }
+    state.warnings.extend(outcome.warnings);
+    state.step = ProcessingStep::Complete;
+    state.target = target;
+    state.xsd_schema = outcome.xsd_schema;
+    state.aem_package = outcome.aem_package;
+    state.aem_package_bound = outcome.aem_package_bound;
+    state.redacto_sql = outcome.redacto_sql;
+    state.form_code = outcome.form_code;
+    state.aem_uploaded = outcome.aem_uploaded;
+    state.aem_form_path = outcome.aem_form_path;
+    state.elapsed_secs = Some(completed.elapsed_secs);
 
-    current_session.set(Some(completed.session_id));
+    Some(completed.session_id)
+}
+
+/// Project a finished run onto the UI state, handing back its session.
+fn publish(
+    completed: Result<runner::Completed, String>,
+    target: blueprint::OutputTarget,
+    mut processing_state: RunState,
+) -> Option<String> {
+    apply_completed(&mut processing_state.write(), completed, target)
 }
 
 /// Describe a reference form so the reference store can match against it.
@@ -230,4 +247,77 @@ pub async fn describe_reference(
         &mut pipeline::NullObserver,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A run that already reported some work, as any real failure would have.
+    fn run_in_flight() -> ProcessingState {
+        ProcessingState {
+            step: ProcessingStep::Running,
+            target: blueprint::OutputTarget::Aem,
+            agent_steps: vec![AgentStep {
+                id: "t1".into(),
+                kind: AgentStepKind::Tool,
+                label: "inspect_pdf".into(),
+                detail: String::new(),
+                status: AgentStepStatus::Done,
+            }],
+            warnings: vec!["a page had no fields".into()],
+            ..ProcessingState::default()
+        }
+    }
+
+    /// The timeline is the only record of what a run did, and a failure is
+    /// exactly when the user needs to read it — so recording the error must not
+    /// throw the transcript away with it.
+    #[test]
+    fn a_failed_run_keeps_its_transcript() {
+        let mut state = run_in_flight();
+
+        let session = apply_completed(
+            &mut state,
+            Err("Agent failed (Author): overloaded".into()),
+            blueprint::OutputTarget::Aem,
+        );
+
+        assert_eq!(session, None, "a run that never started records no session");
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Agent failed (Author): overloaded")
+        );
+        assert_eq!(state.agent_steps.len(), 1, "the transcript has to survive");
+        assert_eq!(state.warnings, ["a page had no fields"]);
+        assert_eq!(state.target, blueprint::OutputTarget::Aem);
+        assert_ne!(
+            state.step,
+            ProcessingStep::Complete,
+            "a failed run must not report a result"
+        );
+    }
+
+    /// A stopped run leaves no result, but what it managed to do still has to be
+    /// readable.
+    #[test]
+    fn an_aborted_run_keeps_its_transcript() {
+        let mut state = run_in_flight();
+        state.aborted = true;
+
+        let session = apply_completed(
+            &mut state,
+            Ok(runner::Completed {
+                session_id: "s-1".into(),
+                outcome: None,
+                elapsed_secs: 12,
+            }),
+            blueprint::OutputTarget::Aem,
+        );
+
+        assert_eq!(session, None);
+        assert_eq!(state.agent_steps.len(), 1);
+        assert_eq!(state.error, None, "aborting is not a failure");
+        assert_ne!(state.step, ProcessingStep::Complete);
+    }
 }

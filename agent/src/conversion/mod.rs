@@ -593,6 +593,23 @@ impl ConversionAgent {
         agent
     }
 
+    /// Where an AEM run will install this form, before any work is done.
+    ///
+    /// `None` when the run targets no AEM instance, or when the profile has no
+    /// AEM config to derive a path from. Deliberately reads the *base* config
+    /// rather than [`Self::config`]: only `form_path` and `form_dir` matter
+    /// here, and those do not depend on which languages the document turns out
+    /// to carry — so the path is knowable up front, which is what lets a
+    /// colliding run be refused before it spends a token.
+    pub fn planned_jcr_path(&self) -> Option<String> {
+        if self.target.target() != OutputTarget::Aem {
+            return None;
+        }
+        let profile = self.profile.as_deref()?;
+        let cfg = blueprint::load_aem_config(profile, &self.context).ok()?;
+        Some(form_jcr_path(&cfg))
+    }
+
     // ── Target-state access ──────────────────────────────────────────────────
 
     /// The output target this run aims at.

@@ -26,6 +26,9 @@ pub struct TurnPlan {
     pub context_window: usize,
     /// How much of that window a request's prompt may occupy.
     pub prompt_target: usize,
+    /// Requests this run may have in flight at once against its endpoint,
+    /// shared with every other run pointed at the same one. `0` means no cap.
+    pub max_concurrent: usize,
 }
 
 impl TurnPlan {
@@ -35,12 +38,18 @@ impl TurnPlan {
             context_window: crate::llm::context_window_for(&endpoint.model),
             prompt_target: crate::llm::prompt_token_target(&endpoint.model, max_tokens),
             max_tokens,
+            // No cap unless a consumer supplies one: a lone run has nothing to
+            // contend with, and the CLI is one run by construction.
+            max_concurrent: 0,
             endpoint,
         }
     }
 
     pub fn for_settings(settings: &AppSettings) -> Self {
-        Self::for_endpoint(settings.llm_endpoint())
+        Self {
+            max_concurrent: settings.max_concurrent_requests,
+            ..Self::for_endpoint(settings.llm_endpoint())
+        }
     }
 
     /// The model this plan resolved its limits for.
@@ -68,6 +77,7 @@ impl TurnPlan {
         ConfiguredTurns {
             endpoint: self.endpoint.clone(),
             max_tokens: self.max_tokens,
+            max_concurrent: self.max_concurrent,
         }
     }
 }
@@ -76,6 +86,9 @@ impl TurnPlan {
 pub struct ConfiguredTurns {
     endpoint: LlmEndpoint,
     max_tokens: u32,
+    /// Snapshotted from the plan, so a run keeps the cap it started under even
+    /// if the operator changes the setting while it is going.
+    max_concurrent: usize,
 }
 
 impl TurnProvider for ConfiguredTurns {
@@ -86,6 +99,19 @@ impl TurnProvider for ConfiguredTurns {
         system: &str,
         abort: &AbortFlag,
     ) -> Result<TurnOutput, String> {
+        // Held for the whole turn, streamed response included. Releasing it when
+        // the response headers arrive would cap the rate at which requests are
+        // *started* while leaving any number of them streaming — which is not
+        // what a provider's rate limit counts.
+        let _permit = match crate::ratelimit::gate_for(&self.endpoint, self.max_concurrent) {
+            Some(gate) => Some(
+                gate.acquire_owned()
+                    .await
+                    .map_err(|e| format!("Request gate closed: {e}"))?,
+            ),
+            None => None,
+        };
+
         match self.endpoint.provider {
             Provider::Anthropic => {
                 crate::llm::anthropic_stream_turn(

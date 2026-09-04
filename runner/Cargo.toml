@@ -15,7 +15,7 @@ reqwest = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # `spawn_blocking` for request preparation; the runtime itself is the caller's.
-tokio = { version = "1", features = ["rt"] }
+tokio = { version = "1", features = ["rt", "sync"] }
 
 [dev-dependencies]
 # The turn primitive is async; the tests drive it directly, and the

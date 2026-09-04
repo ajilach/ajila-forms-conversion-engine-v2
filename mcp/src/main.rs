@@ -283,7 +283,9 @@ impl Blueprint {
         // recording one at all.
         let doc_hash = agent::db::document_hash(&pdfs);
         agent::db::upsert_document(&doc_hash, &label);
-        let Some(session) = agent::db::create_session(&doc_hash, profile.as_deref(), &label) else {
+        let Some(session) =
+            agent::db::create_session(&doc_hash, profile.as_deref(), target.as_str(), &label)
+        else {
             return CallToolResult::error(vec![Content::text(
                 "Could not create an edit-history session (the shared history.db is unavailable). \
                  A conversion started now would not be reviewable in the desktop app, so it was \
