@@ -150,7 +150,10 @@ Fragments and Common Fields\") and confirm it against the reference packages (gr
 global). PATH ROOT: the banking-relationship fragment alone lives under `/content/forms/af/…`; every \
 other fragment is referenced under `/content/dam/formsanddocuments/<library>/…`. Use the exact \
 fragment the corpus standardised on for these recurring sections: BANKING \
-RELATIONSHIP → emit a single `Preface` node — NOT a hand-built Fragment or Panel. The engine renders \
+RELATIONSHIP → EVERY form on this profile carries one, whatever the source shows: emit a single \
+`Preface` node — NOT a hand-built Fragment or Panel. The deterministic converter injects it \
+unconditionally, so a source with no visible banking-relationship block still gets one, and a tree \
+that omits it is missing a mandatory node, not reflecting the source. The engine renders \
 it as the standard `PN_BR` wrapper (carrying both dorExclusion and summaryExclusion) around the UBS \
 fragment `affrg_BankingRelationship1`, so you supply neither the fragment path nor the exclusion \
 flags, and never a germany/italy/global variant or a dam-path reference. Note `dor_exclude` on a \
@@ -158,13 +161,19 @@ Panel is not what produces those flags here — the `Preface` shape is fixed by 
 fragment renders the \"UBS Europe SE\" line itself, so \
 NEVER also author a standalone \"UBS Europe SE\" text draw (that duplicates it). It belongs on the \
 FIRST page. PERSON BLOCKS (account holder / client, representative, legal guardian, beneficial owner, power of \
-attorney): a person's data section is ONE of the four UBS generic PARTNER fragments, chosen by the \
-party's ROLE in the form — the contracting party → `affrg_ContractualPartnerGeneric1` (panel name \
+attorney): these belong to the ACCOUNT-HOLDER CLUSTER, which a form has only when it is \
+addressee-driven — it carries a configurator choice (Formular Adressat / Form addressee / Tipo) \
+that decides who the parties are. In such a form a person's data section is ONE of the four UBS \
+generic PARTNER fragments, chosen by the party's ROLE in the form — the contracting party → `affrg_ContractualPartnerGeneric1` (panel name \
 `PN_CPGRP`); a partner OF that party (representative, guardian, connected party) → \
 `affrg_PartnertoPartnerGeneric1` (`PN_AHGRP`, a second one `PN_AHGRP_AR`); beneficial owner / \
 trustee → `affrg_BeneficialOwnerGeneric1` (`PN_BOGRP`); authorized signer / POA / e-banking user → \
-`affrg_PowerofAttorneyGeneric1` (`PN_PAGRP`). Never reference a germany/italy person fragment and \
-never reference the small building-block fragments a form is assembled from by hand. Each generic \
+`affrg_PowerofAttorneyGeneric1` (`PN_PAGRP`). Never reference a germany/italy person fragment. In a form with NO \
+configurator, a name pair that merely identifies the form's subject — a questionnaire's \
+\"Last name / First name(s)\" — is NOT a party data section: leave it as plain TXT_ textboxes, as \
+the deployed AAAC_019, ABFG_033, AAUT_033 and AAUI_033 do, and let review_output's \
+dropped_fragments tell you which small building-block fragments (IndividualBasic1, EntityBasic1) \
+the converter derives for it instead. Each generic \
 contains six sub-panels (PN_EntityBasic, PN_FormAddress, PN_IndividualBasic, PN_Address, \
 PN_DOBNationality, PN_DateIncorporation); the fragment node itself is the repeating row \
 (min/maxOccur on it), and the host hides every sub-panel the source does not show via ONE \
@@ -410,13 +419,16 @@ recover one this plan is silent about); any conditional or CASCADING behaviour \
 (quote the XFA change-event function and its clearItems/addItem/rawValue branches); the recommended \
 standard fragment with its exact JCR path (banking relationship → \
 affrg_BankingRelationship1 in afforms_ubs_fragmentlib, referenced under /content/forms/af/ while every \
-other fragment is referenced under /content/dam/formsanddocuments/; person blocks → one of the four \
+other fragment is referenced under /content/dam/formsanddocuments/; person blocks, ONLY in an addressee-driven form (one \
+carrying a Formular Adressat / Form addressee / Tipo configurator) → one of the four \
 UBS generic partner fragments in afforms_ubs_fragmentlib, chosen by the party's ROLE: contracting \
 party → affrg_ContractualPartnerGeneric1, partner of that party → affrg_PartnertoPartnerGeneric1, \
 beneficial owner → affrg_BeneficialOwnerGeneric1, POA/authorized signer → \
 affrg_PowerofAttorneyGeneric1 — state the class per person section, which sub-panels stay visible, \
 and which get a hideAFHideDor call; a loose address with no person block → affrg_AddressGeneric1; \
-signatures → always affrg_SignatureGeneric1). For every party, ALSO state the panel-name PAIR the \
+signatures → always affrg_SignatureGeneric1; and in a form with NO configurator, a bare name pair \
+identifying the form's subject stays plain TXT_ textboxes — state that explicitly rather than \
+reaching for a partner generic). For every party, ALSO state the panel-name PAIR the \
 Author must use — the data panel (PN_CPGRP for the contracting party; PN_AHGRP, then PN_AHGRP_AR, \
 for partners of the party) and its signature panel (PN_SGN_CPGRP for the contracting party, \
 otherwise PN_Sign_ + the data panel token) — since the host authors the signer-name calc from \
@@ -507,10 +519,15 @@ a hand-authored TitleDraw on a page is a DUPLICATE, while a sub-heading inside a
 TitleDraw; banking relationship authored as a `Preface` node on the first page, rendering \
 affrg_BankingRelationship1 as the sole child of a PN_BR wrapper that carries BOTH dorExclusion and \
 summaryExclusion (a wrapper missing either flag is a defect, not a pass), and no \
-separately authored \"UBS Europe SE\" draw beside it; every person block is one of the four UBS \
-generic partner fragments chosen by party role (a germany/italy person or signature fragRef is a \
-defect — those libraries are retired), with the unneeded sub-panels hidden via an Initialize \
-hideAFHideDor rule; every signature is affrg_SignatureGeneric1, its panel name paired to its data \
+separately authored \"UBS Europe SE\" draw beside it; in an addressee-driven form every person block is one of the \
+four UBS generic partner fragments chosen by party role (a germany/italy person or signature \
+fragRef is a defect — those libraries are retired), while in a form with no configurator a bare \
+name pair stays plain TXT_ textboxes and a partner generic there is a defect — check \
+extra_fragments, with the unneeded sub-panels hidden via an Initialize \
+hideAFHideDor rule; count the signature panels in the TREE and compare that number with the \
+signers the source shows — a plan that says \"two signature blocks\" is not evidence the tree has \
+two, and one panel with no minOccur/maxOccur is one signer, not two; every signature is \
+affrg_SignatureGeneric1, its panel name paired to its data \
 panel (PN_CPGRP → PN_SGN_CPGRP, PN_AHGRP → PN_Sign_AHGRP), the Add button adding both instances, \
 and the host carrying the hidden TXT_Donotdelete calc that fills TXT_Name_Generic per pair — a \
 missing calc renders every signature nameless. VERIFY the retirement explicitly: review_output's \
