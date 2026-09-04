@@ -409,6 +409,30 @@ impl AemConfig {
     /// `{subject} hinzufügen` in German. Without a pattern the caller keeps
     /// whatever its template says, which is how a profile that never configured
     /// this keeps its old output.
+    /// The language a label the engine writes should be phrased in: the
+    /// profile's master language when the form actually ships it, otherwise the
+    /// first language it does ship.
+    ///
+    /// `master_language` is a fixed profile setting (`en` for UBS), which is
+    /// right for a multilingual form whose dictionary is keyed in English. A
+    /// form that ships only Italian has no English dictionary for such a label
+    /// to resolve through, so an English `Add …` there is both untranslatable
+    /// and, per `PROBLEM-repeatable-add-label`, wrong.
+    pub fn base_language(&self) -> String {
+        let master = self.canonical_language(&self.master_language);
+        if self
+            .languages
+            .iter()
+            .any(|l| self.canonical_language(l) == master)
+        {
+            return self.master_language.clone();
+        }
+        self.languages
+            .first()
+            .cloned()
+            .unwrap_or_else(|| self.master_language.clone())
+    }
+
     pub fn add_label(&self, lang: &str, subject: &str) -> Option<String> {
         let subject = subject.trim();
         if subject.is_empty() {

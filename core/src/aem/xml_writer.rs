@@ -205,6 +205,13 @@ fn collect_add_subjects_rec(
 /// panel is not about.
 fn sane_subject(text: &str) -> Option<String> {
     let plain = strip_markup(text);
+    // A conditional wrapper's title is a machine label the converter writes
+    // (`Condition: <field> = <value>`, converter.rs), not wording anyone chose.
+    // A repeatable inside one used to inherit it and announce itself as
+    // "Add Condition: Tipo = Individual".
+    if plain.trim_start().starts_with("Condition: ") {
+        return None;
+    }
     // A leading token of nothing but digits and separators is section numbering
     // ("2.", "3.1)"), not part of the name. `2nd holder` keeps its number: the
     // token has letters in it, so it is a word.
@@ -1534,7 +1541,7 @@ fn build_node_context(
             // Empty when nothing on screen names the block, or when the profile
             // configures no wording — the template keeps its own label then.
             let add_label = subject
-                .and_then(|subject| config.add_label(&config.master_language, subject))
+                .and_then(|subject| config.add_label(&config.base_language(), subject))
                 .unwrap_or_default();
             ctx.insert("add_label", &xml_escape(&add_label));
 

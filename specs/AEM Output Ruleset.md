@@ -374,6 +374,15 @@
 
 ## 11. Repeatables (button behavior)
 
+- **R11.6** The Add button's label is phrased in a language the form actually
+  ships (`AemConfig::base_language`): the profile's master language when the
+  form carries it, otherwise the first language it does. `master_language` is a
+  fixed profile setting (`en`), right for a multilingual form keyed in English
+  and wrong for an Italian-only one, where the label resolves through no
+  dictionary at all. A conditional wrapper's generated `Condition: <field> =
+  <value>` title is never a subject — a repeatable inside one announced itself
+  as "Add Condition: Tipo = Individual". (`PROBLEM-repeatable-add-label`)
+
 - **R11.1** Set `minOccur` / `maxOccur` on the repeatable panel from the node's
   min/max. (`2bc6d9d`)
 - **R11.2** Generate add/remove button scripts **inline in `repeatable.xml`**,

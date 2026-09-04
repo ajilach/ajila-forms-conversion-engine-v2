@@ -29143,6 +29143,36 @@ fn test_aabf_loose_address_block_becomes_the_address_fragment() {
     );
 }
 
+/// An Add button is phrased in a language the form actually ships.
+///
+/// `master_language` is a fixed profile setting (`en`), which is right for a
+/// multilingual form whose dictionary is keyed in English. AAOV_033 ships only
+/// Italian, so an English "Add …" there resolves through no dictionary at all
+/// and `PROBLEM-repeatable-add-label` reports it. A conditional wrapper's
+/// generated title is also not a subject: a repeatable inside one used to
+/// announce itself as "Add Condition: Tipo = Individual".
+#[test]
+fn test_aaov_add_buttons_are_phrased_in_a_language_the_form_ships() {
+    let (_, root, config) = helpers::build_aem_test_output_bound(&[("AAOV_033_IT.pdf", "it")]);
+    let xml = crate::aem::generate_aem_xml(&root, &config);
+
+    let labels: Vec<&str> = xml
+        .lines()
+        .filter(|l| l.contains("jcr:title=\"Add ") || l.contains("jcr:title=\"Aggiungere "))
+        .collect();
+    println!("add labels: {labels:?}");
+    // A conditional panel keeps its own generated title; what must not happen is
+    // a repeatable inside one borrowing it as the thing it repeats.
+    assert!(
+        !labels.iter().any(|l| l.contains("Condition: ")),
+        "a generated condition label must never become an Add-button subject, got {labels:?}"
+    );
+    assert!(
+        !labels.iter().any(|l| l.contains("jcr:title=\"Add ")),
+        "an Italian-only form must not carry English Add labels, got {labels:?}"
+    );
+}
+
 /// The configurator reset carries the archetype the sweep recognises it by.
 ///
 /// A sweep may rewrite its own rule document and must leave every other one
