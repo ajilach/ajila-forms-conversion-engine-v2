@@ -7,11 +7,14 @@
 //! inherits retry, abort and the stuck watchdog instead of reimplementing a
 //! weaker loop of its own.
 
+use std::sync::Arc;
+
 use agent::ConversionAgent;
 use blueprint::OutputTarget;
 use rig_agent::agent::model::ModelHandle;
 
 use crate::hooks::PriceFn;
+use crate::memory::ContextBudget;
 use crate::observer::{AbortFlag, SharedObserver};
 use crate::roles::Role;
 use crate::run::run_stage;
@@ -53,6 +56,7 @@ pub async fn describe_reference(
     model: ModelHandle,
     price: PriceFn,
     max_tokens: u32,
+    context_budget: Arc<dyn ContextBudget>,
     obs: &SharedObserver,
 ) -> Result<String, String> {
     let _ = blueprint::load_profile_fonts(profile);
@@ -79,6 +83,7 @@ pub async fn describe_reference(
         model,
         price,
         max_tokens,
+        context_budget,
         obs,
     )
     .await

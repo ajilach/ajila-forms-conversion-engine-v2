@@ -309,6 +309,7 @@ async fn drive(
         model: resolved.model,
         price: resolved.price,
         max_tokens: resolved.max_tokens,
+        context_budget: resolved.context_budget,
     };
 
     let shared_agent: pipeline::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));

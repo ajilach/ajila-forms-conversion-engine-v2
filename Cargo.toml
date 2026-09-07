@@ -35,12 +35,15 @@ regex-lite = "0.1"
 reqwest = { version = "0.13", features = ["json", "stream"] }
 # Pinned exactly: rig is pre-1.0 and ships breaking changes between minors, so an
 # upgrade is deliberate work rather than a `cargo update`.
-# Only the two crates we use: `rig-core` for the providers, messages and
-# streaming, `rig-agent` for the sans-IO `AgentRun` loop. The `rig` facade
-# would drag in the vector-store integrations (lancedb, milvus, fastembed) and
-# with them a second reqwest/TLS stack.
+# The three crates we use: `rig-core` for the providers, messages and
+# streaming, `rig-agent` for the sans-IO `AgentRun` loop, `rig-memory` for the
+# conversation-memory policies (sliding/token window, compaction) our own
+# context budget is built on. The `rig` facade would drag in the vector-store
+# integrations (lancedb, milvus, fastembed) and with them a second
+# reqwest/TLS stack.
 rig-core = { version = "=0.42.0", default-features = false, features = ["reqwest", "rustls"] }
 rig-agent = { version = "=0.42.0", default-features = false }
+rig-memory = { version = "=0.42.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 uuid = { version = "1", features = ["v4"] }

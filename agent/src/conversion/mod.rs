@@ -841,6 +841,14 @@ impl ConversionAgent {
         self.target.aem().and_then(|s| s.session.clone())
     }
 
+    /// The edit-history session this agent was constructed with. Empty for a
+    /// throwaway agent with no session of its own (`describe_reference`'s
+    /// one-shot pass) — a stage's conversation is only persisted when this is
+    /// non-empty.
+    pub fn session_id(&self) -> &str {
+        &self.structured_session
+    }
+
     /// Whether the package has been uploaded + installed on AEM.
     pub fn aem_uploaded(&self) -> bool {
         self.target.aem().is_some_and(|s| s.uploaded)

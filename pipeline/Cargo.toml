@@ -12,6 +12,10 @@ serde_json = { workspace = true }
 # neutral: naming rig here does not name a provider, a model or a key.
 rig-core = { workspace = true }
 rig-agent = { workspace = true }
+# The conversation-memory policy (`MemoryPolicy`) and compaction
+# (`CompactingMemory`, `TemplateCompactor`) types `ContextBudget` and
+# `SqliteConversationMemory` are built on; see `pipeline::memory`.
+rig-memory = { workspace = true }
 tokio = { version = "1", features = ["rt", "time"] }
 # Drives `AgentRunner::stream()`'s item-by-item loop in `run_stage`.
 futures-util = "0.3"
@@ -19,8 +23,12 @@ futures-util = "0.3"
 [dev-dependencies]
 # The controller is async; the tests drive it directly.
 tokio = { version = "1", features = ["macros", "rt"] }
-# Per-test scratch directories for the fake browser session.
+# Per-test scratch directories for the fake browser session and the
+# conversation-memory database.
 uuid = { workspace = true }
 # Scripted models and streamed turns for driving a real `Agent::runner` in
 # tests, with no network — rig's own test harness, not a hand-rolled one.
 rig-core = { workspace = true, features = ["test-utils"] }
+# `db::set_db_path_for_test`, so `SqliteConversationMemory`'s tests point at a
+# scratch database instead of the developer's real one.
+agent = { path = "../agent", features = ["test-utils"] }

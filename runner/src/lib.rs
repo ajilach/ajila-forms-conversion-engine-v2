@@ -27,6 +27,7 @@ pub mod provider;
 pub mod ratelimit;
 pub mod run;
 pub mod settings;
+pub mod token_counter;
 pub mod turns;
 
 pub use artifacts::{Artifact, artifact_filename};

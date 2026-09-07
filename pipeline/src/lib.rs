@@ -18,6 +18,7 @@
 
 pub mod describe;
 pub mod hooks;
+pub mod memory;
 pub mod observer;
 pub mod roles;
 pub mod run;
@@ -25,6 +26,7 @@ pub mod tools;
 pub mod turns;
 
 pub use hooks::PriceFn;
+pub use memory::ContextBudget;
 pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver, SharedObserver, Spend};
 pub use run::{RunConfig, RunOutcome, RunSeed, describe_completion_error, is_transient_error, run};
 pub use tools::SharedAgent;

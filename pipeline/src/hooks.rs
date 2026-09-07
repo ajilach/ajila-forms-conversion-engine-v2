@@ -18,14 +18,15 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use rig_agent::agent::hook::{
-    AgentHook, HookContext, InvalidToolCallAction, InvalidToolCallContext, ModelTurnAction,
-    ModelTurnFinished, ObservationAction, TextDelta, ToolCall, ToolCallAction, ToolCallDelta,
-    ToolResultAction, ToolResultEvent,
+    AgentHook, CompletionCallAction, HookContext, InvalidToolCallAction, InvalidToolCallContext,
+    ModelTurnAction, ModelTurnFinished, ObservationAction, RequestPatch, TextDelta, ToolCall,
+    ToolCallAction, ToolCallDelta, ToolResultAction, ToolResultEvent,
 };
 use rig_agent::tool::ToolOutput;
 use rig_core::completion::{FinishReason, Usage};
-use rig_core::message::{AssistantContent, DocumentSourceKind, ToolResultContent};
+use rig_core::message::{AssistantContent, DocumentSourceKind, Message, ToolResultContent};
 
+use crate::memory::ContextBudget;
 use crate::observer::{AbortFlag, RunEvent, SharedObserver, Spend};
 use crate::roles::{Role, MAX_MAX_TOKEN_NUDGES};
 use crate::run::{summarize_input, LARGE_TOOL_REPLY_WARN_CHARS};
@@ -66,7 +67,7 @@ pub(crate) struct StageHook {
     /// `PromptCancelled`/`MaxTurnsError` stop hands the driver its own
     /// `chat_history` directly; this field exists for the one case that
     /// carries none at all, a bare `CompletionError`.
-    last_attempt: Mutex<Vec<rig_core::message::Message>>,
+    last_attempt: Mutex<Vec<Message>>,
     /// Model calls that actually completed in this attempt — as opposed to
     /// [`Self::last_attempt`]'s every *attempted* call, this counts only the
     /// ones that reached [`AgentHook::on_model_turn_finished`]. What the stage
@@ -79,6 +80,15 @@ pub(crate) struct StageHook {
     /// a hook stop or a bare `CompletionError` has no `PromptResponse` to read
     /// this from at all, so it is captured live instead, turn by turn.
     final_text: Mutex<String>,
+    /// Shapes a growing stage's history to fit a budget, and learns from
+    /// what the provider actually bills. Injected the same way as
+    /// [`Self::price`] — this crate carries no model tables of its own.
+    context_budget: Arc<dyn ContextBudget>,
+    /// The raw (uncalibrated) token estimate `on_completion_call` most
+    /// recently shaped a request from, read back by
+    /// `on_model_turn_finished` to feed `ContextBudget::record_actual`
+    /// against the turn's real usage.
+    last_prompt_estimate: AtomicUsize,
 }
 
 impl StageHook {
@@ -92,6 +102,7 @@ impl StageHook {
         obs: SharedObserver,
         price: PriceFn,
         starting_spend: Spend,
+        context_budget: Arc<dyn ContextBudget>,
     ) -> Self {
         Self {
             stuck: Mutex::new(StuckWatch::new(role.stuck_tool)),
@@ -104,6 +115,8 @@ impl StageHook {
             last_attempt: Mutex::new(Vec::new()),
             completed_turns: AtomicUsize::new(0),
             final_text: Mutex::new(String::new()),
+            context_budget,
+            last_prompt_estimate: AtomicUsize::new(0),
         }
     }
 
@@ -122,7 +135,7 @@ impl StageHook {
     /// The history plus prompt of the most recently attempted turn — see
     /// [`Self::last_attempt`]. Read by the stage driver after a bare
     /// `CompletionError` to restart the run from exactly the point it failed.
-    pub(crate) fn last_attempt(&self) -> Vec<rig_core::message::Message> {
+    pub(crate) fn last_attempt(&self) -> Vec<Message> {
         self.last_attempt
             .lock()
             .unwrap_or_else(|p| p.into_inner())
@@ -175,15 +188,57 @@ impl AgentHook for StageHook {
     /// [`StageHook::last_attempt`] — and otherwise leaves the request
     /// untouched. Fires before every attempted turn, including the driver's
     /// own restarts, so it always reflects the one currently in flight.
+    ///
+    /// Also shapes the outgoing history through [`ContextBudget::policy`] and
+    /// returns it as a [`RequestPatch`] — patches are not sticky, so this
+    /// re-applies every turn, which is what bounds a long stage's *growing*
+    /// history that `ConversationMemory`'s twice-per-run load/append never
+    /// sees at all (see the module docs on why that is separate machinery).
+    /// A policy failure warns and sends the turn unshaped rather than ending
+    /// the stage over it.
     async fn on_completion_call(
         &self,
         _ctx: &HookContext,
         event: rig_agent::agent::hook::CompletionCall<'_>,
-    ) -> rig_agent::agent::hook::CompletionCallAction {
+    ) -> CompletionCallAction {
         let mut attempt = event.history.to_vec();
         attempt.push(event.prompt.clone());
         *self.last_attempt.lock().unwrap_or_else(|p| p.into_inner()) = attempt;
-        rig_agent::agent::hook::CompletionCallAction::continue_run()
+
+        // Shaping can decode images to estimate their real vision cost, which
+        // is CPU-bound; run it off the async runtime so a long history does
+        // not stall whichever executor is driving the run — the same
+        // `spawn_blocking` trick the hand-rolled eviction ladder used.
+        let policy = self.context_budget.policy();
+        let history = event.history.to_vec();
+        let shaped = match tokio::task::spawn_blocking(move || policy.apply(history)).await {
+            Ok(Ok(shaped)) => shaped,
+            Ok(Err(e)) => {
+                self.obs.emit(RunEvent::Warning(format!(
+                    "{}: context budget failed ({e}) — sending the turn unshaped.",
+                    self.role.name
+                )));
+                // Clear rather than leave the previous (successful) turn's
+                // estimate in place: `on_model_turn_finished` would otherwise
+                // pair a stale, smaller estimate with this turn's real usage
+                // and feed a mismatched ratio into the calibration EMA.
+                self.last_prompt_estimate.store(0, Ordering::Relaxed);
+                return CompletionCallAction::continue_run();
+            }
+            Err(e) => {
+                self.obs.emit(RunEvent::Warning(format!(
+                    "{}: context budget task panicked ({e}) — sending the turn unshaped.",
+                    self.role.name
+                )));
+                self.last_prompt_estimate.store(0, Ordering::Relaxed);
+                return CompletionCallAction::continue_run();
+            }
+        };
+
+        self.last_prompt_estimate
+            .store(self.context_budget.raw_estimate(&shaped), Ordering::Relaxed);
+
+        CompletionCallAction::patch(RequestPatch::new().history(shaped))
     }
 
     /// Reports the call starting, for the activity timeline. Never rewrites
@@ -271,6 +326,19 @@ impl AgentHook for StageHook {
             + event.usage.cache_creation_input_tokens;
         if prompt_tokens > 0 {
             self.obs.emit(RunEvent::ContextUsed(prompt_tokens as usize));
+            // Feed the calibration EMA: what `on_completion_call` estimated
+            // for this exact (shaped) history, against what the API actually
+            // billed. `0` means either no completion call ever ran for this
+            // hook instance (unreachable in practice — a turn cannot finish
+            // without one) or the one that did failed to shape a history at
+            // all (`on_completion_call` clears the estimate on that path) —
+            // either way there is no real estimate to pair with this turn's
+            // usage, so it is skipped rather than recorded as spuriously
+            // perfect or mismatched against an unrelated, earlier turn.
+            let raw_estimate = self.last_prompt_estimate.load(Ordering::Relaxed);
+            if raw_estimate > 0 {
+                self.context_budget.record_actual(raw_estimate, prompt_tokens);
+            }
         }
         let cost = (self.price)(&event.usage);
         let spend = {
@@ -500,6 +568,55 @@ mod tests {
         Arc::new(|_| None)
     }
 
+    /// A `ContextBudget` that shapes nothing and records nothing — the shape
+    /// every test that is not specifically about context shaping wants: the
+    /// hook still calls it every completion call, but there is nothing here
+    /// to observe.
+    struct NoBudget;
+
+    impl ContextBudget for NoBudget {
+        fn policy(&self) -> Arc<dyn rig_memory::MemoryPolicy> {
+            Arc::new(rig_memory::NoopMemoryPolicy)
+        }
+        fn raw_estimate(&self, _history: &[Message]) -> usize {
+            0
+        }
+        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
+    }
+
+    fn no_budget() -> Arc<dyn ContextBudget> {
+        Arc::new(NoBudget)
+    }
+
+    /// A `ContextBudget` that actually shapes history, wrapping whatever real
+    /// [`rig_memory::MemoryPolicy`] the test hands it — unlike [`NoBudget`],
+    /// which exists so tests that are not about shaping never have to think
+    /// about it.
+    struct RealBudget(Arc<dyn rig_memory::MemoryPolicy>);
+
+    impl ContextBudget for RealBudget {
+        fn policy(&self) -> Arc<dyn rig_memory::MemoryPolicy> {
+            self.0.clone()
+        }
+        fn raw_estimate(&self, history: &[Message]) -> usize {
+            history.len()
+        }
+        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
+    }
+
+    /// A `MemoryPolicy` that always fails — for proving a policy error
+    /// degrades a turn to unshaped rather than ending the stage over it.
+    struct AlwaysFailsPolicy;
+
+    impl rig_memory::MemoryPolicy for AlwaysFailsPolicy {
+        fn apply(
+            &self,
+            _messages: Vec<Message>,
+        ) -> Result<Vec<Message>, rig_core::memory::MemoryError> {
+            Err(rig_core::memory::MemoryError::Internal("boom".into()))
+        }
+    }
+
     /// A role with a chosen `stuck_tool`, for the stuck-watch test — the
     /// built-in roles' own stuck tools (`validate_aem_package`,
     /// `build_redacto_dump`) are not reachable from a bare agent with no
@@ -584,7 +701,7 @@ mod tests {
         abort.abort();
 
         let obs = SharedObserver::new(crate::observer::NullObserver);
-        let hook = StageHook::new(&crate::roles::ANALYST, abort, obs, no_price(), Spend::default());
+        let hook = StageHook::new(&crate::roles::ANALYST, abort, obs, no_price(), Spend::default(), no_budget());
 
         let mut stream = agent.runner("go").add_hook(hook).max_turns(5).stream().await;
         let mut saw_error = false;
@@ -614,6 +731,7 @@ mod tests {
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
             Spend::default(),
+            no_budget(),
         );
 
         let mut stream = agent.runner("go").add_hook(hook).max_turns(5).stream().await;
@@ -654,7 +772,7 @@ mod tests {
             ],
         ]);
         let agent = agent_with_tools(model, tools);
-        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, no_price(), Spend::default());
+        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, no_price(), Spend::default(), no_budget());
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
 
@@ -710,6 +828,7 @@ mod tests {
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
             Spend::default(),
+            no_budget(),
         );
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
@@ -756,6 +875,7 @@ mod tests {
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
             Spend::default(),
+            no_budget(),
         );
 
         drain(
@@ -788,7 +908,7 @@ mod tests {
         ]]);
         let agent = agent_with(model);
         let (obs, log) = recorder();
-        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, no_price(), Spend::default());
+        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, no_price(), Spend::default(), no_budget());
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
 
@@ -815,7 +935,7 @@ mod tests {
         let agent = agent_with(model);
         let (obs, log) = recorder();
         let price: PriceFn = Arc::new(|usage| Some(usage.input_tokens as f64 * 0.001));
-        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, price, Spend::default());
+        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, price, Spend::default(), no_budget());
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
 
@@ -865,6 +985,7 @@ mod tests {
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
             Spend::default(),
+            no_budget(),
         );
 
         drain(
@@ -913,6 +1034,7 @@ mod tests {
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
             Spend::default(),
+            no_budget(),
         );
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
@@ -922,6 +1044,104 @@ mod tests {
             2,
             "the stage must recover and take its second scripted turn, not end on the \
              unknown tool"
+        );
+    }
+
+    /// The whole point of wiring a `ContextBudget` in: a history that has
+    /// grown past what the policy allows must actually be trimmed before it
+    /// reaches the request, not merely estimated and left alone.
+    #[tokio::test]
+    async fn an_oversized_history_is_shaped_before_it_reaches_the_request() {
+        let shared_agent = bare_shared_agent();
+        let tools = crate::tools::dynamic_tools_for(
+            &shared_agent,
+            &[serde_json::json!({
+                "name": "get_source_info",
+                "description": "Info about the source.",
+                "input_schema": {"type": "object", "properties": {}},
+            })],
+            &SharedObserver::new(crate::observer::NullObserver),
+        );
+
+        // Every turn is a tool call, so the loop keeps going (a plain text
+        // reply is itself a natural end) and history keeps growing: an
+        // assistant tool-call message plus a user tool-result message land
+        // in history on every completed turn.
+        let repeat_turn = || {
+            vec![
+                MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+            ]
+        };
+        let model = MockCompletionModel::from_stream_turns(std::iter::repeat_with(repeat_turn).take(5));
+        let agent = agent_with_tools(model.clone(), tools);
+
+        let budget: Arc<dyn ContextBudget> =
+            Arc::new(RealBudget(Arc::new(rig_memory::SlidingWindowMemory::last_messages(2))));
+        let hook = StageHook::new(
+            &crate::roles::ANALYST,
+            AbortFlag::default(),
+            SharedObserver::new(crate::observer::NullObserver),
+            no_price(),
+            Spend::default(),
+            budget,
+        );
+
+        drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
+
+        // By the last turn, the *unshaped* transcript would hold history for
+        // every prior round trip (2 messages per completed turn) plus the
+        // seed — comfortably more than the 2-message sliding window allows.
+        // If shaping never reached the request, this would see that whole,
+        // growing transcript instead.
+        let requests = model.requests();
+        let last = requests.last().expect("at least one request was sent");
+        assert!(
+            last.chat_history.len() <= 2,
+            "the request carried {} history messages — the sliding window was not applied: {:?}",
+            last.chat_history.len(),
+            last.chat_history
+        );
+    }
+
+    /// A `MemoryPolicy` failure is a reason to warn and send the turn
+    /// unshaped, not a reason to end an otherwise-healthy stage — the same
+    /// bargain `on_invalid_tool_call` strikes for a model's bad tool call.
+    #[tokio::test]
+    async fn a_failing_context_budget_sends_the_turn_unshaped_rather_than_ending_the_stage() {
+        let model = MockCompletionModel::from_stream_turns([[
+            MockStreamEvent::text("hello"),
+            MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+        ]]);
+        let agent = agent_with(model.clone());
+        let (obs, log) = recorder();
+        let budget: Arc<dyn ContextBudget> = Arc::new(RealBudget(Arc::new(AlwaysFailsPolicy)));
+        let hook = StageHook::new(
+            &crate::roles::ANALYST,
+            AbortFlag::default(),
+            obs,
+            no_price(),
+            Spend::default(),
+            budget,
+        );
+
+        use rig_agent::agent::MultiTurnStreamItem;
+        let mut stream = agent.runner("go").add_hook(hook).max_turns(5).stream().await;
+        let mut reached_final = false;
+        while let Some(item) = stream.next().await {
+            let item = item.expect("a context-budget failure must not end the run in error");
+            if matches!(item, MultiTurnStreamItem::FinalResponse(_)) {
+                reached_final = true;
+            }
+        }
+        assert!(reached_final, "the stage must still reach its final response");
+
+        let events = log.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, RunEvent::Warning(w) if w.contains("context budget"))),
+            "a policy failure must be reported: {events:?}"
         );
     }
 }

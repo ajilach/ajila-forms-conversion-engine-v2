@@ -11,6 +11,11 @@
 //!   label TEXT, created_at TEXT)` — one row per pipeline run / continued edit.
 //! - `edits(id INTEGER PRIMARY KEY, session_id TEXT, seq INTEGER, created_at
 //!   TEXT, action_label TEXT, structure_json TEXT)` — one snapshot per edit.
+//! - `conversations(session_id TEXT, stage TEXT, seq INTEGER, created_at TEXT,
+//!   message_json TEXT, PRIMARY KEY(session_id, stage, seq))` — one row per
+//!   LLM message, opaque JSON this module never deserializes (that is
+//!   `pipeline::memory`'s job, the one place that knows what a rig `Message`
+//!   is). Append-only: nothing here ever deletes a row except `clear`.
 
 /// Metadata about a previous editing session, for the "continue editing" list.
 #[derive(Clone, Debug, PartialEq)]
@@ -60,7 +65,7 @@ mod imp {
     const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// The schema revision this build expects. Bumped when a migration is added.
-    const SCHEMA_VERSION: i64 = 2;
+    const SCHEMA_VERSION: i64 = 3;
 
     /// Redirects the store to a scratch file. Tests only — see
     /// [`set_db_path_for_test`].
@@ -88,7 +93,11 @@ mod imp {
     /// concurrency tests need a real file on disk (an in-memory database is
     /// private to its connection, so it cannot show contention at all) without
     /// writing over the developer's own history.
-    #[cfg(test)]
+    ///
+    /// Also reachable from another crate's own tests via the `test-utils`
+    /// feature (`pipeline`'s `SqliteConversationMemory` tests need it, since
+    /// `#[cfg(test)]` alone only compiles this in for *this* crate's tests).
+    #[cfg(any(test, feature = "test-utils"))]
     pub fn set_db_path_for_test(path: PathBuf) {
         let _ = DB_PATH_OVERRIDE.set(path);
     }
@@ -254,6 +263,18 @@ mod imp {
                 bytes      BLOB NOT NULL,
                 created_at TEXT NOT NULL,
                 PRIMARY KEY (doc_hash, file_index)
+            );
+            -- A stage's LLM conversation, one row per message. New in schema
+            -- version 3; a brand new table needs no `migrate()` entry of its
+            -- own, `CREATE TABLE IF NOT EXISTS` here is enough to add it to an
+            -- existing v2 database with nothing to backfill.
+            CREATE TABLE IF NOT EXISTS conversations (
+                session_id   TEXT NOT NULL,
+                stage        TEXT NOT NULL,
+                seq          INTEGER NOT NULL,
+                created_at   TEXT NOT NULL,
+                message_json TEXT NOT NULL,
+                PRIMARY KEY (session_id, stage, seq)
             );",
         )?;
         // Reference-form tables (shared schema with the `reference-builder`
@@ -736,6 +757,109 @@ mod imp {
         list_edits_conn(&conn, session_id)
     }
 
+    // ── Stage conversations ──────────────────────────────────────────────────
+    //
+    // One row per LLM message, opaque JSON. This module never deserializes it
+    // — `pipeline::memory::SqliteConversationMemory` is the one place that
+    // knows what a rig `Message` is and does the (de)serializing.
+
+    fn load_conversation_conn(conn: &Connection, session_id: &str, stage: &str) -> Vec<String> {
+        let Some(mut stmt) = warn_db(
+            conn.prepare(
+                "SELECT message_json FROM conversations
+                 WHERE session_id = ?1 AND stage = ?2 ORDER BY seq ASC",
+            ),
+            "preparing a conversation load",
+        ) else {
+            return Vec::new();
+        };
+        let rows = stmt.query_map(rusqlite::params![session_id, stage], |row| {
+            row.get::<_, String>(0)
+        });
+        match rows {
+            Ok(iter) => iter.filter_map(Result::ok).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// Load a stage's stored conversation, oldest first. Empty both when
+    /// nothing was ever stored and when the read failed — best-effort, like
+    /// every other reader in this module; a caller that needs to tell those
+    /// apart has no way to here, matching `list_edits`/`load_sources`.
+    pub fn load_conversation(session_id: &str, stage: &str) -> Vec<String> {
+        let Ok(conn) = open() else {
+            return Vec::new();
+        };
+        load_conversation_conn(&conn, session_id, stage)
+    }
+
+    fn append_conversation_conn(
+        conn: &mut Connection,
+        session_id: &str,
+        stage: &str,
+        messages: &[String],
+    ) {
+        if messages.is_empty() {
+            return;
+        }
+        let Some(tx) = warn_db(conn.transaction(), "starting a conversation append") else {
+            return;
+        };
+        let appended = (|| -> rusqlite::Result<()> {
+            let now = now();
+            for message_json in messages {
+                // One atomic statement per message, exactly like
+                // `insert_edit_conn`'s own `COALESCE(MAX(seq) + 1, 0)`:
+                // reading the next `seq` and inserting it as two separate
+                // statements (a prior version of this function did) is a
+                // lost-update race — two concurrent appends to the same
+                // `(session_id, stage)` can both read the same `MAX(seq)`
+                // before either has written, and the second write then fails
+                // (or, without a unique index, silently duplicates a seq).
+                // Folding the read into the `INSERT`'s own `SELECT` makes the
+                // read-then-write indivisible.
+                tx.execute(
+                    "INSERT INTO conversations (session_id, stage, seq, created_at, message_json)
+                     SELECT ?1, ?2, COALESCE(MAX(seq) + 1, 0), ?3, ?4
+                     FROM conversations WHERE session_id = ?1 AND stage = ?2",
+                    rusqlite::params![session_id, stage, now, message_json],
+                )?;
+            }
+            Ok(())
+        })();
+        if warn_db(appended, "appending a conversation").is_some() {
+            warn_db(tx.commit(), "committing a conversation append");
+        }
+    }
+
+    /// Append `messages` (each already serialized to JSON) at the next
+    /// sequence numbers, in one transaction — a half-written turn would look
+    /// present but reload short, same reasoning as [`store_sources`].
+    pub fn append_conversation(session_id: &str, stage: &str, messages: &[String]) {
+        let Some(mut conn) = warn_db(open(), "opening the store") else {
+            return;
+        };
+        append_conversation_conn(&mut conn, session_id, stage, messages);
+    }
+
+    fn clear_conversation_conn(conn: &Connection, session_id: &str, stage: &str) {
+        warn_db(
+            conn.execute(
+                "DELETE FROM conversations WHERE session_id = ?1 AND stage = ?2",
+                rusqlite::params![session_id, stage],
+            ),
+            "clearing a conversation",
+        );
+    }
+
+    /// Drop a stage's stored conversation entirely.
+    pub fn clear_conversation(session_id: &str, stage: &str) {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return;
+        };
+        clear_conversation_conn(&conn, session_id, stage);
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
@@ -747,6 +871,23 @@ mod imp {
             ensure_schema(&conn).unwrap();
             migrate(&conn).unwrap();
             conn
+        }
+
+        /// Point the store at a scratch file, for a test that needs a real
+        /// one — an in-memory database is private to its own connection and
+        /// cannot show contention at all.
+        ///
+        /// `set_db_path_for_test` is a one-shot `OnceLock`: whichever test in
+        /// this binary calls this first wins, and every other caller —
+        /// including this one, called from a *different* test — silently
+        /// shares that same path instead of its own. That is fine: every
+        /// caller only ever needs *a* scratch file, never a specific one, so
+        /// sharing is safe as long as tests that write to the same table use
+        /// keys (session ids) that cannot collide with each other's data.
+        fn claim_scratch_db_for_test() {
+            let dir = std::env::temp_dir().join(format!("blueprint-db-test-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            set_db_path_for_test(dir.join("history.db"));
         }
 
         #[test]
@@ -801,6 +942,112 @@ mod imp {
             assert_eq!(edits[1].action_label, "b");
         }
 
+        /// A conversation round-trips in order, and appending twice extends it
+        /// rather than overwriting it — the shape `pipeline`'s memory backend
+        /// relies on: every turn's messages land after the ones before them.
+        #[test]
+        fn a_conversation_appends_and_loads_in_order() {
+            let mut conn = mem();
+            append_conversation_conn(&mut conn, "s", "Author", &["\"m0\"".into(), "\"m1\"".into()]);
+            append_conversation_conn(&mut conn, "s", "Author", &["\"m2\"".into()]);
+
+            let loaded = load_conversation_conn(&conn, "s", "Author");
+            assert_eq!(loaded, vec!["\"m0\"", "\"m1\"", "\"m2\""]);
+        }
+
+        /// Different stages of the same session, and the same stage name in a
+        /// different session, must not see each other's messages — the
+        /// `(session_id, stage)` key is the whole point of keying by both.
+        #[test]
+        fn conversations_are_isolated_by_session_and_stage() {
+            let mut conn = mem();
+            append_conversation_conn(&mut conn, "s", "Author", &["\"author\"".into()]);
+            append_conversation_conn(&mut conn, "s", "Reviewer", &["\"reviewer\"".into()]);
+            append_conversation_conn(&mut conn, "other-session", "Author", &["\"other\"".into()]);
+
+            assert_eq!(load_conversation_conn(&conn, "s", "Author"), vec!["\"author\""]);
+            assert_eq!(load_conversation_conn(&conn, "s", "Reviewer"), vec!["\"reviewer\""]);
+            assert_eq!(
+                load_conversation_conn(&conn, "other-session", "Author"),
+                vec!["\"other\""]
+            );
+        }
+
+        /// A conversation nobody ever appended to loads empty rather than
+        /// erroring — the common case, every fresh stage's first attempt.
+        #[test]
+        fn an_untouched_conversation_loads_empty() {
+            let conn = mem();
+            assert!(load_conversation_conn(&conn, "s", "Author").is_empty());
+        }
+
+        /// Clearing one stage's conversation must not touch a sibling stage's,
+        /// the same isolation `clear_conversation` promises the caller.
+        #[test]
+        fn clearing_a_conversation_leaves_other_stages_alone() {
+            let mut conn = mem();
+            append_conversation_conn(&mut conn, "s", "Author", &["\"a\"".into()]);
+            append_conversation_conn(&mut conn, "s", "Reviewer", &["\"r\"".into()]);
+
+            clear_conversation_conn(&conn, "s", "Author");
+
+            assert!(load_conversation_conn(&conn, "s", "Author").is_empty());
+            assert_eq!(load_conversation_conn(&conn, "s", "Reviewer"), vec!["\"r\""]);
+        }
+
+        /// Appending nothing must not touch the sequence counter — the next
+        /// real append still starts at 0, not 1.
+        #[test]
+        fn appending_no_messages_is_a_no_op() {
+            let mut conn = mem();
+            append_conversation_conn(&mut conn, "s", "Author", &[]);
+            append_conversation_conn(&mut conn, "s", "Author", &["\"first\"".into()]);
+            assert_eq!(load_conversation_conn(&conn, "s", "Author"), vec!["\"first\""]);
+        }
+
+        /// Concurrent appends to the *same* `(session_id, stage)` must not race
+        /// on the next `seq`. An earlier version of `append_conversation_conn`
+        /// read `MAX(seq) + 1` as a separate `SELECT` before inserting — two
+        /// concurrent transactions could both read the same value before
+        /// either wrote, and the loser's `INSERT` then failed the
+        /// `(session_id, stage, seq)` primary key and rolled back silently
+        /// (`warn_db` only logs to stderr; the public `append_conversation`
+        /// has no error return at all). Folding the read into the `INSERT`'s
+        /// own `SELECT` — one atomic statement, [`insert_edit_conn`]'s own
+        /// pattern — is what this test is pinning.
+        #[test]
+        fn concurrent_appends_to_one_conversation_lose_nothing() {
+            const THREADS: usize = 8;
+            const MESSAGES_PER_THREAD: usize = 20;
+
+            claim_scratch_db_for_test();
+
+            std::thread::scope(|scope| {
+                for thread in 0..THREADS {
+                    scope.spawn(move || {
+                        for i in 0..MESSAGES_PER_THREAD {
+                            append_conversation(
+                                "concurrent-session",
+                                "Author",
+                                &[format!("\"{thread}:{i}\"")],
+                            );
+                        }
+                    });
+                }
+            });
+
+            let loaded = load_conversation("concurrent-session", "Author");
+            assert_eq!(
+                loaded.len(),
+                THREADS * MESSAGES_PER_THREAD,
+                "some concurrent appends were silently lost"
+            );
+            // No `seq` collision means no message was ever dropped in favour
+            // of another with the same slot, so every payload is distinct.
+            let unique: std::collections::HashSet<_> = loaded.iter().collect();
+            assert_eq!(unique.len(), loaded.len(), "a message was overwritten or duplicated");
+        }
+
         #[test]
         fn sessions_listed_newest_first() {
             let conn = mem();
@@ -836,21 +1083,7 @@ mod imp {
             const EDITS_PER_THREAD: usize = 50;
             const PER_SESSION: usize = THREADS_PER_SESSION * EDITS_PER_THREAD;
 
-            // An in-memory database is private to its own connection, so it
-            // cannot show contention at all — this needs a real file.
-            let dir = std::env::temp_dir().join(format!(
-                "blueprint-db-test-{}",
-                uuid::Uuid::new_v4()
-            ));
-            std::fs::create_dir_all(&dir).unwrap();
-            let path = dir.join("history.db");
-            set_db_path_for_test(path.clone());
-            assert_eq!(
-                db_path(),
-                path,
-                "another test opened the store first — this one would write to \
-                 the developer's own history"
-            );
+            claim_scratch_db_for_test();
 
             let recorded: Vec<(usize, String, usize)> = std::thread::scope(|scope| {
                 let handles: Vec<_> = (0..THREADS_PER_SESSION * 2)
@@ -895,8 +1128,6 @@ mod imp {
                     "{session} seq {seq} came back as another writer's snapshot"
                 );
             }
-
-            let _ = std::fs::remove_dir_all(&dir);
         }
 
         /// The index is what turns a future regression into a loud failure
@@ -935,6 +1166,43 @@ mod imp {
             // The earliest row wins, so the surviving history stays in order.
             assert_eq!(snapshot_at_conn(&conn, "s", 0).as_deref(), Some("first"));
             assert_eq!(snapshot_at_conn(&conn, "s", 1).as_deref(), Some("third"));
+        }
+
+        /// A database left at schema version 2 (before the `conversations`
+        /// table existed) has to reach version 3 with its existing edit
+        /// history intact and the new table usable — the new table is added
+        /// by `ensure_schema`'s own `CREATE TABLE IF NOT EXISTS`, so this
+        /// pins that running it against an *existing* v2 database (not just a
+        /// fresh one) actually adds it, and that migrating changes nothing
+        /// about the data that was already there.
+        #[test]
+        fn a_v2_database_migrates_to_v3_without_losing_edits() {
+            let mut conn = Connection::open_in_memory().unwrap();
+            ensure_schema(&conn).unwrap();
+            insert_edit_conn(&conn, "s", "before the migration", "{}");
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('schema_version', '2')
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                [],
+            )
+            .unwrap();
+
+            migrate(&conn).unwrap();
+
+            let version: String = conn
+                .query_row(
+                    "SELECT value FROM settings WHERE key = 'schema_version'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(version, "3");
+            assert_eq!(list_edits_conn(&conn, "s").len(), 1, "prior edits must survive");
+
+            // The new table has to be usable on this migrated database, not
+            // just on a freshly created one.
+            append_conversation_conn(&mut conn, "s", "Author", &["\"hi\"".into()]);
+            assert_eq!(load_conversation_conn(&conn, "s", "Author"), vec!["\"hi\""]);
         }
 
         /// Resuming a session replays its sources, so the bytes have to come
