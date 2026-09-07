@@ -8,7 +8,7 @@
 //! it; the rate limit is applied here too, since it is the same per-endpoint
 //! knowledge the model resolution already needs.
 
-use pipeline::PriceFn;
+use pipeline::{ContextBudget, PriceFn};
 use rig_agent::agent::model::ModelHandle;
 use std::sync::Arc;
 
@@ -43,6 +43,10 @@ pub struct ResolvedModel {
     pub model: ModelHandle,
     pub price: PriceFn,
     pub max_tokens: u32,
+    /// Shapes a growing stage's history to a budget sized from this model's
+    /// context window, and learns from what it actually bills — see
+    /// [`crate::token_counter::RunnerContextBudget`].
+    pub context_budget: Arc<dyn ContextBudget>,
 }
 
 impl TurnPlan {
@@ -99,6 +103,9 @@ impl TurnPlan {
             model,
             price: Arc::new(move |usage| crate::pricing::cost_usd(&model_id, usage)),
             max_tokens: self.max_tokens,
+            context_budget: Arc::new(crate::token_counter::RunnerContextBudget::new(
+                self.prompt_target,
+            )),
         })
     }
 }

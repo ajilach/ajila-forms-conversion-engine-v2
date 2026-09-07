@@ -26,6 +26,13 @@ rmcp = { version = "1.7.0", default-features = false, features = ["client", "tra
 process-wrap = { version = "9.1", default-features = false, features = ["tokio1", "process-group", "job-object"] }
 tokio = { version = "1", features = ["process", "io-util", "rt", "time"] }
 
+[features]
+# Un-gates `db::set_db_path_for_test` for another crate's own tests (this
+# crate's tests always have it via `cfg(test)`) — `pipeline`'s tests need it
+# to point `SqliteConversationMemory` at a scratch database instead of the
+# real one in the developer's config directory.
+test-utils = []
+
 [dev-dependencies]
 # The tool executor is async; the tests drive it directly.
 tokio = { version = "1", features = ["macros", "rt"] }

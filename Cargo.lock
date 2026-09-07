@@ -5400,6 +5400,7 @@ dependencies = [
  "futures-util",
  "rig-agent",
  "rig-core",
+ "rig-memory",
  "serde_json",
  "tokio",
  "uuid",
@@ -6286,6 +6287,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "rig-memory"
+version = "0.42.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ed56015accac541e4a28eccc4fa63f878d5ce0d235b47aff3971d5dd1072e539"
+dependencies = [
+ "rig-core",
+ "tracing",
+]
+
+[[package]]
 name = "ring"
 version = "0.17.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6378,6 +6389,7 @@ dependencies = [
  "reqwest",
  "rig-agent",
  "rig-core",
+ "rig-memory",
  "serde",
  "serde_json",
  "tokio",

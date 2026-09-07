@@ -249,6 +249,7 @@ pub async fn describe_reference(
         resolved.model,
         resolved.price,
         resolved.max_tokens,
+        resolved.context_budget,
         &pipeline::SharedObserver::new(pipeline::NullObserver),
     )
     .await

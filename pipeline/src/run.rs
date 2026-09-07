@@ -13,6 +13,8 @@
 //! rig's own [`rig_core::test_utils::MockCompletionModel`] rather than a
 //! hand-rolled turn provider.
 
+use std::sync::Arc;
+
 use agent::ToolReply;
 use blueprint::{DocumentEnvelope, OutputTarget};
 use rig_agent::agent::model::ModelHandle;
@@ -20,8 +22,10 @@ use rig_agent::agent::{Agent, AgentBuilder, StreamingError};
 use rig_agent::completion::PromptError;
 use rig_core::completion::CompletionError;
 use rig_core::message::{AssistantContent, Message};
+use rig_memory::{CompactingMemory, MemoryPolicy, TemplateCompactor};
 
 use crate::hooks::{PriceFn, SharedHook, StageHook};
+use crate::memory::{self, ContextBudget, SqliteConversationMemory};
 use crate::observer::{AbortFlag, RetryAction, RunEvent, SharedObserver, Spend};
 use crate::roles::{
     self, MAX_AUTO_RETRIES, MAX_RETRY_BACKOFF_SECS, MAX_VALIDATE_REPEATS, RETRY_POLL_MS, Role,
@@ -51,6 +55,10 @@ pub struct RunConfig {
     /// Output-token cap sent with every request — provider knowledge `runner`
     /// resolves per model, same as `model` and `price`.
     pub max_tokens: u32,
+    /// Shapes a growing stage's history to fit a budget, and learns from what
+    /// the provider actually bills — see [`ContextBudget`]. `runner` builds
+    /// this from the same model knowledge as `price`/`max_tokens`.
+    pub context_budget: Arc<dyn ContextBudget>,
 }
 
 /// What starts a run: a fresh analysis, feedback on the previous result, or
@@ -190,6 +198,7 @@ async fn run_stages(
             config.model.clone(),
             config.price.clone(),
             config.max_tokens,
+            config.context_budget.clone(),
             obs,
         )
         .await?; // fatal API error or abort, already surfaced
@@ -210,6 +219,7 @@ async fn run_stages(
         config.model.clone(),
         config.price.clone(),
         config.max_tokens,
+        config.context_budget.clone(),
         obs,
     )
     .await?;
@@ -232,6 +242,7 @@ async fn run_stages(
             config.model.clone(),
             config.price.clone(),
             config.max_tokens,
+            config.context_budget.clone(),
             obs,
         )
         .await?;
@@ -262,6 +273,7 @@ async fn run_stages(
                     config.model.clone(),
                     config.price.clone(),
                     config.max_tokens,
+                    config.context_budget.clone(),
                     obs,
                 )
                 .await?;
@@ -502,12 +514,25 @@ pub(crate) async fn run_stage(
     model: ModelHandle,
     price: PriceFn,
     max_tokens: u32,
+    context_budget: Arc<dyn ContextBudget>,
     obs: &SharedObserver,
 ) -> Option<String> {
     use futures_util::StreamExt;
 
-    let specs = shared_agent.lock().await.tools_for_stage(role.scope);
-    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, obs);
+    let (specs, session_id) = {
+        let agent = shared_agent.lock().await;
+        (agent.tools_for_stage(role.scope), agent.session_id().to_string())
+    };
+    let agent = build_stage_agent(
+        model,
+        max_tokens,
+        shared_agent,
+        &specs,
+        obs,
+        &session_id,
+        role.name,
+        context_budget.policy(),
+    );
 
     let mut restart_from: Option<Vec<Message>> = None;
     let mut total_completed_turns = 0usize;
@@ -535,6 +560,7 @@ pub(crate) async fn run_stage(
             obs.clone(),
             price.clone(),
             total_spend,
+            context_budget.clone(),
         ));
 
         let runner = match restart_from.take() {
@@ -658,15 +684,30 @@ pub(crate) async fn run_stage(
 /// Build one stage's `Agent`: the model it runs against, plus the tool
 /// catalog's own scoped subset bridged onto rig's `DynamicTool` — see
 /// [`crate::tools`].
+#[allow(clippy::too_many_arguments)]
 fn build_stage_agent(
     model: ModelHandle,
     max_tokens: u32,
     shared_agent: &SharedAgent,
     specs: &[serde_json::Value],
     obs: &SharedObserver,
+    session_id: &str,
+    role_name: &str,
+    memory_policy: Arc<dyn MemoryPolicy>,
 ) -> Agent {
     let dynamic_tools = tools::dynamic_tools_for(shared_agent, specs, obs);
-    let builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
+    let mut builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
+
+    // A throwaway agent with no session of its own (`describe_reference`'s
+    // one-shot pass) has nothing to key a conversation by, and nothing to
+    // gain from persisting one: it never runs again under the same id.
+    if !session_id.is_empty() {
+        let memory = CompactingMemory::new(SqliteConversationMemory, memory_policy, TemplateCompactor::new());
+        builder = builder
+            .memory(memory)
+            .conversation(memory::conversation_id(session_id, role_name));
+    }
+
     let mut iter = dynamic_tools.into_iter();
     match iter.next() {
         None => builder.build(),
@@ -1368,14 +1409,43 @@ mod controller {
 
     /// A Redacto agent with no source: the scripted turns decide what runs, so
     /// the agent only has to be real enough to record a review and finalize.
+    ///
+    /// Session id deliberately empty: `build_stage_agent` only attaches
+    /// `SqliteConversationMemory` (real `agent::db` I/O) when it is
+    /// non-empty, and an ordinary controller test has not redirected
+    /// `agent::db` to a scratch database — an ordinary non-empty id here
+    /// would make every such test write into the developer's real
+    /// `history.db`. Tests that specifically exercise memory persistence
+    /// build their own agent with a real id and a scratch database instead
+    /// (see `a_resumed_session_loads_its_prior_conversation`).
     fn bare_agent() -> SharedAgent {
         Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(
             None,
             Vec::new(),
             None,
-            "test-controller".into(),
+            String::new(),
             OutputTarget::Redacto,
         )))
+    }
+
+    /// A `ContextBudget` that shapes nothing and records nothing — every
+    /// controller test's stages have nothing worth shaping, and the dedicated
+    /// context-shaping tests (`a_restart_after_partial_progress_carries_turns_and_spend_forward`)
+    /// build a real one directly instead of going through `config`.
+    struct NoBudget;
+
+    impl ContextBudget for NoBudget {
+        fn policy(&self) -> Arc<dyn MemoryPolicy> {
+            Arc::new(rig_memory::NoopMemoryPolicy)
+        }
+        fn raw_estimate(&self, _history: &[Message]) -> usize {
+            0
+        }
+        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
+    }
+
+    fn no_budget() -> Arc<dyn ContextBudget> {
+        Arc::new(NoBudget)
     }
 
     fn config(abort: AbortFlag, max_review_rounds: usize, model: MockCompletionModel) -> RunConfig {
@@ -1390,6 +1460,7 @@ mod controller {
             model: ModelHandle::new(model),
             price: no_price(),
             max_tokens: 4096,
+            context_budget: no_budget(),
         }
     }
 
@@ -1414,12 +1485,14 @@ mod controller {
         tools.iter().filter_map(|t| t["name"].as_str()).collect()
     }
 
+    /// Session id empty for the same reason as `bare_agent`.
     fn aem_agent() -> ConversionAgent {
-        ConversionAgent::new(None, Vec::new(), None, "t".into(), OutputTarget::Aem)
+        ConversionAgent::new(None, Vec::new(), None, String::new(), OutputTarget::Aem)
     }
 
+    /// Session id empty for the same reason as `bare_agent`.
     fn plain_redacto_agent() -> ConversionAgent {
-        ConversionAgent::new(None, Vec::new(), None, "test-controller".into(), OutputTarget::Redacto)
+        ConversionAgent::new(None, Vec::new(), None, String::new(), OutputTarget::Redacto)
     }
 
     fn with_fake_browser(agent: ConversionAgent, dir: std::path::PathBuf) -> ConversionAgent {
@@ -1844,6 +1917,7 @@ mod controller {
             ModelHandle::new(model.clone()),
             price,
             4096,
+            no_budget(),
             &obs,
         )
         .await;
@@ -1868,6 +1942,86 @@ mod controller {
         assert_eq!(
             last_spend.input_tokens, 400,
             "the turn billed before the failure must still count toward the total"
+        );
+    }
+
+    /// The whole point of wiring `SqliteConversationMemory` in
+    /// `build_stage_agent`: a stage that reaches a natural end appends to it,
+    /// and a *later* run of the same stage under the same session id — the
+    /// shape our own resume flow (`RunSeed::Continue`/`Feedback`) actually
+    /// takes — loads that history back before sending its own first turn.
+    /// Uses a real, non-empty session id and a scratch database
+    /// (`test_support::use_scratch_db`); every other controller test in this
+    /// module deliberately uses an empty session id so it never touches
+    /// `agent::db` at all — see `bare_agent`'s doc comment.
+    #[tokio::test]
+    async fn a_resumed_stage_loads_its_prior_conversation() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let session_id = format!("resume-test-{}", uuid::Uuid::new_v4());
+        let role = &roles::roles_for(OutputTarget::Redacto).author;
+
+        let fresh_agent = || {
+            Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(
+                None,
+                Vec::new(),
+                None,
+                session_id.clone(),
+                OutputTarget::Redacto,
+            )))
+        };
+
+        // First run: the Author answers with plain text, which is itself a
+        // natural end for a stage — the only way this reaches `Done` and
+        // actually triggers `ConversationMemory::append`.
+        let first_model = MockCompletionModel::from_stream_turns([text_turn("first pass built")]);
+        let (first_obs, _) = recorder();
+        let first_text = run_stage(
+            &fresh_agent(),
+            role,
+            "system",
+            "seed one",
+            &AbortFlag::default(),
+            ModelHandle::new(first_model),
+            no_price(),
+            4096,
+            no_budget(),
+            &first_obs,
+        )
+        .await;
+        assert_eq!(first_text.as_deref(), Some("first pass built"));
+
+        // Second run: a brand new agent (a fresh process would build one too),
+        // same session id. Its own first turn's request has to carry the
+        // first run's stored messages, loaded before anything is sent.
+        let second_model = MockCompletionModel::from_stream_turns([text_turn("second pass built")]);
+        let (second_obs, _) = recorder();
+        let second_text = run_stage(
+            &fresh_agent(),
+            role,
+            "system",
+            "seed two",
+            &AbortFlag::default(),
+            ModelHandle::new(second_model.clone()),
+            no_price(),
+            4096,
+            no_budget(),
+            &second_obs,
+        )
+        .await;
+        assert_eq!(second_text.as_deref(), Some("second pass built"));
+
+        let sent = &second_model.requests()[0];
+        let carries_prior_turn = sent.chat_history.iter().any(|m| match m {
+            Message::Assistant { content, .. } => content.iter().any(|c| {
+                matches!(c, AssistantContent::Text(t) if t.text.contains("first pass built"))
+            }),
+            _ => false,
+        });
+        assert!(
+            carries_prior_turn,
+            "the second run's first request must carry the first run's stored \
+             turn: {:?}",
+            sent.chat_history
         );
     }
 }
