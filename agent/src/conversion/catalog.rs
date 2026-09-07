@@ -244,13 +244,21 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "get_xfa",
-                "Return the source's authoritative XFA XML (all PDFs concatenated).",
-                with_source(serde_json::json!({})),
+                "Return the source's authoritative XFA XML (all PDFs concatenated). Replies with \
+                 a 500-line window per PDF by default — pass offset (lines to skip) and limit \
+                 (lines to return) to page through a larger one, or use search_xfa for a targeted \
+                 lookup instead of paging through the whole thing. The total reply is capped \
+                 regardless of limit; a truncation note says so if it is hit.",
+                with_source(
+                    serde_json::json!({"offset": {"type":"integer"}, "limit": {"type":"integer"}}),
+                ),
                 serde_json::json!([]),
             ),
             t(
                 "search_xfa",
-                "Regex/substring search within the source's XFA; returns matching snippets.",
+                "Regex/substring search within the source's XFA; returns matching snippets. \
+                 Capped at a total size across every PDF — a note says so, and names any PDFs \
+                 the search did not reach, if the cap is hit.",
                 with_source(
                     serde_json::json!({"query": {"type":"string"}, "regex": {"type":"boolean"}}),
                 ),
@@ -405,8 +413,11 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "read_package_file",
-                "Read a file from the built package by path.",
-                serde_json::json!({"path": {"type":"string"}}),
+                "Read a file from the built package by path. Replies with a 500-line window by \
+                 default — pass offset (lines to skip) and limit (lines to return) to page \
+                 through a larger file. The total reply is capped regardless of limit; a \
+                 truncation note says so if it is hit.",
+                serde_json::json!({"path": {"type":"string"}, "offset": {"type":"integer"}, "limit": {"type":"integer"}}),
                 serde_json::json!(["path"]),
             ),
             t(

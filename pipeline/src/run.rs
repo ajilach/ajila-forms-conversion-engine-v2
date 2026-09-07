@@ -769,7 +769,11 @@ pub(crate) async fn run_stage(
                     obs.emit(RunEvent::ToolFinished {
                         id: id.as_str().to_string(),
                         ok,
+                        reply_chars: reply_size_chars(&reply),
                     });
+                    if let Some(warning) = oversized_reply_warning(&name, &reply) {
+                        obs.emit(RunEvent::Warning(warning));
+                    }
                     // A browser restart is the agent's business to perform and
                     // the operator's to know about.
                     for warning in agent.take_warnings() {
@@ -822,14 +826,19 @@ async fn tool_step(
         name: tool.to_string(),
         input_summary: "finalize".into(),
     });
-    let ok = !matches!(
-        agent.execute(tool, &serde_json::json!({})).await,
-        ToolReply::Error(_)
-    );
+    let reply = agent.execute(tool, &serde_json::json!({})).await;
+    let ok = !matches!(reply, ToolReply::Error(_));
     obs.emit(RunEvent::ToolFinished {
         id: id.to_string(),
         ok,
+        reply_chars: reply_size_chars(&reply),
     });
+    // These finalize tools reply with a size/status line, never the artefact
+    // itself — see the executor — so this never actually fires; checked
+    // anyway so the two call sites do not silently diverge on the rule.
+    if let Some(warning) = oversized_reply_warning(tool, &reply) {
+        obs.emit(RunEvent::Warning(warning));
+    }
     ok
 }
 
@@ -846,6 +855,68 @@ async fn ensure_built_and_uploaded(
     if built && has_aem_connection && !agent.aem_uploaded() {
         tool_step(agent, "finalize-upload", "upload_to_aem", obs).await;
     }
+}
+
+/// A reply's content, split into text characters and image (base64) payload
+/// characters. The one place either is actually counted, so
+/// [`reply_size_chars`] and [`text_reply_chars`] cannot drift apart into two
+/// separate opinions about what an `Image` or `Blocks` reply contains.
+fn reply_char_breakdown(reply: &ToolReply) -> (usize, usize) {
+    match reply {
+        ToolReply::Text(text) | ToolReply::Error(text) => (text.len(), 0),
+        ToolReply::Image { images, .. } => (0, images.iter().map(String::len).sum()),
+        ToolReply::Blocks(blocks) => blocks.iter().fold((0, 0), |(t, i), b| match b {
+            agent::ReplyBlock::Text(text) => (t + text.len(), i),
+            agent::ReplyBlock::Image { data, .. } => (t, i + data.len()),
+        }),
+    }
+}
+
+/// Characters `RunEvent::ToolFinished` reports for a reply — its text plus
+/// each image's base64 payload, which is roughly what actually reaches the
+/// model.
+pub(crate) fn reply_size_chars(reply: &ToolReply) -> usize {
+    let (text, image) = reply_char_breakdown(reply);
+    text + image
+}
+
+/// Characters of *text* content in a reply — the part [`oversized_reply_warning`]
+/// actually checks.
+///
+/// An image's base64 payload is excluded on purpose: its real cost is the
+/// vision encoder's, which — unlike a text tokenizer reading the same bytes as
+/// characters — is already bounded by the page-render clamp regardless of how
+/// long the base64 string is. A full-page annotated render legitimately runs
+/// past 300,000 base64 characters and costs a bounded ~1,500 tokens for it;
+/// warning on that would be noise on every ordinary run. What actually caused
+/// the incident this instruments — `generate_html`'s inlined fonts and logo —
+/// was base64 arriving as *text*, tokenized close to one token per character
+/// because nothing marked it as an image.
+fn text_reply_chars(reply: &ToolReply) -> usize {
+    reply_char_breakdown(reply).0
+}
+
+/// Above this, a single reply's *text* is worth flagging on its own: the run
+/// that motivated this recorded one text reply at 873,000 characters (base64
+/// profile assets `generate_html` no longer inlines) that blew a stage's whole
+/// context window before anyone could see it happening. Comfortably above the
+/// normal large text replies (`get_flattened_structure_for_state` runs
+/// 50-80,000) so this fires only on the kind of reply that is actually a
+/// problem, not on a legitimately large page render.
+pub(crate) const LARGE_TOOL_REPLY_WARN_CHARS: usize = 200_000;
+
+/// The warning to raise for `reply`, if its text earns one. Pure, so the
+/// threshold and the message it produces are tested without driving a whole
+/// stage, and both `ToolFinished` sites share one rule rather than repeating
+/// the check inline.
+pub(crate) fn oversized_reply_warning(name: &str, reply: &ToolReply) -> Option<String> {
+    let text_chars = text_reply_chars(reply);
+    (text_chars > LARGE_TOOL_REPLY_WARN_CHARS).then(|| {
+        format!(
+            "{name} replied with {text_chars} characters of text — unusually large; this is \
+             what tends to blow the context window."
+        )
+    })
 }
 
 /// A short, single-line rendering of a tool call's input.
@@ -1005,7 +1076,109 @@ mod tests {
             assert!(summarize_input(&long).chars().count() <= 121);
         }
 
-    
+        /// Every `ToolReply` shape counts toward the size a run reports —
+        /// otherwise a reply that happened to come back as `Blocks` or
+        /// `Image` would silently escape the same instrumentation a `Text`
+        /// reply gets.
+        #[test]
+        fn reply_size_counts_every_reply_shape() {
+            assert_eq!(reply_size_chars(&ToolReply::Text("hello".into())), 5);
+            assert_eq!(reply_size_chars(&ToolReply::Error("boom!!".into())), 6);
+            assert_eq!(
+                reply_size_chars(&ToolReply::Image {
+                    media_type: "image/jpeg",
+                    images: vec!["ab".into(), "cde".into()],
+                }),
+                5,
+                "every image's payload must count, not just the first"
+            );
+            assert_eq!(
+                reply_size_chars(&ToolReply::Blocks(vec![
+                    agent::ReplyBlock::Text("hi".into()),
+                    agent::ReplyBlock::Image { media_type: "image/png".into(), data: "xyz".into() },
+                ])),
+                5
+            );
+        }
+
+        /// Regression: `generate_html`'s reply once cost a stage over 800,000
+        /// prompt tokens in a single call, and nothing recorded a reply's size
+        /// at all — the run reported success and moved on. The threshold has
+        /// to sit above the normal large replies this run makes
+        /// (`get_flattened_structure_for_state` runs 50-80,000 characters) so
+        /// it does not fire on ordinary tool traffic.
+        #[test]
+        fn the_warn_threshold_sits_above_ordinary_large_replies_and_below_the_incident() {
+            let ordinary_large = 80_000;
+            let the_actual_incident = 873_000;
+            assert!(ordinary_large < LARGE_TOOL_REPLY_WARN_CHARS);
+            assert!(the_actual_incident > LARGE_TOOL_REPLY_WARN_CHARS);
+        }
+
+        /// Regression, caught by this instrumentation on its first real run:
+        /// `get_annotated_state_image` legitimately replies with well over
+        /// 300,000 base64 characters for one full-page render — bounded to
+        /// under 1,600 real tokens by the vision encoder regardless — and the
+        /// size warning must not fire on it. Warning on every ordinary page
+        /// render would train the operator to ignore the warning by the time a
+        /// reply like `generate_html`'s actually needed it.
+        #[test]
+        fn a_large_image_reply_does_not_trip_the_text_warning() {
+            let big_page_render = "x".repeat(400_000);
+            let reply = ToolReply::Image {
+                media_type: "image/jpeg",
+                images: vec![big_page_render],
+            };
+
+            assert_eq!(
+                text_reply_chars(&reply),
+                0,
+                "an image reply carries no text at all"
+            );
+            // The full size is still recorded on the event, just not what
+            // gates the warning.
+            assert!(reply_size_chars(&reply) > LARGE_TOOL_REPLY_WARN_CHARS);
+        }
+
+        /// The distinction that makes the warning meaningful at all: the same
+        /// number of characters warns as text (the shape the actual incident
+        /// took) but not as an image (a shape that is already cost-bounded).
+        #[test]
+        fn the_same_size_warns_as_text_but_not_as_an_image() {
+            let payload = "x".repeat(LARGE_TOOL_REPLY_WARN_CHARS + 1);
+
+            assert!(text_reply_chars(&ToolReply::Text(payload.clone())) > LARGE_TOOL_REPLY_WARN_CHARS);
+            assert_eq!(
+                text_reply_chars(&ToolReply::Image {
+                    media_type: "image/jpeg",
+                    images: vec![payload],
+                }),
+                0
+            );
+        }
+
+        /// The wiring both `ToolFinished` call sites share: an oversized text
+        /// reply produces a warning naming the tool and the size, a
+        /// legitimately large image reply produces none.
+        #[test]
+        fn oversized_reply_warning_names_the_tool_for_text_but_stays_silent_for_images() {
+            let big_text = ToolReply::Text("x".repeat(LARGE_TOOL_REPLY_WARN_CHARS + 1));
+            let warning = oversized_reply_warning("generate_html", &big_text)
+                .expect("an oversized text reply must warn");
+            assert!(warning.contains("generate_html"), "{warning}");
+            assert!(warning.contains(&(LARGE_TOOL_REPLY_WARN_CHARS + 1).to_string()), "{warning}");
+
+            let fits = ToolReply::Text("small".into());
+            assert!(oversized_reply_warning("get_source_info", &fits).is_none());
+
+            let big_image = ToolReply::Image {
+                media_type: "image/jpeg",
+                images: vec!["x".repeat(400_000)],
+            };
+            assert!(oversized_reply_warning("get_plain_state_image", &big_image).is_none());
+        }
+
+
         #[test]
         fn transient_errors_are_retried_automatically() {
             // The failure seen when the machine is left alone mid-run.

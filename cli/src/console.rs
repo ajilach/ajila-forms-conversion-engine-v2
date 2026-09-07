@@ -193,6 +193,7 @@ mod tests {
         obs.emit(RunEvent::ToolFinished {
             id: "1".into(),
             ok: false,
+            reply_chars: 0,
         });
         assert!(
             obs.transcript().contains("- ✗ `build_aem_package`"),

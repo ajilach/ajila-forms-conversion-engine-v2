@@ -79,7 +79,7 @@ impl RunObserver for DioxusObserver {
                 detail: input_summary,
                 status: AgentStepStatus::Running,
             }),
-            RunEvent::ToolFinished { id, ok } => {
+            RunEvent::ToolFinished { id, ok, .. } => {
                 let mut s = self.state.write();
                 if let Some(step) = s.agent_steps.iter_mut().rev().find(|s| s.id == id) {
                     step.status = ok.into();

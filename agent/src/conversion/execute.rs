@@ -6,6 +6,112 @@
 
 use super::*;
 
+/// Lines a windowed text tool (`get_xfa`, `read_package_file`) returns by
+/// default, when the caller does not ask for a specific window.
+///
+/// Unlike `read_reference_file`'s `offset`/`limit` (where 0 means "the whole
+/// file"), the sources these read from are not bounded the same way: a real
+/// form's XFA is measured in hundreds of thousands of bytes — one form in this
+/// repo alone is 1.16 MB per PDF — and an authored `.content.xml` reached 250
+/// KB in a run that blew its context window. `get_xfa` windows *per PDF* and
+/// joins the results, so this has to stay small enough that even a form with
+/// several source languages defaults to a reply well under
+/// `pipeline::run::LARGE_TOOL_REPLY_WARN_CHARS`: 500 lines is ~31,000
+/// characters at the density observed in a real form (~62 bytes/line), so
+/// three PDFs still land under 100,000 — comfortably below both that warning
+/// and the failure two orders of magnitude further out.
+pub(super) const DEFAULT_TEXT_WINDOW_LINES: usize = 500;
+
+/// Hard ceiling on a windowed tool's *total* reply, however it was reached.
+///
+/// `DEFAULT_TEXT_WINDOW_LINES` bounds the default, but an explicit `limit` has
+/// no ceiling of its own, and `get_xfa` applies whatever `limit` it gets to
+/// *every* source PDF before joining them — so a generous explicit limit
+/// still multiplies with the source count exactly the way the original
+/// unbounded default did. This is the backstop that holds regardless: no
+/// windowed reply can reach the incident's scale (873,000 characters) no
+/// matter how large a limit is requested or how many PDFs the source has.
+/// Comfortably above the default so it only ever engages on a large
+/// *explicit* request, never silently on ordinary use.
+pub(super) const MAX_TOTAL_REPLY_CHARS: usize = 400_000;
+
+/// Total characters `search_xfa` collects across every PDF before it stops.
+///
+/// A per-PDF cap here would multiply with the source's PDF count exactly the
+/// way the unbounded `get_xfa` did; capping the total is what keeps a
+/// three-language form's search reply the same size as a one-language form's.
+///
+/// `pub(super)` so the regression test in the parent module — which exercises
+/// [`super::search_matching_lines`] directly, without a PDF fixture — can
+/// assert against the real constant rather than a copy that could drift.
+pub(super) const SEARCH_XFA_TOTAL_CHARS: usize = 4000;
+
+/// A bounded line-range slice of `content`, with a note appended when the
+/// window does not reach the end.
+///
+/// `offset`/`limit` are both in lines; `limit == 0` (absent, or explicitly 0)
+/// means [`DEFAULT_TEXT_WINDOW_LINES`], not "everything" — see that constant's
+/// doc for why `get_xfa` and `read_package_file` cannot default to unbounded
+/// the way `read_reference_file`'s `offset`/`limit` does. Does not itself
+/// apply [`MAX_TOTAL_REPLY_CHARS`]: that is a property of the whole reply a
+/// caller assembles, not of one source's window — see [`cap_total`].
+///
+/// `pub(super)` so it can be unit-tested directly, on synthetic content, rather
+/// than only indirectly through a built package or an extracted PDF.
+pub(super) fn windowed_text(content: &str, offset: usize, limit: usize) -> String {
+    let limit = if limit == 0 {
+        DEFAULT_TEXT_WINDOW_LINES
+    } else {
+        limit
+    };
+    let total = content.lines().count();
+
+    // The whole source already fits in one window: return it byte for byte
+    // rather than reconstructing through `lines().join("\n")`, which would
+    // silently drop a trailing newline or normalize CRLF to LF even though
+    // nothing was actually windowed.
+    if offset == 0 && limit >= total {
+        return content.to_string();
+    }
+    if offset >= total {
+        return format!("[offset {offset} is past the end — this source has only {total} lines]");
+    }
+
+    let window: Vec<&str> = content.lines().skip(offset).take(limit).collect();
+    let shown = window.len();
+    let mut out = window.join("\n");
+    if offset + shown < total {
+        out.push_str(&format!(
+            "\n[showing lines {}-{} of {total} — pass a higher offset to continue, or a \
+             higher limit to read more at once]",
+            offset + 1,
+            offset + shown
+        ));
+    }
+    out
+}
+
+/// Truncate `text` to at most [`MAX_TOTAL_REPLY_CHARS`], noting it when it
+/// had to. The backstop `windowed_text` cannot provide on its own — see
+/// [`MAX_TOTAL_REPLY_CHARS`]'s doc for why one is still needed after windowing.
+pub(super) fn cap_total(text: String) -> String {
+    if text.len() <= MAX_TOTAL_REPLY_CHARS {
+        return text;
+    }
+    // `text` is UTF-8; cut lands mid-codepoint unless walked back to a
+    // boundary.
+    let mut cut = MAX_TOTAL_REPLY_CHARS;
+    while !text.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    format!(
+        "{}\n[reply truncated at {MAX_TOTAL_REPLY_CHARS} characters — narrow the request (a \
+         smaller limit, or search_xfa for a targeted lookup) instead of reading this much at \
+         once]",
+        &text[..cut]
+    )
+}
+
 impl ConversionAgent {
     pub async fn execute(&mut self, name: &str, input: &serde_json::Value) -> ToolReply {
         if let Some(refusal) = self.target_refusal(name) {
@@ -44,33 +150,42 @@ impl ConversionAgent {
                 }
                 Err(e) => ToolReply::Error(e),
             },
-            "get_xfa" => match self.extractor(input) {
-                Ok(ex) if ex.xfa.is_empty() => {
-                    ToolReply::Error("No XFA present in the source.".into())
+            "get_xfa" => {
+                // Absent or zero both mean "the default window", not "read
+                // everything" — see `windowed_text`. Pass a `limit` past the
+                // PDF's own line count to read all of it.
+                let offset = input["offset"].as_u64().unwrap_or(0) as usize;
+                let limit = input["limit"].as_u64().unwrap_or(0) as usize;
+                match self.extractor(input) {
+                    Ok(ex) if ex.xfa.is_empty() => {
+                        ToolReply::Error("No XFA present in the source.".into())
+                    }
+                    Ok(ex) => ToolReply::Text(cap_total(
+                        ex.xfa
+                            .iter()
+                            .map(|(n, x)| {
+                                format!(
+                                    "BEGIN XFA ({n})\n{}\nEND XFA ({n})",
+                                    windowed_text(x, offset, limit)
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join("\n\n"),
+                    )),
+                    Err(e) => ToolReply::Error(e),
                 }
-                Ok(ex) => ToolReply::Text(
-                    ex.xfa
-                        .iter()
-                        .map(|(n, x)| format!("BEGIN XFA ({n})\n{x}\nEND XFA ({n})"))
-                        .collect::<Vec<_>>()
-                        .join("\n\n"),
-                ),
-                Err(e) => ToolReply::Error(e),
-            },
+            }
             "search_xfa" => {
                 let query = input["query"].as_str().unwrap_or_default().to_string();
                 let regex = input["regex"].as_bool().unwrap_or(false);
                 match self.extractor(input) {
                     Ok(ex) => {
-                        let mut out = String::new();
-                        for (n, x) in &ex.xfa {
-                            for line in x.lines().filter(|l| line_matches(l, &query, regex)) {
-                                out.push_str(&format!("{n}: {}\n", line.trim()));
-                                if out.len() > 4000 {
-                                    break;
-                                }
-                            }
-                        }
+                        let out = search_matching_lines(
+                            &ex.xfa,
+                            &query,
+                            regex,
+                            SEARCH_XFA_TOTAL_CHARS,
+                        );
                         if out.is_empty() {
                             ToolReply::Text("No matches.".into())
                         } else {
@@ -446,10 +561,17 @@ impl ConversionAgent {
             },
             "read_package_file" => {
                 let path = input["path"].as_str().unwrap_or_default();
+                // See `windowed_text`: an authored .content.xml reached 250 KB
+                // in the run that overflowed the window, so the default here
+                // is a bounded window, not the whole file.
+                let offset = input["offset"].as_u64().unwrap_or(0) as usize;
+                let limit = input["limit"].as_u64().unwrap_or(0) as usize;
                 match self.target.aem().and_then(|s| s.package.as_ref()) {
                     Some(pkg) => match crate::references::unzip_package(pkg) {
                         Ok(files) => match files.iter().find(|(p, _)| p == path) {
-                            Some((_, c)) => ToolReply::Text(c.clone()),
+                            Some((_, content)) => {
+                                ToolReply::Text(cap_total(windowed_text(content, offset, limit)))
+                            }
                             None => ToolReply::Error(format!("No such file: {path:?}")),
                         },
                         Err(e) => ToolReply::Error(e),
@@ -525,24 +647,24 @@ impl ConversionAgent {
                 ToolReply::Text(blueprint::to_xsd(&content, &aem_config, &cfg))
             }
             "generate_html" => {
-                let p = match self.profile.clone() {
-                    Some(p) if blueprint::has_html_config(&p) => p,
+                match self.profile.as_deref() {
+                    Some(p) if blueprint::has_html_config(p) => {}
                     _ => return ToolReply::Error("This profile has no HTML config.".into()),
                 };
                 let content = match self.derived_output_content() {
                     Ok(c) => c,
                     Err(e) => return ToolReply::Error(e),
                 };
-                match blueprint::load_html_custom_styles(&p) {
-                    Ok(styles) => {
-                        let cfg = blueprint::HtmlConfig {
-                            custom_styles: Some(styles),
-                            ..blueprint::HtmlConfig::default()
-                        };
-                        ToolReply::Text(blueprint::to_html(&content, &cfg))
-                    }
-                    Err(e) => ToolReply::Error(e),
-                }
+                // Deliberately no custom_styles: the profile's logo and font
+                // files load as base64 data URIs (`load_html_custom_styles`),
+                // and a real form's assets alone run past 800KB of base64 —
+                // invisible to a text model, and it once cost a stage over
+                // 800,000 prompt tokens in a single reply. The agent is
+                // comparing structure and content against the source page
+                // images, not brand fidelity; a visually exact export is what
+                // the CLI's own `to_html` call is for.
+                let cfg = blueprint::HtmlConfig::default();
+                ToolReply::Text(blueprint::to_html(&content, &cfg))
             }
 
             // §6 deploy + verify (network)

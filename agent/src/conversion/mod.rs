@@ -1181,6 +1181,50 @@ fn line_matches(line: &str, query: &str, regex: bool) -> bool {
     }
 }
 
+/// Concatenate matching lines from every `(name, text)` source, up to
+/// `total_cap` characters in total.
+///
+/// The cap is on the *total*, checked after every line, and the whole search
+/// stops the moment it is crossed — one source cannot re-open the budget for
+/// the next. A per-source break instead of a per-total one does not multiply
+/// the cap by the source count (the accumulator is shared either way), but it
+/// still lets every later source append one more line past the cap before its
+/// own check re-fires — one extra, unbounded-length line per remaining
+/// source, silently, every time. Breaking the whole search instead is what
+/// makes the cap a real ceiling rather than "usually close to it."
+///
+/// Stopping early can leave whole sources unsearched, so the reply says so
+/// rather than reading like a complete result: a query for a language-
+/// specific phrase that matches heavily in one PDF must not come back
+/// claiming the others hold nothing, when they were never actually checked.
+fn search_matching_lines(
+    sources: &[(String, String)],
+    query: &str,
+    regex: bool,
+    total_cap: usize,
+) -> String {
+    let mut out = String::new();
+    let mut stopped_at = None;
+    'sources: for (idx, (n, x)) in sources.iter().enumerate() {
+        for line in x.lines().filter(|l| line_matches(l, query, regex)) {
+            out.push_str(&format!("{n}: {}\n", line.trim()));
+            if out.len() > total_cap {
+                stopped_at = Some(idx);
+                break 'sources;
+            }
+        }
+    }
+    if let Some(idx) = stopped_at {
+        let unsearched: Vec<&str> = sources[idx..].iter().map(|(n, _)| n.as_str()).collect();
+        out.push_str(&format!(
+            "\n[stopped after {total_cap} characters — matches past this point, including any \
+             remaining in {}, were not searched; narrow the query or read that source directly]",
+            unsearched.join(", ")
+        ));
+    }
+    out
+}
+
 /// The form's JCR node path from its AEM config.
 fn form_jcr_path(cfg: &AemConfig) -> String {
     join_form_path(&cfg.form_path, &cfg.form_dir)
@@ -1384,6 +1428,45 @@ mod tests {
                 other => panic!("{tool} failed: {other:?}"),
             }
         }
+    }
+
+    /// Regression: `generate_html`'s reply once cost a stage over 800,000
+    /// prompt tokens in a single call, because the profile's logo and fonts
+    /// were inlined as base64 data URIs — invisible to a text model, and the
+    /// direct cause of a run failing with "prompt is too long". The agent
+    /// compares the render against the source page images; it never needed
+    /// brand-accurate assets for that, only the "ubs" profile that actually
+    /// carries them (`profiles/ubs/html/logo.png` plus the Frutiger fonts).
+    #[tokio::test]
+    async fn generate_html_does_not_inline_profile_assets() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            Vec::new(),
+            None,
+            "test-generate-html-size".into(),
+            OutputTarget::Aem,
+        );
+        let set = agent
+            .execute(
+                "set_aem_translated",
+                &serde_json::json!({"root": small_aem_tree()}),
+            )
+            .await;
+        assert!(matches!(set, ToolReply::Text(_)), "{set:?}");
+
+        let out = match agent.execute("generate_html", &serde_json::json!({})).await {
+            ToolReply::Text(out) => out,
+            other => panic!("generate_html failed: {other:?}"),
+        };
+        assert!(
+            !out.contains("base64"),
+            "the reply inlined an asset as base64, which is what blew the context window"
+        );
+        assert!(!out.contains("data:"), "the reply carries a data URI");
+        assert!(
+            out.len() < 20_000,
+            "reply is {} bytes — the profile's assets are back", out.len()
+        );
     }
 
     fn fixture(name: &str) -> (String, Vec<u8>) {
@@ -1843,6 +1926,303 @@ mod tests {
         assert!(!line_matches("field_x", r"field_\d+", true));
         // invalid regex → no match (not a panic)
         assert!(!line_matches("anything", "(", true));
+    }
+
+    /// Only the total accumulator is shared in the old per-source-break code
+    /// too, so it does not multiply the cap by the source count the way an
+    /// earlier version of this comment claimed — but it is still a real leak:
+    /// once the cap is crossed, each later source's own inner loop gets to
+    /// append one more line before its check re-fires, every single source,
+    /// silently. Ten extra sources is ten extra unbounded-length lines the
+    /// cap was supposed to rule out. Breaking the whole search removes that
+    /// leak entirely, and the reply says so instead of looking complete.
+    #[test]
+    fn later_sources_are_not_each_given_one_more_line_past_the_cap() {
+        let first = ("de.pdf".to_string(), "hit line\n".repeat(2000));
+        let later: Vec<(String, String)> = (0..10)
+            .map(|i| (format!("extra-{i}.pdf"), "hit\n".to_string()))
+            .collect();
+
+        let mut sources = vec![first.clone()];
+        sources.extend(later);
+
+        let cap = execute::SEARCH_XFA_TOTAL_CHARS;
+        let capped_at_first = search_matching_lines(std::slice::from_ref(&first), "hit", false, cap);
+        let out = search_matching_lines(&sources, "hit", false, cap);
+
+        // The matched lines themselves must be identical either way — the
+        // extra sources contribute no additional "name: line" entries.
+        let matches_only = |s: &str| s.split("\n[stopped").next().unwrap().to_string();
+        assert_eq!(
+            matches_only(&out),
+            matches_only(&capped_at_first),
+            "a source after the one that already spent the budget must \
+             contribute no matched lines"
+        );
+
+        // The stopping point moved nothing, so the reply must say which
+        // sources it never got to — not read as though de.pdf were the whole
+        // answer.
+        assert!(out.contains("extra-0.pdf") && out.contains("extra-9.pdf"));
+        assert!(!capped_at_first.contains("extra-0.pdf"));
+    }
+
+    /// The cap is a total, not a per-source rule: several sources that each
+    /// match should combine into one bounded reply, not each get a fresh
+    /// budget the moment an earlier one crosses it.
+    #[test]
+    fn matches_across_several_sources_share_one_budget() {
+        let a = ("a.pdf".to_string(), "hit\n".repeat(2000));
+        let b = ("b.pdf".to_string(), "hit\n".repeat(2000));
+        let c = ("c.pdf".to_string(), "hit\n".repeat(2000));
+
+        let cap = execute::SEARCH_XFA_TOTAL_CHARS;
+        let out = search_matching_lines(&[a.clone(), b, c], "hit", false, cap);
+        let from_a_alone = search_matching_lines(std::slice::from_ref(&a), "hit", false, cap);
+
+        let matches_only = |s: &str| s.split("\n[stopped").next().unwrap().to_string();
+        assert_eq!(
+            matches_only(&out),
+            matches_only(&from_a_alone),
+            "the first source alone already spends the whole budget, so b \
+             and c must add no matched lines"
+        );
+        assert!(out.len() > cap, "the sole source must still be over the cap");
+        assert!(
+            out.contains("b.pdf") && out.contains("c.pdf"),
+            "the reply must name the sources it never got to search"
+        );
+    }
+
+    /// A search that never crosses the cap needs no note at all — it read
+    /// everything, and saying otherwise would be exactly the false claim of
+    /// completeness the note exists to prevent.
+    #[test]
+    fn a_search_under_the_cap_carries_no_truncation_note() {
+        let out = search_matching_lines(
+            &[("only.pdf".to_string(), "hit\n".to_string())],
+            "hit",
+            false,
+            execute::SEARCH_XFA_TOTAL_CHARS,
+        );
+        assert!(!out.contains("[stopped"));
+    }
+
+    /// The pure windowing behind `get_xfa` and `read_package_file`: a source
+    /// under the window is returned whole and silently, one that reaches past
+    /// it says so and names where to continue.
+    #[test]
+    fn windowed_text_is_silent_under_the_window_and_says_so_over_it() {
+        let short = "line1\nline2\nline3";
+        assert_eq!(execute::windowed_text(short, 0, 10), short);
+        assert!(
+            !execute::windowed_text(short, 0, 10).contains("showing lines"),
+            "a source that fits must not carry a truncation note"
+        );
+
+        let long: String = (0..5000).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let windowed = execute::windowed_text(&long, 0, 100);
+        assert_eq!(windowed.lines().count(), 101, "100 lines plus the note");
+        assert!(windowed.starts_with("line0\nline1"));
+        assert!(!windowed.contains("line100"), "the window must stop at the limit");
+        assert!(
+            windowed.contains("showing lines 1-100 of 5000"),
+            "the note must say what was shown and how much more there is: {windowed}"
+        );
+    }
+
+    /// A source that fits in one window comes back byte for byte — not
+    /// reconstructed through `lines().join("\n")`, which would silently drop
+    /// a trailing newline or turn CRLF into LF even though nothing was cut.
+    #[test]
+    fn a_source_that_fits_is_returned_byte_for_byte() {
+        let with_trailing_newline = "a\r\nb\r\nc\r\n";
+        assert_eq!(
+            execute::windowed_text(with_trailing_newline, 0, 10),
+            with_trailing_newline,
+            "no reconstruction may happen when nothing was windowed"
+        );
+    }
+
+    /// An offset past the end is a distinct case from "this source is empty":
+    /// the caller paged past what exists, and needs to be told so rather than
+    /// reading an empty reply as "no more content of any kind here."
+    #[test]
+    fn an_offset_past_the_end_says_so_rather_than_returning_silently_empty() {
+        let short = "line1\nline2\nline3";
+        let out = execute::windowed_text(short, 100, 10);
+        assert!(
+            out.contains("past the end") && out.contains('3'),
+            "must name both that it is past the end and the source's real line count: {out}"
+        );
+    }
+
+    /// `limit == 0`, whether omitted or given explicitly, means the default
+    /// window — not "everything", which is `read_reference_file`'s convention
+    /// but not safe here (see `windowed_text`'s doc for the form that would
+    /// have overflowed the window under that convention).
+    #[test]
+    fn zero_limit_means_the_default_window_not_everything() {
+        let long: String = (0..5000).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let default = execute::windowed_text(&long, 0, 0);
+        assert_eq!(
+            default.lines().count() - 1, // minus the note line
+            execute::DEFAULT_TEXT_WINDOW_LINES,
+            "limit 0 must apply the default window, not read the whole 5000-line source"
+        );
+    }
+
+    /// However large a `limit` is requested, and however many sources a caller
+    /// joins into one reply, the assembled total must never reach the scale
+    /// that caused the incident — this is what actually enforces that, since
+    /// `windowed_text` alone only bounds one source's own window.
+    #[test]
+    fn cap_total_bounds_an_explicit_request_regardless_of_size() {
+        let huge = "x".repeat(execute::MAX_TOTAL_REPLY_CHARS * 3);
+        let capped = execute::cap_total(huge);
+
+        assert!(capped.len() <= execute::MAX_TOTAL_REPLY_CHARS + 300);
+        assert!(capped.contains("truncated"));
+    }
+
+    /// A reply already under the ceiling must come back untouched — the cap is
+    /// a backstop, not a rewrite of every reply.
+    #[test]
+    fn cap_total_leaves_a_small_reply_alone() {
+        let small = "hello".to_string();
+        assert_eq!(execute::cap_total(small.clone()), small);
+    }
+
+    /// `offset` actually pages: two windows starting at different offsets
+    /// cover different content, and paging from where the first window left
+    /// off reaches lines the first window did not show.
+    #[test]
+    fn offset_pages_through_a_source_larger_than_one_window() {
+        let long: String = (0..5000).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let first = execute::windowed_text(&long, 0, 100);
+        let second = execute::windowed_text(&long, 100, 100);
+
+        assert_ne!(first, second);
+        assert!(second.starts_with("line100\nline101"));
+        assert!(!first.contains("line100"), "the first window must not reach into the second");
+    }
+
+    /// `get_xfa` on real extracted XFA — not synthetic text — applies the same
+    /// window and reports the same kind of note. `AABF_019_EN.pdf`'s XFA is
+    /// north of ten thousand lines, comfortably past the default window.
+    #[tokio::test]
+    async fn get_xfa_windows_a_real_forms_xfa_by_default() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AABF_019_EN.pdf")],
+            None,
+            "test-get-xfa-window".into(),
+            OutputTarget::Aem,
+        );
+
+        let out = match agent.execute("get_xfa", &serde_json::json!({})).await {
+            ToolReply::Text(out) => out,
+            other => panic!("get_xfa failed: {other:?}"),
+        };
+        assert!(
+            out.contains("showing lines"),
+            "a form with thousands of XFA lines must be windowed by default"
+        );
+        assert!(out.contains("BEGIN XFA") && out.contains("END XFA"));
+
+        let all = match agent
+            .execute("get_xfa", &serde_json::json!({"limit": 1_000_000}))
+            .await
+        {
+            ToolReply::Text(out) => out,
+            other => panic!("get_xfa failed: {other:?}"),
+        };
+        assert!(
+            !all.contains("showing lines"),
+            "a limit past the source's own size must read all of it, unwindowed"
+        );
+        assert!(
+            all.len() > out.len(),
+            "the explicit large limit must return more than the default window"
+        );
+    }
+
+    /// The regression that matters most: `get_xfa` windows *per PDF*, so a
+    /// multi-language form's default reply is the sum of every PDF's window —
+    /// this is where a per-PDF default that looked safe for one PDF can still
+    /// reproduce the original failure at three. The default for this form's
+    /// full three-language source must stay comfortably under the size
+    /// warning, not merely under the incident's scale.
+    #[tokio::test]
+    async fn get_xfas_default_stays_small_across_a_multilingual_forms_full_source() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![
+                fixture("AABF_019_DE.pdf"),
+                fixture("AABF_019_EN.pdf"),
+                fixture("AABF_019_SP.pdf"),
+            ],
+            None,
+            "test-get-xfa-multi-pdf".into(),
+            OutputTarget::Aem,
+        );
+
+        let out = match agent.execute("get_xfa", &serde_json::json!({})).await {
+            ToolReply::Text(out) => out,
+            other => panic!("get_xfa failed: {other:?}"),
+        };
+        // `agent` has no dependency on `pipeline`, so this mirrors
+        // `pipeline::run::LARGE_TOOL_REPLY_WARN_CHARS` (200,000) rather than
+        // importing it — the number that matters is that this stays well
+        // under it.
+        const MIRRORS_PIPELINES_WARN_THRESHOLD: usize = 200_000;
+        assert!(
+            out.len() < MIRRORS_PIPELINES_WARN_THRESHOLD,
+            "the default reply across three source PDFs is {} characters — a per-PDF default \
+             that looks safe for one PDF can still fail at three",
+            out.len()
+        );
+        // All three PDFs must still be present — this is a size bound, not a
+        // dropped-source bug.
+        for name in ["AABF_019_DE.pdf", "AABF_019_EN.pdf", "AABF_019_SP.pdf"] {
+            assert!(out.contains(name), "{name} missing from {out}");
+        }
+    }
+
+    /// However large a `limit` is requested, and however many source PDFs the
+    /// form has, the assembled reply must never approach the incident's
+    /// scale. `windowed_text`'s own per-source window has no ceiling on an
+    /// explicit `limit`, so this is `cap_total` doing its job on real,
+    /// multi-PDF content rather than on synthetic text.
+    #[tokio::test]
+    async fn get_xfa_stays_bounded_even_with_an_enormous_explicit_limit_on_every_pdf() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![
+                fixture("AABF_019_DE.pdf"),
+                fixture("AABF_019_EN.pdf"),
+                fixture("AABF_019_SP.pdf"),
+            ],
+            None,
+            "test-get-xfa-hard-cap".into(),
+            OutputTarget::Aem,
+        );
+
+        let out = match agent
+            .execute("get_xfa", &serde_json::json!({"limit": 1_000_000}))
+            .await
+        {
+            ToolReply::Text(out) => out,
+            other => panic!("get_xfa failed: {other:?}"),
+        };
+        assert!(
+            out.len() <= execute::MAX_TOTAL_REPLY_CHARS + 500,
+            "an explicit limit large enough to read all three PDFs whole still produced {} \
+             characters — nowhere near the incident's 873,000, but the hard cap should have \
+             engaged well before this",
+            out.len()
+        );
+        assert!(out.contains("truncated"));
     }
 
     #[test]

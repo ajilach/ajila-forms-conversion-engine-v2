@@ -71,7 +71,19 @@ pub enum RunEvent {
         name: String,
         input_summary: String,
     },
-    ToolFinished { id: String, ok: bool },
+    ToolFinished {
+        id: String,
+        ok: bool,
+        /// Characters in the reply — the text plus each image's base64
+        /// payload, i.e. roughly what actually reaches the model. What
+        /// derives `RunEvent::Warning` for an unusually large one (see
+        /// `pipeline::run::oversized_reply_warning`), and recorded on every
+        /// reply rather than only the ones that trip it, so a future consumer
+        /// can watch the trend rather than just the alarm: nothing else
+        /// measures a reply's size at all, and the run that motivated this
+        /// counted one reply at 873,000 characters before anyone noticed.
+        reply_chars: usize,
+    },
     /// Something the finished run should report but that did not stop it.
     Warning(String),
     /// Prompt tokens sent on the latest turn, for a context-fill indicator.
