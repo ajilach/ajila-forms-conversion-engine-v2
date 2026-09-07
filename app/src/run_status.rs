@@ -51,6 +51,17 @@ impl RunStatus {
     pub fn is_done(self) -> bool {
         self == Self::Done
     }
+
+    /// Whether a run is actually under way — its future alive, its agent in
+    /// memory, more output still to come.
+    ///
+    /// A paused run counts: it is waiting on an answer to a failed request, not
+    /// finished. What this is for is telling "has not reported anything *yet*"
+    /// apart from "reported nothing and never will", which look identical from
+    /// the run state alone and mean opposite things on screen.
+    pub fn is_live(self) -> bool {
+        matches!(self, Self::Running | Self::Paused)
+    }
 }
 
 impl Screen {

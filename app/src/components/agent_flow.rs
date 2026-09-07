@@ -364,7 +364,7 @@ fn RunBox(
             }
             PhaseRail { status }
             SourceFiles { files }
-            ActivityTimeline { state, timeline_open }
+            ActivityTimeline { status, state, timeline_open }
 
             // ---- Failed request: retry (or give up) without losing the run ----
             if status == RunStatus::Paused {
@@ -530,10 +530,52 @@ fn SourceFiles(files: Signal<Vec<(String, Vec<u8>)>>) -> Element {
     }
 }
 
+/// What an activity timeline with no steps in it means.
+///
+/// The two cases look identical in the run state — an empty `agent_steps` — and
+/// mean opposite things on screen, which is the whole bug this exists to stop: a
+/// tab reopened from a previous session has no transcript because transcripts
+/// are never stored, and rendering that as a spinner over "Starting agent…"
+/// made every restored tab look like an agent that had started itself.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum EmptyActivity {
+    /// A live run that has not emitted its first event yet.
+    Starting,
+    /// A run that is over and left no transcript behind.
+    NotRecorded,
+}
+
+impl EmptyActivity {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Starting => "Starting agent…",
+            Self::NotRecorded => "No activity was kept for this run.",
+        }
+    }
+
+    /// Whether to spin. Only something still working may.
+    fn is_working(self) -> bool {
+        self == Self::Starting
+    }
+}
+
+/// Which of the two an empty timeline is. Pure, so the distinction is pinned by
+/// a test rather than by reading the render.
+fn empty_activity(status: RunStatus) -> EmptyActivity {
+    if status.is_live() {
+        EmptyActivity::Starting
+    } else {
+        EmptyActivity::NotRecorded
+    }
+}
+
 /// The run's activity: collapsed to the latest step, or expanded to the full
 /// scrollable history with the context-window indicator.
 #[component]
 fn ActivityTimeline(
+    /// Whether this run is still going, which is what tells an empty timeline
+    /// apart from one whose transcript was never stored.
+    status: RunStatus,
     state: RunStateRead,
     mut timeline_open: Signal<bool>,
 ) -> Element {
@@ -601,14 +643,19 @@ fn ActivityTimeline(
                                 span { class: "nm-thought", "{s.label}" }
                             }
                         },
-                        None => rsx! {
-                            span { class: "ag-tl-dot",
-                                Spinner { size: SpinnerSize::Sm }
+                        None => {
+                            let empty = empty_activity(status);
+                            rsx! {
+                                span { class: "ag-tl-dot",
+                                    if empty.is_working() {
+                                        Spinner { size: SpinnerSize::Sm }
+                                    }
+                                }
+                                span { class: "ag-tl-latest",
+                                    span { class: "nm", "{empty.label()}" }
+                                }
                             }
-                            span { class: "ag-tl-latest",
-                                span { class: "nm", "Starting agent…" }
-                            }
-                        },
+                        }
                     }
                 }
                 span { class: "ag-tl-chevron",
@@ -624,7 +671,7 @@ fn ActivityTimeline(
                 div { class: "ag-tl-full",
                     div { class: "af-timeline",
                         if steps.is_empty() {
-                            div { class: "af-thought", "Starting agent…" }
+                            div { class: "af-thought", "{empty_activity(status).label()}" }
                         }
                         for (i , s) in steps.iter().enumerate() {
                             {
@@ -1117,6 +1164,43 @@ mod tests {
             label: label.to_string(),
             detail: detail.to_string(),
             status,
+        }
+    }
+
+    /// The bug this is here to stop: a tab reopened from a previous session has
+    /// no transcript, because transcripts are never stored — and the timeline
+    /// read that empty list as "the run has not reported anything yet" and put a
+    /// spinner over "Starting agent…". Every restored tab therefore claimed the
+    /// agent had started itself on it.
+    ///
+    /// A restored tab is `Done` (see `tabs::restored_run`), so the assertion
+    /// that matters is that a run which is over never says it is starting and
+    /// never spins.
+    #[test]
+    fn a_run_that_is_over_does_not_claim_to_be_starting() {
+        for status in [RunStatus::Done, RunStatus::Failed] {
+            let empty = empty_activity(status);
+            assert_eq!(
+                empty,
+                EmptyActivity::NotRecorded,
+                "{status:?} reported nothing and never will"
+            );
+            assert!(
+                !empty.is_working(),
+                "{status:?} must not spin — that is what made a reopened tab look live"
+            );
+            assert!(
+                !empty.label().contains("Starting"),
+                "{status:?} said {:?}",
+                empty.label()
+            );
+        }
+
+        // A live run genuinely has not got there yet, so the spinner is right.
+        for status in [RunStatus::Running, RunStatus::Paused] {
+            let empty = empty_activity(status);
+            assert_eq!(empty, EmptyActivity::Starting);
+            assert!(empty.is_working());
         }
     }
 
