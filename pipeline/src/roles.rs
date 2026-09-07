@@ -157,6 +157,12 @@ pub(crate) struct TargetRoles {
     pub(crate) author_seed: &'static str,
     /// Seed message for an Author stage that applies review feedback.
     pub(crate) author_fix_seed: &'static str,
+    /// Seed message for an Author stage carrying on from a previous run's tree.
+    ///
+    /// Distinct from [`Self::author_seed`], which tells the Author to *begin*
+    /// from a plan it has just been given: a continuation has no plan, and
+    /// authoring from scratch would throw away the tree it was seeded with.
+    pub(crate) author_continue_seed: &'static str,
 }
 
 pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
@@ -170,6 +176,11 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
                           then build_aem_package and validate_aem_package.",
             author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the working tree, \
                               then build_aem_package and validate_aem_package.",
+            author_continue_seed: "The working tree already holds what an earlier run built for \
+                                   this form. Inspect it against the source with \
+                                   get_aem_translated_outline, finish whatever is missing or \
+                                   incomplete, then build_aem_package and validate_aem_package. \
+                                   Do not start over.",
         },
         OutputTarget::Redacto => TargetRoles {
             analyst: &REDACTO_ANALYST,
@@ -180,6 +191,10 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
                           structured content, then build_redacto_dump and review_redacto_output.",
             author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the structured \
                               content, then build_redacto_dump and review_redacto_output.",
+            author_continue_seed: "The structured content already holds what an earlier run built \
+                                   for this document. Inspect it against the source, finish \
+                                   whatever is missing or incomplete, then build_redacto_dump and \
+                                   review_redacto_output. Do not start over.",
         },
     }
 }
@@ -399,6 +414,7 @@ mod tests {
                 roles.author_doing,
                 roles.author_seed,
                 roles.author_fix_seed,
+                roles.author_continue_seed,
                 roles.author.max_tokens_nudge,
                 roles.analyst.max_tokens_nudge,
                 roles.reviewer.max_tokens_nudge,

@@ -78,6 +78,9 @@ pub fn AgentFlow(
     on_ai_process: EventHandler<Vec<(String, Vec<u8>)>>,
     /// Re-run the agent in the same session with the user's feedback.
     on_feedback: EventHandler<String>,
+    /// Carry the tab's existing session on with nothing to apply — the agent
+    /// finishes the tree the previous run left behind.
+    on_continue: EventHandler<()>,
     /// Install the finished package on the configured AEM instance.
     on_aem_upload: EventHandler<()>,
     /// Discard the finished result and return to a clean upload state.
@@ -115,12 +118,16 @@ pub fn AgentFlow(
                                 abort: tab.abort.peek().clone(),
                                 aem_upload: tab.aem_upload,
                                 restored: *tab.restored.read(),
-                                can_continue: !uploaded_files.read().is_empty(),
+                                // The same rule the run itself uses, so the box
+                                // never offers an action that would find nothing
+                                // to replay.
+                                can_continue: crate::tabs::is_resumable(&uploaded_files.read()),
                                 last_download: tab.last_download,
                                 timeline_open,
                                 feedback,
                                 on_aem_upload: move |()| on_aem_upload.call(()),
                                 on_feedback: move |text: String| on_feedback.call(text),
+                                on_continue: move |()| on_continue.call(()),
                                 // Answer a paused run's retry prompt; the agent loop
                                 // polls these on the shared processing state.
                                 on_retry: move |_| {
@@ -322,13 +329,16 @@ fn RunBox(
     /// Set when this tab came back from a previous session, so the box can say
     /// what did and did not survive the restart.
     restored: Option<RestoredView>,
-    /// Whether a feedback re-run has the sources it would need to replay.
+    /// Whether a re-run — with feedback or without — has the sources it would
+    /// need to replay. Gates both ways of carrying the session on.
     can_continue: bool,
     /// Where this tab last saved each artefact.
     last_download: Signal<std::collections::HashMap<String, std::path::PathBuf>>,
     timeline_open: Signal<bool>,
     feedback: Signal<String>,
     on_feedback: EventHandler<String>,
+    /// Resume this tab's session as it stands, with nothing to apply.
+    on_continue: EventHandler<()>,
     on_aem_upload: EventHandler<()>,
     /// Resume a paused run by re-sending the request that failed.
     on_retry: EventHandler<()>,
@@ -392,6 +402,9 @@ fn RunBox(
                 }
                 if let Some(restored) = restored {
                     RestoredNotice { restored, can_continue }
+                    if can_continue {
+                        ContinueBar { restored, on_continue }
+                    }
                 }
                 ResultActions { state, aem_connection, aem_upload, last_download, on_aem_upload }
                 if can_continue {
@@ -721,18 +734,19 @@ fn RestoredNotice(restored: RestoredView, can_continue: bool) -> Element {
     };
     let detail = match (restored, can_continue) {
         (RestoredView::Interrupted, true) => {
-            "The agent kept a snapshot of everything it had built. Send feedback to carry on \
-             from there."
+            "The agent kept a snapshot of everything it had built. It is not running: nothing \
+             carries on until you ask it to."
         }
         (_, true) => {
-            "The downloads are not kept between sessions. Send feedback to re-run the \
-             conversion and produce them again."
+            "The downloads are not kept between sessions, so they have to be produced again."
         }
         // Resuming replays the original PDFs through the agent, and those are
-        // the one thing that cannot be reconstructed.
+        // the one thing that cannot be reconstructed. Worded for both ways of
+        // ending up here: the stored sources were dropped, or the conversion ran
+        // from a template and never had a PDF beside it.
         (_, false) => {
-            "The source documents are no longer stored, so this conversion cannot be \
-             continued. Start over with the sources to re-run it."
+            "There are no source documents to replay, so this conversion cannot be continued. \
+             Start over with the sources to re-run it."
         }
     };
 
@@ -740,6 +754,43 @@ fn RestoredNotice(restored: RestoredView, can_continue: bool) -> Element {
         div { class: "ag-restored",
             span { class: "ag-restored-title", "{headline}" }
             span { class: "ag-restored-detail", "{detail}" }
+        }
+    }
+}
+
+/// The one action a reopened session offers: start the agent on it again.
+///
+/// Its own band rather than a line in the feedback box, because it answers a
+/// different question. Feedback is "change this"; Continue is "pick this up" —
+/// and until it is pressed nothing is running, which is the whole point of
+/// reopening a session rather than resuming it automatically.
+///
+/// Mounted only while the tab is still the restored one: starting a run clears
+/// the notice, after which the result on screen is this session's own and
+/// feedback is the way to refine it.
+#[component]
+fn ContinueBar(restored: RestoredView, on_continue: EventHandler<()>) -> Element {
+    let label = match restored {
+        RestoredView::Interrupted => "▶ Continue where it stopped",
+        _ => "▶ Continue this conversion",
+    };
+    let hint = match restored {
+        RestoredView::Interrupted => {
+            "The agent picks the snapshot up, finishes what is missing and reviews it."
+        }
+        // Worth saying plainly: this is a full run, not a re-export. It costs a
+        // run's worth of tokens and the agent may change the form on the way.
+        _ => "A full run: the agent reviews the form, may change it, and rebuilds the outputs.",
+    };
+
+    rsx! {
+        div { class: "ag-continue",
+            button {
+                class: "btn btn-primary",
+                onclick: move |_| on_continue.call(()),
+                "{label}"
+            }
+            span { class: "ag-continue-hint", "{hint}" }
         }
     }
 }

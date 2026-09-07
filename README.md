@@ -144,8 +144,11 @@ cargo run --release -p blueprint-cli -- convert form_DE.pdf template-package.zip
 # Upload the finished package to AEM (off unless asked for)
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --upload --aem-host http://localhost:4502 --aem-user admin --aem-password admin
 
-# Refine an earlier run: list the sessions, then apply feedback to one
+# Carry an earlier run on: list the sessions, then continue one as it stands
 cargo run --release -p blueprint-cli -- sessions
+cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
+
+# Or refine it, by giving the agent something specific to apply
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> --feedback "The IBAN field must be mandatory."
 ```
 
@@ -206,6 +209,8 @@ history holds what the agent had built, so the run can be resumed with
 The app is built with [Dioxus](https://dioxuslabs.com/) and targets the desktop. This is the recommended way of running the migration engine.
 
 It bundles an AI conversion agent that drives the engine's tools turn by turn to convert a form interactively. The agent uses the Anthropic API by default — set the API key and model in the app's settings, under AI Model. The same settings tab switches the agent to any OpenAI-compatible chat-completions endpoint (OpenRouter, a local gateway) by entering a base URL, key and model id; that path sends no prompt-cache breakpoints, so a long run costs more input tokens there, and the model has to support tool calling and image input. Every tree change is versioned into a local edit-history SQLite database, so conversions can be reviewed and resumed.
+
+Reopening the app restores the conversions that were open, sources and all, but never restarts them: a reopened tab sits on its result with a Continue button, and the agent runs only once that is pressed. Continue carries the session on as it stands — the agent finishes the tree the previous run left and rebuilds the outputs, which are not kept between sessions. The feedback field is the other way in, for when there is something specific to change.
 
 ### Development
 

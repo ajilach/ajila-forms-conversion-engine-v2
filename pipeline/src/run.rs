@@ -39,11 +39,65 @@ pub struct RunConfig {
     pub has_aem_connection: bool,
 }
 
-/// What starts a run: a fresh analysis, or feedback on the previous result.
-/// Feedback skips the Analyst and becomes the first pinned review.
+/// What starts a run: a fresh analysis, feedback on the previous result, or
+/// carrying on with what a previous run left behind.
+///
+/// Only [`RunSeed::Fresh`] runs the Analyst. The other two resume a session
+/// whose working tree is already seeded, so there is nothing left to analyse:
+/// feedback becomes the first pinned review, and a continuation pins nothing at
+/// all — the Author simply picks the tree up where it was left.
 pub enum RunSeed {
     Fresh,
     Feedback(String),
+    Continue,
+}
+
+impl RunSeed {
+    /// The seed for carrying an existing session on, from whatever the operator
+    /// typed into the feedback field.
+    ///
+    /// Blank feedback is a continuation, not an empty instruction to apply:
+    /// pinning `"User feedback to apply to the form:"` with nothing after it
+    /// would spend an Author stage on a brief that says nothing. Converting here
+    /// rather than at each call site is what makes that unrepresentable — a
+    /// `Feedback` seed always carries text.
+    pub fn resuming(feedback: &str) -> Self {
+        let feedback = feedback.trim();
+        if feedback.is_empty() {
+            Self::Continue
+        } else {
+            Self::Feedback(feedback.to_string())
+        }
+    }
+
+    /// Whether this run starts with the Analyst.
+    ///
+    /// Only a fresh conversion does. The other two resume a session that already
+    /// holds an authored tree, and re-analysing the source would spend a stage's
+    /// whole budget producing a plan for work that is already done.
+    fn runs_analyst(&self) -> bool {
+        matches!(self, Self::Fresh)
+    }
+}
+
+/// Which message opens the Author stage.
+///
+/// Pinned review feedback wins over everything: whether it came from the user or
+/// from a Reviewer round, there is something concrete to apply. Failing that a
+/// continuation finishes the tree it was seeded with, and a fresh run begins
+/// from the Analyst's plan.
+fn author_seed_for(
+    seed: &RunSeed,
+    reviews: &[String],
+    stages: &roles::TargetRoles,
+) -> &'static str {
+    if !reviews.is_empty() {
+        return stages.author_fix_seed;
+    }
+    match seed {
+        RunSeed::Continue => stages.author_continue_seed,
+        RunSeed::Fresh | RunSeed::Feedback(_) => stages.author_seed,
+    }
 }
 
 /// What a finished run produced.
@@ -102,29 +156,29 @@ async fn run_stages(
     let mut plan = String::new();
     let mut reviews: Vec<String> = Vec::new();
 
-    match &seed {
-        // Feedback run: no Analyst; the request is the first pinned "review".
-        RunSeed::Feedback(fb) => {
-            reviews.push(format!("User feedback to apply to the form:\n{fb}"));
-        }
-        RunSeed::Fresh => {
-            // ── Stage 1: Analyst → conversion plan ──────────────────────────
-            obs.emit(RunEvent::Stage {
-                role: "Analyst",
-                doing: "analysing the source and researching precedents".into(),
-            });
-            plan = run_stage(
-                agent,
-                stages.analyst,
-                &roles::sys_analyst(target, extra),
-                "Analyse the source form and produce the detailed CONVERSION PLAN. \
-                 Your final message is the plan.",
-                &config.abort,
-                turns,
-                obs,
-            )
-            .await?; // fatal API error or abort, already surfaced
-        }
+    // A feedback run pins the request as the first "review"; a continuation pins
+    // nothing at all — the seeded tree is the whole brief.
+    if let RunSeed::Feedback(fb) = &seed {
+        reviews.push(format!("User feedback to apply to the form:\n{fb}"));
+    }
+
+    // ── Stage 1: Analyst → conversion plan ──────────────────────────────────
+    if seed.runs_analyst() {
+        obs.emit(RunEvent::Stage {
+            role: "Analyst",
+            doing: "analysing the source and researching precedents".into(),
+        });
+        plan = run_stage(
+            agent,
+            stages.analyst,
+            &roles::sys_analyst(target, extra),
+            "Analyse the source form and produce the detailed CONVERSION PLAN. \
+             Your final message is the plan.",
+            &config.abort,
+            turns,
+            obs,
+        )
+        .await?; // fatal API error or abort, already surfaced
     }
 
     // ── Stage 2: Author → build the artefact ────────────────────────────────
@@ -132,11 +186,7 @@ async fn run_stages(
         role: "Author",
         doing: stages.author_doing.into(),
     });
-    let author_seed = if reviews.is_empty() {
-        stages.author_seed
-    } else {
-        stages.author_fix_seed
-    };
+    let author_seed = author_seed_for(&seed, &reviews, &stages);
     run_stage(
         agent,
         stages.author,
@@ -815,6 +865,49 @@ pub(crate) fn summarize_input(input: &serde_json::Value) -> String {
 mod tests {
     use super::*;
 
+    /// Only a fresh conversion analyses the source. A resumed session already
+    /// holds an authored tree, and an Analyst stage there would spend its whole
+    /// budget planning work that is already done.
+    #[test]
+    fn only_a_fresh_run_analyses_the_source() {
+        assert!(RunSeed::Fresh.runs_analyst());
+        assert!(!RunSeed::Feedback("make it optional".into()).runs_analyst());
+        assert!(!RunSeed::Continue.runs_analyst());
+    }
+
+    /// The Author's opening message decides whether it authors from scratch,
+    /// applies something, or finishes what it was handed — so a continuation
+    /// must not be told to begin, which would discard the seeded tree.
+    #[test]
+    fn the_author_is_told_which_of_the_three_jobs_it_has() {
+        for target in [OutputTarget::Aem, OutputTarget::Redacto] {
+            let stages = roles::roles_for(target);
+            let none: Vec<String> = Vec::new();
+            let some = vec!["fix the phone field".to_string()];
+
+            assert_eq!(
+                author_seed_for(&RunSeed::Fresh, &none, &stages),
+                stages.author_seed
+            );
+            assert_eq!(
+                author_seed_for(&RunSeed::Continue, &none, &stages),
+                stages.author_continue_seed,
+                "a continuation has to finish the tree, not start one"
+            );
+            // Feedback is itself pinned as the first review, so it arrives here
+            // with a non-empty list.
+            assert_eq!(
+                author_seed_for(&RunSeed::Feedback("do it".into()), &some, &stages),
+                stages.author_fix_seed
+            );
+            // A Reviewer round during a continuation gives it something to apply.
+            assert_eq!(
+                author_seed_for(&RunSeed::Continue, &some, &stages),
+                stages.author_fix_seed
+            );
+        }
+    }
+
     /// A provider that names a retry window is telling us when the quota
     /// actually refills; guessing earlier just earns another rejection.
     #[test]
@@ -1112,6 +1205,9 @@ mod controller {
         /// Every `system` prompt the controller asked with, in order — the
         /// record of which stage ran.
         seen: RefCell<Vec<String>>,
+        /// The seed message each stage opened with, in the same order. What the
+        /// stage was actually *told to do*, as opposed to what it was told it is.
+        asked: RefCell<Vec<String>>,
     }
 
     impl ScriptedTurns {
@@ -1119,6 +1215,7 @@ mod controller {
             Self {
                 script: RefCell::new(script.into()),
                 seen: RefCell::new(Vec::new()),
+                asked: RefCell::new(Vec::new()),
             }
         }
 
@@ -1131,7 +1228,7 @@ mod controller {
     impl TurnProvider for ScriptedTurns {
         async fn call_model(
             &self,
-            _prompt: Message,
+            prompt: Message,
             _history: Vec<Message>,
             _tools: &[ToolDefinition],
             system: &str,
@@ -1139,6 +1236,7 @@ mod controller {
             _resolve_invalid: crate::turns::ResolveInvalidCall<'_>,
         ) -> Result<ModelReply, String> {
             self.seen.borrow_mut().push(system.to_string());
+            self.asked.borrow_mut().push(user_text(&prompt));
             let next = self.script.borrow_mut().pop_front();
             next.expect("the controller took more turns than the script provides")
         }
@@ -1189,6 +1287,24 @@ mod controller {
             self.answer
         }
         fn retry_resolved(&mut self, _action: RetryAction) {}
+    }
+
+    /// The text of a user message, for asserting what a stage was asked to do.
+    ///
+    /// A turn's prompt is the seed on the first call and a tool result
+    /// afterwards, so only the text parts are of interest here.
+    fn user_text(message: &Message) -> String {
+        match message {
+            Message::User { content } => content
+                .iter()
+                .filter_map(|c| match c {
+                    rig_core::message::UserContent::Text(t) => Some(t.text.as_str()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join(" "),
+            _ => String::new(),
+        }
     }
 
     /// Assemble a scripted reply the way a real streamed turn arrives.
@@ -1524,6 +1640,55 @@ mod controller {
             turns.seen.borrow()[0].contains("Make the title bigger."),
             "the feedback never reached the Author"
         );
+    }
+
+    /// Continuing a reopened session skips the Analyst too, and pins nothing:
+    /// the tree the previous run left is the whole brief, so an empty CONVERSION
+    /// PLAN or REVIEW FEEDBACK heading here would be an instruction to nothing.
+    #[tokio::test]
+    async fn a_continued_run_skips_the_analyst_and_pins_nothing() {
+        let turns = ScriptedTurns::new(vec![text_turn("FINISHED"), review_turn(true, "")]);
+        let mut obs = Recorder::default();
+
+        run(
+            bare_agent(),
+            config(AbortFlag::default(), 1),
+            RunSeed::Continue,
+            &turns,
+            &mut obs,
+        )
+        .await;
+
+        assert_eq!(obs.stages(), ["Author", "Reviewer"]);
+        let author_system = turns.seen.borrow()[0].clone();
+        assert!(
+            !author_system.contains("## CONVERSION PLAN"),
+            "a continuation has no plan to pin"
+        );
+        assert!(
+            !author_system.contains("## REVIEW FEEDBACK"),
+            "a continuation has no feedback to pin"
+        );
+        // The seeded tree is the whole brief, so the one thing the Author must
+        // be told is not to throw it away and author afresh.
+        let author_asked = turns.asked.borrow()[0].clone();
+        assert!(
+            author_asked.contains("Do not start over"),
+            "the Author was opened with {author_asked:?}"
+        );
+    }
+
+    /// Blank feedback must not become a pinned review with nothing in it: the
+    /// operator pressing Send on an empty field means "carry on", and an Author
+    /// stage spent on an empty brief is a billed run that says nothing.
+    #[test]
+    fn blank_feedback_resumes_rather_than_pinning_an_empty_review() {
+        assert!(matches!(RunSeed::resuming(""), RunSeed::Continue));
+        assert!(matches!(RunSeed::resuming("   \n\t "), RunSeed::Continue));
+        match RunSeed::resuming("  make the title bigger  ") {
+            RunSeed::Feedback(text) => assert_eq!(text, "make the title bigger"),
+            _ => panic!("real feedback has to stay feedback"),
+        }
     }
 
     /// Aborting before the first turn stops the run without a result, and says

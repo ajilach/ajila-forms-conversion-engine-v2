@@ -869,6 +869,21 @@ body > div, #main {
     color: var(--muted);
 }
 
+/* The reopened session's one action. Sits directly under the notice that
+   explains it, so the two read as one band. */
+.ag-continue {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin: var(--space-3) 0 0;
+    flex-wrap: wrap;
+}
+
+.ag-continue-hint {
+    font-size: var(--font-size-sm);
+    color: var(--muted);
+}
+
 /* ---- The form-tab strip ---- */
 
 /* One row, never wrapping: the window is a fixed 880px, so the strip scrolls

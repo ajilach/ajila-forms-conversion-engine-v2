@@ -232,26 +232,26 @@ fn App() -> Element {
         });
     };
 
-    // ── Agent feedback re-run ─────────────────────────────────────────────────
-    // From the agent "done" screen the user can submit feedback; this resumes
-    // the agent in the same session to refine the result and returns the tab
-    // to the in-progress (running) phase.
-    let on_ai_feedback = move |tab: Tab, feedback: String| {
-        let Some(session) = tab.session_id.read().clone() else {
+    // ── Carrying an existing session on ───────────────────────────────────────
+    // Two ways in, one path: from the "done" screen the user can submit feedback
+    // for the agent to apply, and a tab reopened from a previous session can be
+    // continued with nothing to apply at all — the agent finishes the tree the
+    // last run left. Everything around them is identical, so the seed carries
+    // the difference rather than a second copy of the bookkeeping.
+    //
+    // Both return the tab to its in-progress phase, and neither runs unless the
+    // user asked: a restored tab sits on its result until this is called.
+    let resume_run = move |tab: Tab, seed: pipeline::RunSeed| {
+        // Both guards hold whenever the box offered the action: it renders
+        // neither Continue nor the feedback field unless `resumable` says the
+        // tab has what a re-run needs, and a tab with a snapshot to resume
+        // always carries the session it was recorded under.
+        let (Some(session), Some(pdfs)) = (
+            tab.session_id.read().clone(),
+            tabs::resumable(&tab.files.read()),
+        ) else {
             return;
         };
-        // The agent resumes from the same sources; the attached template is
-        // already part of the session's working tree.
-        let pdfs: Vec<(String, Vec<u8>)> = tab
-            .files
-            .read()
-            .iter()
-            .filter(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"))
-            .cloned()
-            .collect();
-        if pdfs.is_empty() {
-            return;
-        }
 
         let config = run_config(tab);
         begin_run(tab);
@@ -259,7 +259,7 @@ fn App() -> Element {
 
         spawn(async move {
             let run = tokio::spawn(async move {
-                agent_runner::run_agent_feedback(feedback, pdfs, config, session, tab.state).await
+                agent_runner::run_agent_resume(seed, pdfs, config, session, tab.state).await
             });
 
             if let Some(session) = run.await.ok().flatten() {
@@ -383,7 +383,10 @@ fn App() -> Element {
                     on_ai_process(active, files);
                 },
                 on_feedback: move |text: String| {
-                    on_ai_feedback(active, text);
+                    resume_run(active, pipeline::RunSeed::resuming(&text));
+                },
+                on_continue: move |()| {
+                    resume_run(active, pipeline::RunSeed::Continue);
                 },
                 on_aem_upload: move |()| {
                     on_aem_upload(active);

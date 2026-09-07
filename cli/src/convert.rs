@@ -1,7 +1,7 @@
 //! `blueprint convert`: the autonomous conversion the desktop app runs, driven
 //! from a terminal.
 //!
-//! The run itself is [`runner::run_fresh`] / [`runner::run_feedback`] — the same
+//! The run itself is [`runner::run_fresh`] / [`runner::resume`] — the same
 //! entry points the app calls, over the same `pipeline` controller and the same
 //! Anthropic transport. What is different here is only the reporting (a
 //! [`crate::console::ConsoleObserver`] instead of a Dioxus signal) and where the
@@ -119,7 +119,11 @@ pub struct ConvertArgs {
     feedback: Option<String>,
 
     /// Edit-history session to resume (list them with `blueprint sessions`).
-    #[arg(long, value_name = "ID", requires = "feedback")]
+    ///
+    /// On its own it carries that session on with nothing to apply: the agent
+    /// finishes the tree the earlier run left. Add --feedback to give it
+    /// something specific to change. Either way the Analyst is skipped.
+    #[arg(long, value_name = "ID")]
     session: Option<String>,
 
     /// Retries for a failed model turn before the run gives up. The controller's
@@ -225,11 +229,16 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
             }
         });
 
-        match (args.feedback.clone(), args.session.clone()) {
-            (Some(feedback), Some(session)) => {
-                runner::run_feedback(feedback, pdfs, &opts, session, &mut observer).await
+        match args.session.clone() {
+            // Carry that session on, applying whatever --feedback gave it. Blank
+            // feedback is a continuation rather than an empty instruction, which
+            // is what `resuming` decides.
+            Some(session) => {
+                let seed =
+                    pipeline::RunSeed::resuming(args.feedback.as_deref().unwrap_or_default());
+                runner::resume(seed, pdfs, &opts, session, &mut observer).await
             }
-            _ => {
+            None => {
                 let label = files
                     .iter()
                     .map(|(name, _)| name.clone())

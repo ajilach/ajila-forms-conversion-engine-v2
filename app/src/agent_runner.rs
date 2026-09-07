@@ -12,7 +12,7 @@
 
 use dioxus::prelude::*;
 
-use pipeline::{AbortFlag, RetryAction, RunEvent, RunObserver};
+use pipeline::{AbortFlag, RetryAction, RunEvent, RunObserver, RunSeed};
 use runner::{LlmEndpoint, TurnPlan};
 
 use crate::models::{
@@ -138,11 +138,14 @@ pub async fn run_agent(
     publish(completed, opts.target, processing_state)
 }
 
-/// Resume on an existing session to apply the user's feedback. Skips the Analyst;
-/// the feedback becomes the first pinned "review" and the Author applies it, then
-/// the Reviewer→fix loop runs as usual.
-pub async fn run_agent_feedback(
-    feedback: String,
+/// Carry an existing session on, either applying the user's feedback or simply
+/// finishing what the last run left.
+///
+/// Which of the two is the seed's business — the app decides it once, where the
+/// user's typing arrives, rather than carrying an "empty feedback" case down
+/// into the run. Either way the Analyst is skipped.
+pub async fn run_agent_resume(
+    seed: RunSeed,
     pdfs: Vec<(String, Vec<u8>)>,
     config: RunConfig,
     structured_session: String,
@@ -150,8 +153,7 @@ pub async fn run_agent_feedback(
 ) -> Option<String> {
     let opts = config.into_options();
     let mut observer = announce(&opts, processing_state);
-    let completed =
-        runner::run_feedback(feedback, pdfs, &opts, structured_session, &mut observer).await;
+    let completed = runner::resume(seed, pdfs, &opts, structured_session, &mut observer).await;
     publish(completed, opts.target, processing_state)
 }
 

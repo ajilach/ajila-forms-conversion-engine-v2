@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use dioxus::prelude::*;
 
-use crate::models::{AbortFlag, ProcessingState, ProcessingStep, RunState, UploadState};
+use crate::models::{AbortFlag, ProcessingState, RunState, UploadState};
 use crate::tabs::{
     active_after_close, RestoredView, SavedTab, SavedWorkspace, TabId, TabPhase, MAX_TABS,
     WORKSPACE_VERSION,
@@ -98,29 +98,17 @@ impl Tab {
             Signal::new_in_scope(value, ScopeId::APP)
         }
 
-        // A tab that still has a session to go back to opens on its result
-        // screen, whether the run finished or the window closed mid-way: both
-        // hold a snapshot, and both are continued the same way — with feedback.
-        // The notice band is what tells them apart. Anything else starts clean.
-        let step = match view {
-            RestoredView::Finished | RestoredView::Interrupted => ProcessingStep::Complete,
-            RestoredView::Upload | RestoredView::Orphaned => ProcessingStep::Idle,
-        };
-        let state = ProcessingState {
-            step,
-            target: saved.target,
-            form_code: saved.form_code.clone(),
-            aem_uploaded: saved.aem_uploaded,
-            aem_form_path: saved.aem_form_path.clone(),
-            elapsed_secs: saved.elapsed_secs,
-            warnings: saved.warnings.clone(),
-            ..ProcessingState::default()
-        };
+        // Which screen a reopened tab lands on, and why it never lands on a
+        // running one, is decided in `tabs` where it can be tested.
+        let restored = crate::tabs::restored_run(saved, view);
 
         Self {
             id: TabId::from_saved(saved.id),
-            state: RunState::new_maybe_sync_in_scope(state, ScopeId::APP),
-            processing: app(false),
+            state: RunState::new_maybe_sync_in_scope(restored.state, ScopeId::APP),
+            // Never `true`: reopening a workspace must not start anything. The
+            // run that filled this tab ended with the process that drove it, and
+            // carrying on is the operator's explicit call — the Continue button.
+            processing: app(restored.processing),
             profile: app(saved.profile.clone()),
             target: app(saved.target),
             files: app(files),

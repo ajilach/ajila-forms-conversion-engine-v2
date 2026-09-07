@@ -176,7 +176,7 @@ pub enum RestoredView {
     /// The run finished. Its outputs are rebuilt on demand.
     Finished,
     /// The window closed while the run was going. Its last snapshot is still
-    /// there, so it can be rebuilt or carried on with feedback.
+    /// there, so it can be carried on from exactly that point.
     Interrupted,
     /// A session was recorded but holds no document — nothing to go back to.
     Orphaned,
@@ -203,12 +203,88 @@ pub fn restored_view(tab: &SavedTab, has_snapshot: bool) -> RestoredView {
         _ if !has_snapshot => RestoredView::Orphaned,
         // Still going when the window closed. The agent is gone, but every tool
         // call snapshotted the tree, so there is a partial result to rebuild —
-        // and feedback resumes from exactly that point.
+        // and Continue resumes from exactly that point.
         TabPhase::Running => RestoredView::Interrupted,
         TabPhase::Finished | TabPhase::Failed => RestoredView::Finished,
     }
 }
 
+/// Whether a source file is one a resumed run replays through the agent.
+///
+/// The PDFs, and only those: an attached AEM template is already part of the
+/// session's working tree and is restored along with it.
+fn is_replayed_source((name, _): &(String, Vec<u8>)) -> bool {
+    name.to_ascii_lowercase().ends_with(".pdf")
+}
+
+/// Whether a re-run of this tab has the sources it would need to replay.
+///
+/// One rule rather than a `!files.is_empty()` in the box and a filter in the
+/// run: those two disagreed, and the tab that fell between them — one converted
+/// from an AEM template with no PDF beside it — offered a Continue button that
+/// did nothing at all when pressed. What the box offers and what the run needs
+/// are the same question, so they read it from the same place.
+///
+/// Separate from [`resumable`] because the box asks this on every render, and
+/// the answer must not cost a copy of every source document to get.
+pub fn is_resumable(files: &[(String, Vec<u8>)]) -> bool {
+    files.iter().any(is_replayed_source)
+}
+
+/// The sources a re-run of this tab replays, or `None` when it has none.
+pub fn resumable(files: &[(String, Vec<u8>)]) -> Option<Vec<(String, Vec<u8>)>> {
+    let pdfs: Vec<(String, Vec<u8>)> = files
+        .iter()
+        .filter(|file| is_replayed_source(file))
+        .cloned()
+        .collect();
+    (!pdfs.is_empty()).then_some(pdfs)
+}
+
+/// What a reopened tab starts as.
+///
+/// Both halves of it, because `processing` is the one that could go wrong: the
+/// state alone cannot describe a live run, so a test that only checked the state
+/// would pass however the flag was set.
+pub struct RestoredRun {
+    pub state: ProcessingState,
+    /// Whether a run is in flight in the reopened tab. Always `false`, and it is
+    /// here so that a test can say so.
+    pub processing: bool,
+}
+
+/// The run a reopened tab starts from.
+///
+/// Pure, and separated from the signals [`crate::workspace::Tab::restore`] wraps
+/// it in, because this is the invariant a restart depends on: a reopened tab
+/// carries a *result*, never a run. There is no agent behind it — the process
+/// that drove it is gone — so a tab that read as running would put a spinner
+/// over nothing and, worse, invite the rest of the app to treat it as live.
+/// Continuing is the operator's explicit call.
+pub fn restored_run(saved: &SavedTab, view: RestoredView) -> RestoredRun {
+    // A tab that still has a session to go back to opens on its result screen,
+    // whether the run finished or the window closed mid-way: both hold a
+    // snapshot, and both are continued the same way. The notice band is what
+    // tells them apart. Anything else starts clean.
+    let step = match view {
+        RestoredView::Finished | RestoredView::Interrupted => ProcessingStep::Complete,
+        RestoredView::Upload | RestoredView::Orphaned => ProcessingStep::Idle,
+    };
+    RestoredRun {
+        state: ProcessingState {
+            step,
+            target: saved.target,
+            form_code: saved.form_code.clone(),
+            aem_uploaded: saved.aem_uploaded,
+            aem_form_path: saved.aem_form_path.clone(),
+            elapsed_secs: saved.elapsed_secs,
+            warnings: saved.warnings.clone(),
+            ..ProcessingState::default()
+        },
+        // Reopening a workspace must not start anything.
+        processing: false,
+    }
+}
 
 /// What to call a tab in the strip.
 ///
@@ -280,6 +356,99 @@ mod tests {
 
     fn ids(n: usize) -> Vec<TabId> {
         (0..n).map(|_| TabId::next()).collect()
+    }
+
+    /// The invariant a restart rests on: reopening the workspace may put a tab
+    /// on its result screen, but never on a running one. There is no agent
+    /// behind a restored tab — the process that drove the run is gone — so a
+    /// state that reads as running would show a spinner over nothing, and the
+    /// agent would appear to have started work nobody asked for.
+    ///
+    /// Every combination, because the phase and the snapshot are recorded
+    /// independently: a run interrupted mid-flight is exactly the case where a
+    /// `Running` phase comes back off disk.
+    #[test]
+    fn a_reopened_tab_is_never_a_running_run() {
+        use crate::run_status::{RunStatus, Screen};
+
+        for phase in [
+            TabPhase::Upload,
+            TabPhase::Running,
+            TabPhase::Finished,
+            TabPhase::Failed,
+        ] {
+            for has_snapshot in [false, true] {
+                for session_id in [None, Some("s-1".to_string())] {
+                    let saved = SavedTab {
+                        phase,
+                        session_id: session_id.clone(),
+                        ..SavedTab::default()
+                    };
+                    let view = restored_view(&saved, has_snapshot);
+                    let restored = restored_run(&saved, view);
+                    let screen = screen_for(&restored.state, restored.processing);
+
+                    assert!(
+                        !matches!(screen, Screen::Run(RunStatus::Running | RunStatus::Paused)),
+                        "reopening {phase:?} (snapshot: {has_snapshot}, session: \
+                         {session_id:?}) came back as {screen:?} — nothing may run \
+                         before the operator presses Start or Continue"
+                    );
+                }
+            }
+        }
+    }
+
+    /// The case that fell between the box and the run: a tab converted from an
+    /// AEM template alone has files, so the old `!is_empty()` offered it a
+    /// Continue button, but the run needs a PDF to replay and found none — so
+    /// pressing it did nothing at all. Both sides now read one rule.
+    #[test]
+    fn only_a_tab_with_sources_to_replay_can_be_resumed() {
+        let pdf = ("AAOT_033_IT.pdf".to_string(), vec![1u8]);
+        let template = ("forms-package-AAOT.zip".to_string(), vec![2u8]);
+
+        assert!(!is_resumable(&[]));
+        assert!(resumable(&[]).is_none());
+
+        assert!(
+            !is_resumable(std::slice::from_ref(&template)),
+            "a template alone is nothing to replay"
+        );
+        assert!(resumable(std::slice::from_ref(&template)).is_none());
+
+        // Offered and runnable, and the run gets only what it replays.
+        let both = [template, pdf.clone()];
+        assert!(is_resumable(&both));
+        assert_eq!(resumable(&both), Some(vec![pdf]));
+
+        // The extension is matched however it was cased.
+        let shouted = [("AAOT_033_IT.PDF".to_string(), vec![1u8])];
+        assert!(is_resumable(&shouted));
+    }
+
+    /// A run the window closed out from under still has its snapshot, so it
+    /// comes back as a continuable result rather than as litter — that is what
+    /// gives the Continue button something to resume.
+    #[test]
+    fn an_interrupted_run_comes_back_continuable() {
+        let saved = SavedTab {
+            phase: TabPhase::Running,
+            session_id: Some("s-1".into()),
+            ..SavedTab::default()
+        };
+
+        assert_eq!(restored_view(&saved, true), RestoredView::Interrupted);
+        assert_eq!(
+            restored_run(&saved, RestoredView::Interrupted).state.step,
+            ProcessingStep::Complete
+        );
+        // No snapshot means there is nothing to carry on from.
+        assert_eq!(restored_view(&saved, false), RestoredView::Orphaned);
+        assert_eq!(
+            restored_run(&saved, RestoredView::Orphaned).state.step,
+            ProcessingStep::Idle
+        );
     }
 
     #[test]

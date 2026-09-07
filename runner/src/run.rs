@@ -140,21 +140,46 @@ instead of authoring from scratch."
     .await)
 }
 
-/// Resume an existing session to apply the operator's feedback.
+/// Reported when a continuation names a session that holds no document. There
+/// is nothing to carry on from, and the Author would be told to finish a tree it
+/// was never given — so it is a hard stop rather than a run that bills a full
+/// stage to produce nothing.
+pub fn no_prior_state(session_id: &str) -> String {
+    format!(
+        "Session {session_id} holds no saved form, so there is nothing to continue. \
+         Start a fresh conversion from the sources instead."
+    )
+}
+
+/// Carry an existing session on: restore what the last run built into a fresh
+/// agent and drive the controller over it.
 ///
-/// Skips the Analyst: the feedback becomes the first pinned "review", the Author
-/// applies it, then the Reviewer→fix loop runs as usual.
-pub async fn run_feedback(
-    feedback: String,
+/// One entry point for both ways in — feedback to apply, or nothing at all — so
+/// the restore-plus-preflight-plus-lease sequence exists once. Which of the two
+/// it is is the seed's business, and [`RunSeed::resuming`] is what converts the
+/// operator's typing into it.
+///
+/// Always skips the Analyst: the session already holds an authored tree, so
+/// there is nothing left to analyse.
+pub async fn resume(
+    seed: RunSeed,
     pdfs: Vec<(String, Vec<u8>)>,
     opts: &RunOptions,
     session_id: String,
     obs: &mut (impl RunObserver + Send),
 ) -> Result<Completed, String> {
-    // Seed the agent from the continuing session so feedback applies to the prior
+    // Seed the agent from the continuing session so the run applies to the prior
     // result: both the structured content and the AEM tree the last run authored,
     // so the Author refines that tree instead of re-deriving one from the source.
     let prior = agent::session::restore(&session_id, opts.profile.as_deref());
+
+    // A continuation with nothing restored has no brief at all: the seeded tree
+    // *is* the instruction, and the Author would be told to finish work it was
+    // never handed. Feedback still carries one, so only this case is fatal.
+    if prior.is_none() && matches!(seed, RunSeed::Continue) {
+        return Err(no_prior_state(&session_id));
+    }
+
     let browser = browser_for(opts, obs).await?;
 
     let mut agent = ConversionAgent::new(
@@ -175,9 +200,9 @@ pub async fn run_feedback(
         }
     }
 
-    // A feedback re-run installs over the same form as the run it resumes, so
-    // it contends exactly like a fresh one. The session already exists and is
-    // the user's own history, so it is left alone.
+    // A resumed run installs over the same form as the run it continues, so it
+    // contends exactly like a fresh one. The session already exists and is the
+    // user's own history, so it is left alone.
     let lease = match claim_aem_form(&agent, opts) {
         Ok(lease) => lease,
         Err(e) => {
@@ -186,16 +211,7 @@ pub async fn run_feedback(
         }
     };
 
-    Ok(drive(
-        agent,
-        opts,
-        RunSeed::Feedback(feedback),
-        "",
-        session_id,
-        lease,
-        obs,
-    )
-    .await)
+    Ok(drive(agent, opts, seed, "", session_id, lease, obs).await)
 }
 
 /// Run the browser preflight when the settings ask for a browser: a started,
@@ -366,7 +382,7 @@ mod tests {
         assert!(err.contains("--no-browser"), "{err}");
     }
 
-    /// The feedback path runs the same preflight before restoring anything.
+    /// The resume path runs the same preflight before restoring anything.
     #[tokio::test]
     async fn a_feedback_run_is_refused_the_same_way() {
         let settings = AppSettings {
@@ -382,8 +398,8 @@ mod tests {
             settings,
             abort: AbortFlag::default(),
         };
-        let err = run_feedback(
-            "make it better".into(),
+        let err = resume(
+            RunSeed::resuming("make it better"),
             Vec::new(),
             &opts,
             "no-such-session".into(),
@@ -394,6 +410,36 @@ mod tests {
         .expect("the run must be refused");
         assert!(err.contains("/nonexistent/blueprint-test/npx"), "{err}");
         assert!(err.contains("--no-browser"), "{err}");
+    }
+
+    /// A continuation is nothing but the tree it was seeded with, so a session
+    /// that holds no form has to be refused before a stage is spent on it.
+    ///
+    /// The browser is off here on purpose: with it on the preflight would refuse
+    /// the run first, and this check would never be the reason.
+    #[tokio::test]
+    async fn a_continuation_with_nothing_to_continue_is_refused() {
+        let opts = RunOptions {
+            profile: None,
+            target: OutputTarget::Aem,
+            settings: AppSettings {
+                browser_enabled: false,
+                ..AppSettings::default()
+            },
+            abort: AbortFlag::default(),
+        };
+
+        let err = resume(
+            RunSeed::Continue,
+            Vec::new(),
+            &opts,
+            "no-such-session".into(),
+            &mut NullObserver,
+        )
+        .await
+        .err()
+        .expect("a continuation with no prior state must be refused");
+        assert_eq!(err, no_prior_state("no-such-session"));
     }
 
     /// The browser only ever accompanies an AEM upload, and a Redacto run has
