@@ -61,7 +61,6 @@ const RETAINED_SESSIONS: usize = 50;
 
 fn main() {
     let saved = AppSettings::load();
-    saved.apply_runtime_config();
     let mut config = dioxus::desktop::Config::new().with_window(
         dioxus::desktop::WindowBuilder::new()
             .with_always_on_top(saved.always_on_top)
@@ -354,7 +353,6 @@ fn App() -> Element {
                 settings: app_settings,
                 on_settings_changed: move |new_settings: AppSettings| {
                     new_settings.save();
-                    new_settings.apply_runtime_config();
                     window.set_always_on_top(new_settings.always_on_top);
                     app_settings.set(new_settings);
                 },

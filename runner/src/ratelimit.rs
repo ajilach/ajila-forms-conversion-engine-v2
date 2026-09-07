@@ -13,6 +13,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
+use rig_agent::agent::model::ModelHandle;
+use rig_core::completion::{
+    CompletionError, CompletionModel, CompletionRequest, CompletionResponse, ProviderCapabilities,
+};
+use rig_core::streaming::StreamingCompletionResponse;
 use tokio::sync::Semaphore;
 
 use crate::provider::LlmEndpoint;
@@ -59,6 +64,65 @@ pub fn gate_for(endpoint: &LlmEndpoint, limit: usize) -> Option<Arc<Semaphore>> 
     Some(Arc::clone(&entry.0))
 }
 
+/// A model wrapped with an endpoint's request gate.
+///
+/// Held for the whole call, streamed response included: releasing it when the
+/// response headers arrive would cap the rate at which requests are *started*
+/// while leaving any number of them streaming, which is not what a provider's
+/// rate limit counts. Holding it across `.await` is exactly why the gate is a
+/// `tokio::sync::Semaphore` and not a plain mutex.
+struct RateLimited {
+    inner: ModelHandle,
+    gate: Arc<Semaphore>,
+}
+
+impl CompletionModel for RateLimited {
+    async fn completion(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<CompletionResponse, CompletionError> {
+        let _permit = self.acquire().await?;
+        self.inner.completion(request).await
+    }
+
+    async fn stream(
+        &self,
+        request: CompletionRequest,
+    ) -> Result<StreamingCompletionResponse, CompletionError> {
+        let _permit = self.acquire().await?;
+        self.inner.stream(request).await
+    }
+
+    /// Forwarded, not defaulted: the default is conservative, and this handle
+    /// otherwise silently downgrades every capability the wrapped model
+    /// actually has (see [`ModelHandle`]'s own docs on why the snapshot is
+    /// taken at erasure time).
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.inner.capabilities()
+    }
+}
+
+impl RateLimited {
+    async fn acquire(&self) -> Result<tokio::sync::OwnedSemaphorePermit, CompletionError> {
+        self.gate.clone().acquire_owned().await.map_err(|e| {
+            CompletionError::RequestError(format!("Request gate closed: {e}").into())
+        })
+    }
+}
+
+/// Wrap `model` with `endpoint`'s request gate, when the operator has set one.
+/// A `0` limit (or `for_endpoint`'s default of no cap at all) returns `model`
+/// unchanged — a lone run has nothing to contend with.
+pub fn wrap(model: ModelHandle, endpoint: &LlmEndpoint, max_concurrent: usize) -> ModelHandle {
+    match gate_for(endpoint, max_concurrent) {
+        None => model,
+        Some(gate) => {
+            let label = model.label().unwrap_or("model").to_string();
+            ModelHandle::named(label, RateLimited { inner: model, gate })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -89,6 +153,47 @@ mod tests {
 
         let other = gate_for(&endpoint("https://other.example"), 2).unwrap();
         assert!(!Arc::ptr_eq(&a, &other));
+    }
+
+    /// A model with no capabilities beyond the default, wrapped by `wrap`
+    /// with no gate at all — the shape a `max_concurrent: 0` run resolves.
+    #[derive(Clone)]
+    struct StubModel(ProviderCapabilities);
+
+    impl CompletionModel for StubModel {
+        async fn completion(
+            &self,
+            _request: CompletionRequest,
+        ) -> Result<CompletionResponse, CompletionError> {
+            unimplemented!("never called: this test only inspects capabilities()")
+        }
+
+        async fn stream(
+            &self,
+            _request: CompletionRequest,
+        ) -> Result<StreamingCompletionResponse, CompletionError> {
+            unimplemented!("never called: this test only inspects capabilities()")
+        }
+
+        fn capabilities(&self) -> ProviderCapabilities {
+            self.0
+        }
+    }
+
+    /// `RateLimited` forwards `capabilities()` from the wrapped model rather
+    /// than defaulting — the plan calls this out explicitly as the footgun a
+    /// rate-limit decorator invites: `ModelHandle` snapshots capabilities at
+    /// erasure time, so a wrapper that forgets to forward them silently
+    /// downgrades every capability the real model actually has.
+    #[test]
+    fn the_gate_does_not_erase_the_wrapped_models_capabilities() {
+        let non_default = ProviderCapabilities::new().with_native_output_tool_composition(true);
+        assert_ne!(non_default, ProviderCapabilities::default());
+
+        let plain = ModelHandle::new(StubModel(non_default));
+        let wrapped = wrap(plain, &endpoint("https://caps.example"), 2);
+
+        assert_eq!(wrapped.capabilities(), non_default);
     }
 
     /// The operator can raise the cap mid-session, and an endpoint already in

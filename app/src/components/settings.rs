@@ -256,17 +256,7 @@ pub fn SettingsPage(
                             }
                         }
                         div { class: "settings-section",
-                            h3 { class: "settings-section-title", "Context management" }
-                            NumberRow {
-                                label: "Keep recent messages",
-                                desc: "Most recent messages kept verbatim each turn (rounded up to even). Higher = better grounding, more tokens.",
-                                value: s.evict_keep_recent_messages,
-                                min: 2,
-                                step: 2,
-                                on_change: move |v: usize| {
-                                    update.call(Box::new(move |s| s.evict_keep_recent_messages = v))
-                                },
-                            }
+                            h3 { class: "settings-section-title", "Requests" }
                             NumberRow {
                                 label: "Parallel requests",
                                 desc: "How many model requests conversions may have in flight at once. 0 removes the cap.",
@@ -275,26 +265,6 @@ pub fn SettingsPage(
                                 step: 1,
                                 on_change: move |v: usize| {
                                     update.call(Box::new(move |s| s.max_concurrent_requests = v))
-                                },
-                            }
-                            NumberRow {
-                                label: "Elide text over (chars)",
-                                desc: "Stale tool-result text longer than this is replaced with a re-fetchable stub.",
-                                value: s.evict_text_over_chars,
-                                min: 0,
-                                step: 500,
-                                on_change: move |v: usize| {
-                                    update.call(Box::new(move |s| s.evict_text_over_chars = v))
-                                },
-                            }
-                            NumberRow {
-                                label: "Elide tool input over (chars)",
-                                desc: "Stale tool-call inputs (e.g. whole-tree writes) longer than this are stubbed.",
-                                value: s.evict_input_over_chars,
-                                min: 0,
-                                step: 500,
-                                on_change: move |v: usize| {
-                                    update.call(Box::new(move |s| s.evict_input_over_chars = v))
                                 },
                             }
                         }

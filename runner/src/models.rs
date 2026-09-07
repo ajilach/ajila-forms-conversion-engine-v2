@@ -5,32 +5,21 @@
 //! settings picker offers the answers, so the table lives on its own rather
 //! than inside whichever client happens to be sending the request.
 
-use std::sync::atomic::{AtomicUsize, Ordering};
-
 /// Tokens reserved below the context window for the model's own reply plus
 /// estimation slack, so the assembled prompt lands comfortably under the hard
 /// limit even when the char-based estimate runs low.
 const CONTEXT_SAFETY_MARGIN: usize = 48_000;
 
-/// Context window learned from the API (parsed from a `prompt is too long: …
-/// > N maximum` error). `0` means "not learned yet — use the heuristic". This is
-/// authoritative once set, so a wrong heuristic guess self-corrects after at most
-/// one overflow. See [`learn_context_window_from_error`].
-static CFG_CONTEXT_WINDOW: AtomicUsize = AtomicUsize::new(0);
-
 /// The model's maximum context window in tokens.
 ///
-/// Prefer the value learned from the API; otherwise fall back to a heuristic that
-/// is **optimistic** — modern large-context families default to 1M. Guessing high
-/// is the safe direction: too-high costs at most one `400` (caught and learned
-/// from by [`crate::stream::call_model`]), whereas too-low silently shrinks the budget
-/// and makes the agent evict its own context every turn (an amnesia loop). Only
-/// known-small models (Haiku, pre-4 families) default to 200K.
+/// A heuristic that is **optimistic** when the model is not in [`KNOWN_MODELS`]:
+/// modern large-context families default to 1M. Guessing high is the safe
+/// direction — too-low silently shrinks the reported budget, which used to
+/// feed a per-turn eviction loop; that loop is gone (rig runs each stage on
+/// its own turn budget now), so this figure is informational only, feeding
+/// the context-window banner and gauge denominator. Only known-small models
+/// (Haiku, pre-4 families) default to 200K.
 pub fn context_window_for(model: &str) -> usize {
-    let learned = CFG_CONTEXT_WINDOW.load(Ordering::Relaxed);
-    if learned > 0 {
-        return learned;
-    }
     if let Some(known) = KNOWN_MODELS.iter().find(|m| m.id == model) {
         return known.context_window;
     }
@@ -116,7 +105,7 @@ const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 16_000;
 
 /// The output-token ceiling to request for a given model.
 ///
-/// The agent loop streams every turn (see [`crate::stream::call_model`]), so we can
+/// Every stage streams its turns (rig's `Agent::runner` always does), so we can
 /// request up to the model's true max output without risking the HTTP timeouts
 /// that cap non-streaming requests near 16k. `max_tokens` is a ceiling, not a
 /// target — we're billed only for tokens actually generated — so requesting the
@@ -138,55 +127,6 @@ pub fn max_output_tokens_for(model: &str) -> u32 {
         128_000
     } else {
         DEFAULT_MAX_OUTPUT_TOKENS
-    }
-}
-
-/// Whether an error body says the request blew the model's context window.
-///
-/// Both dialects are recognized, because both are reachable: Anthropic's
-/// `prompt is too long: X tokens > N maximum` and the OpenAI-compatible
-/// `This model's maximum context length is N tokens` (and OpenRouter's
-/// `context_length_exceeded` code, which it echoes in the message).
-pub(crate) fn is_context_overflow(msg: &str) -> bool {
-    let m = msg.to_ascii_lowercase();
-    m.contains("prompt is too long")
-        || m.contains("maximum context length")
-        || m.contains("context_length_exceeded")
-        || m.contains("context length exceeded")
-}
-
-/// The real context window an overflow error reports, in tokens.
-///
-/// Both dialects are read, because both are reachable: the Anthropic phrasing
-/// (`prompt is too long: X tokens > N maximum`) and the OpenAI-compatible one
-/// (`This model's maximum context length is N tokens`). `None` for a message
-/// that names no limit, which leaves the heuristic in charge.
-fn parse_context_limit(msg: &str) -> Option<usize> {
-    let after_marker = |marker: &str| {
-        let lower = msg.to_ascii_lowercase();
-        let at = lower.find(marker)? + marker.len();
-        msg[at..].split_whitespace().find_map(|tok| {
-            tok.trim_matches(|c: char| !c.is_ascii_digit())
-                .parse::<usize>()
-                .ok()
-        })
-    };
-    msg.split('>')
-        .nth(1)
-        .and_then(|tail| tail.split_whitespace().next())
-        .and_then(|tok| tok.parse::<usize>().ok())
-        .or_else(|| after_marker("maximum context length is"))
-}
-
-/// Learn the real context window from an overflow error, clamping the stored
-/// window to the smallest maximum any endpoint has reported.
-pub(crate) fn learn_context_window_from_error(msg: &str) {
-    let Some(n) = parse_context_limit(msg) else {
-        return;
-    };
-    let prev = CFG_CONTEXT_WINDOW.load(Ordering::Relaxed);
-    if prev == 0 || n < prev {
-        CFG_CONTEXT_WINDOW.store(n, Ordering::Relaxed);
     }
 }
 
@@ -281,19 +221,6 @@ mod known_models {
         );
     }
 
-    #[test]
-    fn context_overflow_is_recognized_in_both_dialects() {
-        let anthropic = "prompt is too long: 1050000 tokens > 1000000 maximum";
-        let openai = "This model's maximum context length is 128000 tokens. \
-                      However, your messages resulted in 130000 tokens.";
-        assert!(is_context_overflow(anthropic));
-        assert!(is_context_overflow(openai));
-        assert!(!is_context_overflow("invalid x-api-key"));
-        assert_eq!(parse_context_limit(anthropic), Some(1_000_000));
-        assert_eq!(parse_context_limit(openai), Some(128_000));
-        assert_eq!(parse_context_limit("something else entirely"), None);
-    }
-
     /// The two model tables live together; keep their groupings pinned so a new
     /// model id cannot silently fall into the wrong bucket.
     #[test]
@@ -311,11 +238,7 @@ mod known_models {
     }
 
     #[test]
-    fn context_window_heuristic_and_learning() {
-        // Isolate the shared learned-window state.
-        let saved = CFG_CONTEXT_WINDOW.load(Ordering::Relaxed);
-        CFG_CONTEXT_WINDOW.store(0, Ordering::Relaxed);
-
+    fn context_window_heuristic() {
         // Optimistic heuristic: modern large-context families → 1M (even without a
         // literal `[1m]` in the id, which real API model strings lack); Haiku/older
         // → 200K.
@@ -323,13 +246,5 @@ mod known_models {
         assert_eq!(context_window_for("claude-opus-4-8"), 1_000_000);
         assert_eq!(context_window_for("claude-sonnet-5"), 1_000_000);
         assert_eq!(context_window_for("claude-haiku-4-5-20251001"), 200_000);
-
-        // A 400 teaches the real maximum; it's authoritative and only ratchets down.
-        learn_context_window_from_error("prompt is too long: 1316205 tokens > 250000 maximum");
-        assert_eq!(context_window_for("claude-opus-4-8"), 250_000);
-        learn_context_window_from_error("prompt is too long: 900000 tokens > 500000 maximum");
-        assert_eq!(context_window_for("claude-opus-4-8"), 250_000);
-
-        CFG_CONTEXT_WINDOW.store(saved, Ordering::Relaxed);
     }
 }

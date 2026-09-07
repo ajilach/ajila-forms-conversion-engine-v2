@@ -188,7 +188,15 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
 
     let abort = AbortFlag::default();
     let plan = TurnPlan::for_settings(&settings);
-    let mut observer = ConsoleObserver::new(plan.context_window, args.retries);
+    // Kept as our own `Arc` (not just `pipeline::SharedObserver::new`'s), so
+    // `report_spend`/`transcript` below can read the concrete `ConsoleObserver`
+    // back once the run has returned — methods `SharedObserver` does not
+    // expose, since it only forwards the `RunObserver` trait itself.
+    let observer = std::sync::Arc::new(std::sync::Mutex::new(ConsoleObserver::new(
+        plan.context_window,
+        args.retries,
+    )));
+    let obs = pipeline::SharedObserver::from_arc(observer.clone());
 
     println!("Profile: {}", profile.as_deref().unwrap_or("(none)"));
     println!("Target: {}", args.target.label());
@@ -236,7 +244,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
             Some(session) => {
                 let seed =
                     pipeline::RunSeed::resuming(args.feedback.as_deref().unwrap_or_default());
-                runner::resume(seed, pdfs, &opts, session, &mut observer).await
+                runner::resume(seed, pdfs, &opts, session, &obs).await
             }
             None => {
                 let label = files
@@ -244,7 +252,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
                     .map(|(name, _)| name.clone())
                     .collect::<Vec<_>>()
                     .join(", ");
-                runner::run_fresh(files, &opts, &label, &mut observer).await
+                runner::run_fresh(files, &opts, &label, &obs).await
             }
         }
     })?;
@@ -254,7 +262,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     println!("\n── Result ──");
     println!("Session: {}", completed.session_id);
     // Reported even when the run stopped early: those turns were still billed.
-    observer.report_spend();
+    observer.lock().unwrap_or_else(|p| p.into_inner()).report_spend();
 
     let Some(outcome) = completed.outcome else {
         // Aborted, or the retry budget ran out. The observer said why.
@@ -273,7 +281,11 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
         println!("Warning: {warning}");
     }
 
-    write_artifacts(&args, &outcome, &observer)?;
+    write_artifacts(
+        &args,
+        &outcome,
+        &observer.lock().unwrap_or_else(|p| p.into_inner()),
+    )?;
 
     println!(
         "\nRefine it with: blueprint convert {} --session {} --feedback \"…\"",

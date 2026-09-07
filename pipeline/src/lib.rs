@@ -2,29 +2,29 @@
 //! [`agent::ConversionAgent`] through its Analyst → Author → Reviewer stages.
 //!
 //! It sits between `agent` (the tools) and a consumer (the desktop app), and
-//! depends on neither a UI framework nor an LLM provider. It does speak rig's
-//! message model, which is provider-neutral: naming rig names no vendor, no
-//! model and no key. Everything variable
-//! reaches it through two traits:
+//! depends on neither a UI framework nor an LLM provider directly. It does
+//! speak rig's message and agent model: each stage runs as a real
+//! [`rig_agent::agent::Agent`], driven through [`rig_agent::agent::AgentRunner`],
+//! with the choice of model and its pricing supplied by the caller through
+//! [`RunConfig`] rather than owned here. Everything else variable reaches it
+//! through one seam:
 //!
-//! * [`TurnProvider`] runs one model turn — the consumer owns the transport,
-//!   the credentials and the model choice.
-//! * [`RunObserver`] receives progress and answers retry prompts — the consumer
-//!   owns how that is displayed and decided.
+//! * [`SharedObserver`] receives progress and answers retry prompts — the
+//!   consumer owns how that is displayed and decided.
 //!
 //! That is what makes the sequencing testable: [`run`] can be driven end to end
-//! by a scripted provider and a recording observer, with no network and no
-//! desktop runtime.
+//! by rig's own [`rig_core::test_utils::MockCompletionModel`] and a recording
+//! observer, with no network and no desktop runtime.
 
 pub mod describe;
+pub mod hooks;
 pub mod observer;
 pub mod roles;
 pub mod run;
+pub mod tools;
 pub mod turns;
 
-pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver, Spend};
-pub use run::{RunConfig, RunOutcome, RunSeed, is_transient_error, run};
-pub use turns::{
-    ModelReply, ResolveInvalidCall, TurnProvider, tool_definitions, tool_result_content,
-    tool_results,
-};
+pub use hooks::PriceFn;
+pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver, SharedObserver, Spend};
+pub use run::{RunConfig, RunOutcome, RunSeed, describe_completion_error, is_transient_error, run};
+pub use tools::SharedAgent;

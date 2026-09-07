@@ -169,6 +169,61 @@ pub trait RunObserver {
     fn retry_resolved(&mut self, action: RetryAction);
 }
 
+/// A [`RunObserver`] shared between the stage driver and a rig hook.
+///
+/// The hook and the driver interleave calls into the same observer on one
+/// task — the hook fires from inside the driver's own `.next().await` on the
+/// stream — but never truly concurrently, so `&mut` cannot express it: both
+/// sides need a live handle at once. `std::sync::Mutex` rather than an async
+/// one because every method here is a quick, synchronous critical section
+/// (the trait itself has no `async fn`); nothing ever awaits while holding
+/// the guard.
+#[derive(Clone)]
+pub struct SharedObserver(std::sync::Arc<std::sync::Mutex<dyn RunObserver + Send>>);
+
+impl SharedObserver {
+    pub fn new(observer: impl RunObserver + Send + 'static) -> Self {
+        Self(std::sync::Arc::new(std::sync::Mutex::new(observer)))
+    }
+
+    /// Share an observer the caller already holds an `Arc` to, rather than
+    /// moving it in — what a consumer that needs its own state back after the
+    /// run (the CLI's `report_spend`/`transcript`, a test's assertions on what
+    /// it recorded) uses: it keeps its own clone of the same `Arc` and reads
+    /// the concrete type back through it once the run has returned and every
+    /// hook clone of this handle has been dropped.
+    pub fn from_arc<O>(observer: std::sync::Arc<std::sync::Mutex<O>>) -> Self
+    where
+        O: RunObserver + Send + 'static,
+    {
+        Self(observer)
+    }
+
+    /// Recover from a poisoned lock rather than panic a whole run because one
+    /// earlier call panicked while holding it — a run that keeps going is
+    /// more useful than one that takes every future observer call down with
+    /// it over a single bad report.
+    fn lock<'a>(&'a self) -> std::sync::MutexGuard<'a, dyn RunObserver + Send + 'static> {
+        self.0.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    pub fn emit(&self, event: RunEvent) {
+        self.lock().emit(event);
+    }
+
+    pub fn retry_prompt(&self, role: &str, error: &str) {
+        self.lock().retry_prompt(role, error);
+    }
+
+    pub fn poll_retry(&self) -> Option<RetryAction> {
+        self.lock().poll_retry()
+    }
+
+    pub fn retry_resolved(&self, action: RetryAction) {
+        self.lock().retry_resolved(action);
+    }
+}
+
 /// Discards progress and never retries — for headless callers and tests that
 /// only care about the outcome. A failed turn ends the run rather than hanging
 /// forever waiting for an answer nobody is there to give.
@@ -215,5 +270,38 @@ mod tests {
     fn the_null_observer_gives_up_rather_than_hanging() {
         let mut obs = NullObserver;
         assert_eq!(obs.poll_retry(), Some(RetryAction::Cancel));
+    }
+
+    struct Logging(std::sync::Arc<std::sync::Mutex<Vec<RunEvent>>>);
+
+    impl RunObserver for Logging {
+        fn emit(&mut self, event: RunEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+        fn retry_prompt(&mut self, _role: &str, _error: &str) {}
+        fn poll_retry(&mut self) -> Option<RetryAction> {
+            None
+        }
+        fn retry_resolved(&mut self, _action: RetryAction) {}
+    }
+
+    /// Two clones of a `SharedObserver` write to the same underlying
+    /// observer — the whole point of wrapping it at all: a hook's clone and
+    /// the stage driver's clone have to land in the same place, since the two
+    /// interleave calls into it without either ever holding `&mut`.
+    #[test]
+    fn clones_of_a_shared_observer_write_to_the_same_place() {
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let shared = SharedObserver::new(Logging(log.clone()));
+        let clone = shared.clone();
+
+        shared.emit(RunEvent::Aborted);
+        clone.emit(RunEvent::Aborted);
+
+        assert_eq!(
+            log.lock().unwrap().len(),
+            2,
+            "both clones must write to the same observer"
+        );
     }
 }

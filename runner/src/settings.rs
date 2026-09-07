@@ -79,15 +79,6 @@ pub struct AppSettings {
     /// cannot find it. Empty = auto-detect.
     #[serde(default)]
     pub browser_npx_path: String,
-    /// History-eviction tuning for the agent's token usage. See
-    /// [`crate::context::configure_eviction`]. Trailing messages kept verbatim
-    /// (even → whole turn-pairs). Missing/0 is normalized to the default in
-    /// [`AppSettings::load`].
-    pub evict_keep_recent_messages: usize,
-    /// Tool-result text longer than this (chars) is elided once stale.
-    pub evict_text_over_chars: usize,
-    /// Tool-use input longer than this (chars) is elided once stale.
-    pub evict_input_over_chars: usize,
     /// How many model requests may be in flight at once against one endpoint,
     /// across every conversion running in parallel. `0` means no cap.
     ///
@@ -123,9 +114,6 @@ impl Default for AppSettings {
             aem_password: "admin".to_string(),
             browser_enabled: default_browser_enabled(),
             browser_npx_path: String::new(),
-            evict_keep_recent_messages: crate::context::DEFAULT_KEEP_RECENT_MESSAGES,
-            evict_text_over_chars: crate::context::DEFAULT_ELIDE_TEXT_OVER_CHARS,
-            evict_input_over_chars: crate::context::DEFAULT_ELIDE_INPUT_OVER_CHARS,
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
         }
@@ -141,16 +129,6 @@ fn default_browser_enabled() -> bool {
 }
 
 impl AppSettings {
-    /// Push runtime tuning (currently history eviction) into [`crate::context`].
-    /// Call at startup and whenever settings change.
-    pub fn apply_runtime_config(&self) {
-        crate::context::configure_eviction(
-            self.evict_keep_recent_messages,
-            self.evict_text_over_chars,
-            self.evict_input_over_chars,
-        );
-    }
-
     /// The endpoint every AI feature talks to: the selected provider's base URL,
     /// key and model, resolved in one place so no caller pairs the wrong two.
     pub fn llm_endpoint(&self) -> LlmEndpoint {
@@ -221,13 +199,6 @@ impl AppSettings {
         }
 
         let d = Self::default();
-        or_default(
-            &mut self.evict_keep_recent_messages,
-            d.evict_keep_recent_messages,
-        );
-        or_default(&mut self.evict_text_over_chars, d.evict_text_over_chars);
-        or_default(&mut self.evict_input_over_chars, d.evict_input_over_chars);
-
         or_default(&mut self.max_review_rounds, d.max_review_rounds);
 
         // Settings saved before the provider switch existed carry no base URL.

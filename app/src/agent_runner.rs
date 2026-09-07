@@ -133,8 +133,8 @@ pub async fn run_agent(
     processing_state: RunState,
 ) -> Option<String> {
     let opts = config.into_options();
-    let mut observer = announce(&opts, processing_state);
-    let completed = runner::run_fresh(files, &opts, &session_label, &mut observer).await;
+    let observer = pipeline::SharedObserver::new(announce(&opts, processing_state));
+    let completed = runner::run_fresh(files, &opts, &session_label, &observer).await;
     publish(completed, opts.target, processing_state)
 }
 
@@ -152,8 +152,8 @@ pub async fn run_agent_resume(
     processing_state: RunState,
 ) -> Option<String> {
     let opts = config.into_options();
-    let mut observer = announce(&opts, processing_state);
-    let completed = runner::resume(seed, pdfs, &opts, structured_session, &mut observer).await;
+    let observer = pipeline::SharedObserver::new(announce(&opts, processing_state));
+    let completed = runner::resume(seed, pdfs, &opts, structured_session, &observer).await;
     publish(completed, opts.target, processing_state)
 }
 
@@ -240,14 +240,16 @@ pub async fn describe_reference(
     package_zip: Vec<u8>,
     endpoint: LlmEndpoint,
 ) -> Result<String, String> {
-    let turns = TurnPlan::for_endpoint(endpoint).provider()?;
+    let resolved = TurnPlan::for_endpoint(endpoint).resolve()?;
     pipeline::describe::describe_reference(
         profile,
         pdfs,
         package_zip,
         &AbortFlag::default(),
-        &turns,
-        &mut pipeline::NullObserver,
+        resolved.model,
+        resolved.price,
+        resolved.max_tokens,
+        &pipeline::SharedObserver::new(pipeline::NullObserver),
     )
     .await
 }

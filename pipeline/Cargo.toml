@@ -13,9 +13,14 @@ serde_json = { workspace = true }
 rig-core = { workspace = true }
 rig-agent = { workspace = true }
 tokio = { version = "1", features = ["rt", "time"] }
+# Drives `AgentRunner::stream()`'s item-by-item loop in `run_stage`.
+futures-util = "0.3"
 
 [dev-dependencies]
 # The controller is async; the tests drive it directly.
 tokio = { version = "1", features = ["macros", "rt"] }
 # Per-test scratch directories for the fake browser session.
 uuid = { workspace = true }
+# Scripted models and streamed turns for driving a real `Agent::runner` in
+# tests, with no network — rig's own test harness, not a hand-rolled one.
+rig-core = { workspace = true, features = ["test-utils"] }

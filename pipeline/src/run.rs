@@ -1,27 +1,33 @@
 //! The conversion controller: Analyst → Author → (Reviewer → Author-fix)* →
 //! finalize, sequenced over one shared [`ConversionAgent`].
 //!
-//! Everything it needs from the outside arrives through two traits — a
-//! [`TurnProvider`] for the model and a [`RunObserver`] for progress and retry
-//! decisions — so the whole pipeline is drivable from a test with no network and
-//! no UI framework.
+//! Each stage runs as a real rig [`Agent`], driven through
+//! [`AgentRunner::stream`]: [`crate::hooks::StageHook`] is what reproduces the
+//! abort flag, the tool timeline, the stuck watchdog and the output-cap
+//! nudge, and this module is what reproduces the operator's retry prompt — by
+//! restarting a failed attempt from exactly the point it failed, rather than
+//! resuming the same `AgentRun` in place, which rig's own execution model does
+//! not expose a seam for (see [`run_stage`]'s docs). Progress and retry
+//! decisions still cross one boundary, [`RunObserver`], so the sequencing is
+//! drivable from a test with no network and no desktop runtime — now against
+//! rig's own [`rig_core::test_utils::MockCompletionModel`] rather than a
+//! hand-rolled turn provider.
 
-use agent::{ConversionAgent, ToolReply};
+use agent::ToolReply;
 use blueprint::{DocumentEnvelope, OutputTarget};
-
-use crate::observer::{AbortFlag, RetryAction, RunEvent, RunObserver, Spend};
-use crate::roles::{
-    self, MAX_AUTO_RETRIES, MAX_MAX_TOKEN_NUDGES, MAX_RETRY_BACKOFF_SECS, MAX_VALIDATE_REPEATS,
-    RETRY_BACKOFF_SECS, RETRY_POLL_MS, Role,
-};
-use rig_agent::agent::hook::{InvalidToolCallAction, RetryRequest};
-use rig_agent::agent::run::streamed::{PartialStreamedTurn, StreamedInvalidToolCall};
-use rig_agent::agent::run::{AgentRun, AgentRunStep};
-use rig_core::completion::request::ResponseIdentity;
-use rig_core::completion::{FinishReason, ToolDefinition};
+use rig_agent::agent::model::ModelHandle;
+use rig_agent::agent::{Agent, AgentBuilder, StreamingError};
+use rig_agent::completion::PromptError;
+use rig_core::completion::CompletionError;
 use rig_core::message::{AssistantContent, Message};
 
-use crate::turns::{ModelReply, TurnProvider, tool_definitions, tool_results};
+use crate::hooks::{PriceFn, SharedHook, StageHook};
+use crate::observer::{AbortFlag, RetryAction, RunEvent, SharedObserver, Spend};
+use crate::roles::{
+    self, MAX_AUTO_RETRIES, MAX_RETRY_BACKOFF_SECS, MAX_VALIDATE_REPEATS, RETRY_POLL_MS, Role,
+    RETRY_BACKOFF_SECS,
+};
+use crate::tools::{self, SharedAgent};
 
 /// The choices that shape a run, independent of who is driving it.
 pub struct RunConfig {
@@ -37,6 +43,14 @@ pub struct RunConfig {
     pub template_note: &'static str,
     /// Whether an AEM connection is configured — gates the finalize upload step.
     pub has_aem_connection: bool,
+    /// The model every stage runs against. `runner` resolves and rate-limits
+    /// this; the controller carries no model tables of its own.
+    pub model: ModelHandle,
+    /// Prices one turn's usage in USD — see [`PriceFn`].
+    pub price: PriceFn,
+    /// Output-token cap sent with every request — provider knowledge `runner`
+    /// resolves per model, same as `model` and `price`.
+    pub max_tokens: u32,
 }
 
 /// What starts a run: a fresh analysis, feedback on the previous result, or
@@ -116,32 +130,30 @@ pub struct RunOutcome {
     pub warnings: Vec<String>,
 }
 
-/// Sequence the pipeline over `agent`.
+/// Sequence the pipeline over `shared_agent`.
 ///
 /// `None` means the run ended before producing anything — the user aborted, or
 /// gave up at a retry prompt. The observer has already been told why.
 pub async fn run(
-    mut agent: ConversionAgent,
+    shared_agent: SharedAgent,
     config: RunConfig,
     seed: RunSeed,
-    turns: &impl TurnProvider,
-    obs: &mut impl RunObserver,
+    obs: SharedObserver,
 ) -> Option<RunOutcome> {
-    let outcome = run_stages(&mut agent, &config, seed, turns, obs).await;
+    let outcome = run_stages(&shared_agent, &config, seed, &obs).await;
     // Every way out (approved, unapproved, aborted, given up at a retry
     // prompt) closes the browser, so no headless Chrome outlives the run.
-    agent.shutdown_browser().await;
+    shared_agent.lock().await.shutdown_browser().await;
     outcome
 }
 
 /// The stages themselves; [`run`] wraps this with the teardown that must happen
 /// on every exit path.
 async fn run_stages(
-    agent: &mut ConversionAgent,
+    shared_agent: &SharedAgent,
     config: &RunConfig,
     seed: RunSeed,
-    turns: &impl TurnProvider,
-    obs: &mut impl RunObserver,
+    obs: &SharedObserver,
 ) -> Option<RunOutcome> {
     // Load the selected profile's fonts so on-demand renders have the right
     // typefaces (the font store is global, shared with rendering). Both a fresh
@@ -169,13 +181,15 @@ async fn run_stages(
             doing: "analysing the source and researching precedents".into(),
         });
         plan = run_stage(
-            agent,
+            shared_agent,
             stages.analyst,
             &roles::sys_analyst(target, extra),
             "Analyse the source form and produce the detailed CONVERSION PLAN. \
              Your final message is the plan.",
             &config.abort,
-            turns,
+            config.model.clone(),
+            config.price.clone(),
+            config.max_tokens,
             obs,
         )
         .await?; // fatal API error or abort, already surfaced
@@ -188,12 +202,14 @@ async fn run_stages(
     });
     let author_seed = author_seed_for(&seed, &reviews, &stages);
     run_stage(
-        agent,
+        shared_agent,
         stages.author,
         &roles::sys_author(target, extra, config.template_note, &plan, &reviews),
         author_seed,
         &config.abort,
-        turns,
+        config.model.clone(),
+        config.price.clone(),
+        config.max_tokens,
         obs,
     )
     .await?;
@@ -207,18 +223,21 @@ async fn run_stages(
             doing: format!("reviewing (round {})", round + 1),
         });
         run_stage(
-            agent,
+            shared_agent,
             stages.reviewer,
             &roles::sys_reviewer(target, extra, &plan, &reviews),
             "Review the built form end to end against the source and the CONVERSION PLAN, \
              then finish by calling submit_review.",
             &config.abort,
-            turns,
+            config.model.clone(),
+            config.price.clone(),
+            config.max_tokens,
             obs,
         )
         .await?;
 
-        match agent.take_review() {
+        let review = shared_agent.lock().await.take_review();
+        match review {
             Some(r) if r.approved => {
                 approved = true;
                 obs.emit(RunEvent::Thought("Reviewer approved the form.".into()));
@@ -235,12 +254,14 @@ async fn run_stages(
                     doing: format!("applying review feedback (round {})", round + 1),
                 });
                 run_stage(
-                    agent,
+                    shared_agent,
                     stages.author,
                     &roles::sys_author(target, extra, config.template_note, &plan, &reviews),
                     stages.author_fix_seed,
                     &config.abort,
-                    turns,
+                    config.model.clone(),
+                    config.price.clone(),
+                    config.max_tokens,
                     obs,
                 )
                 .await?;
@@ -267,24 +288,25 @@ async fn run_stages(
     // dump the Author already validated is the artefact, and calling this would
     // paint a failed build step on an otherwise successful run.
     if target == OutputTarget::Aem {
-        ensure_built_and_uploaded(agent, config.has_aem_connection, obs).await;
+        ensure_built_and_uploaded(shared_agent, config.has_aem_connection, obs).await;
     }
 
-    Some(finalize(agent, config, warnings))
+    Some(finalize(shared_agent, config, warnings).await)
 }
 
 /// Assemble the run's artefacts from the agent's working trees.
-fn finalize(
-    agent: &mut ConversionAgent,
+async fn finalize(
+    shared_agent: &SharedAgent,
     config: &RunConfig,
     mut warnings: Vec<String>,
 ) -> RunOutcome {
     let profile = config.profile.clone();
+    let mut agent = shared_agent.lock().await;
     let agent::outputs::Outputs {
         envelope,
         redacto_sql,
         warnings: build_warnings,
-    } = agent::outputs::build(agent, profile.as_deref());
+    } = agent::outputs::build(&mut agent, profile.as_deref());
     warnings.extend(build_warnings);
 
     let form_code = agent.form_code();
@@ -423,7 +445,7 @@ pub(crate) async fn sleep_unless_aborted(
 /// tree and this stage's history stay in memory, so a retry re-sends exactly the
 /// turn that failed rather than restarting the conversion.
 async fn await_user_retry(
-    obs: &mut impl RunObserver,
+    obs: &SharedObserver,
     abort: &AbortFlag,
     role: &str,
     err: &str,
@@ -453,70 +475,177 @@ async fn await_user_retry(
     action
 }
 
-/// Run one turn, absorbing transient failures: automatic retries with
-/// exponential backoff first, then a pause that hands the decision to the
-/// operator. `None` means the run should stop.
+/// Run one stage to completion: a fresh [`Agent::runner`] seeded with
+/// `seed_user_msg`, the stage's scoped tool subset, and its `system` prompt.
+/// Returns the last non-tool assistant message; `None` if the run should stop.
+///
+/// rig's own execution model owns turn counting, tool-call validation and
+/// history threading; [`crate::hooks::StageHook`] is what reproduces the
+/// abort flag, the tool timeline, the output-cap nudge and the stuck
+/// watchdog. What is left here is what rig has no seam for at all: a
+/// transient failure's automatic retry and backoff, the operator's Retry
+/// prompt, and — since rig cannot resume a failed `AgentRunner` in place —
+/// restarting a fresh one from exactly the point the failed attempt reached,
+/// using [`crate::hooks::StageHook::last_attempt`].
+///
+/// A hook's stop (abort, the stuck watch, `submit_review`) surfaces as
+/// `Err(PromptError::PromptCancelled)` rather than a normal finish — rig has
+/// no "clean early stop" outcome — so those reasons are read back here as
+/// success, not failure; see the sentinels in [`crate::hooks`].
 #[allow(clippy::too_many_arguments)]
-async fn turn_with_retry(
-    prompt: &Message,
-    history: &[Message],
-    tools: &[ToolDefinition],
-    role: &Role,
+pub(crate) async fn run_stage(
+    shared_agent: &SharedAgent,
+    role: &'static Role,
     system: &str,
+    seed_user_msg: &str,
     abort: &AbortFlag,
-    turns: &impl TurnProvider,
-    obs: &mut impl RunObserver,
-    resolve_invalid: crate::turns::ResolveInvalidCall<'_>,
-) -> Option<ModelReply> {
+    model: ModelHandle,
+    price: PriceFn,
+    max_tokens: u32,
+    obs: &SharedObserver,
+) -> Option<String> {
+    use futures_util::StreamExt;
+
+    let specs = shared_agent.lock().await.tools_for_stage(role.scope);
+    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, obs);
+
+    let mut restart_from: Option<Vec<Message>> = None;
+    let mut total_completed_turns = 0usize;
+    let mut final_text = String::new();
     let mut auto_retries = 0usize;
+    let mut total_spend = Spend::default();
+
     loop {
-        // The prompt and history are cloned per attempt: a retry must re-send
-        // exactly what failed, and the provider evicts its own copy.
-        match turns
-            .call_model(
-                prompt.clone(),
-                history.to_vec(),
-                tools,
-                system,
-                abort,
-                resolve_invalid,
-            )
-            .await
-        {
-            Ok(turn) => return Some(turn),
-            Err(e) => {
-                // An aborted turn is a stop, not a failure: it must not be
-                // retried, nor hand the operator a Retry button for a run they
-                // just asked to end.
+        if abort.is_aborted() {
+            obs.emit(RunEvent::Aborted);
+            return None;
+        }
+        let remaining = role.max_iterations.saturating_sub(total_completed_turns).max(1);
+        // A fresh hook per attempt carries the turn count and spend forward
+        // (both threaded in above), but not the output-cap nudge counter or
+        // the stuck watch's repeat count — those reset to zero on a restart.
+        // Accepted: a transient network failure landing mid-nudge or
+        // mid-repeat-sequence gives the stage a few turns' extra leeway
+        // rather than losing progress, which is the direction to err in for
+        // state that only ever *tightens* a budget, never grows the actual
+        // turn/spend totals a restart must not lose.
+        let hook = SharedHook::new(StageHook::new(
+            role,
+            abort.clone(),
+            obs.clone(),
+            price.clone(),
+            total_spend,
+        ));
+
+        let runner = match restart_from.take() {
+            None => agent.runner(seed_user_msg.to_string()),
+            Some(mut attempt) => {
+                // `last_attempt` always captured history plus the prompt about
+                // to be sent, so a restart's own prompt is that last message
+                // and the rest becomes the history it is resumed with.
+                let prompt = attempt
+                    .pop()
+                    .expect("a restart always captured at least one message");
+                agent.runner(prompt).history(attempt)
+            }
+        };
+        let mut stream = runner
+            .preamble(system)
+            .max_turns(remaining)
+            .add_hook(hook.clone())
+            .stream()
+            .await;
+
+        let mut stream_error: Option<StreamingError> = None;
+        while let Some(item) = stream.next().await {
+            if let Err(e) = item {
+                stream_error = Some(e);
+                break;
+            }
+        }
+        drop(stream);
+
+        total_completed_turns += hook.completed_turns();
+        total_spend = hook.spend();
+        if !hook.final_text().is_empty() {
+            final_text = hook.final_text();
+        }
+
+        let Some(error) = stream_error else {
+            return Some(final_text);
+        };
+
+        match error {
+            StreamingError::Prompt(boxed) => match *boxed {
+                PromptError::PromptCancelled { chat_history, reason } => {
+                    if abort.is_aborted() {
+                        obs.emit(RunEvent::Aborted);
+                        return None;
+                    }
+                    let text = last_assistant_text(&chat_history);
+                    if !text.is_empty() {
+                        final_text = text;
+                    }
+                    if reason == crate::hooks::STUCK_SENTINEL {
+                        obs.emit(RunEvent::Warning(format!(
+                            "{}: {} produced the same result {} times in a row — moving on.",
+                            role.name, role.stuck_activity, MAX_VALIDATE_REPEATS
+                        )));
+                    }
+                    return Some(final_text);
+                }
+                PromptError::MaxTurnsError { chat_history, max_turns, .. } => {
+                    let text = last_assistant_text(&chat_history);
+                    if !text.is_empty() {
+                        final_text = text;
+                    }
+                    // The stage went off the rails and burned its whole turn
+                    // budget without a `submit_review`/finish — the hand-rolled
+                    // loop warned on every `AgentRun` step error, this one
+                    // included, and silently finalizing here would hide exactly
+                    // the "ran out of budget" case an operator most needs to see.
+                    obs.emit(RunEvent::Warning(format!(
+                        "{}: reached its {max_turns}-turn budget without finishing — \
+                         finalizing with whatever it produced.",
+                        role.name
+                    )));
+                    return Some(final_text);
+                }
+                other => {
+                    obs.emit(RunEvent::Warning(format!("{}: {other}", role.name)));
+                    return Some(final_text);
+                }
+            },
+            StreamingError::Completion(completion_error) => {
+                let text = describe_completion_error(&completion_error);
                 if abort.is_aborted() {
                     obs.emit(RunEvent::Aborted);
                     return None;
                 }
-                if is_transient_error(&e) && auto_retries < MAX_AUTO_RETRIES {
+                if is_transient_error(&text) && auto_retries < MAX_AUTO_RETRIES {
                     let backoff =
                         (RETRY_BACKOFF_SECS << auto_retries.min(4)).min(MAX_RETRY_BACKOFF_SECS);
-                    // The provider's own answer wins over the computed backoff;
-                    // otherwise spread the wait so parallel runs that failed
-                    // together do not retry together.
-                    let wait = parse_retry_after(&e)
+                    let wait = parse_retry_after(&text)
                         .map(|secs| secs.min(MAX_RETRY_BACKOFF_SECS))
                         .unwrap_or_else(|| jittered_backoff(backoff, jitter_seed()));
                     auto_retries += 1;
                     obs.emit(RunEvent::Thought(format!(
-                        "Request failed ({e}) — retrying in {wait}s \
+                        "Request failed ({text}) — retrying in {wait}s \
                          (attempt {auto_retries} of {MAX_AUTO_RETRIES})."
                     )));
                     if sleep_unless_aborted(std::time::Duration::from_secs(wait), abort).await {
                         obs.emit(RunEvent::Aborted);
                         return None;
                     }
+                    restart_from = Some(hook.last_attempt());
                     continue;
                 }
-                match await_user_retry(obs, abort, role.name, &e).await {
+                match await_user_retry(obs, abort, role.name, &text).await {
                     RetryAction::Retry => {
                         // A user-driven retry resets the automatic budget, so a
                         // long unattended stall can be resumed repeatedly.
                         auto_retries = 0;
+                        restart_from = Some(hook.last_attempt());
                         continue;
                     }
                     RetryAction::Cancel => return None,
@@ -526,307 +655,92 @@ async fn turn_with_retry(
     }
 }
 
-/// Watches one tool for "same answer, again and again". A stage that keeps
-/// re-running `validate_aem_package` (or `build_redacto_dump`) on an unchanged
-/// tree is going in circles, and the run has to move on rather than burn its
-/// whole turn budget.
-pub(crate) struct StuckWatch {
-    /// The tool whose repeated identical output counts. `None` disables the watch.
-    tool: Option<&'static str>,
-    /// Digest of the last output seen from that tool.
-    last: Option<u64>,
-    repeats: usize,
-}
-
-impl StuckWatch {
-    pub(crate) fn new(tool: Option<&'static str>) -> Self {
-        Self {
-            tool,
-            last: None,
-            repeats: 0,
-        }
-    }
-
-    /// Record one tool result; `true` once the watched tool has produced the
-    /// same output [`MAX_VALIDATE_REPEATS`] times running. Any other tool call
-    /// means the stage is making progress, and resets the count.
-    pub(crate) fn observe(&mut self, name: &str, reply: &ToolReply) -> bool {
-        if self.tool != Some(name) {
-            self.last = None;
-            self.repeats = 0;
-            return false;
-        }
-
-        // Hash rather than keep the text: a validation report can be large, and
-        // all this needs is "same as last time?".
-        let digest = {
-            use std::hash::{Hash, Hasher};
-            let mut hasher = std::collections::hash_map::DefaultHasher::new();
-            match reply {
-                ToolReply::Text(t) => (0u8, t).hash(&mut hasher),
-                ToolReply::Error(e) => (1u8, e).hash(&mut hasher),
-                ToolReply::Image { .. } => 2u8.hash(&mut hasher),
-                ToolReply::Blocks(blocks) => {
-                    3u8.hash(&mut hasher);
-                    for block in blocks {
-                        match block {
-                            agent::ReplyBlock::Text(t) => (0u8, t).hash(&mut hasher),
-                            agent::ReplyBlock::Image { .. } => 1u8.hash(&mut hasher),
-                        }
-                    }
-                }
+/// Build one stage's `Agent`: the model it runs against, plus the tool
+/// catalog's own scoped subset bridged onto rig's `DynamicTool` — see
+/// [`crate::tools`].
+fn build_stage_agent(
+    model: ModelHandle,
+    max_tokens: u32,
+    shared_agent: &SharedAgent,
+    specs: &[serde_json::Value],
+    obs: &SharedObserver,
+) -> Agent {
+    let dynamic_tools = tools::dynamic_tools_for(shared_agent, specs, obs);
+    let builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
+    let mut iter = dynamic_tools.into_iter();
+    match iter.next() {
+        None => builder.build(),
+        Some(first) => {
+            let mut builder = builder.dynamic_tool(first);
+            for tool in iter {
+                builder = builder.dynamic_tool(tool);
             }
-            hasher.finish()
-        };
-
-        if self.last == Some(digest) {
-            self.repeats += 1;
-        } else {
-            self.last = Some(digest);
-            self.repeats = 1;
+            builder.build()
         }
-        self.repeats >= MAX_VALIDATE_REPEATS
     }
 }
 
-/// Drive one stage to completion: a fresh run seeded with `seed_user_msg`, the
-/// stage's scoped tool subset, and its `system` prompt, over the same
-/// [`TurnProvider`] as every other stage. Returns the last non-tool assistant
-/// message; `None` if the run should stop.
+/// Render a bare provider failure the way the retry ladder and the operator
+/// prompt have always read it: the error text, plus the transport's own
+/// `[status: N]`/`[retry-after: N]` suffixes when the provider reported them.
 ///
-/// The loop is rig's [`AgentRun`] — a sans-IO state machine that owns turn
-/// counting, tool-call validation and history threading, and hands every piece
-/// of I/O back here. That is what lets the abort flag, the operator retry
-/// prompt, the stuck watchdog and the observer events keep working exactly as
-/// they did when this loop was hand-rolled.
-pub(crate) async fn run_stage(
-    agent: &mut ConversionAgent,
-    role: &Role,
-    system: &str,
-    seed_user_msg: &str,
-    abort: &AbortFlag,
-    turns: &impl TurnProvider,
-    obs: &mut impl RunObserver,
-) -> Option<String> {
-    let tools = tool_definitions(&agent.tools_for_stage(role.scope));
-    let mut final_text = String::new();
-
-    let mut stuck_watch = StuckWatch::new(role.stuck_tool);
-    let mut consecutive_max_tokens: usize = 0;
-    let mut spend = Spend::default();
-
-    let mut run = AgentRun::new(seed_user_msg)
-        .max_turns(role.max_iterations)
-        // A truncated argument stream is the model's mistake to correct, not a
-        // reason to fail the stage; repairing it is what the hand-rolled loop
-        // approximated by substituting an empty input.
-        .max_invalid_tool_call_retries(MAX_AUTO_RETRIES);
-
-    loop {
-        if abort.is_aborted() {
-            obs.emit(RunEvent::Aborted);
-            return None;
-        }
-
-        let step = match run.next_step() {
-            Ok(step) => step,
-            Err(e) => {
-                obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
-                break;
-            }
-        };
-
-        match step {
-            AgentRunStep::CallModel {
-                prompt, history, ..
-            } => {
-                // Transient failures are retried automatically, then handed to
-                // the operator — a dropped connection must not throw away a
-                // long run.
-                let reply = {
-                    let run = &mut run;
-                    let mut resolve = move |partial: &PartialStreamedTurn,
-                                            invalid: &StreamedInvalidToolCall| {
-                        // The hand-rolled loop answered an unknown tool with a
-                        // failed tool result and let the model try again. Skip
-                        // is the same bargain: the model is told, in its own
-                        // transcript, that the call did not happen and why.
-                        let name = &invalid.tool_call.function.name;
-                        let reason = format!(
-                            "Unknown tool: {name}. It is not available to the {} at this \
-                             stage. Use one of the tools you were given.",
-                            role.name
-                        );
-                        run.resolve_streamed_invalid_tool_call(
-                            partial,
-                            invalid,
-                            InvalidToolCallAction::skip(reason),
-                        )
-                        .map_err(|e| e.to_string())
-                    };
-                    turn_with_retry(
-                        &prompt,
-                        &history,
-                        &tools,
-                        role,
-                        system,
-                        abort,
-                        turns,
-                        obs,
-                        &mut resolve,
-                    )
-                    .await?
-                };
-
-                // Per-stage context-window fill indicator.
-                if reply.prompt_tokens > 0 {
-                    obs.emit(RunEvent::ContextUsed(reply.prompt_tokens));
-                }
-                spend.add(&reply.usage, reply.cost_usd);
-                obs.emit(RunEvent::Spend(spend));
-                if !reply.text.trim().is_empty() {
-                    final_text = reply.text.trim().to_string();
-                    obs.emit(RunEvent::Thought(final_text.clone()));
-                }
-
-                let finish_reason = reply.turn.finish_reason.clone();
-                let had_tool_calls = reply
-                    .turn
-                    .choice
-                    .iter()
-                    .any(|c| matches!(c, AssistantContent::ToolCall(_)));
-
-                // Usage does not reach the run on its own on the streamed path:
-                // `StreamedTurn` carries none, so without this the run's totals
-                // stay at zero and the spend report reads as free.
-                if let Err(e) = run.record_streamed_completion_call(
-                    reply.usage,
-                    ResponseIdentity::default(),
-                    finish_reason.clone(),
-                    serde_json::Value::Null,
-                ) {
-                    obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
-                    break;
-                }
-                // A turn the run already rolled back while resolving a bad
-                // tool call must not be fed in: its corrective messages are
-                // in the history, and the usage above is all that was owed.
-                if reply.abandoned {
-                    continue;
-                }
-                if let Err(e) = run.streamed_turn(reply.turn) {
-                    obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
-                    break;
-                }
-
-                // A turn cut off at the output-token cap didn't decide to stop —
-                // nudge toward incremental authoring rather than ending the
-                // stage. Only a tool-free turn can be retried this way; one that
-                // did request tools carries them into the next step as usual.
-                if finish_reason == Some(FinishReason::Length)
-                    && !had_tool_calls
-                    && consecutive_max_tokens < MAX_MAX_TOKEN_NUDGES
-                {
-                    consecutive_max_tokens += 1;
-                    if run
-                        .retry_model_turn(RetryRequest::Feedback(role.max_tokens_nudge.to_string()))
-                        .is_ok()
-                    {
-                        obs.emit(RunEvent::Thought(
-                            "Turn hit the output-token limit — asking the agent to build the \
-                             result incrementally instead of in one call."
-                                .into(),
-                        ));
-                        continue;
-                    }
-                }
-                if had_tool_calls {
-                    consecutive_max_tokens = 0;
-                }
-            }
-
-            AgentRunStep::CallTools { calls } => {
-                let mut results = Vec::new();
-                let mut stuck = false;
-                let mut terminal = false;
-
-                for call in calls {
-                    if abort.is_aborted() {
-                        obs.emit(RunEvent::Aborted);
-                        return None;
-                    }
-                    let name = call.tool_call.function.name.clone();
-                    let id = call.tool_call.id.clone();
-                    let input = call.tool_call.function.arguments.clone();
-
-                    obs.emit(RunEvent::ToolStarted {
-                        id: id.as_str().to_string(),
-                        name: name.clone(),
-                        input_summary: summarize_input(&input),
-                    });
-                    let reply = agent.execute(&name, &input).await;
-                    let ok = !matches!(reply, ToolReply::Error(_));
-                    obs.emit(RunEvent::ToolFinished {
-                        id: id.as_str().to_string(),
-                        ok,
-                        reply_chars: reply_size_chars(&reply),
-                    });
-                    if let Some(warning) = oversized_reply_warning(&name, &reply) {
-                        obs.emit(RunEvent::Warning(warning));
-                    }
-                    // A browser restart is the agent's business to perform and
-                    // the operator's to know about.
-                    for warning in agent.take_warnings() {
-                        obs.emit(RunEvent::Warning(warning));
-                    }
-
-                    // `submit_review` ends the stage after its result is recorded.
-                    if name == "submit_review" {
-                        terminal = true;
-                    }
-                    stuck |= stuck_watch.observe(&name, &reply);
-
-                    results.push((id, name, reply));
-                }
-
-                if let Err(e) = run.tool_results(tool_results(results)) {
-                    obs.emit(RunEvent::Warning(format!("{}: {e}", role.name)));
-                    break;
-                }
-
-                if terminal {
-                    break;
-                }
-                if stuck {
-                    obs.emit(RunEvent::Warning(format!(
-                        "{}: {} produced the same result {} times in a row — moving on.",
-                        role.name, role.stuck_activity, MAX_VALIDATE_REPEATS
-                    )));
-                    break;
-                }
-            }
-
-            AgentRunStep::Done(_) => break,
-        }
+/// `pub`: this is the one place that wording is produced, and `runner`'s own
+/// transport tests classify a *real* provider failure through it — the
+/// coupling between this text and [`is_transient_error`]'s substring matching
+/// is invisible to the compiler, and it has already broken once across this
+/// crate boundary when the wording changed on one side only.
+pub fn describe_completion_error(error: &CompletionError) -> String {
+    let mut text = format!("LLM API error: {error}");
+    if let Some(status) = error.provider_response_status() {
+        text.push_str(&format!(" [status: {}]", status.as_u16()));
     }
+    if let Some(secs) = error
+        .provider_response_headers()
+        .and_then(|headers| headers.get("retry-after"))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+    {
+        text.push_str(&format!(" [retry-after: {secs}]"));
+    }
+    text
+}
 
-    Some(final_text)
+/// The last assistant text in a history rig hands back on a stop or a
+/// budget-exhausted run — `run_stage`'s answer to "what did the stage say
+/// last" when there is no [`rig_agent::agent::PromptResponse`] to read it
+/// from at all.
+fn last_assistant_text(history: &[Message]) -> String {
+    history
+        .iter()
+        .rev()
+        .find_map(|m| match m {
+            Message::Assistant { content, .. } => {
+                let text: String = content
+                    .iter()
+                    .filter_map(|c| match c {
+                        AssistantContent::Text(t) => Some(t.text.as_str()),
+                        _ => None,
+                    })
+                    .collect();
+                (!text.trim().is_empty()).then(|| text.trim().to_string())
+            }
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// Run one of the agent's own tools as a visible finalize step. Returns whether
 /// it succeeded.
-async fn tool_step(
-    agent: &mut ConversionAgent,
-    id: &str,
-    tool: &str,
-    obs: &mut impl RunObserver,
-) -> bool {
+async fn tool_step(shared_agent: &SharedAgent, id: &str, tool: &str, obs: &SharedObserver) -> bool {
     obs.emit(RunEvent::ToolStarted {
         id: id.to_string(),
         name: tool.to_string(),
         input_summary: "finalize".into(),
     });
-    let reply = agent.execute(tool, &serde_json::json!({})).await;
+    let reply = {
+        let mut agent = shared_agent.lock().await;
+        agent.execute(tool, &serde_json::json!({})).await
+    };
     let ok = !matches!(reply, ToolReply::Error(_));
     obs.emit(RunEvent::ToolFinished {
         id: id.to_string(),
@@ -846,14 +760,15 @@ async fn tool_step(
 /// connection is configured and it hasn't been uploaded yet. Reuses the agent's
 /// own tools.
 async fn ensure_built_and_uploaded(
-    agent: &mut ConversionAgent,
+    shared_agent: &SharedAgent,
     has_aem_connection: bool,
-    obs: &mut impl RunObserver,
+    obs: &SharedObserver,
 ) {
-    let built = tool_step(agent, "finalize-build", "build_aem_package", obs).await;
+    let built = tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
 
-    if built && has_aem_connection && !agent.aem_uploaded() {
-        tool_step(agent, "finalize-upload", "upload_to_aem", obs).await;
+    let already_uploaded = shared_agent.lock().await.aem_uploaded();
+    if built && has_aem_connection && !already_uploaded {
+        tool_step(shared_agent, "finalize-upload", "upload_to_aem", obs).await;
     }
 }
 
@@ -1027,392 +942,306 @@ mod tests {
         }
     }
 
-    
-        /// The stuck guard is what stops a stage burning its whole turn budget
-        /// re-validating an unchanged tree, so pin down when it fires — and when it
-        /// must not.
-        #[test]
-        fn the_stuck_watch_fires_only_on_repeats_of_the_watched_tool() {
-            let same = || ToolReply::Text("3 errors".to_string());
-            let mut watch = StuckWatch::new(Some("validate_aem_package"));
-    
-            assert!(!watch.observe("validate_aem_package", &same()));
-            assert!(!watch.observe("validate_aem_package", &same()));
-            // Third identical result in a row: the stage is going in circles.
-            assert!(watch.observe("validate_aem_package", &same()));
-        }
+    #[test]
+    fn summarize_input_truncates() {
+        assert_eq!(summarize_input(&serde_json::json!({})), "");
+        let long = serde_json::json!({"q": "x".repeat(500)});
+        assert!(summarize_input(&long).chars().count() <= 121);
+    }
 
-    
-        #[test]
-        fn the_stuck_watch_resets_on_progress() {
-            let mut watch = StuckWatch::new(Some("validate_aem_package"));
-    
-            assert!(!watch.observe("validate_aem_package", &ToolReply::Text("3 errors".into())));
-            assert!(!watch.observe("validate_aem_package", &ToolReply::Text("3 errors".into())));
-            // A different output means the tree changed.
-            assert!(!watch.observe("validate_aem_package", &ToolReply::Text("1 error".into())));
-            assert!(!watch.observe("validate_aem_package", &ToolReply::Text("1 error".into())));
-    
-            // An intervening edit resets the count too.
-            assert!(!watch.observe("set_aem_translated_field", &ToolReply::Text("ok".into())));
-            assert!(!watch.observe("validate_aem_package", &ToolReply::Text("1 error".into())));
-        }
-
-    
-        /// A role with no watched tool must never report stuck, however repetitive.
-        #[test]
-        fn a_stage_without_a_stuck_tool_never_reports_stuck() {
-            let mut watch = StuckWatch::new(None);
-            for _ in 0..10 {
-                assert!(!watch.observe("get_source_info", &ToolReply::Text("same".into())));
-            }
-        }
-
-    
-        #[test]
-        fn summarize_input_truncates() {
-            assert_eq!(summarize_input(&serde_json::json!({})), "");
-            let long = serde_json::json!({"q": "x".repeat(500)});
-            assert!(summarize_input(&long).chars().count() <= 121);
-        }
-
-        /// Every `ToolReply` shape counts toward the size a run reports —
-        /// otherwise a reply that happened to come back as `Blocks` or
-        /// `Image` would silently escape the same instrumentation a `Text`
-        /// reply gets.
-        #[test]
-        fn reply_size_counts_every_reply_shape() {
-            assert_eq!(reply_size_chars(&ToolReply::Text("hello".into())), 5);
-            assert_eq!(reply_size_chars(&ToolReply::Error("boom!!".into())), 6);
-            assert_eq!(
-                reply_size_chars(&ToolReply::Image {
-                    media_type: "image/jpeg",
-                    images: vec!["ab".into(), "cde".into()],
-                }),
-                5,
-                "every image's payload must count, not just the first"
-            );
-            assert_eq!(
-                reply_size_chars(&ToolReply::Blocks(vec![
-                    agent::ReplyBlock::Text("hi".into()),
-                    agent::ReplyBlock::Image { media_type: "image/png".into(), data: "xyz".into() },
-                ])),
-                5
-            );
-        }
-
-        /// Regression: `generate_html`'s reply once cost a stage over 800,000
-        /// prompt tokens in a single call, and nothing recorded a reply's size
-        /// at all — the run reported success and moved on. The threshold has
-        /// to sit above the normal large replies this run makes
-        /// (`get_flattened_structure_for_state` runs 50-80,000 characters) so
-        /// it does not fire on ordinary tool traffic.
-        #[test]
-        fn the_warn_threshold_sits_above_ordinary_large_replies_and_below_the_incident() {
-            let ordinary_large = 80_000;
-            let the_actual_incident = 873_000;
-            assert!(ordinary_large < LARGE_TOOL_REPLY_WARN_CHARS);
-            assert!(the_actual_incident > LARGE_TOOL_REPLY_WARN_CHARS);
-        }
-
-        /// Regression, caught by this instrumentation on its first real run:
-        /// `get_annotated_state_image` legitimately replies with well over
-        /// 300,000 base64 characters for one full-page render — bounded to
-        /// under 1,600 real tokens by the vision encoder regardless — and the
-        /// size warning must not fire on it. Warning on every ordinary page
-        /// render would train the operator to ignore the warning by the time a
-        /// reply like `generate_html`'s actually needed it.
-        #[test]
-        fn a_large_image_reply_does_not_trip_the_text_warning() {
-            let big_page_render = "x".repeat(400_000);
-            let reply = ToolReply::Image {
+    /// Every `ToolReply` shape counts toward the size a run reports —
+    /// otherwise a reply that happened to come back as `Blocks` or
+    /// `Image` would silently escape the same instrumentation a `Text`
+    /// reply gets.
+    #[test]
+    fn reply_size_counts_every_reply_shape() {
+        assert_eq!(reply_size_chars(&ToolReply::Text("hello".into())), 5);
+        assert_eq!(reply_size_chars(&ToolReply::Error("boom!!".into())), 6);
+        assert_eq!(
+            reply_size_chars(&ToolReply::Image {
                 media_type: "image/jpeg",
-                images: vec![big_page_render],
-            };
+                images: vec!["ab".into(), "cde".into()],
+            }),
+            5,
+            "every image's payload must count, not just the first"
+        );
+        assert_eq!(
+            reply_size_chars(&ToolReply::Blocks(vec![
+                agent::ReplyBlock::Text("hi".into()),
+                agent::ReplyBlock::Image { media_type: "image/png".into(), data: "xyz".into() },
+            ])),
+            5
+        );
+    }
 
-            assert_eq!(
-                text_reply_chars(&reply),
-                0,
-                "an image reply carries no text at all"
-            );
-            // The full size is still recorded on the event, just not what
-            // gates the warning.
-            assert!(reply_size_chars(&reply) > LARGE_TOOL_REPLY_WARN_CHARS);
-        }
+    /// Regression: `generate_html`'s reply once cost a stage over 800,000
+    /// prompt tokens in a single call, and nothing recorded a reply's size
+    /// at all — the run reported success and moved on. The threshold has
+    /// to sit above the normal large replies this run makes
+    /// (`get_flattened_structure_for_state` runs 50-80,000 characters) so
+    /// it does not fire on ordinary tool traffic.
+    #[test]
+    fn the_warn_threshold_sits_above_ordinary_large_replies_and_below_the_incident() {
+        let ordinary_large = 80_000;
+        let the_actual_incident = 873_000;
+        assert!(ordinary_large < LARGE_TOOL_REPLY_WARN_CHARS);
+        assert!(the_actual_incident > LARGE_TOOL_REPLY_WARN_CHARS);
+    }
 
-        /// The distinction that makes the warning meaningful at all: the same
-        /// number of characters warns as text (the shape the actual incident
-        /// took) but not as an image (a shape that is already cost-bounded).
-        #[test]
-        fn the_same_size_warns_as_text_but_not_as_an_image() {
-            let payload = "x".repeat(LARGE_TOOL_REPLY_WARN_CHARS + 1);
+    /// Regression, caught by this instrumentation on its first real run:
+    /// `get_annotated_state_image` legitimately replies with well over
+    /// 300,000 base64 characters for one full-page render — bounded to
+    /// under 1,600 real tokens by the vision encoder regardless — and the
+    /// size warning must not fire on it. Warning on every ordinary page
+    /// render would train the operator to ignore the warning by the time a
+    /// reply like `generate_html`'s actually needed it.
+    #[test]
+    fn a_large_image_reply_does_not_trip_the_text_warning() {
+        let big_page_render = "x".repeat(400_000);
+        let reply = ToolReply::Image {
+            media_type: "image/jpeg",
+            images: vec![big_page_render],
+        };
 
-            assert!(text_reply_chars(&ToolReply::Text(payload.clone())) > LARGE_TOOL_REPLY_WARN_CHARS);
-            assert_eq!(
-                text_reply_chars(&ToolReply::Image {
-                    media_type: "image/jpeg",
-                    images: vec![payload],
-                }),
-                0
-            );
-        }
+        assert_eq!(
+            text_reply_chars(&reply),
+            0,
+            "an image reply carries no text at all"
+        );
+        // The full size is still recorded on the event, just not what
+        // gates the warning.
+        assert!(reply_size_chars(&reply) > LARGE_TOOL_REPLY_WARN_CHARS);
+    }
 
-        /// The wiring both `ToolFinished` call sites share: an oversized text
-        /// reply produces a warning naming the tool and the size, a
-        /// legitimately large image reply produces none.
-        #[test]
-        fn oversized_reply_warning_names_the_tool_for_text_but_stays_silent_for_images() {
-            let big_text = ToolReply::Text("x".repeat(LARGE_TOOL_REPLY_WARN_CHARS + 1));
-            let warning = oversized_reply_warning("generate_html", &big_text)
-                .expect("an oversized text reply must warn");
-            assert!(warning.contains("generate_html"), "{warning}");
-            assert!(warning.contains(&(LARGE_TOOL_REPLY_WARN_CHARS + 1).to_string()), "{warning}");
+    /// The distinction that makes the warning meaningful at all: the same
+    /// number of characters warns as text (the shape the actual incident
+    /// took) but not as an image (a shape that is already cost-bounded).
+    #[test]
+    fn the_same_size_warns_as_text_but_not_as_an_image() {
+        let payload = "x".repeat(LARGE_TOOL_REPLY_WARN_CHARS + 1);
 
-            let fits = ToolReply::Text("small".into());
-            assert!(oversized_reply_warning("get_source_info", &fits).is_none());
-
-            let big_image = ToolReply::Image {
+        assert!(text_reply_chars(&ToolReply::Text(payload.clone())) > LARGE_TOOL_REPLY_WARN_CHARS);
+        assert_eq!(
+            text_reply_chars(&ToolReply::Image {
                 media_type: "image/jpeg",
-                images: vec!["x".repeat(400_000)],
-            };
-            assert!(oversized_reply_warning("get_plain_state_image", &big_image).is_none());
-        }
+                images: vec![payload],
+            }),
+            0
+        );
+    }
 
+    /// The wiring both `ToolFinished` call sites share: an oversized text
+    /// reply produces a warning naming the tool and the size, a
+    /// legitimately large image reply produces none.
+    #[test]
+    fn oversized_reply_warning_names_the_tool_for_text_but_stays_silent_for_images() {
+        let big_text = ToolReply::Text("x".repeat(LARGE_TOOL_REPLY_WARN_CHARS + 1));
+        let warning = oversized_reply_warning("generate_html", &big_text)
+            .expect("an oversized text reply must warn");
+        assert!(warning.contains("generate_html"), "{warning}");
+        assert!(warning.contains(&(LARGE_TOOL_REPLY_WARN_CHARS + 1).to_string()), "{warning}");
 
-        #[test]
-        fn transient_errors_are_retried_automatically() {
-            // The failure seen when the machine is left alone mid-run.
-            assert!(is_transient_error(
-                "LLM API error: HttpError: error decoding response body — error reading a \
-                 body from connection — timed out"
-            ));
-            // The transport's wording for a status error. `runner`'s
-            // `transient_statuses_match_what_the_transport_writes` is what keeps
-            // these two in step across the crate boundary.
-            assert!(is_transient_error(
-                "LLM API error: ProviderResponseError: status 529: overloaded [status: 529]"
-            ));
-            assert!(is_transient_error(
-                "LLM API error: ProviderResponseError: status 429: rate limit [status: 429] \
-                 [retry-after: 30]"
-            ));
-            assert!(is_transient_error(
-                "LLM API error: ProviderResponseError: status 503: upstream [status: 503]"
-            ));
-            assert!(is_transient_error(
-                "LLM API error: ProviderResponseError: status 502: upstream [status: 502]"
-            ));
-            // Client-side mistakes would just fail again — those go straight to the
-            // user's Retry prompt instead of burning automatic attempts.
-            assert!(!is_transient_error(
-                "LLM API error: ProviderResponseError: status 401: invalid x-api-key \
-                 [status: 401]"
-            ));
-            assert!(!is_transient_error(
-                "LLM API error: ProviderResponseError: status 400: prompt is too long \
-                 [status: 400]"
-            ));
-            assert!(!is_transient_error(
-                "Anthropic API key is not configured. Open Settings and paste your API key."
-            ));
-        }
+        let fits = ToolReply::Text("small".into());
+        assert!(oversized_reply_warning("get_source_info", &fits).is_none());
 
-    
-        /// The backoff between automatic retries can be a minute long, so an abort
-        /// during it has to wake the run instead of holding it open.
-        #[tokio::test]
-        async fn the_retry_backoff_wakes_early_when_the_run_is_aborted() {
-            let abort = AbortFlag::default();
-            abort.abort();
-    
-            let started = std::time::Instant::now();
-            let aborted = sleep_unless_aborted(std::time::Duration::from_secs(60), &abort).await;
-    
-            assert!(aborted, "an aborted wait must report it");
-            assert!(
-                started.elapsed() < std::time::Duration::from_secs(1),
-                "took {:?}, so it slept through the backoff",
-                started.elapsed()
-            );
-        }
+        let big_image = ToolReply::Image {
+            media_type: "image/jpeg",
+            images: vec!["x".repeat(400_000)],
+        };
+        assert!(oversized_reply_warning("get_plain_state_image", &big_image).is_none());
+    }
 
-    
-        /// An un-aborted wait still waits, otherwise the retry backoff would be gone.
-        #[tokio::test]
-        async fn an_untouched_wait_sleeps_for_its_full_duration() {
-            let abort = AbortFlag::default();
-    
-            let started = std::time::Instant::now();
-            let aborted = sleep_unless_aborted(std::time::Duration::from_millis(500), &abort).await;
-    
-            assert!(!aborted);
-            assert!(
-                started.elapsed() >= std::time::Duration::from_millis(450),
-                "returned after {:?}",
-                started.elapsed()
-            );
-        }
+    #[test]
+    fn transient_errors_are_retried_automatically() {
+        // The failure seen when the machine is left alone mid-run.
+        assert!(is_transient_error(
+            "LLM API error: HttpError: error decoding response body — error reading a \
+             body from connection — timed out"
+        ));
+        // The transport's wording for a status error. `runner`'s
+        // `transient_statuses_match_what_the_transport_writes` is what keeps
+        // these two in step across the crate boundary.
+        assert!(is_transient_error(
+            "LLM API error: ProviderResponseError: status 529: overloaded [status: 529]"
+        ));
+        assert!(is_transient_error(
+            "LLM API error: ProviderResponseError: status 429: rate limit [status: 429] \
+             [retry-after: 30]"
+        ));
+        assert!(is_transient_error(
+            "LLM API error: ProviderResponseError: status 503: upstream [status: 503]"
+        ));
+        assert!(is_transient_error(
+            "LLM API error: ProviderResponseError: status 502: upstream [status: 502]"
+        ));
+        // Client-side mistakes would just fail again — those go straight to the
+        // user's Retry prompt instead of burning automatic attempts.
+        assert!(!is_transient_error(
+            "LLM API error: ProviderResponseError: status 401: invalid x-api-key \
+             [status: 401]"
+        ));
+        assert!(!is_transient_error(
+            "LLM API error: ProviderResponseError: status 400: prompt is too long \
+             [status: 400]"
+        ));
+        assert!(!is_transient_error(
+            "Anthropic API key is not configured. Open Settings and paste your API key."
+        ));
+    }
+
+    /// The backoff between automatic retries can be a minute long, so an abort
+    /// during it has to wake the run instead of holding it open.
+    #[tokio::test]
+    async fn the_retry_backoff_wakes_early_when_the_run_is_aborted() {
+        let abort = AbortFlag::default();
+        abort.abort();
+
+        let started = std::time::Instant::now();
+        let aborted = sleep_unless_aborted(std::time::Duration::from_secs(60), &abort).await;
+
+        assert!(aborted, "an aborted wait must report it");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(1),
+            "took {:?}, so it slept through the backoff",
+            started.elapsed()
+        );
+    }
+
+    /// An un-aborted wait still waits, otherwise the retry backoff would be gone.
+    #[tokio::test]
+    async fn an_untouched_wait_sleeps_for_its_full_duration() {
+        let abort = AbortFlag::default();
+
+        let started = std::time::Instant::now();
+        let aborted = sleep_unless_aborted(std::time::Duration::from_millis(500), &abort).await;
+
+        assert!(!aborted);
+        assert!(
+            started.elapsed() >= std::time::Duration::from_millis(450),
+            "returned after {:?}",
+            started.elapsed()
+        );
+    }
 }
 
 #[cfg(test)]
 mod outputs_tests {
-    use super::*;
+    use agent::ConversionAgent;
     use blueprint::OutputTarget;
 
-    
-        fn fixture_agent(target: OutputTarget) -> ConversionAgent {
-            let pdf =
-                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/input/AAEV_019_EN.pdf");
-            let bytes = std::fs::read(&pdf).expect("read AAEV_019_EN.pdf");
-            ConversionAgent::new(
-                Some("ubs".into()),
-                vec![("AAEV_019_EN.pdf".to_string(), bytes)],
-                None,
-                format!("test-outputs-{}", target.as_str()),
-                target,
-            )
-        }
+    fn fixture_agent(target: OutputTarget) -> ConversionAgent {
+        let pdf =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/input/AAEV_019_EN.pdf");
+        let bytes = std::fs::read(&pdf).expect("read AAEV_019_EN.pdf");
+        ConversionAgent::new(
+            Some("ubs".into()),
+            vec![("AAEV_019_EN.pdf".to_string(), bytes)],
+            None,
+            format!("test-outputs-{}", target.as_str()),
+            target,
+        )
+    }
 
-    
-        /// The original defect: the Redacto dump was built from the engine's
-        /// conversion of the source while the agent had authored something else, so
-        /// what shipped was never what the run produced or the Reviewer approved.
-        /// Under the Redacto target the authored tree is the document, full stop.
-        #[test]
-        fn redacto_outputs_are_built_from_the_authored_tree() {
-            use blueprint::structured::{ParagraphNode, StructuredNode, TranslatedText};
-    
-            let mut agent = fixture_agent(OutputTarget::Redacto);
-            // A sentence that appears nowhere in the source PDF, so its presence in
-            // the SQL can only come from the authored tree.
-            agent.seed_structured(vec![StructuredNode::Paragraph(ParagraphNode {
-                content: TranslatedText::plain("AUTHORED-BY-THE-AGENT-MARKER"),
-                som_path: None,
-                source_name: None,
-            })]);
-    
-            let outputs = agent::outputs::build(&mut agent, Some("ubs"));
-    
-            let sql = outputs
-                .redacto_sql
-                .expect("the authored document yields a dump");
-            assert!(
-                sql.contains("AUTHORED-BY-THE-AGENT-MARKER"),
-                "the dump must be generated from the authored tree"
-            );
-            assert_eq!(
-                outputs.envelope.content.len(),
-                1,
-                "the envelope is the authored tree, not the engine's parse of the source"
-            );
-            assert!(
-                agent.aem_translated().is_none(),
-                "a Redacto run produces no AEM tree"
-            );
-            // The recovered master-page header must survive into the configuration.
-            assert!(
-                outputs.envelope.context.header.is_some(),
-                "the context must come from the merged source envelope"
-            );
-        }
+    /// The original defect: the Redacto dump was built from the engine's
+    /// conversion of the source while the agent had authored something else, so
+    /// what shipped was never what the run produced or the Reviewer approved.
+    /// Under the Redacto target the authored tree is the document, full stop.
+    #[test]
+    fn redacto_outputs_are_built_from_the_authored_tree() {
+        use blueprint::structured::{ParagraphNode, StructuredNode, TranslatedText};
 
-    
-        /// An authored tree that produces no assets must yield no file and say why,
-        /// rather than a valid-looking dump describing an empty document.
-        #[test]
-        fn an_empty_redacto_document_produces_no_sql() {
-            let mut agent = fixture_agent(OutputTarget::Redacto);
-    
-            let outputs = agent::outputs::build(&mut agent, Some("ubs"));
-    
-            assert!(outputs.redacto_sql.is_none());
-            assert!(
-                outputs
-                    .warnings
-                    .iter()
-                    .any(|w| w.contains("No Redacto dump")),
-                "the reason must be reported: {:?}",
-                outputs.warnings
-            );
-        }
+        let mut agent = fixture_agent(OutputTarget::Redacto);
+        // A sentence that appears nowhere in the source PDF, so its presence in
+        // the SQL can only come from the authored tree.
+        agent.seed_structured(vec![StructuredNode::Paragraph(ParagraphNode {
+            content: TranslatedText::plain("AUTHORED-BY-THE-AGENT-MARKER"),
+            som_path: None,
+            source_name: None,
+        })]);
 
-    
-        /// An AEM run produces no Redacto dump, even on a profile that configures
-        /// one. The result panel does not offer it, so deriving it from the source
-        /// was a full extraction and dump generation for a file nobody could reach.
-        #[test]
-        fn the_aem_target_derives_no_redacto_dump() {
-            let mut agent = fixture_agent(OutputTarget::Aem);
-    
-            let outputs = agent::outputs::build(&mut agent, Some("ubs"));
-    
-            assert!(
-                outputs.redacto_sql.is_none(),
-                "the dump belongs to the Redacto target"
-            );
-            // The envelope is the authored AEM tree lifted back into structured
-            // content — empty here because this agent never authored one.
-            assert!(outputs.envelope.content.is_empty());
-            assert!(outputs.warnings.is_empty(), "{:?}", outputs.warnings);
-        }
+        let outputs = agent::outputs::build(&mut agent, Some("ubs"));
+
+        let sql = outputs
+            .redacto_sql
+            .expect("the authored document yields a dump");
+        assert!(
+            sql.contains("AUTHORED-BY-THE-AGENT-MARKER"),
+            "the dump must be generated from the authored tree"
+        );
+        assert_eq!(
+            outputs.envelope.content.len(),
+            1,
+            "the envelope is the authored tree, not the engine's parse of the source"
+        );
+        assert!(
+            agent.aem_translated().is_none(),
+            "a Redacto run produces no AEM tree"
+        );
+        // The recovered master-page header must survive into the configuration.
+        assert!(
+            outputs.envelope.context.header.is_some(),
+            "the context must come from the merged source envelope"
+        );
+    }
+
+    /// An authored tree that produces no assets must yield no file and say why,
+    /// rather than a valid-looking dump describing an empty document.
+    #[test]
+    fn an_empty_redacto_document_produces_no_sql() {
+        let mut agent = fixture_agent(OutputTarget::Redacto);
+
+        let outputs = agent::outputs::build(&mut agent, Some("ubs"));
+
+        assert!(outputs.redacto_sql.is_none());
+        assert!(
+            outputs
+                .warnings
+                .iter()
+                .any(|w| w.contains("No Redacto dump")),
+            "the reason must be reported: {:?}",
+            outputs.warnings
+        );
+    }
+
+    /// An AEM run produces no Redacto dump, even on a profile that configures
+    /// one. The result panel does not offer it, so deriving it from the source
+    /// was a full extraction and dump generation for a file nobody could reach.
+    #[test]
+    fn the_aem_target_derives_no_redacto_dump() {
+        let mut agent = fixture_agent(OutputTarget::Aem);
+
+        let outputs = agent::outputs::build(&mut agent, Some("ubs"));
+
+        assert!(
+            outputs.redacto_sql.is_none(),
+            "the dump belongs to the Redacto target"
+        );
+        // The envelope is the authored AEM tree lifted back into structured
+        // content — empty here because this agent never authored one.
+        assert!(outputs.envelope.content.is_empty());
+        assert!(outputs.warnings.is_empty(), "{:?}", outputs.warnings);
+    }
 }
 
 #[cfg(test)]
 mod controller {
     //! End-to-end sequencing tests.
     //!
-    //! These are the reason the controller left the UI crate: a scripted
-    //! [`TurnProvider`] and a recording [`RunObserver`] drive the real `run`
-    //! over a real `ConversionAgent`, with no network and no desktop runtime.
-    //! None of this was reachable before.
+    //! These are the reason the controller left the UI crate: rig's own
+    //! `MockCompletionModel` drives the real `run` over a real
+    //! `ConversionAgent`, with a recording `RunObserver`, no network and no
+    //! desktop runtime.
 
     use super::*;
-    use std::cell::RefCell;
-    use std::collections::VecDeque;
+    use agent::ConversionAgent;
+    use crate::observer::RunObserver;
+    use rig_core::completion::Usage;
+    use rig_core::message::UserContent;
+    use rig_core::test_utils::{MockCompletionModel, MockStreamEvent};
+    use std::sync::{Arc, Mutex};
 
-    /// Replays a fixed script, one model call per invocation. A script that
-    /// runs dry fails the test rather than hanging, so an unexpected extra
-    /// stage is loud.
-    struct ScriptedTurns {
-        script: RefCell<VecDeque<Result<ModelReply, String>>>,
-        /// Every `system` prompt the controller asked with, in order — the
-        /// record of which stage ran.
-        seen: RefCell<Vec<String>>,
-        /// The seed message each stage opened with, in the same order. What the
-        /// stage was actually *told to do*, as opposed to what it was told it is.
-        asked: RefCell<Vec<String>>,
-    }
-
-    impl ScriptedTurns {
-        fn new(script: Vec<Result<ModelReply, String>>) -> Self {
-            Self {
-                script: RefCell::new(script.into()),
-                seen: RefCell::new(Vec::new()),
-                asked: RefCell::new(Vec::new()),
-            }
-        }
-
-        /// How many model calls the controller actually made.
-        fn turns_taken(&self) -> usize {
-            self.seen.borrow().len()
-        }
-    }
-
-    impl TurnProvider for ScriptedTurns {
-        async fn call_model(
-            &self,
-            prompt: Message,
-            _history: Vec<Message>,
-            _tools: &[ToolDefinition],
-            system: &str,
-            _abort: &AbortFlag,
-            _resolve_invalid: crate::turns::ResolveInvalidCall<'_>,
-        ) -> Result<ModelReply, String> {
-            self.seen.borrow_mut().push(system.to_string());
-            self.asked.borrow_mut().push(user_text(&prompt));
-            let next = self.script.borrow_mut().pop_front();
-            next.expect("the controller took more turns than the script provides")
-        }
+    fn no_price() -> PriceFn {
+        Arc::new(|_| None)
     }
 
     #[derive(Default)]
@@ -1462,16 +1291,32 @@ mod controller {
         fn retry_resolved(&mut self, _action: RetryAction) {}
     }
 
+    /// A recorder plus the `Arc` a test reads it back through — `SharedObserver`
+    /// erases the concrete type, so this is what lets a test still get at what
+    /// it recorded once the run has returned.
+    fn recorder() -> (SharedObserver, Arc<Mutex<Recorder>>) {
+        recorder_with(Recorder::default())
+    }
+
+    fn recorder_with_answer(answer: RetryAction) -> (SharedObserver, Arc<Mutex<Recorder>>) {
+        recorder_with(Recorder {
+            answer: Some(answer),
+            ..Recorder::default()
+        })
+    }
+
+    fn recorder_with(rec: Recorder) -> (SharedObserver, Arc<Mutex<Recorder>>) {
+        let rec = Arc::new(Mutex::new(rec));
+        (SharedObserver::from_arc(rec.clone()), rec)
+    }
+
     /// The text of a user message, for asserting what a stage was asked to do.
-    ///
-    /// A turn's prompt is the seed on the first call and a tool result
-    /// afterwards, so only the text parts are of interest here.
     fn user_text(message: &Message) -> String {
         match message {
             Message::User { content } => content
                 .iter()
                 .filter_map(|c| match c {
-                    rig_core::message::UserContent::Text(t) => Some(t.text.as_str()),
+                    UserContent::Text(t) => Some(t.text.as_str()),
                     _ => None,
                 })
                 .collect::<Vec<_>>()
@@ -1480,77 +1325,60 @@ mod controller {
         }
     }
 
-    /// Assemble a scripted reply the way a real streamed turn arrives.
-    fn scripted(
-        text: &str,
-        calls: Vec<rig_core::message::ToolCall>,
-        prompt_tokens: usize,
-    ) -> Result<ModelReply, String> {
-        let names: std::collections::BTreeSet<String> =
-            calls.iter().map(|c| c.function.name.clone()).collect();
-        let mut choice: Vec<AssistantContent> = Vec::new();
-        if !text.is_empty() {
-            choice.push(AssistantContent::text(text));
+    /// The system prompt a request was sent with.
+    ///
+    /// `AgentRunner::preamble` does not populate `CompletionRequest.preamble`
+    /// (rig-agent's own request builder leaves that field unset for the
+    /// `Agent::runner` path) — it prepends the preamble as a `Message::System`
+    /// at `chat_history[0]` instead, verbatim, so that is where a test has to
+    /// read it back from.
+    fn turn_system(request: &rig_core::completion::CompletionRequest) -> String {
+        match request.chat_history.first() {
+            Some(Message::System { content }) => content.clone(),
+            _ => String::new(),
         }
-        choice.extend(calls.into_iter().map(AssistantContent::ToolCall));
-
-        let finish_reason = if choice
-            .iter()
-            .any(|c| matches!(c, AssistantContent::ToolCall(_)))
-        {
-            FinishReason::ToolCalls
-        } else {
-            FinishReason::Stop
-        };
-
-        let turn = rig_agent::agent::run::streamed::StreamedTurnAssembler::new(
-            names.clone(),
-            names,
-        )
-        .finish(None, &choice);
-        let turn = rig_agent::agent::run::streamed::StreamedTurn {
-            finish_reason: Some(finish_reason),
-            ..turn
-        };
-
-        Ok(ModelReply {
-            turn,
-            usage: rig_core::completion::Usage::new(),
-            text: text.to_string(),
-            prompt_tokens,
-            cost_usd: None,
-            abandoned: false,
-        })
     }
 
-    fn text_turn(text: &str) -> Result<ModelReply, String> {
-        scripted(text, Vec::new(), 42)
+    /// One scripted stage turn: plain text, the way the Analyst and Author
+    /// answer.
+    fn text_turn(text: &str) -> Vec<MockStreamEvent> {
+        vec![
+            MockStreamEvent::text(text),
+            MockStreamEvent::final_response(Usage::new()),
+        ]
     }
 
-    fn review_turn(approved: bool, report: &str) -> Result<ModelReply, String> {
-        scripted(
-            "",
-            vec![rig_core::message::ToolCall {
-                id: rig_core::message::ToolCallId::new("call-review").expect("a non-empty id"),
-                provider: None,
-                function: rig_core::message::ToolFunction {
-                    name: "submit_review".into(),
-                    arguments: serde_json::json!({"approved": approved, "report": report}),
-                },
-                signature: None,
-                additional_params: None,
-            }],
-            7,
-        )
+    /// One scripted `submit_review` call — how the Reviewer stage always ends.
+    fn review_turn(approved: bool, report: &str) -> Vec<MockStreamEvent> {
+        vec![
+            MockStreamEvent::tool_call(
+                "call-review",
+                "submit_review",
+                serde_json::json!({"approved": approved, "report": report}),
+            ),
+            MockStreamEvent::final_response(Usage::new()),
+        ]
+    }
+
+    /// One scripted bare provider failure — the shape a mid-stream transport
+    /// error takes, with no assembled turn behind it.
+    fn error_turn(message: &str) -> Vec<MockStreamEvent> {
+        vec![MockStreamEvent::error(message)]
     }
 
     /// A Redacto agent with no source: the scripted turns decide what runs, so
     /// the agent only has to be real enough to record a review and finalize.
-    fn bare_agent() -> ConversionAgent {
-        ConversionAgent::new(None, Vec::new(), None, "test-controller".into(), OutputTarget::Redacto)
+    fn bare_agent() -> SharedAgent {
+        Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(
+            None,
+            Vec::new(),
+            None,
+            "test-controller".into(),
+            OutputTarget::Redacto,
+        )))
     }
 
-    fn config(abort: AbortFlag, max_review_rounds: usize) -> RunConfig {
+    fn config(abort: AbortFlag, max_review_rounds: usize, model: MockCompletionModel) -> RunConfig {
         RunConfig {
             profile: None,
             target: OutputTarget::Redacto,
@@ -1559,6 +1387,9 @@ mod controller {
             extra_instructions: String::new(),
             template_note: "",
             has_aem_connection: false,
+            model: ModelHandle::new(model),
+            price: no_price(),
+            max_tokens: 4096,
         }
     }
 
@@ -1587,6 +1418,10 @@ mod controller {
         ConversionAgent::new(None, Vec::new(), None, "t".into(), OutputTarget::Aem)
     }
 
+    fn plain_redacto_agent() -> ConversionAgent {
+        ConversionAgent::new(None, Vec::new(), None, "test-controller".into(), OutputTarget::Redacto)
+    }
+
     fn with_fake_browser(agent: ConversionAgent, dir: std::path::PathBuf) -> ConversionAgent {
         agent.with_browser(agent::browser::BrowserSession::detached(
             fake_browser_tools(),
@@ -1594,10 +1429,15 @@ mod controller {
         ))
     }
 
+    fn shared(agent: ConversionAgent) -> SharedAgent {
+        Arc::new(tokio::sync::Mutex::new(agent))
+    }
+
     /// The browser family is offered to exactly the stages `BROWSER_SCOPES`
     /// names, and only when a session is attached: the Author and Reviewer of
     /// an AEM run see it, the Analyst never does, and a Redacto run has nothing
-    /// to click through even with a session attached.
+    /// to click through even with a session attached. No model involved: this
+    /// is pure tool-catalog scoping.
     #[test]
     fn browser_tools_reach_only_the_aem_author_and_reviewer() {
         let roles = roles::roles_for(OutputTarget::Aem);
@@ -1630,7 +1470,7 @@ mod controller {
         }
         assert!(!names(&with.tools_for_stage(roles.analyst.scope)).contains(&"browser_navigate"));
 
-        let redacto = with_fake_browser(bare_agent(), browser_dir());
+        let redacto = with_fake_browser(plain_redacto_agent(), browser_dir());
         let redacto_roles = roles::roles_for(OutputTarget::Redacto);
         for role in [
             redacto_roles.analyst,
@@ -1651,80 +1491,119 @@ mod controller {
     async fn every_way_out_of_a_run_closes_the_browser() {
         // Approved.
         let dir = browser_dir();
-        let agent = with_fake_browser(aem_agent(), dir.clone());
-        let turns = ScriptedTurns::new(vec![
+        let agent = shared(with_fake_browser(aem_agent(), dir.clone()));
+        let model = MockCompletionModel::from_stream_turns([
             text_turn("PLAN"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
-        let mut run_config = config(AbortFlag::default(), 1);
+        let mut run_config = config(AbortFlag::default(), 1, model);
         run_config.target = OutputTarget::Aem;
-        let outcome = run(agent, run_config, RunSeed::Fresh, &turns, &mut Recorder::default()).await;
+        let (obs, _) = recorder();
+        let outcome = run(agent, run_config, RunSeed::Fresh, obs).await;
         assert!(outcome.is_some());
         assert!(!dir.exists(), "the browser output directory must be removed on approval");
 
         // Unapproved: the review rounds run out.
         let dir = browser_dir();
-        let agent = with_fake_browser(aem_agent(), dir.clone());
-        let turns = ScriptedTurns::new(vec![
+        let agent = shared(with_fake_browser(aem_agent(), dir.clone()));
+        let model = MockCompletionModel::from_stream_turns([
             text_turn("PLAN"),
             text_turn("BUILT"),
             review_turn(false, "nope"),
             text_turn("FIXED"),
         ]);
-        let mut run_config = config(AbortFlag::default(), 1);
+        let mut run_config = config(AbortFlag::default(), 1, model);
         run_config.target = OutputTarget::Aem;
-        let outcome = run(agent, run_config, RunSeed::Fresh, &turns, &mut Recorder::default()).await;
+        let (obs, _) = recorder();
+        let outcome = run(agent, run_config, RunSeed::Fresh, obs).await;
         assert!(outcome.is_some());
         assert!(!dir.exists(), "the browser output directory must be removed when unapproved");
 
         // Aborted before the first turn.
         let dir = browser_dir();
-        let agent = with_fake_browser(aem_agent(), dir.clone());
+        let agent = shared(with_fake_browser(aem_agent(), dir.clone()));
         let abort = AbortFlag::default();
         abort.abort();
-        let mut run_config = config(abort, 1);
+        let model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
+        let mut run_config = config(abort, 1, model);
         run_config.target = OutputTarget::Aem;
-        let outcome = run(
-            agent,
-            run_config,
-            RunSeed::Fresh,
-            &ScriptedTurns::new(vec![]),
-            &mut Recorder::default(),
-        )
-        .await;
+        let (obs, _) = recorder();
+        let outcome = run(agent, run_config, RunSeed::Fresh, obs).await;
         assert!(outcome.is_none());
         assert!(!dir.exists(), "the browser output directory must be removed on abort");
     }
 
+    /// A stage that burns its whole turn budget without finishing (no
+    /// `submit_review`, no natural end) must not finalize silently: the
+    /// hand-rolled loop warned on every `AgentRun` step error, budget
+    /// exhaustion included, and an operator who never sees this warning has
+    /// no way to know the Analyst's plan is a guess cut off mid-thought.
+    #[tokio::test]
+    async fn a_stage_that_exhausts_its_turn_budget_warns_rather_than_finishing_silently() {
+        // A tool-free text turn is itself a natural end for a stage — the
+        // model's plain answer, same as `text_turn` ending each stage in
+        // every other controller test — so driving a stage all the way to
+        // `MaxTurnsError` needs turns that keep the loop going instead: a
+        // tool call, answered every time, never ends the stage on its own.
+        // Redacto's Analyst budget is 25 turns; script exactly that many
+        // (its `stuck_tool` is `None`, so the repeats never trip the stuck
+        // watch instead) so the 26th completion call is refused with
+        // `MaxTurnsError`, then one ordinary turn for the Author stage that
+        // follows it.
+        let repeat_turn = || {
+            vec![
+                MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::final_response(Usage::new()),
+            ]
+        };
+        let mut turns: Vec<Vec<MockStreamEvent>> = std::iter::repeat_with(repeat_turn).take(25).collect();
+        turns.push(text_turn("BUILT"));
+        let model = MockCompletionModel::from_stream_turns(turns);
+        let (obs, rec) = recorder();
+
+        // No review rounds: the point of this test is the Analyst's budget,
+        // not the Reviewer, and this keeps the script to exactly one stage's
+        // overrun plus the Author's single ordinary turn.
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 0, model.clone()), RunSeed::Fresh, obs).await;
+
+        assert!(
+            outcome.is_some(),
+            "a budget-exhausted stage still finalizes with whatever it built"
+        );
+        assert_eq!(model.request_count(), 26);
+        let warnings: Vec<String> = rec
+            .lock()
+            .unwrap()
+            .warnings()
+            .iter()
+            .map(|w| w.to_string())
+            .collect();
+        assert!(
+            warnings.iter().any(|w| w.contains("Analyst") && w.contains("25-turn budget")),
+            "the operator was never told the Analyst ran out of budget: {warnings:?}"
+        );
+    }
+
     #[tokio::test]
     async fn a_fresh_run_sequences_analyst_then_author_then_reviewer() {
-        let turns = ScriptedTurns::new(vec![
+        let model = MockCompletionModel::from_stream_turns([
             text_turn("THE PLAN"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
-        let mut obs = Recorder::default();
+        let (obs, rec) = recorder();
 
-        let outcome = run(
-            bare_agent(),
-            config(AbortFlag::default(), 2),
-            RunSeed::Fresh,
-            &turns,
-            &mut obs,
-        )
-        .await;
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 2, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_some(), "an approved run produces a result");
-        assert_eq!(obs.stages(), ["Analyst", "Author", "Reviewer"]);
-        assert_eq!(turns.turns_taken(), 3);
+        assert_eq!(rec.lock().unwrap().stages(), ["Analyst", "Author", "Reviewer"]);
+        assert_eq!(model.request_count(), 3);
         // Approval means no "finalizing without a clean review" warning.
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(
-            !obs.warnings()
-                .iter()
-                .any(|w| w.contains("without a clean review")),
-            "{:?}",
-            obs.warnings()
+            !warnings.iter().any(|w| w.contains("without a clean review")),
+            "{warnings:?}"
         );
     }
 
@@ -1732,26 +1611,20 @@ mod controller {
     /// re-derives everything the first one just worked out.
     #[tokio::test]
     async fn the_analysts_plan_is_pinned_into_the_authors_prompt() {
-        let turns = ScriptedTurns::new(vec![
+        let model = MockCompletionModel::from_stream_turns([
             text_turn("SECTION MAP: one heading, two fields"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
-        let mut obs = Recorder::default();
+        let (obs, _) = recorder();
 
-        run(
-            bare_agent(),
-            config(AbortFlag::default(), 1),
-            RunSeed::Fresh,
-            &turns,
-            &mut obs,
-        )
-        .await;
+        run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
 
-        let author_prompt = &turns.seen.borrow()[1];
+        let author_request = &model.requests()[1];
+        let author_system = turn_system(author_request);
         assert!(
-            author_prompt.contains("SECTION MAP: one heading, two fields"),
-            "the Author never saw the plan"
+            author_system.contains("SECTION MAP: one heading, two fields"),
+            "the Author never saw the plan: {author_system}"
         );
     }
 
@@ -1759,36 +1632,28 @@ mod controller {
     /// pinned, then finalizes with a warning because it never got a clean pass.
     #[tokio::test]
     async fn a_rejected_review_drives_one_more_author_round() {
-        let turns = ScriptedTurns::new(vec![
+        let model = MockCompletionModel::from_stream_turns([
             text_turn("THE PLAN"),
             text_turn("BUILT"),
             review_turn(false, "The footer is missing."),
             text_turn("FIXED"),
         ]);
-        let mut obs = Recorder::default();
+        let (obs, rec) = recorder();
 
-        let outcome = run(
-            bare_agent(),
-            config(AbortFlag::default(), 1),
-            RunSeed::Fresh,
-            &turns,
-            &mut obs,
-        )
-        .await;
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_some());
-        assert_eq!(obs.stages(), ["Analyst", "Author", "Reviewer", "Author"]);
-        let fix_prompt = &turns.seen.borrow()[3];
+        assert_eq!(rec.lock().unwrap().stages(), ["Analyst", "Author", "Reviewer", "Author"]);
+        let fix_request = &model.requests()[3];
+        let fix_system = turn_system(fix_request);
         assert!(
-            fix_prompt.contains("The footer is missing."),
+            fix_system.contains("The footer is missing."),
             "the review report was not pinned into the fix round"
         );
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(
-            obs.warnings()
-                .iter()
-                .any(|w| w.contains("without a clean review")),
-            "an unapproved run must say so: {:?}",
-            obs.warnings()
+            warnings.iter().any(|w| w.contains("without a clean review")),
+            "an unapproved run must say so: {warnings:?}"
         );
     }
 
@@ -1796,21 +1661,21 @@ mod controller {
     /// review and the Author starts from it.
     #[tokio::test]
     async fn a_feedback_run_skips_the_analyst() {
-        let turns = ScriptedTurns::new(vec![text_turn("FIXED"), review_turn(true, "")]);
-        let mut obs = Recorder::default();
+        let model = MockCompletionModel::from_stream_turns([text_turn("FIXED"), review_turn(true, "")]);
+        let (obs, rec) = recorder();
 
         run(
             bare_agent(),
-            config(AbortFlag::default(), 1),
+            config(AbortFlag::default(), 1, model.clone()),
             RunSeed::Feedback("Make the title bigger.".into()),
-            &turns,
-            &mut obs,
+            obs,
         )
         .await;
 
-        assert_eq!(obs.stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        let author_system = turn_system(&model.requests()[0]);
         assert!(
-            turns.seen.borrow()[0].contains("Make the title bigger."),
+            author_system.contains("Make the title bigger."),
             "the feedback never reached the Author"
         );
     }
@@ -1820,20 +1685,14 @@ mod controller {
     /// PLAN or REVIEW FEEDBACK heading here would be an instruction to nothing.
     #[tokio::test]
     async fn a_continued_run_skips_the_analyst_and_pins_nothing() {
-        let turns = ScriptedTurns::new(vec![text_turn("FINISHED"), review_turn(true, "")]);
-        let mut obs = Recorder::default();
+        let model = MockCompletionModel::from_stream_turns([text_turn("FINISHED"), review_turn(true, "")]);
+        let (obs, rec) = recorder();
 
-        run(
-            bare_agent(),
-            config(AbortFlag::default(), 1),
-            RunSeed::Continue,
-            &turns,
-            &mut obs,
-        )
-        .await;
+        run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Continue, obs).await;
 
-        assert_eq!(obs.stages(), ["Author", "Reviewer"]);
-        let author_system = turns.seen.borrow()[0].clone();
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        let author_request = &model.requests()[0];
+        let author_system = turn_system(author_request);
         assert!(
             !author_system.contains("## CONVERSION PLAN"),
             "a continuation has no plan to pin"
@@ -1844,7 +1703,11 @@ mod controller {
         );
         // The seeded tree is the whole brief, so the one thing the Author must
         // be told is not to throw it away and author afresh.
-        let author_asked = turns.asked.borrow()[0].clone();
+        let author_asked = author_request
+            .chat_history
+            .last()
+            .map(user_text)
+            .unwrap_or_default();
         assert!(
             author_asked.contains("Do not start over"),
             "the Author was opened with {author_asked:?}"
@@ -1870,74 +1733,141 @@ mod controller {
     async fn an_aborted_run_produces_no_outcome() {
         let abort = AbortFlag::default();
         abort.abort();
-        let turns = ScriptedTurns::new(Vec::new());
-        let mut obs = Recorder::default();
+        let model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
+        let (obs, rec) = recorder();
 
-        let outcome = run(
-            bare_agent(),
-            config(abort, 1),
-            RunSeed::Fresh,
-            &turns,
-            &mut obs,
-        )
-        .await;
+        let outcome = run(bare_agent(), config(abort, 1, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_none(), "an aborted run has nothing to publish");
-        assert!(obs.aborted());
-        assert_eq!(turns.turns_taken(), 0, "no turn should be attempted");
+        assert!(rec.lock().unwrap().aborted());
+        assert_eq!(model.request_count(), 0, "no turn should be attempted");
     }
 
     /// A permanent failure pauses the run and asks. Answering Cancel ends it
     /// with no result — and, critically, without retrying.
     #[tokio::test]
     async fn giving_up_at_the_retry_prompt_ends_the_run() {
-        let turns = ScriptedTurns::new(vec![Err("Anthropic API error (400 Bad Request)".into())]);
-        let mut obs = Recorder {
-            answer: Some(RetryAction::Cancel),
-            ..Recorder::default()
-        };
+        let model = MockCompletionModel::from_stream_turns([error_turn("Anthropic API error (400 Bad Request)")]);
+        let (obs, rec) = recorder_with_answer(RetryAction::Cancel);
 
-        let outcome = run(
-            bare_agent(),
-            config(AbortFlag::default(), 1),
-            RunSeed::Fresh,
-            &turns,
-            &mut obs,
-        )
-        .await;
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_none());
-        assert_eq!(obs.prompts, 1, "the operator should be asked exactly once");
-        assert_eq!(turns.turns_taken(), 1, "a 400 must not be retried");
+        assert_eq!(rec.lock().unwrap().prompts, 1, "the operator should be asked exactly once");
+        assert_eq!(model.request_count(), 1, "a 400 must not be retried");
     }
 
     /// Answering Retry re-sends the same turn rather than restarting the stage.
     #[tokio::test]
     async fn retrying_re_sends_the_failed_turn() {
-        let turns = ScriptedTurns::new(vec![
-            Err("Anthropic API error (400 Bad Request)".into()),
+        let model = MockCompletionModel::from_stream_turns([
+            error_turn("Anthropic API error (400 Bad Request)"),
             text_turn("THE PLAN"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
-        let mut obs = Recorder {
-            answer: Some(RetryAction::Retry),
-            ..Recorder::default()
-        };
+        let (obs, rec) = recorder_with_answer(RetryAction::Retry);
 
-        let outcome = run(
-            bare_agent(),
-            config(AbortFlag::default(), 1),
-            RunSeed::Fresh,
-            &turns,
-            &mut obs,
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
+
+        assert!(outcome.is_some(), "the retry should carry the run to completion");
+        assert_eq!(rec.lock().unwrap().prompts, 1);
+        assert_eq!(model.request_count(), 4);
+        // The retried turn is the Analyst's, not a fresh stage.
+        assert_eq!(rec.lock().unwrap().stages(), ["Analyst", "Author", "Reviewer"]);
+    }
+
+    /// A role with a turn budget tight enough to reach in two scripted turns,
+    /// so a restart's carried-over count is provable rather than merely
+    /// plausible.
+    const TINY_BUDGET: Role = Role {
+        name: "Test",
+        scope: agent::scope::AEM_ANALYST,
+        max_iterations: 2,
+        stuck_tool: None,
+        stuck_activity: "testing",
+        max_tokens_nudge: "nudge incrementally",
+    };
+
+    /// A restart after a turn already succeeded must not lose what that turn
+    /// billed, nor hand the fresh attempt the stage's *whole* turn budget
+    /// again — both would be a restart quietly cheating either the operator's
+    /// spend total or the point of having a turn budget at all. Proven from
+    /// outside `StageHook`'s own fields, through the one thing they can
+    /// actually move: the events `run_stage` emits and the turns the model
+    /// actually sees.
+    #[tokio::test]
+    async fn a_restart_after_partial_progress_carries_turns_and_spend_forward() {
+        let mut usage_first = Usage::new();
+        usage_first.input_tokens = 100;
+        let mut usage_after_restart = Usage::new();
+        usage_after_restart.input_tokens = 300;
+
+        // Each success is a tool call, not a bare text answer: a plain text
+        // turn is itself the natural end of a stage (nothing forces the loop
+        // to continue), so proving a *budget* boundary needs turns that keep
+        // going on their own — get_source_info is in `TINY_BUDGET`'s scope
+        // and safe to call repeatedly with no side effects.
+        let tool_call_turn = |usage| {
+            vec![
+                MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::final_response(usage),
+            ]
+        };
+        let model = MockCompletionModel::from_stream_turns([
+            // Turn 1 of the 2-turn budget: succeeds, billing 100 input tokens.
+            tool_call_turn(usage_first),
+            // A non-transient failure: goes straight to the operator's retry
+            // prompt, which the recorder below answers immediately — no real
+            // backoff sleep, unlike a transient error's automatic retry.
+            vec![MockStreamEvent::error("Anthropic API error (400 Bad Request)")],
+            // The restart's own turn 2 of 2: succeeds, billing 300 more —
+            // reaching the budget exactly, so the next completion call (a
+            // tool call keeps the loop open, so there would be one) is what
+            // `MaxTurnsError`s rather than a natural end.
+            tool_call_turn(usage_after_restart),
+            // A 4th scripted turn the stage must never reach: reachable only
+            // if the restart wrongly reset the budget back to a fresh 2
+            // rather than resuming with 1 remaining (1 already spent before
+            // the failure).
+            tool_call_turn(Usage::new()),
+        ]);
+        let (obs, rec) = recorder_with_answer(RetryAction::Retry);
+        let price: PriceFn = Arc::new(|usage| Some(usage.input_tokens as f64 * 0.001));
+
+        let text = run_stage(
+            &bare_agent(),
+            &TINY_BUDGET,
+            "system prompt",
+            "seed",
+            &AbortFlag::default(),
+            ModelHandle::new(model.clone()),
+            price,
+            4096,
+            &obs,
         )
         .await;
 
-        assert!(outcome.is_some(), "the retry should carry the run to completion");
-        assert_eq!(obs.prompts, 1);
-        assert_eq!(turns.turns_taken(), 4);
-        // The retried turn is the Analyst's, not a fresh stage.
-        assert_eq!(obs.stages(), ["Analyst", "Author", "Reviewer"]);
+        assert!(text.is_some(), "the stage still finishes with whatever it produced");
+        assert_eq!(
+            model.request_count(),
+            3,
+            "the restart must resume with 1 turn remaining, not the stage's whole 2-turn budget"
+        );
+
+        let events = rec.lock().unwrap();
+        let last_spend = events
+            .events
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                RunEvent::Spend(s) => Some(*s),
+                _ => None,
+            })
+            .expect("a completed turn reports spend");
+        assert_eq!(
+            last_spend.input_tokens, 400,
+            "the turn billed before the failure must still count toward the total"
+        );
     }
 }

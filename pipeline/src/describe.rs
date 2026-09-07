@@ -3,17 +3,18 @@
 //! store matches against.
 //!
 //! One stage rather than a pipeline, but the same machinery — it runs on the
-//! same [`TurnProvider`] and the same scoped tool catalog as a conversion, so it
+//! same [`run_stage`] and the same scoped tool catalog as a conversion, so it
 //! inherits retry, abort and the stuck watchdog instead of reimplementing a
 //! weaker loop of its own.
 
 use agent::ConversionAgent;
 use blueprint::OutputTarget;
+use rig_agent::agent::model::ModelHandle;
 
-use crate::observer::{AbortFlag, RunObserver};
+use crate::hooks::PriceFn;
+use crate::observer::{AbortFlag, SharedObserver};
 use crate::roles::Role;
 use crate::run::run_stage;
-use crate::turns::TurnProvider;
 
 /// Render scale for the describe pass's page images.
 ///
@@ -43,13 +44,16 @@ catalogue description.\". Begin immediately with the form's purpose (e.g. \"This
 /// it.
 ///
 /// Returns the description text, or an error if the model never produced one.
+#[allow(clippy::too_many_arguments)]
 pub async fn describe_reference(
     profile: &str,
     pdfs: Vec<(String, Vec<u8>)>,
     package_zip: Vec<u8>,
     abort: &AbortFlag,
-    turns: &impl TurnProvider,
-    obs: &mut impl RunObserver,
+    model: ModelHandle,
+    price: PriceFn,
+    max_tokens: u32,
+    obs: &SharedObserver,
 ) -> Result<String, String> {
     let _ = blueprint::load_profile_fonts(profile);
 
@@ -64,14 +68,17 @@ pub async fn describe_reference(
     )
     .with_render_scale(DESCRIBE_RENDER_SCALE);
     agent.seed_package(package_zip);
+    let shared_agent: crate::tools::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
 
     let description = run_stage(
-        &mut agent,
+        &shared_agent,
         &DESCRIBE,
         DESCRIBE_PROMPT,
         "Analyse the inputs with the tools, then write the catalogue description.",
         abort,
-        turns,
+        model,
+        price,
+        max_tokens,
         obs,
     )
     .await

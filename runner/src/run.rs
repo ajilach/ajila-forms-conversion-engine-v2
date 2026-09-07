@@ -11,7 +11,7 @@ use std::time::Instant;
 use agent::ConversionAgent;
 use agent::browser::BrowserSession;
 use blueprint::OutputTarget;
-use pipeline::{AbortFlag, RunEvent, RunObserver, RunOutcome, RunSeed};
+use pipeline::{AbortFlag, RunEvent, RunOutcome, RunSeed, SharedObserver};
 
 use crate::aem_lock::{self, AemLease};
 use crate::settings::AppSettings;
@@ -54,7 +54,7 @@ pub async fn run_fresh(
     files: Vec<(String, Vec<u8>)>,
     opts: &RunOptions,
     session_label: &str,
-    obs: &mut (impl RunObserver + Send),
+    obs: &SharedObserver,
 ) -> Result<Completed, String> {
     // An attached AEM content-package ZIP is pre-loaded as the agent's editable
     // working tree (the ConversionAgent splits PDFs vs. template internally).
@@ -166,7 +166,7 @@ pub async fn resume(
     pdfs: Vec<(String, Vec<u8>)>,
     opts: &RunOptions,
     session_id: String,
-    obs: &mut (impl RunObserver + Send),
+    obs: &SharedObserver,
 ) -> Result<Completed, String> {
     // Seed the agent from the continuing session so the run applies to the prior
     // result: both the structured content and the AEM tree the last run authored,
@@ -220,7 +220,7 @@ pub async fn resume(
 /// spends a token. Only an AEM target has anything to open.
 async fn browser_for(
     opts: &RunOptions,
-    obs: &mut (impl RunObserver + Send),
+    obs: &SharedObserver,
 ) -> Result<Option<BrowserSession>, String> {
     if opts.target != OutputTarget::Aem {
         return Ok(None);
@@ -277,20 +277,15 @@ async fn drive(
     // Held for the whole run and released when it returns, so the next run of
     // the same form starts only once this one has stopped touching it.
     _aem_lease: Option<AemLease>,
-    obs: &mut (impl RunObserver + Send),
+    obs: &SharedObserver,
 ) -> Completed {
     let started_at = Instant::now();
-
-    // The transport reads its eviction tuning from process-wide state, so a
-    // consumer that never opened a settings screen still honours the saved
-    // configuration. Idempotent, so applying it per run is free.
-    opts.settings.apply_runtime_config();
 
     // An endpoint that cannot produce a model ends the run here, with the
     // message that says what to configure — not on the first turn, after a
     // session has been opened and the browser started.
-    let turns = match TurnPlan::for_settings(&opts.settings).provider() {
-        Ok(turns) => turns,
+    let resolved = match TurnPlan::for_settings(&opts.settings).resolve() {
+        Ok(resolved) => resolved,
         Err(e) => {
             obs.emit(RunEvent::Warning(e));
             return Completed {
@@ -311,9 +306,13 @@ async fn drive(
         ),
         template_note,
         has_aem_connection: opts.settings.aem_connection().is_some(),
+        model: resolved.model,
+        price: resolved.price,
+        max_tokens: resolved.max_tokens,
     };
 
-    let outcome = pipeline::run(agent, run_config, seed, &turns, obs).await;
+    let shared_agent: pipeline::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
+    let outcome = pipeline::run(shared_agent, run_config, seed, obs.clone()).await;
 
     // Record the result in the structured history, so the run can be reopened
     // from the session browser. Without this the session holds nothing but the
@@ -349,7 +348,7 @@ async fn drive(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pipeline::NullObserver;
+    use pipeline::{NullObserver, SharedObserver};
 
     /// A run that asks for the browser and cannot have it must not start: no
     /// session is opened, no token is spent, and the error says what to fix.
@@ -370,7 +369,7 @@ mod tests {
             settings,
             abort: AbortFlag::default(),
         };
-        let err = run_fresh(Vec::new(), &opts, "preflight-test", &mut NullObserver)
+        let err = run_fresh(Vec::new(), &opts, "preflight-test", &SharedObserver::new(NullObserver))
             .await
             .err()
             .expect("the run must be refused");
@@ -403,7 +402,7 @@ mod tests {
             Vec::new(),
             &opts,
             "no-such-session".into(),
-            &mut NullObserver,
+            &SharedObserver::new(NullObserver),
         )
         .await
         .err()
@@ -434,7 +433,7 @@ mod tests {
             Vec::new(),
             &opts,
             "no-such-session".into(),
-            &mut NullObserver,
+            &SharedObserver::new(NullObserver),
         )
         .await
         .err()

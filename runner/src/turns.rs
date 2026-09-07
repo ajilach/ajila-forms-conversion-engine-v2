@@ -1,19 +1,19 @@
-//! The LLM seam, filled in: the configured endpoint behind
-//! [`pipeline::TurnProvider`].
+//! The LLM seam, filled in: the configured endpoint resolved to what
+//! [`pipeline::RunConfig`] needs to drive a run.
 //!
 //! The model id and the output cap live here rather than in the controller —
 //! they are provider knowledge, and keeping them on this side is what lets the
 //! `pipeline` crate carry no model tables at all. Which provider answers is
-//! decided once in [`crate::client`], so nothing above this line branches on it.
+//! decided once in [`crate::client`], so nothing above this line branches on
+//! it; the rate limit is applied here too, since it is the same per-endpoint
+//! knowledge the model resolution already needs.
 
-use pipeline::{AbortFlag, ModelReply, TurnProvider};
+use pipeline::PriceFn;
 use rig_agent::agent::model::ModelHandle;
-use rig_core::completion::ToolDefinition;
-use rig_core::message::Message;
+use std::sync::Arc;
 
 use crate::provider::{LlmEndpoint, Provider};
 use crate::settings::AppSettings;
-use crate::stream::{CallPlan, call_model};
 
 /// The provider-side numbers a run is about to work with.
 ///
@@ -32,6 +32,17 @@ pub struct TurnPlan {
     /// Requests this run may have in flight at once against its endpoint,
     /// shared with every other run pointed at the same one. `0` means no cap.
     pub max_concurrent: usize,
+}
+
+/// Everything [`pipeline::RunConfig`] needs to run a stage against one
+/// resolved model: the handle itself, its pricing, and its output cap.
+///
+/// No `Debug`: [`PriceFn`] is a trait object closure, and [`ModelHandle`]
+/// deliberately carries live process state (clients, credentials).
+pub struct ResolvedModel {
+    pub model: ModelHandle,
+    pub price: PriceFn,
+    pub max_tokens: u32,
 }
 
 impl TurnPlan {
@@ -75,67 +86,20 @@ impl TurnPlan {
         text
     }
 
-    /// The turn provider these numbers describe.
+    /// Resolve the model this plan describes, rate-limited to `max_concurrent`
+    /// and priced from the local table.
     ///
     /// Resolving the model here means a missing key or an unbuildable client is
     /// reported before the run starts, not on its first turn.
-    pub fn provider(&self) -> Result<ConfiguredTurns, String> {
-        Ok(ConfiguredTurns {
-            model: crate::client::model_for(&self.endpoint)?,
-            endpoint: self.endpoint.clone(),
+    pub fn resolve(&self) -> Result<ResolvedModel, String> {
+        let model = crate::client::model_for(&self.endpoint)?;
+        let model = crate::ratelimit::wrap(model, &self.endpoint, self.max_concurrent);
+        let model_id = self.endpoint.model.clone();
+        Ok(ResolvedModel {
+            model,
+            price: Arc::new(move |usage| crate::pricing::cost_usd(&model_id, usage)),
             max_tokens: self.max_tokens,
-            max_concurrent: self.max_concurrent,
         })
-    }
-}
-
-/// Runs the controller's model calls against the configured endpoint.
-pub struct ConfiguredTurns {
-    model: ModelHandle,
-    endpoint: LlmEndpoint,
-    max_tokens: u32,
-    /// Snapshotted from the plan, so a run keeps the cap it started under even
-    /// if the operator changes the setting while it is going.
-    max_concurrent: usize,
-}
-
-impl TurnProvider for ConfiguredTurns {
-    async fn call_model(
-        &self,
-        prompt: Message,
-        history: Vec<Message>,
-        tools: &[ToolDefinition],
-        system: &str,
-        abort: &AbortFlag,
-        resolve_invalid: pipeline::ResolveInvalidCall<'_>,
-    ) -> Result<ModelReply, String> {
-        // Held for the whole call, streamed response included. Releasing it when
-        // the response headers arrive would cap the rate at which requests are
-        // *started* while leaving any number of them streaming — which is not
-        // what a provider's rate limit counts.
-        let _permit = match crate::ratelimit::gate_for(&self.endpoint, self.max_concurrent) {
-            Some(gate) => Some(
-                gate.acquire_owned()
-                    .await
-                    .map_err(|e| format!("Request gate closed: {e}"))?,
-            ),
-            None => None,
-        };
-
-        call_model(
-            &self.model,
-            CallPlan {
-                prompt,
-                history,
-                tools,
-                system,
-                max_tokens: self.max_tokens,
-                model_id: &self.endpoint.model,
-            },
-            abort,
-            resolve_invalid,
-        )
-        .await
     }
 }
 
@@ -177,5 +141,28 @@ mod tests {
                 .describe()
                 .contains("endpoint:")
         );
+    }
+
+    /// A usable endpoint resolves to a model, priced from the local table.
+    #[tokio::test]
+    async fn a_usable_endpoint_resolves_a_priced_model() {
+        let plan = TurnPlan::for_endpoint(LlmEndpoint::anthropic("k", crate::models::DEFAULT_MODEL));
+        let resolved = plan.resolve().expect("resolves");
+        assert_eq!(resolved.max_tokens, plan.max_tokens);
+        let mut usage = rig_core::completion::Usage::new();
+        usage.input_tokens = 1000;
+        assert!((resolved.price)(&usage).is_some(), "Opus is in the price table");
+    }
+
+    /// An unusable endpoint must fail here, before a client exists — the whole
+    /// point of resolving up front rather than on the first turn.
+    #[test]
+    fn an_unusable_endpoint_is_refused_at_resolution() {
+        let plan = TurnPlan::for_endpoint(LlmEndpoint::anthropic("", "claude-opus-5"));
+        let err = match plan.resolve() {
+            Ok(_) => panic!("no key means no model"),
+            Err(e) => e,
+        };
+        assert!(err.contains("API key"), "{err}");
     }
 }
