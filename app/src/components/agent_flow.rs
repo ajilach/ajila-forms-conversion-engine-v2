@@ -549,7 +549,12 @@ impl EmptyActivity {
     fn label(self) -> &'static str {
         match self {
             Self::Starting => "Starting agent…",
-            Self::NotRecorded => "No activity was kept for this run.",
+            // Precisely this and not "nothing was kept": the session's edit
+            // history holds a labelled snapshot per change the agent made to the
+            // tree, which is what a reopened tab is rebuilt and continued from.
+            // What is gone is the timeline itself — the model's prose and the
+            // calls it made along the way.
+            Self::NotRecorded => "The step-by-step activity is not kept between sessions.",
         }
     }
 
