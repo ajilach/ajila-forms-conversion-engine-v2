@@ -262,7 +262,24 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     println!("\n── Result ──");
     println!("Session: {}", completed.session_id);
     // Reported even when the run stopped early: those turns were still billed.
-    observer.lock().unwrap_or_else(|p| p.into_inner()).report_spend();
+    {
+        let mut console = observer.lock().unwrap_or_else(|p| p.into_inner());
+        console.report_spend();
+
+        // Fold this run's spend into the session's running total, so a form
+        // resumed for a later feedback round keeps what its earlier rounds
+        // already cost rather than starting the figure over at zero.
+        if let Some(run_spend) = console.spend() {
+            let mut total: pipeline::Spend = agent::db::session_spend_json(&completed.session_id)
+                .and_then(|json| serde_json::from_str(&json).ok())
+                .unwrap_or_default();
+            total.merge(&run_spend);
+            console.report_total_spend(&total);
+            if let Ok(json) = serde_json::to_string(&total) {
+                agent::db::set_session_spend_json(&completed.session_id, &json);
+            }
+        }
+    }
 
     let Some(outcome) = completed.outcome else {
         // Aborted, or the retry budget ran out. The observer said why.

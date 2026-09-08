@@ -65,7 +65,7 @@ mod imp {
     const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// The schema revision this build expects. Bumped when a migration is added.
-    const SCHEMA_VERSION: i64 = 3;
+    const SCHEMA_VERSION: i64 = 4;
 
     /// Redirects the store to a scratch file. Tests only — see
     /// [`set_db_path_for_test`].
@@ -212,6 +212,17 @@ mod imp {
             // already exists, and there is no `ADD COLUMN IF NOT EXISTS`, so an
             // error here means the column is already present.
             let _ = conn.execute("ALTER TABLE sessions ADD COLUMN target TEXT", []);
+        }
+
+        if version < 4 {
+            // What a session has cost so far — across every run it has been
+            // resumed for, not just its latest one — is the same kind of
+            // per-session property `target` is: something a later run needs
+            // to carry forward, not derive fresh. Stored as opaque JSON
+            // (a serialized `pipeline::Spend`) rather than one column per
+            // field: this crate has no reason to know that struct's shape,
+            // only to hold it for whoever does.
+            let _ = conn.execute("ALTER TABLE sessions ADD COLUMN spend_json TEXT", []);
         }
 
         if version < SCHEMA_VERSION {
@@ -378,6 +389,42 @@ mod imp {
         .ok()
         .flatten()
         .flatten()
+    }
+
+    /// The running spend recorded for a session, as opaque JSON — `None` for
+    /// a session that has not billed anything yet, or one written before the
+    /// column existed.
+    ///
+    /// Opaque because this crate carries no `pipeline::Spend` type of its own
+    /// (`pipeline` already depends on `agent`, so the reverse would be
+    /// circular) — the caller, which does depend on both, is what
+    /// serializes and parses it.
+    pub fn session_spend_json(session_id: &str) -> Option<String> {
+        let conn = warn_db(open(), "opening the store")?;
+        conn.query_row(
+            "SELECT spend_json FROM sessions WHERE session_id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .flatten()
+    }
+
+    /// Record a session's running spend, as opaque JSON — see
+    /// [`session_spend_json`] for why this crate never parses it.
+    pub fn set_session_spend_json(session_id: &str, spend_json: &str) {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return;
+        };
+        warn_db(
+            conn.execute(
+                "UPDATE sessions SET spend_json = ?1 WHERE session_id = ?2",
+                rusqlite::params![spend_json, session_id],
+            ),
+            "recording a session's spend",
+        );
     }
 
     /// Look up the conversion profile stored for a session, if any.
@@ -806,18 +853,23 @@ mod imp {
             return;
         };
         let appended = (|| -> rusqlite::Result<()> {
-            let next: i64 = tx.query_row(
-                "SELECT COALESCE(MAX(seq) + 1, 0) FROM conversations
-                 WHERE session_id = ?1 AND stage = ?2",
-                rusqlite::params![session_id, stage],
-                |row| row.get(0),
-            )?;
             let now = now();
-            for (offset, message_json) in messages.iter().enumerate() {
+            for message_json in messages {
+                // One atomic statement per message, exactly like
+                // `insert_edit_conn`'s own `COALESCE(MAX(seq) + 1, 0)`:
+                // reading the next `seq` and inserting it as two separate
+                // statements (a prior version of this function did) is a
+                // lost-update race — two concurrent appends to the same
+                // `(session_id, stage)` can both read the same `MAX(seq)`
+                // before either has written, and the second write then fails
+                // (or, without a unique index, silently duplicates a seq).
+                // Folding the read into the `INSERT`'s own `SELECT` makes the
+                // read-then-write indivisible.
                 tx.execute(
                     "INSERT INTO conversations (session_id, stage, seq, created_at, message_json)
-                     VALUES (?1, ?2, ?3, ?4, ?5)",
-                    rusqlite::params![session_id, stage, next + offset as i64, now, message_json],
+                     SELECT ?1, ?2, COALESCE(MAX(seq) + 1, 0), ?3, ?4
+                     FROM conversations WHERE session_id = ?1 AND stage = ?2",
+                    rusqlite::params![session_id, stage, now, message_json],
                 )?;
             }
             Ok(())
@@ -866,6 +918,23 @@ mod imp {
             ensure_schema(&conn).unwrap();
             migrate(&conn).unwrap();
             conn
+        }
+
+        /// Point the store at a scratch file, for a test that needs a real
+        /// one — an in-memory database is private to its own connection and
+        /// cannot show contention at all.
+        ///
+        /// `set_db_path_for_test` is a one-shot `OnceLock`: whichever test in
+        /// this binary calls this first wins, and every other caller —
+        /// including this one, called from a *different* test — silently
+        /// shares that same path instead of its own. That is fine: every
+        /// caller only ever needs *a* scratch file, never a specific one, so
+        /// sharing is safe as long as tests that write to the same table use
+        /// keys (session ids) that cannot collide with each other's data.
+        fn claim_scratch_db_for_test() {
+            let dir = std::env::temp_dir().join(format!("blueprint-db-test-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir_all(&dir).unwrap();
+            set_db_path_for_test(dir.join("history.db"));
         }
 
         #[test]
@@ -983,6 +1052,49 @@ mod imp {
             assert_eq!(load_conversation_conn(&conn, "s", "Author"), vec!["\"first\""]);
         }
 
+        /// Concurrent appends to the *same* `(session_id, stage)` must not race
+        /// on the next `seq`. An earlier version of `append_conversation_conn`
+        /// read `MAX(seq) + 1` as a separate `SELECT` before inserting — two
+        /// concurrent transactions could both read the same value before
+        /// either wrote, and the loser's `INSERT` then failed the
+        /// `(session_id, stage, seq)` primary key and rolled back silently
+        /// (`warn_db` only logs to stderr; the public `append_conversation`
+        /// has no error return at all). Folding the read into the `INSERT`'s
+        /// own `SELECT` — one atomic statement, [`insert_edit_conn`]'s own
+        /// pattern — is what this test is pinning.
+        #[test]
+        fn concurrent_appends_to_one_conversation_lose_nothing() {
+            const THREADS: usize = 8;
+            const MESSAGES_PER_THREAD: usize = 20;
+
+            claim_scratch_db_for_test();
+
+            std::thread::scope(|scope| {
+                for thread in 0..THREADS {
+                    scope.spawn(move || {
+                        for i in 0..MESSAGES_PER_THREAD {
+                            append_conversation(
+                                "concurrent-session",
+                                "Author",
+                                &[format!("\"{thread}:{i}\"")],
+                            );
+                        }
+                    });
+                }
+            });
+
+            let loaded = load_conversation("concurrent-session", "Author");
+            assert_eq!(
+                loaded.len(),
+                THREADS * MESSAGES_PER_THREAD,
+                "some concurrent appends were silently lost"
+            );
+            // No `seq` collision means no message was ever dropped in favour
+            // of another with the same slot, so every payload is distinct.
+            let unique: std::collections::HashSet<_> = loaded.iter().collect();
+            assert_eq!(unique.len(), loaded.len(), "a message was overwritten or duplicated");
+        }
+
         #[test]
         fn sessions_listed_newest_first() {
             let conn = mem();
@@ -1018,21 +1130,7 @@ mod imp {
             const EDITS_PER_THREAD: usize = 50;
             const PER_SESSION: usize = THREADS_PER_SESSION * EDITS_PER_THREAD;
 
-            // An in-memory database is private to its own connection, so it
-            // cannot show contention at all — this needs a real file.
-            let dir = std::env::temp_dir().join(format!(
-                "blueprint-db-test-{}",
-                uuid::Uuid::new_v4()
-            ));
-            std::fs::create_dir_all(&dir).unwrap();
-            let path = dir.join("history.db");
-            set_db_path_for_test(path.clone());
-            assert_eq!(
-                db_path(),
-                path,
-                "another test opened the store first — this one would write to \
-                 the developer's own history"
-            );
+            claim_scratch_db_for_test();
 
             let recorded: Vec<(usize, String, usize)> = std::thread::scope(|scope| {
                 let handles: Vec<_> = (0..THREADS_PER_SESSION * 2)
@@ -1077,8 +1175,6 @@ mod imp {
                     "{session} seq {seq} came back as another writer's snapshot"
                 );
             }
-
-            let _ = std::fs::remove_dir_all(&dir);
         }
 
         /// The index is what turns a future regression into a loud failure
@@ -1120,14 +1216,14 @@ mod imp {
         }
 
         /// A database left at schema version 2 (before the `conversations`
-        /// table existed) has to reach version 3 with its existing edit
-        /// history intact and the new table usable — the new table is added
-        /// by `ensure_schema`'s own `CREATE TABLE IF NOT EXISTS`, so this
-        /// pins that running it against an *existing* v2 database (not just a
-        /// fresh one) actually adds it, and that migrating changes nothing
-        /// about the data that was already there.
+        /// table existed) has to reach the latest version with its existing
+        /// edit history intact and the new table usable — the new table is
+        /// added by `ensure_schema`'s own `CREATE TABLE IF NOT EXISTS`, so
+        /// this pins that running it against an *existing* v2 database (not
+        /// just a fresh one) actually adds it, and that migrating changes
+        /// nothing about the data that was already there.
         #[test]
-        fn a_v2_database_migrates_to_v3_without_losing_edits() {
+        fn a_v2_database_migrates_to_the_latest_schema_without_losing_edits() {
             let mut conn = Connection::open_in_memory().unwrap();
             ensure_schema(&conn).unwrap();
             insert_edit_conn(&conn, "s", "before the migration", "{}");
@@ -1147,7 +1243,7 @@ mod imp {
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(version, "3");
+            assert_eq!(version, SCHEMA_VERSION.to_string());
             assert_eq!(list_edits_conn(&conn, "s").len(), 1, "prior edits must survive");
 
             // The new table has to be usable on this migrated database, not
@@ -1246,6 +1342,24 @@ mod imp {
             // Written before the column existed: the caller falls back to
             // whatever the tab remembers.
             assert_eq!(read("old"), None);
+        }
+
+        /// A form's cost has to survive being resumed: a fresh session has
+        /// none recorded yet, and a later run's `set_session_spend_json` has
+        /// to be what a subsequent read sees, not what a *different* session
+        /// happens to hold.
+        #[test]
+        fn a_sessions_spend_round_trips_and_is_isolated_from_others() {
+            claim_scratch_db_for_test();
+            let a = create_session("h", None, "redacto", "l").expect("session a");
+            let b = create_session("h", None, "redacto", "l").expect("session b");
+
+            assert_eq!(session_spend_json(&a), None, "a fresh session has billed nothing yet");
+
+            set_session_spend_json(&a, r#"{"cost_usd":1.5}"#);
+
+            assert_eq!(session_spend_json(&a).as_deref(), Some(r#"{"cost_usd":1.5}"#));
+            assert_eq!(session_spend_json(&b), None, "one session's spend must not leak into another's");
         }
 
         /// The AEM tree is snapshotted under a sibling id, so deleting a session

@@ -74,6 +74,9 @@ pub async fn describe_reference(
     agent.seed_package(package_zip);
     let shared_agent: crate::tools::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
 
+    // A one-off pass, not part of a multi-stage run — nothing outlives this
+    // call to fold the total into, so a fresh accumulator is the whole story.
+    let mut spend = crate::observer::Spend::default();
     let description = run_stage(
         &shared_agent,
         &DESCRIBE,
@@ -85,6 +88,7 @@ pub async fn describe_reference(
         max_tokens,
         context_budget,
         obs,
+        &mut spend,
     )
     .await
     .ok_or("The description pass was cancelled.")?;

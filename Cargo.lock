@@ -5401,6 +5401,7 @@ dependencies = [
  "rig-agent",
  "rig-core",
  "rig-memory",
+ "serde",
  "serde_json",
  "tokio",
  "uuid",

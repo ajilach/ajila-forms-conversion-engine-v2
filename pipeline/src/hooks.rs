@@ -218,6 +218,11 @@ impl AgentHook for StageHook {
                     "{}: context budget failed ({e}) — sending the turn unshaped.",
                     self.role.name
                 )));
+                // Clear rather than leave the previous (successful) turn's
+                // estimate in place: `on_model_turn_finished` would otherwise
+                // pair a stale, smaller estimate with this turn's real usage
+                // and feed a mismatched ratio into the calibration EMA.
+                self.last_prompt_estimate.store(0, Ordering::Relaxed);
                 return CompletionCallAction::continue_run();
             }
             Err(e) => {
@@ -225,6 +230,7 @@ impl AgentHook for StageHook {
                     "{}: context budget task panicked ({e}) — sending the turn unshaped.",
                     self.role.name
                 )));
+                self.last_prompt_estimate.store(0, Ordering::Relaxed);
                 return CompletionCallAction::continue_run();
             }
         };
@@ -322,10 +328,13 @@ impl AgentHook for StageHook {
             self.obs.emit(RunEvent::ContextUsed(prompt_tokens as usize));
             // Feed the calibration EMA: what `on_completion_call` estimated
             // for this exact (shaped) history, against what the API actually
-            // billed. `0` means no completion call ever ran for this hook
-            // instance (unreachable in practice — a turn cannot finish
-            // without one), so it is skipped rather than recorded as a
-            // spuriously perfect estimate.
+            // billed. `0` means either no completion call ever ran for this
+            // hook instance (unreachable in practice — a turn cannot finish
+            // without one) or the one that did failed to shape a history at
+            // all (`on_completion_call` clears the estimate on that path) —
+            // either way there is no real estimate to pair with this turn's
+            // usage, so it is skipped rather than recorded as spuriously
+            // perfect or mismatched against an unrelated, earlier turn.
             let raw_estimate = self.last_prompt_estimate.load(Ordering::Relaxed);
             if raw_estimate > 0 {
                 self.context_budget.record_actual(raw_estimate, prompt_tokens);
@@ -577,6 +586,35 @@ mod tests {
 
     fn no_budget() -> Arc<dyn ContextBudget> {
         Arc::new(NoBudget)
+    }
+
+    /// A `ContextBudget` that actually shapes history, wrapping whatever real
+    /// [`rig_memory::MemoryPolicy`] the test hands it — unlike [`NoBudget`],
+    /// which exists so tests that are not about shaping never have to think
+    /// about it.
+    struct RealBudget(Arc<dyn rig_memory::MemoryPolicy>);
+
+    impl ContextBudget for RealBudget {
+        fn policy(&self) -> Arc<dyn rig_memory::MemoryPolicy> {
+            self.0.clone()
+        }
+        fn raw_estimate(&self, history: &[Message]) -> usize {
+            history.len()
+        }
+        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
+    }
+
+    /// A `MemoryPolicy` that always fails — for proving a policy error
+    /// degrades a turn to unshaped rather than ending the stage over it.
+    struct AlwaysFailsPolicy;
+
+    impl rig_memory::MemoryPolicy for AlwaysFailsPolicy {
+        fn apply(
+            &self,
+            _messages: Vec<Message>,
+        ) -> Result<Vec<Message>, rig_core::memory::MemoryError> {
+            Err(rig_core::memory::MemoryError::Internal("boom".into()))
+        }
     }
 
     /// A role with a chosen `stuck_tool`, for the stuck-watch test — the
@@ -1006,6 +1044,104 @@ mod tests {
             2,
             "the stage must recover and take its second scripted turn, not end on the \
              unknown tool"
+        );
+    }
+
+    /// The whole point of wiring a `ContextBudget` in: a history that has
+    /// grown past what the policy allows must actually be trimmed before it
+    /// reaches the request, not merely estimated and left alone.
+    #[tokio::test]
+    async fn an_oversized_history_is_shaped_before_it_reaches_the_request() {
+        let shared_agent = bare_shared_agent();
+        let tools = crate::tools::dynamic_tools_for(
+            &shared_agent,
+            &[serde_json::json!({
+                "name": "get_source_info",
+                "description": "Info about the source.",
+                "input_schema": {"type": "object", "properties": {}},
+            })],
+            &SharedObserver::new(crate::observer::NullObserver),
+        );
+
+        // Every turn is a tool call, so the loop keeps going (a plain text
+        // reply is itself a natural end) and history keeps growing: an
+        // assistant tool-call message plus a user tool-result message land
+        // in history on every completed turn.
+        let repeat_turn = || {
+            vec![
+                MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+            ]
+        };
+        let model = MockCompletionModel::from_stream_turns(std::iter::repeat_with(repeat_turn).take(5));
+        let agent = agent_with_tools(model.clone(), tools);
+
+        let budget: Arc<dyn ContextBudget> =
+            Arc::new(RealBudget(Arc::new(rig_memory::SlidingWindowMemory::last_messages(2))));
+        let hook = StageHook::new(
+            &crate::roles::ANALYST,
+            AbortFlag::default(),
+            SharedObserver::new(crate::observer::NullObserver),
+            no_price(),
+            Spend::default(),
+            budget,
+        );
+
+        drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
+
+        // By the last turn, the *unshaped* transcript would hold history for
+        // every prior round trip (2 messages per completed turn) plus the
+        // seed — comfortably more than the 2-message sliding window allows.
+        // If shaping never reached the request, this would see that whole,
+        // growing transcript instead.
+        let requests = model.requests();
+        let last = requests.last().expect("at least one request was sent");
+        assert!(
+            last.chat_history.len() <= 2,
+            "the request carried {} history messages — the sliding window was not applied: {:?}",
+            last.chat_history.len(),
+            last.chat_history
+        );
+    }
+
+    /// A `MemoryPolicy` failure is a reason to warn and send the turn
+    /// unshaped, not a reason to end an otherwise-healthy stage — the same
+    /// bargain `on_invalid_tool_call` strikes for a model's bad tool call.
+    #[tokio::test]
+    async fn a_failing_context_budget_sends_the_turn_unshaped_rather_than_ending_the_stage() {
+        let model = MockCompletionModel::from_stream_turns([[
+            MockStreamEvent::text("hello"),
+            MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+        ]]);
+        let agent = agent_with(model.clone());
+        let (obs, log) = recorder();
+        let budget: Arc<dyn ContextBudget> = Arc::new(RealBudget(Arc::new(AlwaysFailsPolicy)));
+        let hook = StageHook::new(
+            &crate::roles::ANALYST,
+            AbortFlag::default(),
+            obs,
+            no_price(),
+            Spend::default(),
+            budget,
+        );
+
+        use rig_agent::agent::MultiTurnStreamItem;
+        let mut stream = agent.runner("go").add_hook(hook).max_turns(5).stream().await;
+        let mut reached_final = false;
+        while let Some(item) = stream.next().await {
+            let item = item.expect("a context-budget failure must not end the run in error");
+            if matches!(item, MultiTurnStreamItem::FinalResponse(_)) {
+                reached_final = true;
+            }
+        }
+        assert!(reached_final, "the stage must still reach its final response");
+
+        let events = log.lock().unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|e| matches!(e, RunEvent::Warning(w) if w.contains("context budget"))),
+            "a policy failure must be reported: {events:?}"
         );
     }
 }

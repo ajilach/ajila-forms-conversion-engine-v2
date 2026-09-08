@@ -7,6 +7,7 @@ rust-version.workspace = true
 [dependencies]
 agent = { path = "../agent" }
 blueprint = { path = "../core" }
+serde = { workspace = true }
 serde_json = { workspace = true }
 # The message model and tool-definition shape the controller speaks. Provider-
 # neutral: naming rig here does not name a provider, a model or a key.

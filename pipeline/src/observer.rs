@@ -14,6 +14,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use serde::{Deserialize, Serialize};
+
 /// Cooperative cancellation for a run, shared between the caller's stop control
 /// and the run itself.
 ///
@@ -99,7 +101,7 @@ pub enum RunEvent {
 }
 
 /// A run's cumulative token use and what it cost.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Spend {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -148,6 +150,23 @@ impl Spend {
         self.cache_write_tokens += usage.cache_creation_input_tokens;
         self.reasoning_tokens += usage.reasoning_tokens;
         if let Some(cost) = cost {
+            *self.cost_usd.get_or_insert(0.0) += cost;
+        }
+    }
+
+    /// Fold another accumulator's totals in — combining, say, one stage's
+    /// spend into the whole run's, or one run's into a form's running total.
+    ///
+    /// `cost_usd` stays `None` only when both sides are `None` (nothing
+    /// priceable happened on either side); it becomes `Some` as soon as
+    /// either side is, same as [`Self::add`].
+    pub fn merge(&mut self, other: &Self) {
+        self.input_tokens += other.input_tokens;
+        self.output_tokens += other.output_tokens;
+        self.cached_input_tokens += other.cached_input_tokens;
+        self.cache_write_tokens += other.cache_write_tokens;
+        self.reasoning_tokens += other.reasoning_tokens;
+        if let Some(cost) = other.cost_usd {
             *self.cost_usd.get_or_insert(0.0) += cost;
         }
     }
@@ -303,5 +322,61 @@ mod tests {
             2,
             "both clones must write to the same observer"
         );
+    }
+
+    /// Merging two priced accumulators sums both the tokens and the cost —
+    /// the shape needed to fold one stage's (or one run's) spend into a
+    /// larger running total.
+    #[test]
+    fn merging_two_priced_accumulators_sums_tokens_and_cost() {
+        let mut total = Spend {
+            input_tokens: 100,
+            cost_usd: Some(1.0),
+            ..Spend::default()
+        };
+        let other = Spend {
+            input_tokens: 50,
+            cost_usd: Some(0.5),
+            ..Spend::default()
+        };
+
+        total.merge(&other);
+
+        assert_eq!(total.input_tokens, 150);
+        assert_eq!(total.cost_usd, Some(1.5));
+    }
+
+    /// A model with a published rate merged with one that has none must not
+    /// quietly lose the priced side's total — `None` only wins when *both*
+    /// sides have nothing to report.
+    #[test]
+    fn merging_an_unpriced_accumulator_keeps_the_other_sides_cost() {
+        let mut total = Spend {
+            cost_usd: Some(2.0),
+            ..Spend::default()
+        };
+        let unpriced = Spend {
+            input_tokens: 10,
+            cost_usd: None,
+            ..Spend::default()
+        };
+
+        total.merge(&unpriced);
+
+        assert_eq!(total.input_tokens, 10);
+        assert_eq!(total.cost_usd, Some(2.0));
+    }
+
+    /// Two accumulators that both never priced anything stay unpriced after
+    /// merging — a `Some(0.0)` here would misrepresent "nothing is known" as
+    /// "this cost nothing".
+    #[test]
+    fn merging_two_unpriced_accumulators_stays_unpriced() {
+        let mut total = Spend::default();
+        let other = Spend::default();
+
+        total.merge(&other);
+
+        assert_eq!(total.cost_usd, None);
     }
 }
