@@ -175,6 +175,10 @@ async fn run_stages(
     let stages = roles::roles_for(target);
     let mut plan = String::new();
     let mut reviews: Vec<String> = Vec::new();
+    // The whole run's running total — every stage folds its own spend into
+    // this one accumulator, so the last `RunEvent::Spend` a run emits is the
+    // form's full cost, not just its last stage's.
+    let mut spend = Spend::default();
 
     // A feedback run pins the request as the first "review"; a continuation pins
     // nothing at all — the seeded tree is the whole brief.
@@ -200,6 +204,7 @@ async fn run_stages(
             config.max_tokens,
             config.context_budget.clone(),
             obs,
+            &mut spend,
         )
         .await?; // fatal API error or abort, already surfaced
     }
@@ -221,6 +226,7 @@ async fn run_stages(
         config.max_tokens,
         config.context_budget.clone(),
         obs,
+        &mut spend,
     )
     .await?;
 
@@ -244,6 +250,7 @@ async fn run_stages(
             config.max_tokens,
             config.context_budget.clone(),
             obs,
+            &mut spend,
         )
         .await?;
 
@@ -275,6 +282,7 @@ async fn run_stages(
                     config.max_tokens,
                     config.context_budget.clone(),
                     obs,
+                    &mut spend,
                 )
                 .await?;
             }
@@ -516,6 +524,12 @@ pub(crate) async fn run_stage(
     max_tokens: u32,
     context_budget: Arc<dyn ContextBudget>,
     obs: &SharedObserver,
+    // The run's own running total, not this stage's alone — seeded from
+    // whatever the earlier stages already spent, and left holding this
+    // stage's contribution added in on every return path, so the whole run's
+    // cost survives across stages the same way a restart already carries a
+    // stage's own spend across retries.
+    total_spend: &mut Spend,
 ) -> Option<String> {
     use futures_util::StreamExt;
 
@@ -538,7 +552,6 @@ pub(crate) async fn run_stage(
     let mut total_completed_turns = 0usize;
     let mut final_text = String::new();
     let mut auto_retries = 0usize;
-    let mut total_spend = Spend::default();
 
     loop {
         if abort.is_aborted() {
@@ -559,7 +572,7 @@ pub(crate) async fn run_stage(
             abort.clone(),
             obs.clone(),
             price.clone(),
-            total_spend,
+            *total_spend,
             context_budget.clone(),
         ));
 
@@ -592,7 +605,7 @@ pub(crate) async fn run_stage(
         drop(stream);
 
         total_completed_turns += hook.completed_turns();
-        total_spend = hook.spend();
+        *total_spend = hook.spend();
         if !hook.final_text().is_empty() {
             final_text = hook.final_text();
         }
@@ -1740,6 +1753,61 @@ mod controller {
         );
     }
 
+    /// The run's final spend has to be every stage's usage summed — the
+    /// reset this guards against: `run_stage` used to start its own `Spend`
+    /// at zero on every call, so only the last stage's total ever reached the
+    /// observer.
+    #[tokio::test]
+    async fn a_full_runs_spend_sums_every_stage() {
+        let mut analyst_usage = Usage::new();
+        analyst_usage.input_tokens = 100;
+        let mut author_usage = Usage::new();
+        author_usage.input_tokens = 50;
+        let mut reviewer_usage = Usage::new();
+        reviewer_usage.input_tokens = 25;
+
+        let model = MockCompletionModel::from_stream_turns([
+            vec![MockStreamEvent::text("THE PLAN"), MockStreamEvent::final_response(analyst_usage)],
+            vec![MockStreamEvent::text("BUILT"), MockStreamEvent::final_response(author_usage)],
+            vec![
+                MockStreamEvent::tool_call(
+                    "call-review",
+                    "submit_review",
+                    serde_json::json!({"approved": true, "report": ""}),
+                ),
+                MockStreamEvent::final_response(reviewer_usage),
+            ],
+        ]);
+        let (obs, rec) = recorder();
+        let price: PriceFn = Arc::new(|usage| Some(usage.input_tokens as f64 * 0.01));
+
+        let mut cfg = config(AbortFlag::default(), 1, model.clone());
+        cfg.price = price;
+
+        run(bare_agent(), cfg, RunSeed::Fresh, obs).await;
+
+        let events = rec.lock().unwrap();
+        let last_spend = events
+            .events
+            .iter()
+            .rev()
+            .find_map(|e| match e {
+                RunEvent::Spend(s) => Some(*s),
+                _ => None,
+            })
+            .expect("a completed run reports spend");
+
+        assert_eq!(
+            last_spend.input_tokens, 175,
+            "every stage's input tokens must be summed, not just the last stage's"
+        );
+        assert!(
+            (last_spend.cost_usd.expect("priced model") - 1.75).abs() < 1e-9,
+            "cost must sum the same way tokens do: {:?}",
+            last_spend.cost_usd
+        );
+    }
+
     /// Feedback replaces the Analyst: the request becomes the first pinned
     /// review and the Author starts from it.
     #[tokio::test]
@@ -1929,6 +1997,7 @@ mod controller {
             4096,
             no_budget(),
             &obs,
+            &mut Spend::default(),
         )
         .await;
 
@@ -1996,6 +2065,7 @@ mod controller {
             4096,
             no_budget(),
             &first_obs,
+            &mut Spend::default(),
         )
         .await;
         assert_eq!(first_text.as_deref(), Some("first pass built"));
@@ -2016,6 +2086,7 @@ mod controller {
             4096,
             no_budget(),
             &second_obs,
+            &mut Spend::default(),
         )
         .await;
         assert_eq!(second_text.as_deref(), Some("second pass built"));

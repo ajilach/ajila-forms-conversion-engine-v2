@@ -61,6 +61,10 @@ pub struct Tab {
     /// it instead of landing beside it as `(2)`, while still refusing to
     /// overwrite the other tab's.
     pub last_download: Signal<HashMap<String, PathBuf>>,
+    /// What every run this tab has made has cost, together — unlike
+    /// `state`'s own `spend`, a new run never resets this; only "Start over"
+    /// does, since that begins a different form in this slot.
+    pub total_spend: Signal<pipeline::Spend>,
 }
 
 impl Tab {
@@ -85,6 +89,7 @@ impl Tab {
             aem_upload: app(UploadState::default()),
             restored: app(None),
             last_download: app(HashMap::new()),
+            total_spend: app(pipeline::Spend::default()),
         }
     }
 
@@ -130,6 +135,7 @@ impl Tab {
             // may since have been moved, renamed or deleted, and overwriting
             // whatever sits there now would be worse than adding a file.
             last_download: app(HashMap::new()),
+            total_spend: app(saved.total_spend.unwrap_or_default()),
         }
     }
 
@@ -155,6 +161,7 @@ impl Tab {
             elapsed_secs: state.elapsed_secs,
             warnings: state.warnings.clone(),
             feedback_draft: self.feedback.read().clone(),
+            total_spend: Some(*self.total_spend.read()),
         }
     }
 
@@ -179,6 +186,7 @@ impl Tab {
         self.aem_upload.manually_drop();
         self.restored.manually_drop();
         self.last_download.manually_drop();
+        self.total_spend.manually_drop();
     }
 
     /// Whether a run is in flight in this tab.

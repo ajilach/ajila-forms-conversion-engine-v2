@@ -226,6 +226,11 @@ fn App() -> Element {
             if let Some(session) = run.await.ok().flatten() {
                 tab.session_id.clone().set(Some(session));
             }
+            // Fold what this run cost into the tab's running total before the
+            // next run's `begin_run` clears `state`'s own copy.
+            if let Some(spend) = tab.state.read().spend {
+                tab.total_spend.clone().write().merge(&spend);
+            }
             workspace.finish_run(tab.id);
             save_workspace();
         });
@@ -263,6 +268,11 @@ fn App() -> Element {
 
             if let Some(session) = run.await.ok().flatten() {
                 tab.session_id.clone().set(Some(session));
+            }
+            // Fold what this round cost into the tab's running total before
+            // the next run's `begin_run` clears `state`'s own copy.
+            if let Some(spend) = tab.state.read().spend {
+                tab.total_spend.clone().write().merge(&spend);
             }
             workspace.finish_run(tab.id);
             save_workspace();
@@ -397,6 +407,9 @@ fn App() -> Element {
                     active.timeline_open.clone().set(false);
                     active.aem_upload.clone().set(UploadState::Idle);
                     active.state.clone().set(ProcessingState::default());
+                    // Starting over begins a different form in this tab
+                    // slot, so its cost should not carry the old form's total.
+                    active.total_spend.clone().set(pipeline::Spend::default());
                     save_workspace();
                 },
             }

@@ -112,6 +112,7 @@ pub fn AgentFlow(
                             RunBox {
                                 status,
                                 state: processing_state.into(),
+                                total_spend: *tab.total_spend.read(),
                                 files: uploaded_files,
                                 profile: tab.profile.read().clone(),
                                 aem_connection,
@@ -319,6 +320,9 @@ fn UploadBox(
 fn RunBox(
     status: RunStatus,
     state: RunStateRead,
+    /// What every run this tab has made has cost, together — not just this
+    /// run's own figure, which `state.spend` already carries.
+    total_spend: pipeline::Spend,
     files: Signal<Vec<(String, Vec<u8>)>>,
     profile: Option<String>,
     aem_connection: Option<blueprint::AemConnection>,
@@ -364,7 +368,7 @@ fn RunBox(
             }
             PhaseRail { status }
             SourceFiles { files }
-            ActivityTimeline { status, state, timeline_open }
+            ActivityTimeline { status, state, total_spend, timeline_open }
 
             // ---- Failed request: retry (or give up) without losing the run ----
             if status == RunStatus::Paused {
@@ -582,6 +586,8 @@ fn ActivityTimeline(
     /// apart from one whose transcript was never stored.
     status: RunStatus,
     state: RunStateRead,
+    /// What every run this tab has made has cost, together.
+    total_spend: pipeline::Spend,
     mut timeline_open: Signal<bool>,
 ) -> Element {
     // The scroll anchor has to name *this* timeline. Once several runs are open
@@ -629,7 +635,7 @@ fn ActivityTimeline(
                         used: state.context_used_tokens,
                         window: state.context_window,
                     }
-                    SpendTag { spend: state.spend }
+                    SpendTag { spend: state.spend, total: total_spend }
                 } else {
                     // Collapsed: show only the latest step.
                     match steps.last() {
@@ -726,8 +732,14 @@ fn status_glyph(status: AgentStepStatus) -> Element {
 /// Absent until the first turn reports usage. A model with no published rate
 /// shows its token counts and says the cost is unknown, rather than showing a
 /// figure that is really a zero.
+///
+/// `total` is what every run this *form* has made — this one plus any earlier
+/// feedback round — has cost together. It is only shown once it says
+/// something `spend` alone does not: a form's first (and so far only) run has
+/// nothing else to add, and right after any run finishes the two briefly
+/// agree again (the total has just absorbed exactly what that run billed).
 #[component]
-fn SpendTag(spend: Option<pipeline::Spend>) -> Element {
+fn SpendTag(spend: Option<pipeline::Spend>, total: pipeline::Spend) -> Element {
     let Some(spend) = spend else {
         return rsx! {};
     };
@@ -735,8 +747,16 @@ fn SpendTag(spend: Option<pipeline::Spend>) -> Element {
         Some(cost) => format!("USD {cost:.2}"),
         None => "cost n/a".to_string(),
     };
+    let show_total = total != pipeline::Spend::default() && total != spend;
+    let total_label = match total.cost_usd {
+        Some(cost) => format!("USD {cost:.2} total"),
+        None => "cost n/a total".to_string(),
+    };
     rsx! {
         span { class: "ag-spend", title: "{spend.describe()}", "{label}" }
+        if show_total {
+            span { class: "ag-spend-total", title: "{total.describe()}", "{total_label}" }
+        }
     }
 }
 

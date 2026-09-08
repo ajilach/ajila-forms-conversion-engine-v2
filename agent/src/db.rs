@@ -65,7 +65,7 @@ mod imp {
     const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// The schema revision this build expects. Bumped when a migration is added.
-    const SCHEMA_VERSION: i64 = 3;
+    const SCHEMA_VERSION: i64 = 4;
 
     /// Redirects the store to a scratch file. Tests only — see
     /// [`set_db_path_for_test`].
@@ -212,6 +212,17 @@ mod imp {
             // already exists, and there is no `ADD COLUMN IF NOT EXISTS`, so an
             // error here means the column is already present.
             let _ = conn.execute("ALTER TABLE sessions ADD COLUMN target TEXT", []);
+        }
+
+        if version < 4 {
+            // What a session has cost so far — across every run it has been
+            // resumed for, not just its latest one — is the same kind of
+            // per-session property `target` is: something a later run needs
+            // to carry forward, not derive fresh. Stored as opaque JSON
+            // (a serialized `pipeline::Spend`) rather than one column per
+            // field: this crate has no reason to know that struct's shape,
+            // only to hold it for whoever does.
+            let _ = conn.execute("ALTER TABLE sessions ADD COLUMN spend_json TEXT", []);
         }
 
         if version < SCHEMA_VERSION {
@@ -378,6 +389,42 @@ mod imp {
         .ok()
         .flatten()
         .flatten()
+    }
+
+    /// The running spend recorded for a session, as opaque JSON — `None` for
+    /// a session that has not billed anything yet, or one written before the
+    /// column existed.
+    ///
+    /// Opaque because this crate carries no `pipeline::Spend` type of its own
+    /// (`pipeline` already depends on `agent`, so the reverse would be
+    /// circular) — the caller, which does depend on both, is what
+    /// serializes and parses it.
+    pub fn session_spend_json(session_id: &str) -> Option<String> {
+        let conn = warn_db(open(), "opening the store")?;
+        conn.query_row(
+            "SELECT spend_json FROM sessions WHERE session_id = ?1",
+            [session_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .optional()
+        .ok()
+        .flatten()
+        .flatten()
+    }
+
+    /// Record a session's running spend, as opaque JSON — see
+    /// [`session_spend_json`] for why this crate never parses it.
+    pub fn set_session_spend_json(session_id: &str, spend_json: &str) {
+        let Some(conn) = warn_db(open(), "opening the store") else {
+            return;
+        };
+        warn_db(
+            conn.execute(
+                "UPDATE sessions SET spend_json = ?1 WHERE session_id = ?2",
+                rusqlite::params![spend_json, session_id],
+            ),
+            "recording a session's spend",
+        );
     }
 
     /// Look up the conversion profile stored for a session, if any.
@@ -1169,14 +1216,14 @@ mod imp {
         }
 
         /// A database left at schema version 2 (before the `conversations`
-        /// table existed) has to reach version 3 with its existing edit
-        /// history intact and the new table usable — the new table is added
-        /// by `ensure_schema`'s own `CREATE TABLE IF NOT EXISTS`, so this
-        /// pins that running it against an *existing* v2 database (not just a
-        /// fresh one) actually adds it, and that migrating changes nothing
-        /// about the data that was already there.
+        /// table existed) has to reach the latest version with its existing
+        /// edit history intact and the new table usable — the new table is
+        /// added by `ensure_schema`'s own `CREATE TABLE IF NOT EXISTS`, so
+        /// this pins that running it against an *existing* v2 database (not
+        /// just a fresh one) actually adds it, and that migrating changes
+        /// nothing about the data that was already there.
         #[test]
-        fn a_v2_database_migrates_to_v3_without_losing_edits() {
+        fn a_v2_database_migrates_to_the_latest_schema_without_losing_edits() {
             let mut conn = Connection::open_in_memory().unwrap();
             ensure_schema(&conn).unwrap();
             insert_edit_conn(&conn, "s", "before the migration", "{}");
@@ -1196,7 +1243,7 @@ mod imp {
                     |row| row.get(0),
                 )
                 .unwrap();
-            assert_eq!(version, "3");
+            assert_eq!(version, SCHEMA_VERSION.to_string());
             assert_eq!(list_edits_conn(&conn, "s").len(), 1, "prior edits must survive");
 
             // The new table has to be usable on this migrated database, not
@@ -1295,6 +1342,24 @@ mod imp {
             // Written before the column existed: the caller falls back to
             // whatever the tab remembers.
             assert_eq!(read("old"), None);
+        }
+
+        /// A form's cost has to survive being resumed: a fresh session has
+        /// none recorded yet, and a later run's `set_session_spend_json` has
+        /// to be what a subsequent read sees, not what a *different* session
+        /// happens to hold.
+        #[test]
+        fn a_sessions_spend_round_trips_and_is_isolated_from_others() {
+            claim_scratch_db_for_test();
+            let a = create_session("h", None, "redacto", "l").expect("session a");
+            let b = create_session("h", None, "redacto", "l").expect("session b");
+
+            assert_eq!(session_spend_json(&a), None, "a fresh session has billed nothing yet");
+
+            set_session_spend_json(&a, r#"{"cost_usd":1.5}"#);
+
+            assert_eq!(session_spend_json(&a).as_deref(), Some(r#"{"cost_usd":1.5}"#));
+            assert_eq!(session_spend_json(&b), None, "one session's spend must not leak into another's");
         }
 
         /// The AEM tree is snapshotted under a sibling id, so deleting a session

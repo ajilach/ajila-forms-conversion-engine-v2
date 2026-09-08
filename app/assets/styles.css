@@ -1258,6 +1258,11 @@ body > div, #main {
   margin-left: 10px; font-size: 11px; color: var(--muted);
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
+/* The form's running total across every round, beside this run's own figure. */
+.ag-spend-total {
+  margin-left: 6px; font-size: 11px; color: var(--muted);
+  font-variant-numeric: tabular-nums; white-space: nowrap; opacity: 0.75;
+}
 .ag-ctx { display: inline-flex; align-items: center; gap: 6px; margin-left: 12px; }
 .ag-ctx-ring {
     position: relative;

@@ -59,6 +59,24 @@ impl ConsoleObserver {
         }
     }
 
+    /// This run's own cumulative spend, for folding into a session's running
+    /// total once the session id is known — the observer itself is built
+    /// before that id exists on a fresh run, so it cannot look the total up
+    /// on its own.
+    pub fn spend(&self) -> Option<pipeline::Spend> {
+        self.spend
+    }
+
+    /// Print a session's total across every run it has been resumed for, once
+    /// that differs from what this run alone cost — a first, only run has
+    /// nothing else to add, and printing the same figure twice would just be
+    /// noise.
+    pub fn report_total_spend(&mut self, total: &pipeline::Spend) {
+        if Some(*total) != self.spend {
+            self.say(format!("\nSession total: {}", total.describe()));
+        }
+    }
+
     fn say(&mut self, line: impl AsRef<str>) {
         println!("{}", line.as_ref());
     }

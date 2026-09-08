@@ -128,6 +128,11 @@ pub struct SavedTab {
     pub warnings: Vec<String>,
     /// Unsent feedback, so a half-typed note is not lost to a restart.
     pub feedback_draft: String,
+    /// What every run this tab has made — the first upload and every
+    /// feedback round since — has cost together. Unlike `ProcessingState`'s
+    /// own `spend`, this is never reset when a new run starts; only "Start
+    /// over" clears it, since that begins a different form in this slot.
+    pub total_spend: Option<pipeline::Spend>,
 }
 
 /// Every open tab, as written to the store.
