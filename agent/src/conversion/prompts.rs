@@ -287,8 +287,11 @@ with Next, entering a plausible value in every field type on the way (browser_fi
 several fields at once, browser_type / browser_select_option / browser_click for single ones), \
 switch each conditional choice so its gated panel appears, add an instance to each repeatable, \
 then reach the preview step and press Submit; browser_wait_for the confirmation. The submission \
-produces a PDF that the browser downloads: inspect_pdf without arguments lists the downloads, \
-inspect_pdf with the file name renders every page, and those pages must show the values you \
+produces the Document of Record as a PDF the browser downloads: use inspect_pdf (without arguments \
+to list the downloads, then with the newest file name) to render and check it. NEVER call \
+fetch_aem_dor_pdf for this — it hits Adobe's own DoR selector, but the UBS DoR is rendered by \
+Redacto from the summary data instead (see WHERE A NODE SHOWS UP below), so it will not reflect what \
+was just submitted and only wastes a call. Those pages must show the values you \
 entered laid out like the source. Then open one non-master language's preview and confirm its \
 wording. browser_console_messages and browser_network_requests explain a page that will not \
 advance or a submission that fails. Without the browser tools, fetch_aem_form_html / \
@@ -473,7 +476,9 @@ page with Next, fill every field type with a plausible value (browser_fill_form,
 browser_select_option, browser_click), flip each conditional choice so its gated panel shows, add a \
 repeatable instance, press Submit at the preview step and browser_wait_for the confirmation; then \
 inspect_pdf (list, then the newest file) and check that the downloaded PDF shows the values you \
-entered, laid out like the source. Open one non-master language's preview as well. Prefer \
+entered, laid out like the source. NEVER call fetch_aem_dor_pdf for this — it hits Adobe's own DoR \
+selector, but the UBS DoR is rendered by Redacto from the summary data instead, so it will not \
+reflect what was just submitted. Open one non-master language's preview as well. Prefer \
 browser_snapshot (text) to browser_take_screenshot (an image costs more) unless the layout itself \
 is the question; browser_console_messages / browser_network_requests explain a page that will not \
 advance or a submission that fails. A page that cannot be reached, a field that cannot be filled, \
