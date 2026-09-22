@@ -252,3 +252,60 @@ jobs:
           asset_path: ./release-artifacts/${{ matrix.artifact }}
           asset_name: ${{ matrix.artifact }}
           asset_content_type: ${{ matrix.content_type }}
+
+  build-and-upload-cli:
+    name: Build CLI ${{ matrix.target }}
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact: blueprint-cli-macos-aarch64.tar.gz
+            content_type: application/gzip
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact: blueprint-cli-linux-x86_64.tar.gz
+            content_type: application/gzip
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: blueprint-cli-windows-x86_64.zip
+            content_type: application/zip
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build blueprint-cli
+        run: cargo build --release -p blueprint-cli --target ${{ matrix.target }}
+        shell: bash
+
+      - name: Package artifact
+        run: |
+          mkdir -p release-artifacts
+          if [ "${{ matrix.os }}" == "windows-latest" ]; then
+            7z a "release-artifacts/${{ matrix.artifact }}" "./target/${{ matrix.target }}/release/blueprint.exe"
+          else
+            chmod +x "target/${{ matrix.target }}/release/blueprint"
+            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "target/${{ matrix.target }}/release" blueprint
+          fi
+        shell: bash
+
+      - name: Upload Release Asset
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ needs.create-release.outputs.upload_url }}
+          asset_path: ./release-artifacts/${{ matrix.artifact }}
+          asset_name: ${{ matrix.artifact }}
+          asset_content_type: ${{ matrix.content_type }}
