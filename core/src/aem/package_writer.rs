@@ -728,11 +728,19 @@ fn generate_definition_xml(package_name: &str, author: &str, roots: &[String]) -
 // ============================================================================
 
 /// Collect all language codes present in the structured content.
+///
+/// Excludes [`crate::structured::NO_LANGUAGE`]: a node the engine itself
+/// synthesised with no real language attached (a placeholder title, for
+/// instance) is not evidence the form ships that "language" -- treating it as
+/// one corrupted `AemConfig::base_language()` for any form carrying such a
+/// node, since it out-competed every genuine language whenever none of them
+/// matched the profile's fixed master.
 pub fn collect_languages(content: &[StructuredNode]) -> BTreeSet<String> {
     let mut langs = BTreeSet::new();
     for node in content {
         node.collect_languages(&mut langs);
     }
+    langs.remove(crate::structured::NO_LANGUAGE);
     langs
 }
 
@@ -1355,6 +1363,55 @@ mod tests {
     use super::*;
     use crate::xsd::{XsdConfig, XsdProfile};
     use std::io::Read;
+
+    /// A node the engine synthesised with no real language attached (a
+    /// placeholder heading, say) must never be read as evidence the form
+    /// ships a `"default"` language. Doing so once let one such node beat
+    /// every real language for `AemConfig::base_language()`, since none of
+    /// them then matched the profile's fixed master and the fallback picked
+    /// whichever language sorted first -- which was the synthesised one.
+    #[test]
+    fn collect_languages_never_reports_the_no_language_sentinel() {
+        let content = vec![StructuredNode::Heading(crate::structured::HeadingNode {
+            level: HeadingLevel::H2,
+            content: TranslatedText::plain("(Repeatable name)"),
+            som_path: None,
+            source_name: None,
+        })];
+        let langs = collect_languages(&content);
+        assert!(
+            !langs.contains(crate::structured::NO_LANGUAGE),
+            "the sentinel must never be reported as a shipped language: {langs:?}"
+        );
+        assert!(langs.is_empty(), "no real language was present: {langs:?}");
+    }
+
+    /// The sentinel is dropped even alongside a real language, so a form that
+    /// mostly carries genuine text but has one synthesised node still reports
+    /// only the languages it actually ships.
+    #[test]
+    fn collect_languages_drops_the_sentinel_but_keeps_real_languages() {
+        let content = vec![
+            StructuredNode::Heading(crate::structured::HeadingNode {
+                level: HeadingLevel::H2,
+                content: TranslatedText::plain_with_lang("it", "Titolo"),
+                som_path: None,
+                source_name: None,
+            }),
+            StructuredNode::Heading(crate::structured::HeadingNode {
+                level: HeadingLevel::H3,
+                content: TranslatedText::plain("(Repeatable name)"),
+                som_path: None,
+                source_name: None,
+            }),
+        ];
+        let langs = collect_languages(&content);
+        assert_eq!(
+            langs,
+            std::collections::BTreeSet::from(["it".to_string()]),
+            "only the genuine language must survive: {langs:?}"
+        );
+    }
 
     #[test]
     fn dam_asset_xml_has_correct_resource_type() {

@@ -786,6 +786,14 @@ pub enum InlineNode {
 #[serde(transparent)]
 pub struct TranslatedText(pub HashMap<String, InlineText>);
 
+/// The key [`TranslatedText::plain`] files text under when no real language is
+/// known. Never a genuine language code, so nothing that scans a document for
+/// its shipped languages (`collect_languages`, `AemConfig::base_language`) may
+/// treat it as one -- doing so once let a single such node force `"default"`
+/// into a real form's language list, which then outranked every genuine
+/// language when nothing among them matched the profile's fixed master.
+pub const NO_LANGUAGE: &str = "default";
+
 impl TranslatedText {
     /// Create an empty translated text with no languages.
     pub fn empty() -> Self {
@@ -799,9 +807,10 @@ impl TranslatedText {
         TranslatedText(map)
     }
 
-    /// Create a translated text from a plain string (no language, uses "default" key).
+    /// Create a translated text from a plain string (no language, uses the
+    /// [`NO_LANGUAGE`] sentinel key).
     pub fn plain(text: impl Into<String>) -> Self {
-        Self::plain_with_lang("default", text)
+        Self::plain_with_lang(NO_LANGUAGE, text)
     }
 
     /// Create a translated text with a single language entry.

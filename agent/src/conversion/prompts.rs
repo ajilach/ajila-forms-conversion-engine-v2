@@ -168,7 +168,11 @@ generic PARTNER fragments, chosen by the party's ROLE in the form — the contra
 `PN_CPGRP`); a partner OF that party (representative, guardian, connected party) → \
 `affrg_PartnertoPartnerGeneric1` (`PN_AHGRP`, a second one `PN_AHGRP_AR`); beneficial owner / \
 trustee → `affrg_BeneficialOwnerGeneric1` (`PN_BOGRP`); authorized signer / POA / e-banking user → \
-`affrg_PowerofAttorneyGeneric1` (`PN_PAGRP`). Never reference a germany/italy person fragment. In a form with NO \
+`affrg_PowerofAttorneyGeneric1` (`PN_PAGRP`). A MINOR who is the account holder is the CONTRACTING \
+PARTY (`PN_CPGRP`), not a partner of one — a minor IS the client, merely underage, even though a \
+legal guardian signs on their behalf. Classify the minor's own data section `PN_CPGRP`; the \
+guardian's own data section, if the form gives it one, is the ordinary PARTNER role (`PN_AHGRP`) as \
+for any other representative. Never reference a germany/italy person fragment. In a form with NO \
 configurator, a name pair that merely identifies the form's subject — a questionnaire's \
 \"Last name / First name(s)\" — is NOT a party data section: leave it as plain TXT_ textboxes, as \
 the deployed AAAC_019, ABFG_033, AAUT_033 and AAUI_033 do, and let review_output's \
@@ -196,13 +200,22 @@ Remove buttons then also add and remove a row of the signature panel and relabel
 emitted with NO Add and NO Remove of its own — one there would let the two desync, and the engine's \
 own validator reporting the twin as button-less is correct by design. So do NOT hand-author those \
 addInstance calls, and do NOT give a twin buttons. A name outside those shapes silently leaves the \
-twin undriven: it keeps one row while the party grows. \
+twin undriven: it keeps one row while the party grows. TWO PARTIES OF THE SAME CLASS MAY SHARE THE \
+SAME DATA-PANEL NAME — the generic fragment's own internal script drives its host panel by that \
+exact name (e.g. `removeInstance(this.PN_CPGRP)`), so do NOT invent a distinguishing suffix for a \
+second `PN_CPGRP`/`PN_AHGRP`/… panel just because one already exists (a minor's own `PN_CPGRP` \
+alongside the guardian's `PN_AHGRP` is the ordinary shape, not a collision to resolve); give a \
+hand-built (non-generic) party block its own distinguishing suffix as before. \
 (2) By the NAME-FILL CALC: the generic's own calc ships disabled, so \
 the host carries a hidden textbox `TXT_Donotdelete` (dorExclusion + summaryExclusion, visible \
 false) beside the first signature panel whose fd:calc holds ONE Calculate document per (data panel \
 → signature panel) pair, looping the data panel's instances and writing \
 PN_GenericSignature.TXT_Name_Generic from PN_IndividualBasic.PN_Name_Individual — without it no \
-signature carries a name. \
+signature carries a name. A data panel's name being shared with another party's (see above) is NOT \
+a reason to skip its pair's calc entry — write one Calculate document per pair the form's own \
+Add/Remove wiring states, addressed the same deterministic way that wiring addresses it \
+(`this.PN_CPGRP`, not a bare unqualified name); only leave a pairing out when nothing in the panel \
+names or button wiring says which data panel a given signature belongs to. \
 A fragment is OPAQUE: its internal fields are supplied by AEM at runtime from that path (its \
 `<items>` in the JCR are empty), so never recreate them as children and never try to edit inside it \
 — that duplicates the section. Keep the fragment's `bind_ref`; for a \
@@ -427,7 +440,8 @@ carrying a Formular Adressat / Form addressee / Tipo configurator) → one of th
 UBS generic partner fragments in afforms_ubs_fragmentlib, chosen by the party's ROLE: contracting \
 party → affrg_ContractualPartnerGeneric1, partner of that party → affrg_PartnertoPartnerGeneric1, \
 beneficial owner → affrg_BeneficialOwnerGeneric1, POA/authorized signer → \
-affrg_PowerofAttorneyGeneric1 — state the class per person section, which sub-panels stay visible, \
+affrg_PowerofAttorneyGeneric1 (a minor who is the account holder is the contracting party, not a \
+partner, even though a guardian signs for them) — state the class per person section, which sub-panels stay visible, \
 and which get a hideAFHideDor call; a loose address with no person block → affrg_AddressGeneric1; \
 signatures → always affrg_SignatureGeneric1; and in a form with NO configurator, a bare name pair \
 identifying the form's subject stays plain TXT_ textboxes — state that explicitly rather than \

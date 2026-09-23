@@ -249,8 +249,16 @@ fn sane_subject(text: &str) -> Option<String> {
 /// page with repeatables the thing they want back is a row, not the step heading:
 /// a repeatable renders one button per instance, and the step-title panel gives
 /// its own up (owner directive 2026-08-24, PROBLEM-jump-to-field-button). A page
-/// with nothing to fill in gets none at all, and neither does the form
-/// configurator — which would otherwise appear in the summary's jump list.
+/// with nothing to fill in gets none at all.
+///
+/// **Not gated on the form configurator** (owner directive 2026-08-24, restated
+/// after AARG_033: the whole first page there sits inside
+/// `PN_FormConfigurator_a2439641` — the configurator radio *and* the
+/// account-holder rows). Excluding the whole page here suppressed the button on
+/// exactly the repeatables — `PN_CPGRP`, `PN_AHGRP` — a person would most want to
+/// reach. Only the configurator's own title panel is exempt, which is decided
+/// separately where that panel's DoR/summary exclusions are (`is_first_page &&
+/// name.starts_with("PN_FormConfigurator")` in the panel context), not here.
 fn collect_jump_to_field_repeatables(root: &AemNode) -> HashSet<String> {
     let mut out = HashSet::new();
     let AemNode::Root { children, .. } = root else {
@@ -258,18 +266,13 @@ fn collect_jump_to_field_repeatables(root: &AemNode) -> HashSet<String> {
     };
     for page in children {
         let AemNode::Panel {
-            name,
             children: page_children,
             ..
         } = page
         else {
             continue;
         };
-        let is_configurator = page_children
-            .iter()
-            .any(|c| matches!(c, AemNode::Preface { .. }))
-            && name.starts_with("PN_FormConfigurator");
-        if is_configurator || !page_children.iter().any(holds_input) {
+        if !page_children.iter().any(holds_input) {
             continue;
         }
         collect_repeatable_names(page, &mut out);
@@ -1538,18 +1541,25 @@ fn build_node_context(
                 .or_else(|| index.add_subjects.get(name))
                 .map(String::as_str);
 
-            // Empty when nothing on screen names the block, or when the profile
-            // configures no wording — the template keeps its own label then.
-            let add_label = subject
-                .and_then(|subject| config.add_label(&config.base_language(), subject))
-                .unwrap_or_default();
-            ctx.insert("add_label", &xml_escape(&add_label));
-
             // A panel with no subject still carries a title, because a heading
             // AEM renders empty reads as a missing one; the placeholder says a
             // person has to name it. Parentheses, not brackets: a vault property
-            // value opening with `[` is read back as a multi-value.
+            // value opening with `[` is read back as a multi-value. The Add
+            // button is built from this SAME final subject (placeholder
+            // included), not the pre-fallback one: a button phrased in the bare,
+            // unlocalised template default ("Add") on a page otherwise entirely
+            // in Italian is its own defect, and downstream tooling that reads
+            // `ajilaPanelSubject` back out (PROBLEM-repeatable-add-label) already
+            // treats the placeholder as the panel's stated subject, so leaving
+            // the button off it just means the two disagree.
             let subject = subject.unwrap_or("(Repeatable name)");
+
+            // Empty only when the profile configures no wording for this
+            // language — the template keeps its own label then.
+            let add_label = config
+                .add_label(&config.base_language(), subject)
+                .unwrap_or_default();
+            ctx.insert("add_label", &xml_escape(&add_label));
             ctx.insert("subject", &xml_escape(subject));
             ctx.insert("rule_label", &rule_label(subject));
 
@@ -3356,8 +3366,12 @@ mod tests {
             label_for(vec![repeatable("")], "Client details"),
             "Add Client details"
         );
-        // Prose names nothing, so the button keeps the template's own label
-        // rather than reading out a sentence.
+        // Prose names nothing, so the button falls back to the SAME placeholder
+        // the panel's own jcr:title/ajilaPanelSubject already carries -- a bare,
+        // unlocalised "Add" is its own defect (PROBLEM-repeatable-add-label
+        // reports it), and PROBLEM-repeatable-add-label's own detector reads
+        // ajilaPanelSubject back out as the panel's stated subject regardless,
+        // so leaving the button off the placeholder just means the two disagree.
         assert_eq!(
             label_for(
                 vec![
@@ -3366,7 +3380,7 @@ mod tests {
                 ],
                 ""
             ),
-            "Add"
+            "Add (Repeatable name)"
         );
     }
 
@@ -3859,6 +3873,99 @@ mod tests {
             !xml.contains("jumpToFieldButtonVisible"),
             "a step with nothing to fill in offers no button. Got:\n{}",
             xml
+        );
+    }
+
+    /// A repeatable sharing the form-configurator's own page still gets the
+    /// jump-to-field button.
+    ///
+    /// AARG_033's first page sits entirely inside `PN_FormConfigurator_a2439641`
+    /// — the configurator radio *and* the account-holder rows together. Gating
+    /// repeatable collection on `is_configurator` at the page level suppressed
+    /// the button on exactly the repeatables — `PN_CPGRP`, `PN_AHGRP` — a person
+    /// would most want to reach (owner directive 2026-08-24, restated after that
+    /// report). Only the configurator's own title panel is exempt.
+    #[test]
+    fn a_repeatable_on_the_configurator_page_still_gets_the_jump_to_field_button() {
+        let mut config = test_config();
+        config.component_templates.insert(
+            "repeatable".into(),
+            include_str!("../../../profiles/ubs/aem/repeatable.xml").into(),
+        );
+        config.component_templates.insert(
+            "panel".into(),
+            include_str!("../../../profiles/ubs/aem/panel.xml").into(),
+        );
+        config.user_vars.insert(
+            "default_layout".into(),
+            "fd/af/layouts/gridFluidLayout2".into(),
+        );
+        config.user_vars.insert(
+            "custom_resource_type_base".into(),
+            "ubs/af/components".into(),
+        );
+        config
+            .user_vars
+            .insert("dor_field_styling".into(), "some_styling".into());
+
+        let repeatable = AemNode::Repeatable {
+            attrs: AemAttrs::default(),
+            visible: true,
+            uuid: fixed_uuid(),
+            name: "PN_CPGRP".into(),
+            title: "Client".into(),
+            children: vec![AemNode::TextField {
+                attrs: AemAttrs::default(),
+                uuid: fixed_uuid(),
+                name: "TXT_Name".into(),
+                label: "Name".into(),
+                mandatory: false,
+                visible: true,
+                max_chars: None,
+                colspan: 12,
+                dor_colspan: None,
+                bind_ref: None,
+                kind: TextFieldKind::Plain,
+            }],
+            min_occur: 1,
+            max_occur: 5,
+            bind_ref: None,
+            frag_ref: None,
+        };
+        let root = AemNode::Root {
+            title: "Form".into(),
+            children: vec![AemNode::Panel {
+                uuid: fixed_uuid(),
+                name: "PN_FormConfigurator_a2439641".into(),
+                title: "Form configurator".into(),
+                children: vec![
+                    AemNode::Preface {
+                        uuid: fixed_uuid(),
+                        name: "banking_relationship".into(),
+                    },
+                    repeatable,
+                ],
+                is_page: true,
+                attrs: AemAttrs::default(),
+                visible: true,
+                is_conditional: false,
+                dor_num_cols: None,
+                colspan: 12,
+                dor_colspan: None,
+                bind_ref: None,
+                frag_ref: None,
+            }],
+        };
+        let xml = generate_aem_xml(&root, &config);
+        let row = xml
+            .split("<repeatableInner")
+            .nth(1)
+            .and_then(|rest| rest.split('>').next())
+            .expect("the template must emit the repeating panel");
+        assert!(
+            row.contains("jumpToFieldButtonVisible=\"true\""),
+            "a repeatable on the configurator's own page must still get the button. Got:\n{}",
+            row
         );
     }
 
