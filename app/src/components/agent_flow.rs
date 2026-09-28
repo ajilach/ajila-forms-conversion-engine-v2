@@ -150,7 +150,7 @@ pub fn AgentFlow(
 fn UploadBox(
     profiles: Vec<String>,
     mut selected_profile: Signal<Option<String>>,
-    selected_target: Signal<blueprint::OutputTarget>,
+    selected_target: Signal<agent::OutputTarget>,
     ai_available: bool,
     mut uploaded_files: Signal<Vec<(String, Vec<u8>)>>,
     on_start: EventHandler<Vec<(String, Vec<u8>)>>,
@@ -166,9 +166,7 @@ fn UploadBox(
         .any(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"));
     // An AEM content-package ZIP can be attached as an editable template; a run
     // needs at least a PDF or a template.
-    let has_template = files
-        .iter()
-        .any(|(_, bytes)| blueprint::detect_aem_zip(bytes));
+    let has_template = agent::conversion::template_of(&files).is_some();
     let start_disabled = files.is_empty() || (!has_pdf && !has_template) || !ai_available;
     let start_title = if !ai_available {
         "Configure an API key in Settings to enable agent processing."
@@ -1001,12 +999,12 @@ impl Artifact {
     /// Presence alone is not the rule: an artefact that only makes sense for the
     /// other target must stay hidden even if the run happens to have produced it.
     /// The log belongs to every run.
-    fn belongs_to(self, target: blueprint::OutputTarget) -> bool {
+    fn belongs_to(self, target: agent::OutputTarget) -> bool {
         match self {
             Self::Package | Self::PackageBound | Self::Xsd => {
-                target == blueprint::OutputTarget::Aem
+                target == agent::OutputTarget::Aem
             }
-            Self::RedactoSql => target == blueprint::OutputTarget::Redacto,
+            Self::RedactoSql => target == agent::OutputTarget::Redacto,
             Self::AgentLog => true,
         }
     }
@@ -1235,7 +1233,7 @@ mod tests {
 
     /// A state holding every artefact, so the target rule is what decides which
     /// ones the panel offers.
-    fn state_with_everything(target: blueprint::OutputTarget) -> ProcessingState {
+    fn state_with_everything(target: agent::OutputTarget) -> ProcessingState {
         ProcessingState {
             step: ProcessingStep::Complete,
             target,
@@ -1257,12 +1255,12 @@ mod tests {
     /// artefact from the target the user did not pick.
     #[test]
     fn each_target_offers_only_its_own_artifacts() {
-        let aem = state_with_everything(blueprint::OutputTarget::Aem);
+        let aem = state_with_everything(agent::OutputTarget::Aem);
         assert!(Artifact::Package.is_offered(&aem));
         assert!(Artifact::Xsd.is_offered(&aem));
         assert!(!Artifact::RedactoSql.is_offered(&aem));
 
-        let redacto = state_with_everything(blueprint::OutputTarget::Redacto);
+        let redacto = state_with_everything(agent::OutputTarget::Redacto);
         assert!(Artifact::RedactoSql.is_offered(&redacto));
         assert!(!Artifact::Package.is_offered(&redacto));
         assert!(!Artifact::Xsd.is_offered(&redacto));
@@ -1271,7 +1269,7 @@ mod tests {
     /// The log is the record of the run itself, so it survives either target.
     #[test]
     fn the_agent_log_is_offered_for_every_target() {
-        for target in blueprint::OutputTarget::ALL {
+        for target in agent::OutputTarget::ALL {
             assert!(
                 Artifact::AgentLog.is_offered(&state_with_everything(target)),
                 "{target:?}"
@@ -1285,7 +1283,7 @@ mod tests {
     fn an_artifact_the_run_never_produced_is_not_offered() {
         let empty = ProcessingState {
             step: ProcessingStep::Complete,
-            target: blueprint::OutputTarget::Aem,
+            target: agent::OutputTarget::Aem,
             ..Default::default()
         };
 

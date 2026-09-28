@@ -113,7 +113,7 @@ impl TabPhase {
 pub struct SavedTab {
     pub id: u64,
     pub profile: Option<String>,
-    pub target: blueprint::OutputTarget,
+    pub target: agent::OutputTarget,
     /// The edit-history session, which is what makes the tab continuable.
     pub session_id: Option<String>,
     /// Content hash of the sources, for finding the stored bytes again.
@@ -602,7 +602,7 @@ mod tests {
                 SavedTab {
                     id: 2,
                     profile: Some("ubs".into()),
-                    target: blueprint::OutputTarget::Redacto,
+                    target: agent::OutputTarget::Redacto,
                     source_names: vec!["AAOV_033_DE.pdf".into()],
                     feedback_draft: "half a thought".into(),
                     ..SavedTab::default()
@@ -689,7 +689,7 @@ mod tests {
                 SavedTab {
                     id: 3,
                     profile: Some("ubs".into()),
-                    target: blueprint::OutputTarget::Redacto,
+                    target: agent::OutputTarget::Redacto,
                     ..SavedTab::default()
                 },
             ],
@@ -709,7 +709,7 @@ mod tests {
         assert_eq!(back.tabs[1].feedback_draft, "make the phone field optional");
         // The one that never started keeps its choices and nothing else.
         assert_eq!(restored_view(&back.tabs[2], false), RestoredView::Upload);
-        assert_eq!(back.tabs[2].target, blueprint::OutputTarget::Redacto);
+        assert_eq!(back.tabs[2].target, agent::OutputTarget::Redacto);
         assert_eq!(back.tabs[2].profile.as_deref(), Some("ubs"));
     }
 

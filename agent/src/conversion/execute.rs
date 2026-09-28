@@ -1,8 +1,7 @@
 //! The tool executor: one match over the catalog's tool names.
 //!
-//! Each arm is the tool's own work; the shared plumbing — the `AI:` snapshot
-//! label, the "no tree yet" guard, the Ok/Err mapping — lives on the three
-//! edit helpers in the parent module.
+//! Each arm is the tool's own work; what every edit shares (dropping the stale
+//! build, the `AI:` snapshot, the lint) is [`ConversionAgent::edited`].
 
 use super::*;
 
@@ -92,7 +91,7 @@ pub(super) fn cap_total(text: String) -> String {
 }
 
 impl ConversionAgent {
-    pub async fn execute(&mut self, name: &str, input: &serde_json::Value) -> ToolReply {
+    pub async fn execute(&mut self, name: &str, input: &Value) -> ToolReply {
         if let Some(refusal) = self.target_refusal(name) {
             return ToolReply::Error(refusal);
         }
@@ -101,334 +100,73 @@ impl ConversionAgent {
             // §1 source
             "get_source_info" => match self.source_documents(input) {
                 Ok(documents) => {
-                    let languages = dedup(documents.iter().map(|(_, l, _)| l.as_str()).collect());
-                    let documents: Vec<_> = documents
+                    let mut languages: Vec<&str> = documents
                         .iter()
-                        .map(|(name, language, path)| {
-                            serde_json::json!({
+                        .filter_map(|(_, c, _)| c.as_ref().map(|c| c.language.as_str()))
+                        .collect();
+                    languages.dedup();
+                    let documents: Vec<Value> = documents
+                        .iter()
+                        .map(|(name, context, path)| match context {
+                            Some(context) => json!({
                                 "name": name,
-                                "language": language,
+                                "language": context.language,
+                                "variables": context.variables,
                                 "doc_path": path.display().to_string(),
-                            })
+                            }),
+                            None => json!({
+                                "name": name,
+                                "xfa": false,
+                                "doc_path": path.display().to_string(),
+                            }),
                         })
                         .collect();
-                    ToolReply::Text(
-                        serde_json::json!({ "languages": languages, "documents": documents })
-                            .to_string(),
-                    )
+                    ToolReply::Text(json!({ "languages": languages, "documents": documents }).to_string())
                 }
                 Err(e) => ToolReply::Error(e),
             },
-            // §2a structured tree (Redacto target)
-            "set_structured" => {
-                let v = input.get("nodes").cloned().unwrap_or_else(|| input.clone());
-                let headers = match input.get("headers") {
-                    None | Some(serde_json::Value::Null) => None,
-                    Some(h) => match serde_json::from_value::<BTreeMap<String, String>>(h.clone()) {
-                        Ok(h) => {
-                            // A key no source context carries would never be
-                            // rendered, so it is refused rather than dropped.
-                            let known: BTreeSet<String> = self
-                                .source_contexts()
-                                .iter()
-                                .map(|c| c.language().to_string())
-                                .collect();
-                            let unknown: Vec<&String> = h.keys().filter(|k| !known.contains(*k)).collect();
-                            if !unknown.is_empty() {
-                                return ToolReply::Error(format!(
-                                    "headers keys must be the source's languages {known:?} (from \
-                                     get_source_info); not {unknown:?}"
-                                ));
-                            }
-                            Some(h)
-                        }
-                        Err(e) => {
-                            return ToolReply::Error(format!(
-                                "headers must map a language code to the page header text: {e}"
-                            ));
-                        }
-                    },
-                };
-                match serde_json::from_value::<Vec<StructuredNode>>(v) {
-                    Ok(nodes) => {
-                        let count = nodes.len();
-                        self.structured = nodes;
-                        self.structured_edited("AI: set structured tree");
-                        if let Some(headers) = headers {
-                            self.set_headers(headers);
-                        }
-                        ToolReply::Text(format!(
-                            "OK: working structured tree set ({count} top-level nodes, page \
-                             headers for {:?}).",
-                            self.headers.keys().collect::<Vec<_>>()
-                        ))
-                    }
-                    Err(e) => ToolReply::Error(format!("Invalid StructuredNode JSON: {e}")),
+
+            // §2 the document
+            "rule_check" => {
+                if let Err(e) = self.runner() {
+                    return ToolReply::Error(e);
                 }
-            }
-            "get_structured_outline" => {
-                if self.structured.is_empty() {
-                    return ToolReply::Error(NO_STRUCTURED_TREE.into());
-                }
-                ToolReply::Text(crate::structured_edit::outline(&self.structured))
-            }
-            "get_structured_node" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                match crate::structured_edit::resolve_mut(&mut self.structured, &path) {
-                    Ok(node) => {
-                        ToolReply::Text(serde_json::to_string_pretty(node).unwrap_or_default())
-                    }
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "set_structured_field" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                let field = input["field"].as_str().unwrap_or_default().to_string();
-                let value = input
-                    .get("value")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let result =
-                    crate::structured_edit::set_field(&mut self.structured, &path, &field, value);
-                self.edit_structured(format_args!("set {field} on {path}"), result)
-            }
-            "set_structured_fields" => {
-                let edits: Vec<(String, String, serde_json::Value)> = input["edits"]
-                    .as_array()
-                    .map(|items| {
-                        items
-                            .iter()
-                            .map(|e| {
-                                (
-                                    e["path"].as_str().unwrap_or_default().to_string(),
-                                    e["field"].as_str().unwrap_or_default().to_string(),
-                                    e.get("value").cloned().unwrap_or(serde_json::Value::Null),
-                                )
-                            })
-                            .collect()
-                    })
-                    .unwrap_or_default();
-                let count = edits.len();
-                let result = crate::structured_edit::set_fields(&mut self.structured, &edits);
-                self.edit_structured(format_args!("set {count} field(s)"), result)
-            }
-            "replace_structured_node" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                let node = input
-                    .get("node")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let result =
-                    crate::structured_edit::replace_node(&mut self.structured, &path, node);
-                self.edit_structured(format_args!("replace {path}"), result)
-            }
-            "insert_structured_node" => {
-                let parent = input["parent_path"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
-                let node = input
-                    .get("node")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let pos = match crate::structured_edit::parse_insert_pos(
-                    input.get("position").unwrap_or(&serde_json::Value::Null),
-                ) {
-                    Ok(p) => p,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                let result =
-                    crate::structured_edit::insert_node(&mut self.structured, &parent, node, pos);
-                self.edit_structured(format_args!("insert into {parent}"), result)
-            }
-            "remove_structured_node" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                let result = crate::structured_edit::remove_node(&mut self.structured, &path);
-                self.edit_structured(format_args!("remove {path}"), result)
-            }
-            "build_redacto_dump" => {
-                if self.structured.is_empty() {
-                    return ToolReply::Error(NO_STRUCTURED_TREE.into());
-                }
-                match self.build_redacto() {
-                    Ok((dump, config)) => {
-                        let validation = blueprint::validate_dump(&dump, &config);
-                        ToolReply::Text(
-                            serde_json::to_string_pretty(&serde_json::json!({
-                                "document_id": config.document_id,
-                                "title": config.title,
-                                "languages": config.languages,
-                                "headers": config.headers,
-                                "footers": config.footers,
-                                "assets": validation.counts.assets,
-                                "asset_versions": validation.counts.asset_versions,
-                                "document_versions": validation.counts.document_versions,
-                                "rows": validation.counts.rows,
-                                "asset_containers": validation.counts.asset_containers,
-                                "styled_panels": validation.counts.styled_panels,
-                                "header_assets": validation.counts.header_assets,
-                                "footer_assets": validation.counts.footer_assets,
-                                "problems": validation.problems,
-                                "warnings": validation.warnings,
-                            }))
-                            .unwrap_or_default(),
-                        )
-                    }
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "review_redacto_output" => {
-                if self.structured.is_empty() {
-                    return ToolReply::Error(NO_STRUCTURED_TREE.into());
-                }
-                let (dump, _) = match self.build_redacto() {
-                    Ok(pair) => pair,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                let checks = blueprint::check_redacto_output(&dump);
-                ToolReply::Text(serde_json::to_string_pretty(&checks).unwrap_or_default())
-            }
-            // §2 multilingual AEM tree (AemNodeTranslated)
-            "set_aem_translated" => {
-                let v = input.get("root").cloned().unwrap_or_else(|| input.clone());
-                match serde_json::from_value::<AemNodeTranslated>(v) {
-                    Ok(node) => {
-                        if let Some(aem) = self.target.aem_mut() {
-                            aem.tree = Some(node);
-                        }
-                        self.aem_translated_edited("AI: set AEM (translated) tree");
-                        ToolReply::Text("OK — working AEM tree set (package invalidated).".into())
-                    }
-                    Err(e) => ToolReply::Error(format!("Invalid AemNodeTranslated JSON: {e}")),
-                }
-            }
-            "get_aem_translated" => self.read_aem(|root| {
-                ToolReply::Text(serde_json::to_string_pretty(root).unwrap_or_default())
-            }),
-            "get_aem_translated_outline" => {
-                self.read_aem(|root| ToolReply::Text(crate::aem_translated_edit::outline(root)))
-            }
-            "get_aem_translated_node" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                self.read_aem(
-                    |root| match crate::aem_translated_edit::resolve_mut(root, &path) {
-                        Ok(node) => {
-                            ToolReply::Text(serde_json::to_string_pretty(node).unwrap_or_default())
-                        }
-                        Err(e) => ToolReply::Error(e),
-                    },
+                let runner = self.runner.as_ref().expect("started above");
+                match u2s_doc_tools::native::check_rules(
+                    input,
+                    self.document.value(),
+                    Some(&self.schema),
+                    &self.rules,
+                    runner,
                 )
-            }
-            "set_aem_translated_field" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                let field = input["field"].as_str().unwrap_or_default().to_string();
-                if field.is_empty() {
-                    return ToolReply::Error("`field` must not be empty.".into());
+                .await
+                {
+                    Ok(outcome) => ToolReply::Text(outcome.value.to_string()),
+                    Err(e) => ToolReply::Error(e.to_string()),
                 }
-                let value = input
-                    .get("value")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                self.edit_aem(format_args!("set {field} on {path}"), |root| {
-                    crate::aem_translated_edit::set_field(root, &path, &field, value)
-                })
             }
-            "replace_aem_translated_node" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                let node = input
-                    .get("node")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                self.edit_aem(format_args!("replace {path}"), |root| {
-                    crate::aem_translated_edit::replace_node(root, &path, node)
-                })
-            }
-            "insert_aem_translated_node" => {
-                let parent = input["parent_path"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
-                let node = input
-                    .get("node")
-                    .cloned()
-                    .unwrap_or(serde_json::Value::Null);
-                let pos = match crate::aem_translated_edit::parse_insert_pos(&input["position"]) {
-                    Ok(p) => p,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                self.edit_aem(format_args!("insert into {parent}"), |root| {
-                    crate::aem_translated_edit::insert_node(root, &parent, node, pos)
-                })
-            }
-            "remove_aem_translated_node" => {
-                let path = input["path"].as_str().unwrap_or_default().to_string();
-                self.edit_aem(format_args!("remove {path}"), |root| {
-                    crate::aem_translated_edit::remove_node(root, &path)
-                })
+            "rule_autofix" => self.autofix(input).await,
+            name if DOCUMENT_TOOLS.iter().any(|t| t.name() == name) => {
+                let tool = *DOCUMENT_TOOLS.iter().find(|t| t.name() == name).expect("matched");
+                match u2s_doc_tools::native::dispatch(
+                    tool,
+                    input,
+                    &mut self.document,
+                    Some(&self.schema),
+                    &self.rules,
+                ) {
+                    Ok(outcome) if outcome.mutated => self.edited(name, outcome.value).await,
+                    Ok(outcome) => ToolReply::Text(outcome.value.to_string()),
+                    Err(e) => ToolReply::Error(e.to_string()),
+                }
             }
 
-            // §5 output
-            "build_aem_package" => {
-                let cfg = match self.config() {
-                    Ok(c) => c,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                let (aem, translations) = match self.lower_aem_translated() {
-                    Ok(pair) => pair,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                // Re-emit each loaded node's fidelity passthrough (raw attrs +
-                // unmodeled children) so a template's load→edit→save round-trip
-                // preserves what the typed model doesn't represent. Empty for
-                // from-XFA trees, so their output is unchanged.
-                let passthrough = self
-                    .aem_tree()
-                    .map(|t| t.passthrough_map())
-                    .unwrap_or_default();
-                let pkg = blueprint::to_aem_package_from_node_with_passthrough(
-                    &aem,
-                    &cfg,
-                    translations,
-                    &passthrough,
-                );
-                let size = pkg.len();
-
-                // Also build the bound variant, so binding to the schema is a
-                // choice at download time rather than a re-run. It needs its own
-                // lowering: `bindRef`s are only derived when `bind_to_xsd` is on.
-                let mut bound_note = String::new();
-                let bound = if cfg.bind_to_xsd || cfg.xsd_path.is_none() {
-                    // Already bound, or the profile names no schema location.
-                    None
-                } else {
-                    let mut bound_cfg = cfg.clone();
-                    bound_cfg.bind_to_xsd = true;
-                    match self.lower_aem_translated_with(&bound_cfg) {
-                        Ok((bound_aem, bound_translations)) => {
-                            let bound_pkg = blueprint::to_aem_package_from_node_with_passthrough(
-                                &bound_aem,
-                                &bound_cfg,
-                                bound_translations,
-                                &passthrough,
-                            );
-                            bound_note = format!(" With bindRefs: {} bytes.", bound_pkg.len());
-                            Some(bound_pkg)
-                        }
-                        Err(e) => {
-                            bound_note = format!(" The bindRef variant failed: {e}");
-                            None
-                        }
-                    }
-                };
-                if let Some(aem) = self.target.aem_mut() {
-                    aem.package = Some(pkg);
-                    aem.package_bound = bound;
-                }
-                ToolReply::Text(format!("Built package ({size} bytes).{bound_note}"))
-            }
-            "get_package_info" => match self.target.aem().and_then(|s| s.package.as_ref()) {
+            // §3 building
+            "build_aem_package" => self.build_aem_package(),
+            "build_redacto_dump" => self.build_redacto_dump(),
+            "get_package_info" => match self.package() {
                 Some(pkg) => {
-                    let files = crate::references::unzip_package(pkg).unwrap_or_default();
+                    let files = crate::references::unzip_package(&pkg).unwrap_or_default();
                     let paths: Vec<&String> = files.iter().map(|(p, _)| p).collect();
                     ToolReply::Text(format!(
                         "size: {} bytes\nfiles:\n{}",
@@ -445,8 +183,8 @@ impl ConversionAgent {
                 // is a bounded window, not the whole file.
                 let offset = input["offset"].as_u64().unwrap_or(0) as usize;
                 let limit = input["limit"].as_u64().unwrap_or(0) as usize;
-                match self.target.aem().and_then(|s| s.package.as_ref()) {
-                    Some(pkg) => match crate::references::unzip_package(pkg) {
+                match self.package() {
+                    Some(pkg) => match crate::references::unzip_package(&pkg) {
                         Ok(files) => match files.iter().find(|(p, _)| p == path) {
                             Some((_, content)) => {
                                 ToolReply::Text(cap_total(windowed_text(content, offset, limit)))
@@ -457,88 +195,6 @@ impl ConversionAgent {
                     },
                     None => ToolReply::Error(NO_PACKAGE.into()),
                 }
-            }
-            "validate_aem_package" => {
-                let Some(pkg) = self.target.aem().and_then(|s| s.package.clone()) else {
-                    return ToolReply::Error(NO_PACKAGE.into());
-                };
-                match validate_package_bytes(&pkg) {
-                    Ok(msg) => ToolReply::Text(msg),
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "review_output" => {
-                let (aem, _) = match self.lower_aem_translated() {
-                    Ok(pair) => pair,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                let config = match self.config() {
-                    Ok(c) => c,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                let checks = blueprint::check_aem_output(&aem, &config);
-                ToolReply::Text(serde_json::to_string_pretty(&checks).unwrap_or_default())
-            }
-            "generate_xsd" => {
-                let p = match self.profile.clone() {
-                    Some(p) if blueprint::has_xsd_config(&p) => p,
-                    _ => return ToolReply::Error("This profile has no XSD config.".into()),
-                };
-                let mut cfg = match blueprint::load_xsd_config(&p) {
-                    Ok(cfg) => cfg,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                // The AEM tree is the source of truth on an AEM run, so derive
-                // the schema straight from it: that is the same tree the package
-                // ships, and its bindRefs are the schema's element paths. Fall
-                // back to the structured content only when no tree exists yet.
-                let fragments = self
-                    .config()
-                    .map(|c| {
-                        cfg.form_code = Some(c.form_code.clone());
-                        c.fragments.clone()
-                    })
-                    .unwrap_or_default();
-
-                if self.aem_translated().is_some() {
-                    let (aem, _) = match self.lower_aem_translated_lenient() {
-                        Ok(pair) => pair,
-                        Err(e) => return ToolReply::Error(e),
-                    };
-                    return ToolReply::Text(blueprint::generate_xsd_string_from_aem(
-                        &aem, &cfg, &fragments,
-                    ));
-                }
-
-                let content = match self.derived_output_content() {
-                    Ok(c) => c,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                let aem_config = match self.config() {
-                    Ok(c) => c,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                ToolReply::Text(blueprint::to_xsd(&content, &aem_config, &cfg))
-            }
-            "generate_html" => {
-                match self.profile.as_deref() {
-                    Some(p) if blueprint::has_html_config(p) => {}
-                    _ => return ToolReply::Error("This profile has no HTML config.".into()),
-                };
-                let content = match self.derived_output_content() {
-                    Ok(c) => c,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                // Deliberately no custom_styles: the profile's logo and font
-                // files load as base64 data URIs (`load_html_custom_styles`),
-                // and a real form's assets alone run past 800KB of base64 —
-                // invisible to a text model, and it once cost a stage over
-                // 800,000 prompt tokens in a single reply. The agent is
-                // comparing structure and content against the source page
-                // images, not brand fidelity; a visually exact export is what
-                // the CLI's own `to_html` call is for.
-                let cfg = blueprint::HtmlConfig::default();
-                ToolReply::Text(blueprint::to_html(&content, &cfg))
             }
 
             // §7 references
@@ -627,28 +283,6 @@ impl ConversionAgent {
             }
 
             // §8 control
-            "get_schema" => {
-                // Unknown/absent `kind` keeps returning the AEM schema, which is
-                // what every caller predating the structured target expects.
-                let schema = match input["kind"].as_str() {
-                    Some("structured") => blueprint::structured_schema(),
-                    _ => blueprint::aem_translated_schema(),
-                };
-                ToolReply::Text(serde_json::to_string_pretty(&schema).unwrap_or_default())
-            }
-            "get_profile_info" => match self.config() {
-                Ok(c) => ToolReply::Text(format!(
-                    "form_code: {}\nlanguages: {:?}\nmaster_language: {}\nform_path: {}\nform_dir: {}\nbind_to_xsd: {}\nuse_fragments: {}",
-                    c.form_code,
-                    c.languages,
-                    c.master_language,
-                    c.form_path,
-                    c.form_dir,
-                    c.bind_to_xsd,
-                    c.use_fragments
-                )),
-                Err(e) => ToolReply::Error(e),
-            },
             "submit_review" => {
                 let approved = input["approved"].as_bool().unwrap_or(false);
                 let report = input["report"].as_str().unwrap_or_default().to_string();
@@ -656,7 +290,7 @@ impl ConversionAgent {
                 ToolReply::Text(if approved {
                     "Review recorded: approved.".into()
                 } else {
-                    "Review recorded: changes requested — returning to the author.".into()
+                    "Review recorded: changes requested, returning to the author.".into()
                 })
             }
 
@@ -673,5 +307,172 @@ impl ConversionAgent {
             }
             other => ToolReply::Error(format!("Unknown tool: {other}")),
         }
+    }
+
+    /// The tail of every edit to the document: the previous build no longer
+    /// describes it, the edit history records it, and the rules report what
+    /// the edit changed.
+    async fn edited(&mut self, tool: &str, result: Value) -> ToolReply {
+        self.built = None;
+        self.snapshot(&format!("AI: {tool}"));
+        match self.lint().await {
+            Ok(Some(lint)) => ToolReply::Text(json!({ "result": result, "lint": lint }).to_string()),
+            Ok(None) => ToolReply::Text(result.to_string()),
+            Err(e) => ToolReply::Text(json!({ "result": result, "lint_error": e }).to_string()),
+        }
+    }
+
+    /// Check every rule and report the rules whose verdict the last edit
+    /// changed: the findings it introduced, and the ones it resolved. `None`
+    /// for a format without rules.
+    async fn lint(&mut self) -> Result<Option<Value>, String> {
+        if self.rules.is_empty() {
+            return Ok(None);
+        }
+        self.runner()?;
+        let runner = self.runner.as_ref().expect("started above");
+        let outcome = u2s_doc_tools::native::check_rules(
+            &json!({}),
+            self.document.value(),
+            Some(&self.schema),
+            &self.rules,
+            runner,
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+        let verdicts = outcome.value["verdicts"].as_array().cloned().unwrap_or_default();
+        let mut introduced = Vec::new();
+        let mut resolved = Vec::new();
+        let mut current = HashMap::new();
+        for verdict in &verdicts {
+            let id = verdict["rule_id"].as_str().unwrap_or_default().to_string();
+            let now = verdict["verdict"].as_str().unwrap_or_default().to_string();
+            let before = self.lint.get(&id).map(String::as_str).unwrap_or("positive");
+            if now != "positive" && before == "positive" {
+                introduced.push(verdict.clone());
+            } else if now == "positive" && before != "positive" {
+                resolved.push(json!({ "rule_id": id, "title": verdict["title"] }));
+            }
+            current.insert(id, now);
+        }
+        self.lint = current;
+        Ok(Some(json!({ "introduced": introduced, "resolved": resolved })))
+    }
+
+    /// `rule_autofix`: every applicable fix, applied as one edit.
+    async fn autofix(&mut self, input: &Value) -> ToolReply {
+        let expected = input["expected_revision"].as_u64();
+        if expected != Some(self.document.revision().get()) {
+            return ToolReply::Error(format!(
+                "expected_revision {} does not match the document's revision {}; read it again",
+                expected.map_or("(missing)".to_string(), |r| r.to_string()),
+                self.document.revision().get()
+            ));
+        }
+        if let Err(e) = self.runner() {
+            return ToolReply::Error(e);
+        }
+        let runner = self.runner.as_ref().expect("started above");
+        let result = match u2s_doc_tools::native::autofix_rules(
+            input,
+            self.document.value(),
+            Some(&self.schema),
+            &self.rules,
+            runner,
+        )
+        .await
+        {
+            Ok(result) => result,
+            Err(e) => return ToolReply::Error(e.to_string()),
+        };
+        if !result.changed {
+            return ToolReply::Text(
+                json!({ "results": result.results, "revision": self.document.revision().get() }).to_string(),
+            );
+        }
+        let ops = json!([{ "op": "replace", "path": "", "value": result.final_output }]);
+        let current = self.document.revision();
+        if let Err(e) = u2s_jsondoc::patch_apply(&mut self.document, &ops, current) {
+            return ToolReply::Error(format!("the fixes could not be applied: {e}"));
+        }
+        let reply = json!({ "results": result.results, "revision": self.document.revision().get() });
+        self.edited("rule_autofix", reply).await
+    }
+
+    /// Build the document now if the latest build no longer describes it.
+    pub fn ensure_built(&mut self) -> Result<(), String> {
+        if self.built.is_some() {
+            return Ok(());
+        }
+        let reply = match self.target {
+            OutputTarget::Aem => self.build_aem_package(),
+            OutputTarget::Redacto => self.build_redacto_dump(),
+        };
+        match reply {
+            ToolReply::Error(e) => Err(e),
+            _ => Ok(()),
+        }
+    }
+
+    fn build_aem_package(&mut self) -> ToolReply {
+        let doc = match u2s_aem_ubs_mcp::UbsAemDocument::from_json(self.document.value()) {
+            Ok(doc) => doc,
+            Err(e) => return ToolReply::Error(format!("Nothing built: {e}")),
+        };
+        let build = match u2s_aem_ubs_mcp::encode(&doc) {
+            Ok(build) => build,
+            Err(e) => return ToolReply::Error(format!("Nothing built: {e}")),
+        };
+        let validation = validate_package_bytes(&build.package);
+        let size = build.package.len();
+        let bound = build.bound_package.as_ref().map(Vec::len);
+        self.built = Some(Built::Aem {
+            package: build.package,
+            bound_package: build.bound_package,
+            xsd: build.xsd,
+        });
+        let mut report = format!("Built package ({size} bytes).");
+        if let Some(bound) = bound {
+            report.push_str(&format!(" With bindRefs: {bound} bytes."));
+        }
+        match validation {
+            Ok(ok) => ToolReply::Text(format!("{report} {ok}")),
+            Err(problems) => ToolReply::Text(format!("{report} {problems}")),
+        }
+    }
+
+    fn build_redacto_dump(&mut self) -> ToolReply {
+        let doc: u2s_redacto_ubs_mcp::UbsRedactoDocument =
+            match serde_json::from_value(self.document.value().clone()) {
+                Ok(doc) => doc,
+                Err(e) => return ToolReply::Error(format!("Nothing built: not a UBS Redacto document: {e}")),
+            };
+        let redacto = match u2s_redacto_ubs_mcp::to_redacto(&doc) {
+            Ok(redacto) => redacto,
+            Err(e) => return ToolReply::Error(format!("Nothing built: {e}")),
+        };
+        let dump = match u2s_mapper_redacto::encode(&redacto) {
+            Ok(dump) => dump.bytes,
+            Err(e) => return ToolReply::Error(format!("Nothing built: {e}")),
+        };
+        let meta = &redacto.document().metadata;
+        let report = json!({
+            "document_id": meta.document_id.as_str(),
+            "languages": meta.languages.iter().map(|l| l.as_str()).collect::<Vec<_>>(),
+            "master_language": meta.master_language.as_str(),
+            "assets": redacto.document().assets.len(),
+            "has_header": !redacto.document().header.is_empty(),
+            "has_footer": !redacto.document().footer.is_empty(),
+            "bytes": dump.len(),
+        });
+        self.built = Some(Built::Redacto { dump });
+        ToolReply::Text(report.to_string())
+    }
+
+    fn matcher(&mut self) -> Result<&crate::semantic::SemanticMatcher, String> {
+        if self.matcher.is_none() {
+            self.matcher = Some(crate::semantic::SemanticMatcher::new().map_err(|e| e.to_string())?);
+        }
+        Ok(self.matcher.as_ref().expect("just loaded"))
     }
 }

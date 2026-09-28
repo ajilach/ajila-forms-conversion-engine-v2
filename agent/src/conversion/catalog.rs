@@ -5,13 +5,13 @@
 //! [`SCOPING`] row, and `scoping_covers_exactly_the_catalog` proves the table
 //! and the catalog stay in step.
 
-use blueprint::OutputTarget;
+use crate::OutputTarget;
 
 // ── Tool catalog ─────────────────────────────────────────────────────────────
 
 /// Which output targets a tool may run under.
 pub mod target {
-    /// A set of [`blueprint::OutputTarget`]s, as a bitmask.
+    /// A set of [`crate::OutputTarget`]s, as a bitmask.
     pub type Mask = u8;
     pub const AEM: Mask = 1 << 0;
     pub const REDACTO: Mask = 1 << 1;
@@ -98,6 +98,7 @@ pub fn tools_for(target: OutputTarget, scopes: scope::Mask) -> Vec<serde_json::V
 fn build_catalog() -> Vec<ToolSpec> {
     tool_specs()
         .into_iter()
+        .chain(document_tool_specs())
         .chain(crate::u2s::tool_specs())
         .map(|spec| {
             let name = spec["name"].as_str().unwrap_or_default();
@@ -154,41 +155,23 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
         ("pdf_page_text",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
         ("pdf_search_text",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
 
-        // §2a structured tree — executable under both targets (a resumed AEM
-        // session seeds it), but only ever offered to the Redacto stages.
-        ("set_structured",                    target::BOTH,    REDACTO_AUTHOR | MCP),
-        ("get_structured_outline",            target::BOTH,    REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("get_structured_node",               target::BOTH,    REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("set_structured_field",              target::BOTH,    REDACTO_AUTHOR | MCP),
-        ("set_structured_fields",             target::BOTH,    REDACTO_AUTHOR | MCP),
-        ("replace_structured_node",           target::BOTH,    REDACTO_AUTHOR | MCP),
-        ("insert_structured_node",            target::BOTH,    REDACTO_AUTHOR | MCP),
-        ("remove_structured_node",            target::BOTH,    REDACTO_AUTHOR | MCP),
+        // §2 the run's output document: one revisioned JSON document per run,
+        // read and patched with the json_* tools and held to the rules with the
+        // rule_* ones. The UBS Redacto format has no rules yet.
+        ("json_outline",                      target::BOTH,    EVERYWHERE),
+        ("json_get",                          target::BOTH,    EVERYWHERE),
+        ("json_search",                       target::BOTH,    EVERYWHERE),
+        ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
+        ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("rule_list",                         target::AEM,     AEM_ANALYST | AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("rule_check",                        target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("rule_autofix",                      target::AEM,     AEM_AUTHOR | MCP),
 
-        // §2b Redacto output.
+        // §3 building the output through the UBS encoders.
         ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("review_redacto_output",             target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-
-        // §3 AEM tree.
-        ("set_aem_translated",                target::AEM,     AEM_AUTHOR | MCP),
-        ("get_aem_translated",                target::AEM,     MCP),
-        ("get_aem_translated_outline",        target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("get_aem_translated_node",           target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("set_aem_translated_field",          target::AEM,     AEM_AUTHOR | MCP),
-        ("replace_aem_translated_node",       target::AEM,     AEM_AUTHOR | MCP),
-        ("insert_aem_translated_node",        target::AEM,     AEM_AUTHOR | MCP),
-        ("remove_aem_translated_node",        target::AEM,     AEM_AUTHOR | MCP),
-
-        // §4 AEM package.
         ("build_aem_package",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
         ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE),
         ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE),
-        ("validate_aem_package",              target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("review_output",                     target::AEM,     AEM_REVIEWER | MCP),
-
-        // §5 derived output.
-        ("generate_xsd",                      target::BOTH,    AEM_AUTHOR | MCP),
-        ("generate_html",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | MCP),
 
         // §6 verification through the vendored u2s verifiers (crate::u2s): the
         // AEM package against a Docker AEM, the Redacto dump against a throwaway
@@ -221,14 +204,23 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
         ("read_reference_doc",                target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP),
         ("grep_reference_docs",               target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP),
 
-        // §8 meta. get_profile_info reports the AEM configuration, which would
-        // mislead a Redacto stage; get_source_info is the authority on languages.
-        ("get_schema",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
-        ("get_profile_info",                  target::AEM,     AEM_ANALYST | AEM_AUTHOR | MCP),
+        // §8 meta.
         ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER | MCP),
     ]
 };
 
+
+/// The `json_*` and `rule_*` tools, specified by `u2s-doc-tools` itself, so
+/// their descriptions are the ones v3's own agent is prompted with.
+fn document_tool_specs() -> impl Iterator<Item = serde_json::Value> {
+    crate::conversion::DOCUMENT_TOOLS.iter().map(|tool| {
+        serde_json::json!({
+            "name": tool.name(),
+            "description": tool.description(),
+            "input_schema": tool.input_schema(),
+        })
+    })
+}
 
 fn tool_specs() -> Vec<serde_json::Value> {
     {
@@ -255,133 +247,26 @@ fn tool_specs() -> Vec<serde_json::Value> {
             // §1 extraction (source-parameterized)
             t(
                 "get_source_info",
-                "The source PDFs: each one's file name, language and the `doc_path` every xfa_* tool takes. Call this first.",
+                "The source PDFs: each one's file name, language, XFA template `variables` and the `doc_path` every xfa_* tool takes. Call this first.",
                 with_source(serde_json::json!({})),
                 serde_json::json!([]),
             ),
-            // §2a structured tree (Redacto target): authored, then refined.
-            t(
-                "set_structured",
-                "Set the WHOLE working structured tree: `nodes` is a JSON array of StructuredNode (call get_schema('structured') for the exact shape), every text a per-language map carrying every source language. Author it in one call from what you read in the source, then refine with the targeted edits. `headers` optionally maps each language code to the page header text printed at the top of that language's source pages (read it with xfa_page_text); the output renders it in its page-header slot. Omit `headers` to keep the ones already set.",
-                serde_json::json!({
-                    "nodes": {"type":"array"},
-                    "headers": {"type":"object", "additionalProperties": {"type":"string"}}
-                }),
-                serde_json::json!(["nodes"]),
-            ),
-            t(
-                "get_structured_outline",
-                "Map the working structured tree: one line per node — `<path>  <type> <summary>  <flags>`. Flags: `⚠ text?` / `⚠ label?` (missing or placeholder text), `⚠ no-options` (empty choice list), `⚠ unsupported` (a node the Redacto output cannot represent: fields, images, conditionals, repeatables). Paths are `/`-separated walks from the top level, e.g. `0/children/2`, `5/rows/0/cells/1`.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "get_structured_node",
-                "Return the node (its whole subtree) at `path` as JSON. Inspect it before editing to see the exact field shapes — in particular that every text is a per-language map like {\"de\":[…],\"en\":[…]}.",
-                serde_json::json!({"path": {"type":"string"}}),
-                serde_json::json!(["path"]),
-            ),
-            t(
-                "set_structured_field",
-                "Set one field of the node at `path`. `field` is a node key such as `content`, `level`, `label`, `items`, `columnFlow`; `value` is the raw JSON for it (match the shape from get_structured_node). This is how you add a language: read the node, then write back its `content` map with every language present. Validated by round-trip; a bad value is rejected and the tree left unchanged. Cannot change a node's `type` (use replace_structured_node).",
-                serde_json::json!({"path": {"type":"string"}, "field": {"type":"string"}, "value": {}}),
-                serde_json::json!(["path", "field", "value"]),
-            ),
-            t(
-                "set_structured_fields",
-                "Apply MANY set_structured_field edits in ONE call: `edits` is an array of {path, field, value}. This is how you add a language — read the outline, then write every node's `content` map back in a single call. All-or-nothing: if any edit is invalid none are applied, and the error names the offending one. Use this instead of re-emitting the whole tree, which would discard the grouping, multi-column sections and heading levels the seed carried.",
-                serde_json::json!({"edits": {"type":"array","items":{"type":"object","properties":{"path":{"type":"string"},"field":{"type":"string"},"value":{}},"required":["path","field","value"]}}}),
-                serde_json::json!(["edits"]),
-            ),
-            t(
-                "replace_structured_node",
-                "Replace the whole node at `path` with `node`, a JSON object parseable as a StructuredNode (must include its `type`). Use to change a node's type or rebuild it.",
-                serde_json::json!({"path": {"type":"string"}, "node": {"type":"object"}}),
-                serde_json::json!(["path", "node"]),
-            ),
-            t(
-                "insert_structured_node",
-                "Insert `node` (a StructuredNode JSON object) into a child list. `parent_path` is empty/\"root\" for the top level, or the path of a Group. `position` is \"first\", \"last\", {\"before\":<i>} or {\"after\":<i>}.",
-                serde_json::json!({"parent_path": {"type":"string"}, "node": {"type":"object"}, "position": {"type":["string","object"]}}),
-                serde_json::json!(["parent_path", "node", "position"]),
-            ),
-            t(
-                "remove_structured_node",
-                "Remove the node at `path` from its list (top-level nodes and Group children only).",
-                serde_json::json!({"path": {"type":"string"}}),
-                serde_json::json!(["path"]),
-            ),
+            // §3 building the output
             t(
                 "build_redacto_dump",
-                "Build the Redacto PostgreSQL dump from the working structured tree and report what it contains: languages, document id, per-table row counts, the per-language page `headers` and `footers` with their `header_assets`/`footer_assets` counts, the component shape, `problems` and `warnings`. Run it after every substantive change. A `problem` means the dump is not shippable (no text assets at all, an empty body section, a language missing its variants); a `warning` means content was dropped in translation to the Redacto model. Resolve every problem before you stop.",
+                "Encode the document into the Redacto PostgreSQL dump, adding the UBS metadata, page header and footer from each language's source, and report what it holds: the document id, languages, asset count and dump size. A document the Redacto model refuses (an empty body, an asset missing a language, a reference to an asset that does not exist) is reported with every violation and builds nothing. Build after every substantive change; the redacto_verify_* tools check the latest build.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
-            t(
-                "review_redacto_output",
-                "Check the generated dump on its own: its asset count, its languages, and every warning the Redacto converter raised while building it (node kinds it skipped, an empty document). Reviews the DUMP, not the working tree, because that is the artefact that ships. It does not compare against the source: whether every source text arrived is yours to check, with xfa_page_text and xfa_search on each language's PDF.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            // §2 multilingual AEM tree (AemNodeTranslated) — authored directly.
-            t(
-                "set_aem_translated",
-                "Set the WHOLE working AEM tree as an AemNodeTranslated JSON object (call get_schema('aem_translated') for the exact shape). Use this for the initial authoring of the form; for small fixes afterwards use the targeted editors below. Text fields (title/label/content and option labels) are per-language maps like {\"de\":\"…\",\"en\":\"…\"}; include EVERY source language. Invalidates the package.",
-                serde_json::json!({"root": {"type":"object"}}),
-                serde_json::json!(["root"]),
-            ),
-            t(
-                "get_aem_translated",
-                "Dump the WHOLE working AemNodeTranslated tree as JSON. Expensive on a real form — prefer get_aem_translated_outline to find the path, then get_aem_translated_node to read just that subtree.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "get_aem_translated_outline",
-                "Map the working AEM tree: one line per node — `<path>  <Type>  [langs] \"excerpt\"  <flags>`. Flags: `⚠ empty` (text-bearing node with no text), `⚠ 1 lang` (only one language present — likely a missing translation). Use it to find the path to fix, then call the set/replace/insert/remove tools. Paths are `/`-separated child indices from the root (e.g. 2/0/3); `root`/empty addresses the root node.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "get_aem_translated_node",
-                "Return just the node (its whole subtree) at `path` as JSON. Inspect it before editing to see the exact field shapes (e.g. how `label`/`options` are structured).",
-                serde_json::json!({"path": {"type":"string"}}),
-                serde_json::json!(["path"]),
-            ),
-            t(
-                "set_aem_translated_field",
-                "Set one field of the node at `path`. `field` is a node key such as `label`, `title`, `content`, `options`, `visible`, `mandatory`, `colspan`, `bind_ref`; `value` is the raw JSON for it (match the shape from get_aem_translated_node — text fields are per-language maps). Validated by round-trip; a bad value is rejected and the tree left unchanged. Cannot change a node's `type` (use replace_aem_translated_node). Invalidates the package.",
-                serde_json::json!({"path": {"type":"string"}, "field": {"type":"string"}, "value": {}}),
-                serde_json::json!(["path", "field", "value"]),
-            ),
-            t(
-                "replace_aem_translated_node",
-                "Replace the whole node at `path` with `node`, a JSON object parseable as an AemNodeTranslated (must include its `type`). Use to change a node's type or rebuild it. Invalidates the package.",
-                serde_json::json!({"path": {"type":"string"}, "node": {"type":"object"}}),
-                serde_json::json!(["path", "node"]),
-            ),
-            t(
-                "insert_aem_translated_node",
-                "Insert `node` (an AemNodeTranslated JSON object) into a child list. `parent_path` is empty/\"root\" for the root, or the path of a Panel or Repeatable (only those hold children). `position` is \"first\", \"last\", {\"before\":<i>} or {\"after\":<i>} (i = child index). Invalidates the package.",
-                serde_json::json!({"parent_path": {"type":"string"}, "node": {"type":"object"}, "position": {"type":["string","object"]}}),
-                serde_json::json!(["parent_path", "node", "position"]),
-            ),
-            t(
-                "remove_aem_translated_node",
-                "Remove the node at `path` from its parent's child list (the root cannot be removed). Invalidates the package.",
-                serde_json::json!({"path": {"type":"string"}}),
-                serde_json::json!(["path"]),
-            ),
-            // §5 output
             t(
                 "build_aem_package",
-                "Build the AEM FileVault package (ZIP) from the current AEM tree. Requires an AEM tree (author it with set_aem_translated, or refine the pre-loaded one). Stores it for verification and export.",
+                "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS templates, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing) is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
             t(
                 "get_package_info",
-                "Size and file list of the built package.",
+                "Size and file list of the latest built package.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
@@ -393,30 +278,6 @@ fn tool_specs() -> Vec<serde_json::Value> {
                  truncation note says so if it is hit.",
                 serde_json::json!({"path": {"type":"string"}, "offset": {"type":"integer"}, "limit": {"type":"integer"}}),
                 serde_json::json!(["path"]),
-            ),
-            t(
-                "validate_aem_package",
-                "Validate the built package: checks the required FileVault structure (META-INF + jcr_root boilerplate) and validates the form and DAM .content.xml against the AEM contract (well-formedness, escaping, JCR/CQ/FD/Sling structure). Run after build_aem_package, before verifying with aem_verify_run or aem_verify_open.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "review_output",
-                "Check the converted AEM tree on its own, on the rendered JCR XML that ships: naming_violations, label_issues, feedback_violations (the swept UBS rules: DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments, which the UBS partner and signature generics replace), and legacy_tables: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. It does not compare against the source: whether every source text, field and section arrived is yours to check, against xfa_render_page and xfa_page_text. Run once the tree is authored and before you report the stage done; fix every finding and re-run.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "generate_xsd",
-                "Generate the XSD schema for the form. Renders the working structured tree, or — on an AEM run, which has none — the working AEM tree lifted back to structured content.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "generate_html",
-                "Generate an HTML preview of the form. Renders the working structured tree, or — on an AEM run, which has none — the working AEM tree lifted back to structured content.",
-                serde_json::json!({}),
-                serde_json::json!([]),
             ),
             // §7 references
             t(
@@ -486,18 +347,6 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             // §8 control
             t(
-                "get_schema",
-                "Return the JSON schema for a working tree: 'aem_translated' (what set_aem_translated and the AEM editors take) or 'structured' (what set_structured and the structured editors take).",
-                serde_json::json!({"kind": {"type":"string","enum":["aem_translated","structured"]}}),
-                serde_json::json!(["kind"]),
-            ),
-            t(
-                "get_profile_info",
-                "Profile/AEM config: form_code, languages, JCR paths, binding flags.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
                 "submit_review",
                 "Terminal REVIEW step (Reviewer role) — call once, last, after building/validating/reviewing. approved=true means the form is fully correct and ends the run; approved=false returns your detailed issue list to the author for a fix round.",
                 serde_json::json!({
@@ -527,6 +376,9 @@ mod catalog_guards {
     /// field and property names, and the MCP-only tools that the `mcp` crate
     /// defines rather than the engine.
     const NON_TOOL_VOCABULARY: &[&str] = &[
+        // Argument and result names in the u2s document tools' own descriptions.
+        "autofix_available",
+        "rule_ids",
         // AEM / XFA / profile vocabulary appearing verbatim in prose.
         "affrg",
         "affrg_germany",
@@ -734,25 +586,26 @@ mod catalog_guards {
                 .any(|t| t["name"].as_str() == Some(name))
         };
 
-        // Only the Author writes; only the Reviewer terminates.
-        assert!(has(
-            OutputTarget::Aem,
-            scope::AEM_AUTHOR,
-            "set_aem_translated"
-        ));
-        assert!(!has(
-            OutputTarget::Aem,
-            scope::AEM_ANALYST,
-            "set_aem_translated"
-        ));
-        assert!(!has(
-            OutputTarget::Aem,
-            scope::AEM_REVIEWER,
-            "set_aem_translated"
-        ));
-        assert!(has(OutputTarget::Aem, scope::AEM_REVIEWER, "submit_review"));
-        assert!(!has(OutputTarget::Aem, scope::AEM_AUTHOR, "submit_review"));
-        assert!(!has(OutputTarget::Aem, scope::AEM_ANALYST, "submit_review"));
+        // Only the Author edits the document; only the Reviewer terminates.
+        for target in OutputTarget::ALL {
+            let (analyst, author, reviewer) = match target {
+                OutputTarget::Aem => (scope::AEM_ANALYST, scope::AEM_AUTHOR, scope::AEM_REVIEWER),
+                OutputTarget::Redacto => {
+                    (scope::REDACTO_ANALYST, scope::REDACTO_AUTHOR, scope::REDACTO_REVIEWER)
+                }
+            };
+            assert!(has(target, author, "json_patch"));
+            assert!(!has(target, analyst, "json_patch"));
+            assert!(!has(target, reviewer, "json_patch"));
+            assert!(has(target, reviewer, "json_outline") && has(target, reviewer, "json_get"));
+            assert!(has(target, reviewer, "submit_review"));
+            assert!(!has(target, author, "submit_review"));
+            assert!(!has(target, analyst, "submit_review"));
+        }
+        assert!(has(OutputTarget::Aem, scope::AEM_AUTHOR, "rule_autofix"));
+        assert!(!has(OutputTarget::Aem, scope::AEM_REVIEWER, "rule_autofix"));
+        assert!(has(OutputTarget::Aem, scope::AEM_REVIEWER, "rule_check"));
+        assert!(has(OutputTarget::Redacto, scope::REDACTO_AUTHOR, "build_redacto_dump"));
 
         // Termination belongs to the controller. There is deliberately no
         // terminal tool at all: `finish` existed, was offered to nobody, and
@@ -761,24 +614,6 @@ mod catalog_guards {
             !catalog().iter().any(|t| t.name() == "finish"),
             "the run is ended by the controller, not by a tool"
         );
-
-        // The Redacto Author authors the structured tree itself, from its own
-        // reading of the source, and builds the dump from it.
-        assert!(has(
-            OutputTarget::Redacto,
-            scope::REDACTO_AUTHOR,
-            "set_structured"
-        ));
-        assert!(has(
-            OutputTarget::Redacto,
-            scope::REDACTO_AUTHOR,
-            "build_redacto_dump"
-        ));
-        assert!(!has(
-            OutputTarget::Redacto,
-            scope::REDACTO_REVIEWER,
-            "set_structured"
-        ));
 
         // Nobody is handed the engine's precomputed states any more: every
         // stage reads the source form through the u2s tools.
@@ -794,11 +629,7 @@ mod catalog_guards {
             } else {
                 OutputTarget::Redacto
             };
-            for writer in [
-                "set_structured_field",
-                "set_aem_translated_field",
-                "build_aem_package",
-            ] {
+            for writer in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {
                 assert!(
                     !has(target, stage, writer),
                     "the Analyst must not have {writer}"

@@ -37,7 +37,7 @@ pub struct Tab {
     /// Conversion profile, chosen per tab.
     pub profile: Signal<Option<String>>,
     /// What this tab's run produces, chosen per tab.
-    pub target: Signal<blueprint::OutputTarget>,
+    pub target: Signal<agent::OutputTarget>,
     /// The uploaded sources — both the upload box's selection and the input a
     /// feedback re-run resends.
     pub files: Signal<Vec<(String, Vec<u8>)>>,
@@ -67,7 +67,7 @@ pub struct Tab {
 
 impl Tab {
     /// Open a tab, inheriting the choices the user last made.
-    fn open(profile: Option<String>, target: blueprint::OutputTarget) -> Self {
+    fn open(profile: Option<String>, target: agent::OutputTarget) -> Self {
         fn app<T: 'static>(value: T) -> Signal<T> {
             Signal::new_in_scope(value, ScopeId::APP)
         }
@@ -203,7 +203,7 @@ impl Workspace {
     pub fn use_init(
         saved: &SavedWorkspace,
         profile: Option<&str>,
-        target: blueprint::OutputTarget,
+        target: agent::OutputTarget,
         // What survived for each saved tab: its stored sources, and how much of
         // its result is still reachable. Passed in so this stays free of the
         // store.

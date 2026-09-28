@@ -3,7 +3,7 @@
 //!
 //! A reference form is a worked example: the original input PDF, the final AEM
 //! package, and an LLM-written description. References live in the app's single
-//! `history.db` (shared schema in [`blueprint::reference_db`]); only the
+//! `history.db` (shared schema in [`crate::reference_db`]); only the
 //! reference tables are ever written here, so settings/sessions are untouched.
 //!
 //! The store is keyed by `ref_id` = `document_hash(input PDF)` (the same hash
@@ -48,10 +48,10 @@ pub struct ReferenceDocInfo {
 
 mod imp {
     use super::{ReferenceDocInfo, ReferenceInfo, SearchHit};
-    use blueprint::reference_db::{
+    use crate::reference_db::{
         EMBEDDING_MODEL_VERSION, SCHEMA_SQL, blob_to_vec, vec_to_blob,
     };
-    use blueprint::semantic::SemanticMatcher;
+    use crate::semantic::SemanticMatcher;
     use rusqlite::{Connection, params};
 
     /// Cosine threshold for the semantic (RAG) signal over descriptions. Lower
@@ -653,7 +653,7 @@ mod imp {
         let label = reference_label(&pdfs);
         let rows: Vec<(u32, Vec<u8>)> = pdfs
             .into_iter()
-            .map(|(_, bytes)| (pdf_state_count(&bytes), bytes))
+            .map(|(_, bytes)| (pdf_page_count(&bytes), bytes))
             .collect();
         add_reference(
             profile,
@@ -710,11 +710,11 @@ mod imp {
         matcher.embed(text).map_err(|e| e.to_string())
     }
 
-    /// Number of pages/states discoverable in a PDF (best effort, for metadata).
-    pub fn pdf_state_count(pdf_bytes: &[u8]) -> u32 {
-        blueprint::Blueprint::from_pdf_bytes(pdf_bytes)
-            .ok()
-            .and_then(|mut bp| bp.states().ok().map(|s| s.iter().count() as u32))
+    /// The PDF's page count, for the reference's metadata; 0 for a file lopdf
+    /// cannot read (the bytes are stored either way).
+    pub fn pdf_page_count(pdf_bytes: &[u8]) -> u32 {
+        lopdf::Document::load_mem(pdf_bytes)
+            .map(|doc| doc.get_pages().len() as u32)
             .unwrap_or(0)
     }
 

@@ -3,7 +3,7 @@
 //! One table, so the file the app drops in Downloads and the file the CLI writes
 //! to its output directory cannot end up under different names.
 
-use blueprint::OutputTarget;
+use agent::OutputTarget;
 use pipeline::RunOutcome;
 
 /// Build an artefact filename like `forms-package-<code>.zip`, falling back to

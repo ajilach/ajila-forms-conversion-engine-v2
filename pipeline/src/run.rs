@@ -16,7 +16,7 @@
 use std::sync::Arc;
 
 use agent::ToolReply;
-use blueprint::{DocumentEnvelope, OutputTarget};
+use agent::OutputTarget;
 use rig_agent::agent::model::ModelHandle;
 use rig_agent::agent::{Agent, AgentBuilder, StreamingError};
 use rig_agent::completion::PromptError;
@@ -122,7 +122,8 @@ fn author_seed_for(
 
 /// What a finished run produced.
 pub struct RunOutcome {
-    pub envelope: DocumentEnvelope,
+    /// The run's final document.
+    pub document: serde_json::Value,
     pub aem_package: Option<Vec<u8>>,
     /// The same package built with `bind_to_xsd` on: every field carries a
     /// `bindRef` and the schema is bundled. Offered as a separate download.
@@ -164,13 +165,6 @@ async fn run_stages(
     seed: RunSeed,
     obs: &SharedObserver,
 ) -> Option<RunOutcome> {
-    // Load the selected profile's fonts so on-demand renders have the right
-    // typefaces (the font store is global, shared with rendering). Both a fresh
-    // run and a feedback re-run funnel through here, so this covers both.
-    if let Some(profile_name) = config.profile.as_deref() {
-        let _ = blueprint::load_profile_fonts(profile_name);
-    }
-
     let target = config.target;
     let extra = &config.extra_instructions;
     let stages = roles::roles_for(target);
@@ -315,36 +309,30 @@ async fn run_stages(
     Some(finalize(shared_agent, config, warnings).await)
 }
 
-/// Assemble the run's artefacts from the agent's working trees.
+/// Assemble the run's artefacts: the build of the final document.
 async fn finalize(
     shared_agent: &SharedAgent,
-    config: &RunConfig,
+    _config: &RunConfig,
     mut warnings: Vec<String>,
 ) -> RunOutcome {
-    let profile = config.profile.clone();
     let mut agent = shared_agent.lock().await;
     let agent::outputs::Outputs {
-        envelope,
+        document,
+        package,
+        package_bound,
+        xsd,
         redacto_sql,
         warnings: build_warnings,
-    } = agent::outputs::build(&mut agent, profile.as_deref());
+    } = agent::outputs::build(&mut agent);
     warnings.extend(build_warnings);
 
-    let form_code = agent.form_code();
-
-    // The schema describes an AEM form, so only that target offers it. The form
-    // code has to be resolved first: it names the form.
-    let xsd_schema = (config.target == OutputTarget::Aem)
-        .then(|| agent::outputs::xsd_schema_for(&envelope, profile.as_deref(), form_code.as_deref()))
-        .flatten();
-
     RunOutcome {
-        envelope,
-        aem_package: agent.package(),
-        aem_package_bound: agent.package_bound(),
-        xsd_schema,
+        document,
+        aem_package: package,
+        aem_package_bound: package_bound,
+        xsd_schema: xsd,
         redacto_sql,
-        form_code,
+        form_code: agent.form_code(),
         warnings,
     }
 }
@@ -1170,106 +1158,6 @@ mod tests {
 }
 
 #[cfg(test)]
-mod outputs_tests {
-    use agent::ConversionAgent;
-    use blueprint::OutputTarget;
-
-    fn fixture_agent(target: OutputTarget) -> ConversionAgent {
-        let pdf =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/input/AAEV_019_EN.pdf");
-        let bytes = std::fs::read(&pdf).expect("read AAEV_019_EN.pdf");
-        ConversionAgent::new(
-            Some("ubs".into()),
-            vec![("AAEV_019_EN.pdf".to_string(), bytes)],
-            format!("test-outputs-{}", target.as_str()),
-            target,
-        )
-    }
-
-    /// The original defect: the Redacto dump was built from the engine's
-    /// conversion of the source while the agent had authored something else, so
-    /// what shipped was never what the run produced or the Reviewer approved.
-    /// Under the Redacto target the authored tree is the document, full stop.
-    #[test]
-    fn redacto_outputs_are_built_from_the_authored_tree() {
-        use blueprint::structured::{ParagraphNode, StructuredNode, TranslatedText};
-
-        let mut agent = fixture_agent(OutputTarget::Redacto);
-        // A sentence that appears nowhere in the source PDF, so its presence in
-        // the SQL can only come from the authored tree.
-        agent.seed_structured(vec![StructuredNode::Paragraph(ParagraphNode {
-            content: TranslatedText::plain("AUTHORED-BY-THE-AGENT-MARKER"),
-            som_path: None,
-            source_name: None,
-        })]);
-        agent.seed_headers([("en".to_string(), "AUTHORED-HEADER".to_string())].into());
-
-        let outputs = agent::outputs::build(&mut agent, Some("ubs"));
-
-        let sql = outputs
-            .redacto_sql
-            .expect("the authored document yields a dump");
-        assert!(
-            sql.contains("AUTHORED-BY-THE-AGENT-MARKER"),
-            "the dump must be generated from the authored tree"
-        );
-        assert_eq!(
-            outputs.envelope.content.len(),
-            1,
-            "the envelope is the authored tree, not the engine's parse of the source"
-        );
-        assert!(
-            agent.aem_translated().is_none(),
-            "a Redacto run produces no AEM tree"
-        );
-        // The page header the agent set must survive into the configuration.
-        assert_eq!(
-            outputs.envelope.context.header.as_deref(),
-            Some("AUTHORED-HEADER"),
-            "the context must carry the authored page header"
-        );
-    }
-
-    /// An authored tree that produces no assets must yield no file and say why,
-    /// rather than a valid-looking dump describing an empty document.
-    #[test]
-    fn an_empty_redacto_document_produces_no_sql() {
-        let mut agent = fixture_agent(OutputTarget::Redacto);
-
-        let outputs = agent::outputs::build(&mut agent, Some("ubs"));
-
-        assert!(outputs.redacto_sql.is_none());
-        assert!(
-            outputs
-                .warnings
-                .iter()
-                .any(|w| w.contains("No Redacto dump")),
-            "the reason must be reported: {:?}",
-            outputs.warnings
-        );
-    }
-
-    /// An AEM run produces no Redacto dump, even on a profile that configures
-    /// one. The result panel does not offer it, so deriving it from the source
-    /// was a full extraction and dump generation for a file nobody could reach.
-    #[test]
-    fn the_aem_target_derives_no_redacto_dump() {
-        let mut agent = fixture_agent(OutputTarget::Aem);
-
-        let outputs = agent::outputs::build(&mut agent, Some("ubs"));
-
-        assert!(
-            outputs.redacto_sql.is_none(),
-            "the dump belongs to the Redacto target"
-        );
-        // The envelope is the authored AEM tree lifted back into structured
-        // content — empty here because this agent never authored one.
-        assert!(outputs.envelope.content.is_empty());
-        assert!(outputs.warnings.is_empty(), "{:?}", outputs.warnings);
-    }
-}
-
-#[cfg(test)]
 mod controller {
     //! End-to-end sequencing tests.
     //!
@@ -1424,12 +1312,8 @@ mod controller {
     /// build their own agent with a real id and a scratch database instead
     /// (see `a_resumed_session_loads_its_prior_conversation`).
     fn bare_agent() -> SharedAgent {
-        Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(
-            None,
-            Vec::new(),
-            String::new(),
-            OutputTarget::Redacto,
-        )))
+        Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
+            .expect("an agent without sources starts")))
     }
 
     /// A `ContextBudget` that shapes nothing and records nothing — every
@@ -1476,6 +1360,7 @@ mod controller {
     fn redacto_agent_with_verifier() -> SharedAgent {
         let settings = agent::u2s::RedactoVerifySettings::default();
         let agent = ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
+            .expect("an agent without sources starts")
             .with_redacto_verify(&settings)
             .expect("attaching the verifier needs no Docker");
         assert!(agent.has_verifier());
@@ -1933,12 +1818,10 @@ mod controller {
         let role = &roles::roles_for(OutputTarget::Redacto).author;
 
         let fresh_agent = || {
-            Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(
-                None,
-                Vec::new(),
-                session_id.clone(),
-                OutputTarget::Redacto,
-            )))
+            Arc::new(tokio::sync::Mutex::new(
+                ConversionAgent::new(None, Vec::new(), session_id.clone(), OutputTarget::Redacto)
+                    .expect("an agent without sources starts"),
+            ))
         };
 
         // First run: the Author answers with plain text, which is itself a

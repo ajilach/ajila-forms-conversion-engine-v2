@@ -173,7 +173,7 @@ impl AgentHook for StageHook {
     }
 
     /// The same check, for a turn that is emitting tool-call arguments
-    /// instead of text — a long `set_aem_translated` call streams no text at
+    /// instead of text — a long `json_patch` call streams no text at
     /// all, so without this an abort during one would wait for the whole
     /// call to finish streaming before it took effect.
     async fn on_tool_call_delta(
@@ -618,7 +618,7 @@ mod tests {
     }
 
     /// A role with a chosen `stuck_tool`, for the stuck-watch test — the
-    /// built-in roles' own stuck tools (`validate_aem_package`,
+    /// built-in roles' own stuck tools (`build_aem_package`,
     /// `build_redacto_dump`) are not reachable from a bare agent with no
     /// sources.
     const STUCK_ON_GET_SOURCE_INFO: Role = Role {
@@ -652,12 +652,10 @@ mod tests {
     }
 
     fn bare_shared_agent() -> crate::tools::SharedAgent {
-        std::sync::Arc::new(tokio::sync::Mutex::new(agent::ConversionAgent::new(
-            None,
-            Vec::new(),
-            "test-hooks".into(),
-            blueprint::OutputTarget::Redacto,
-        )))
+        std::sync::Arc::new(tokio::sync::Mutex::new(
+            agent::ConversionAgent::new(None, Vec::new(), "test-hooks".into(), agent::OutputTarget::Redacto)
+                .expect("an agent without sources starts"),
+        ))
     }
 
     /// Every `RunEvent` a test's `SharedObserver` recorded, for asserting on

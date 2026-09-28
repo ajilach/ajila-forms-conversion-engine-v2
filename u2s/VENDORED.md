@@ -17,7 +17,7 @@ resolves without a patch.
 
 Assets that originate in this repo are symlinks rather than copies:
 
-- `corpus/ubs/*.pdf` points at `core/input/`. The exception is `AAJB_033_IT.pdf`, which exists
+- `corpus/ubs/*.pdf` points at `forms/`. The exception is `AAJB_033_IT.pdf`, which exists
   only upstream and is copied.
 - `vendor/fonts/ubs-frutiger/*.ttf` points at `profiles/ubs/parser/fonts/`.
 - `fixtures/*` links into `crates/` exactly as upstream does.

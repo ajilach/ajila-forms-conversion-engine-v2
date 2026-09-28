@@ -6,7 +6,6 @@ rust-version.workspace = true
 
 [dependencies]
 agent = { path = "../agent" }
-blueprint = { path = "../core" }
 pipeline = { path = "../pipeline" }
 base64 = { workspace = true }
 futures-util = "0.3"

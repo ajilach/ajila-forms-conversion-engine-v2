@@ -5,7 +5,6 @@ edition.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-blueprint = { path = "../core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 uuid = { workspace = true }
@@ -22,6 +21,11 @@ bollard = { workspace = true }
 # rmcp3 names their result types; it is not a transport here.
 rmcp3 = { package = "rmcp", version = "3.1", default-features = false }
 tempfile = "3"
+# The sentence-embedding model behind semantic reference search (`semantic`).
+candle-core = "0.9"
+candle-nn = "0.9"
+candle-transformers = "0.9"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
 u2s-aem-ubs-verify-mcp = { path = "../u2s/crates/u2s-aem-ubs-verify-mcp" }
 u2s-aem-verify-core = { path = "../u2s/crates/u2s-aem-verify-core" }
 u2s-blob = { path = "../u2s/crates/u2s-blob" }
@@ -33,6 +37,16 @@ u2s-render-pdf-mcp = { path = "../u2s/crates/u2s-render-pdf-mcp" }
 u2s-render-xfa-mcp = { path = "../u2s/crates/u2s-render-xfa-mcp" }
 u2s-xfa = { path = "../u2s/crates/u2s-xfa" }
 u2s-xfa-mcp = { path = "../u2s/crates/u2s-xfa-mcp" }
+# The UBS output formats, their document and rule tools, and the rule sandbox.
+u2s-aem-ubs-mcp = { path = "../u2s/crates/u2s-aem-ubs-mcp" }
+u2s-redacto-ubs-mcp = { path = "../u2s/crates/u2s-redacto-ubs-mcp" }
+u2s-mapper-redacto = { path = "../u2s/crates/u2s-mapper-redacto" }
+u2s-doc-tools = { path = "../u2s/crates/u2s-doc-tools" }
+u2s-jsondoc = { path = "../u2s/crates/u2s-jsondoc" }
+u2s-rules-host = { path = "../u2s/crates/u2s-rules-host" }
+include_dir = "0.7"
+# Reads a reference PDF's page count.
+lopdf = "0.34"
 
 [features]
 # Un-gates `db::set_db_path_for_test` for another crate's own tests (this
@@ -44,5 +58,3 @@ test-utils = []
 [dev-dependencies]
 # The tool executor is async; the tests drive it directly.
 tokio = { version = "1", features = ["macros", "rt"] }
-# Proves the engine's Redacto dump is what the vendored verifier decodes.
-u2s-mapper-redacto = { path = "../u2s/crates/u2s-mapper-redacto" }

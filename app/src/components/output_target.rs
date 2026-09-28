@@ -7,7 +7,7 @@
 
 use dioxus::prelude::*;
 
-use blueprint::OutputTarget;
+use agent::OutputTarget;
 
 /// DOM id of the `<select>`, so the label can point at it.
 const SELECT_ID: &str = "agent-target-select";
@@ -25,7 +25,7 @@ pub fn OutputTargetSelector(
 ) -> Element {
     let targets = profile
         .as_deref()
-        .map(blueprint::profile_targets)
+        .map(agent::profiles::profile_targets)
         .unwrap_or_default();
 
     // Switching to a profile that does not support the current target would

@@ -90,7 +90,7 @@ pub fn ReferencesPage(
     let busy = use_signal(|| false);
     let mut tab = use_signal(RefTab::default);
 
-    let profiles = use_hook(blueprint::list_profiles);
+    let profiles = use_hook(agent::profiles::list_profiles);
 
     // Profile that new references are added to / imported into / exported from.
     // Defaults to the active profile, falling back to the first configured one.

@@ -36,11 +36,13 @@ fn reopen_tab(saved: &SavedTab) -> (Vec<(String, Vec<u8>)>, RestoredView) {
         .map(db::load_sources)
         .unwrap_or_default();
 
-    // Either stream holds the document: the structured envelope, or the AEM
-    // tree snapshotted after every mutating tool call. `> 0` because sequence
-    // zero is the empty seed a run writes before it does anything.
+    // A run records its document after every edit under `#document`. A session
+    // recorded before that holds its structured envelope, or its AEM tree under
+    // `#aem`; it cannot be resumed, but it is kept. `> 0` because sequence zero
+    // was the empty seed those runs wrote before they did anything.
     let has_snapshot = saved.session_id.as_deref().is_some_and(|session| {
-        db::latest_seq(session).is_some_and(|seq| seq > 0)
+        db::latest_seq(&agent::session::document_session(session)).is_some()
+            || db::latest_seq(session).is_some_and(|seq| seq > 0)
             || db::latest_seq(&format!("{session}#aem")).is_some()
     });
 
@@ -91,7 +93,7 @@ fn load_window_icon() -> Option<dioxus::desktop::tao::window::Icon> {
 fn App() -> Element {
     // The profile list is baked into the binary, so read it once and start on
     // the first entry rather than re-deriving the default during every render.
-    let profiles = use_hook(blueprint::list_profiles);
+    let profiles = use_hook(agent::profiles::list_profiles);
     let mut app_settings = use_signal(AppSettings::load);
     let mut settings_open = use_signal(|| false);
     // Whether the full-page reference-forms manager is open.
@@ -109,7 +111,7 @@ fn App() -> Element {
     let mut workspace = Workspace::use_init(
         &saved,
         profiles.first().map(String::as_str),
-        blueprint::OutputTarget::default(),
+        agent::OutputTarget::default(),
         reopen_tab,
     );
 
@@ -192,9 +194,7 @@ fn App() -> Element {
             .any(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"));
         // An AEM content-package ZIP may be attached as an editable template for
         // the agent's working tree. Proceed with PDFs, a template, or both.
-        let has_template = file_data
-            .iter()
-            .any(|(_, bytes)| blueprint::detect_aem_zip(bytes));
+        let has_template = agent::conversion::template_of(&file_data).is_some();
         if !has_pdf && !has_template {
             return;
         }

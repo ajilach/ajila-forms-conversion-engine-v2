@@ -111,6 +111,22 @@ mod imp {
         let _ = DB_PATH_OVERRIDE.set(path);
     }
 
+    /// Point the store at a scratch file, for a test that needs a real one: an
+    /// in-memory database is private to its own connection and cannot show
+    /// contention at all.
+    ///
+    /// `set_db_path_for_test` is a one-shot `OnceLock`: whichever test in this
+    /// binary calls this first wins, and every other caller shares that same
+    /// path. That is fine: every caller only ever needs *a* scratch file, never
+    /// a specific one, so sharing is safe as long as tests that write to the
+    /// same table use keys (session ids) that cannot collide with each other's.
+    #[cfg(test)]
+    pub(crate) fn claim_scratch_db_for_test() {
+        let dir = std::env::temp_dir().join(format!("blueprint-db-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        set_db_path_for_test(dir.join("history.db"));
+    }
+
     /// Report a database error instead of discarding it.
     ///
     /// The store is best-effort by design: a failed settings write must not take
@@ -300,7 +316,7 @@ mod imp {
         // Reference-form tables (shared schema with the `reference-builder`
         // crate, so dataset exports import without drift). Stored in the same
         // `history.db`; only these tables are written by reference import/export.
-        conn.execute_batch(blueprint::reference_db::SCHEMA_SQL)?;
+        conn.execute_batch(crate::reference_db::SCHEMA_SQL)?;
         Ok(())
     }
 
@@ -456,7 +472,8 @@ mod imp {
         };
         let Ok(mut stmt) = conn.prepare(
             "SELECT s.session_id, s.label, s.profile, s.created_at,
-                    (SELECT COUNT(*) FROM edits e WHERE e.session_id = s.session_id)
+                    (SELECT COUNT(*) FROM edits e
+                      WHERE e.session_id IN (s.session_id, s.session_id || '#document'))
              FROM sessions s
              WHERE s.doc_hash = ?1
              ORDER BY s.created_at DESC",
@@ -486,7 +503,8 @@ mod imp {
         };
         let Ok(mut stmt) = conn.prepare(
             "SELECT s.session_id, s.label, s.profile, s.created_at,
-                    (SELECT COUNT(*) FROM edits e WHERE e.session_id = s.session_id)
+                    (SELECT COUNT(*) FROM edits e
+                      WHERE e.session_id IN (s.session_id, s.session_id || '#document'))
              FROM sessions s
              ORDER BY s.created_at DESC",
         ) else {
@@ -928,23 +946,6 @@ mod imp {
             ensure_schema(&conn).unwrap();
             migrate(&conn).unwrap();
             conn
-        }
-
-        /// Point the store at a scratch file, for a test that needs a real
-        /// one — an in-memory database is private to its own connection and
-        /// cannot show contention at all.
-        ///
-        /// `set_db_path_for_test` is a one-shot `OnceLock`: whichever test in
-        /// this binary calls this first wins, and every other caller —
-        /// including this one, called from a *different* test — silently
-        /// shares that same path instead of its own. That is fine: every
-        /// caller only ever needs *a* scratch file, never a specific one, so
-        /// sharing is safe as long as tests that write to the same table use
-        /// keys (session ids) that cannot collide with each other's data.
-        fn claim_scratch_db_for_test() {
-            let dir = std::env::temp_dir().join(format!("blueprint-db-test-{}", uuid::Uuid::new_v4()));
-            std::fs::create_dir_all(&dir).unwrap();
-            set_db_path_for_test(dir.join("history.db"));
         }
 
         #[test]

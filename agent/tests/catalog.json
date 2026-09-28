@@ -1,6 +1,6 @@
 [
   {
-    "description": "The source PDFs: each one's file name, language and the `doc_path` every xfa_* tool takes. Call this first.",
+    "description": "The source PDFs: each one's file name, language, XFA template `variables` and the `doc_path` every xfa_* tool takes. Call this first.",
     "input_schema": {
       "properties": {
         "source": {
@@ -19,165 +19,7 @@
     "name": "get_source_info"
   },
   {
-    "description": "Set the WHOLE working structured tree: `nodes` is a JSON array of StructuredNode (call get_schema('structured') for the exact shape), every text a per-language map carrying every source language. Author it in one call from what you read in the source, then refine with the targeted edits. `headers` optionally maps each language code to the page header text printed at the top of that language's source pages (read it with xfa_page_text); the output renders it in its page-header slot. Omit `headers` to keep the ones already set.",
-    "input_schema": {
-      "properties": {
-        "headers": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "type": "object"
-        },
-        "nodes": {
-          "type": "array"
-        }
-      },
-      "required": [
-        "nodes"
-      ],
-      "type": "object"
-    },
-    "name": "set_structured"
-  },
-  {
-    "description": "Map the working structured tree: one line per node — `<path>  <type> <summary>  <flags>`. Flags: `⚠ text?` / `⚠ label?` (missing or placeholder text), `⚠ no-options` (empty choice list), `⚠ unsupported` (a node the Redacto output cannot represent: fields, images, conditionals, repeatables). Paths are `/`-separated walks from the top level, e.g. `0/children/2`, `5/rows/0/cells/1`.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "get_structured_outline"
-  },
-  {
-    "description": "Return the node (its whole subtree) at `path` as JSON. Inspect it before editing to see the exact field shapes — in particular that every text is a per-language map like {\"de\":[…],\"en\":[…]}.",
-    "input_schema": {
-      "properties": {
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "type": "object"
-    },
-    "name": "get_structured_node"
-  },
-  {
-    "description": "Set one field of the node at `path`. `field` is a node key such as `content`, `level`, `label`, `items`, `columnFlow`; `value` is the raw JSON for it (match the shape from get_structured_node). This is how you add a language: read the node, then write back its `content` map with every language present. Validated by round-trip; a bad value is rejected and the tree left unchanged. Cannot change a node's `type` (use replace_structured_node).",
-    "input_schema": {
-      "properties": {
-        "field": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "value": {}
-      },
-      "required": [
-        "path",
-        "field",
-        "value"
-      ],
-      "type": "object"
-    },
-    "name": "set_structured_field"
-  },
-  {
-    "description": "Apply MANY set_structured_field edits in ONE call: `edits` is an array of {path, field, value}. This is how you add a language — read the outline, then write every node's `content` map back in a single call. All-or-nothing: if any edit is invalid none are applied, and the error names the offending one. Use this instead of re-emitting the whole tree, which would discard the grouping, multi-column sections and heading levels the seed carried.",
-    "input_schema": {
-      "properties": {
-        "edits": {
-          "items": {
-            "properties": {
-              "field": {
-                "type": "string"
-              },
-              "path": {
-                "type": "string"
-              },
-              "value": {}
-            },
-            "required": [
-              "path",
-              "field",
-              "value"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        }
-      },
-      "required": [
-        "edits"
-      ],
-      "type": "object"
-    },
-    "name": "set_structured_fields"
-  },
-  {
-    "description": "Replace the whole node at `path` with `node`, a JSON object parseable as a StructuredNode (must include its `type`). Use to change a node's type or rebuild it.",
-    "input_schema": {
-      "properties": {
-        "node": {
-          "type": "object"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path",
-        "node"
-      ],
-      "type": "object"
-    },
-    "name": "replace_structured_node"
-  },
-  {
-    "description": "Insert `node` (a StructuredNode JSON object) into a child list. `parent_path` is empty/\"root\" for the top level, or the path of a Group. `position` is \"first\", \"last\", {\"before\":<i>} or {\"after\":<i>}.",
-    "input_schema": {
-      "properties": {
-        "node": {
-          "type": "object"
-        },
-        "parent_path": {
-          "type": "string"
-        },
-        "position": {
-          "type": [
-            "string",
-            "object"
-          ]
-        }
-      },
-      "required": [
-        "parent_path",
-        "node",
-        "position"
-      ],
-      "type": "object"
-    },
-    "name": "insert_structured_node"
-  },
-  {
-    "description": "Remove the node at `path` from its list (top-level nodes and Group children only).",
-    "input_schema": {
-      "properties": {
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "type": "object"
-    },
-    "name": "remove_structured_node"
-  },
-  {
-    "description": "Build the Redacto PostgreSQL dump from the working structured tree and report what it contains: languages, document id, per-table row counts, the per-language page `headers` and `footers` with their `header_assets`/`footer_assets` counts, the component shape, `problems` and `warnings`. Run it after every substantive change. A `problem` means the dump is not shippable (no text assets at all, an empty body section, a language missing its variants); a `warning` means content was dropped in translation to the Redacto model. Resolve every problem before you stop.",
+    "description": "Encode the document into the Redacto PostgreSQL dump, adding the UBS metadata, page header and footer from each language's source, and report what it holds: the document id, languages, asset count and dump size. A document the Redacto model refuses (an empty body, an asset missing a language, a reference to an asset that does not exist) is reported with every violation and builds nothing. Build after every substantive change; the redacto_verify_* tools check the latest build.",
     "input_schema": {
       "properties": {},
       "required": [],
@@ -186,145 +28,7 @@
     "name": "build_redacto_dump"
   },
   {
-    "description": "Check the generated dump on its own: its asset count, its languages, and every warning the Redacto converter raised while building it (node kinds it skipped, an empty document). Reviews the DUMP, not the working tree, because that is the artefact that ships. It does not compare against the source: whether every source text arrived is yours to check, with xfa_page_text and xfa_search on each language's PDF.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "review_redacto_output"
-  },
-  {
-    "description": "Set the WHOLE working AEM tree as an AemNodeTranslated JSON object (call get_schema('aem_translated') for the exact shape). Use this for the initial authoring of the form; for small fixes afterwards use the targeted editors below. Text fields (title/label/content and option labels) are per-language maps like {\"de\":\"…\",\"en\":\"…\"}; include EVERY source language. Invalidates the package.",
-    "input_schema": {
-      "properties": {
-        "root": {
-          "type": "object"
-        }
-      },
-      "required": [
-        "root"
-      ],
-      "type": "object"
-    },
-    "name": "set_aem_translated"
-  },
-  {
-    "description": "Dump the WHOLE working AemNodeTranslated tree as JSON. Expensive on a real form — prefer get_aem_translated_outline to find the path, then get_aem_translated_node to read just that subtree.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "get_aem_translated"
-  },
-  {
-    "description": "Map the working AEM tree: one line per node — `<path>  <Type>  [langs] \"excerpt\"  <flags>`. Flags: `⚠ empty` (text-bearing node with no text), `⚠ 1 lang` (only one language present — likely a missing translation). Use it to find the path to fix, then call the set/replace/insert/remove tools. Paths are `/`-separated child indices from the root (e.g. 2/0/3); `root`/empty addresses the root node.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "get_aem_translated_outline"
-  },
-  {
-    "description": "Return just the node (its whole subtree) at `path` as JSON. Inspect it before editing to see the exact field shapes (e.g. how `label`/`options` are structured).",
-    "input_schema": {
-      "properties": {
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "type": "object"
-    },
-    "name": "get_aem_translated_node"
-  },
-  {
-    "description": "Set one field of the node at `path`. `field` is a node key such as `label`, `title`, `content`, `options`, `visible`, `mandatory`, `colspan`, `bind_ref`; `value` is the raw JSON for it (match the shape from get_aem_translated_node — text fields are per-language maps). Validated by round-trip; a bad value is rejected and the tree left unchanged. Cannot change a node's `type` (use replace_aem_translated_node). Invalidates the package.",
-    "input_schema": {
-      "properties": {
-        "field": {
-          "type": "string"
-        },
-        "path": {
-          "type": "string"
-        },
-        "value": {}
-      },
-      "required": [
-        "path",
-        "field",
-        "value"
-      ],
-      "type": "object"
-    },
-    "name": "set_aem_translated_field"
-  },
-  {
-    "description": "Replace the whole node at `path` with `node`, a JSON object parseable as an AemNodeTranslated (must include its `type`). Use to change a node's type or rebuild it. Invalidates the package.",
-    "input_schema": {
-      "properties": {
-        "node": {
-          "type": "object"
-        },
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path",
-        "node"
-      ],
-      "type": "object"
-    },
-    "name": "replace_aem_translated_node"
-  },
-  {
-    "description": "Insert `node` (an AemNodeTranslated JSON object) into a child list. `parent_path` is empty/\"root\" for the root, or the path of a Panel or Repeatable (only those hold children). `position` is \"first\", \"last\", {\"before\":<i>} or {\"after\":<i>} (i = child index). Invalidates the package.",
-    "input_schema": {
-      "properties": {
-        "node": {
-          "type": "object"
-        },
-        "parent_path": {
-          "type": "string"
-        },
-        "position": {
-          "type": [
-            "string",
-            "object"
-          ]
-        }
-      },
-      "required": [
-        "parent_path",
-        "node",
-        "position"
-      ],
-      "type": "object"
-    },
-    "name": "insert_aem_translated_node"
-  },
-  {
-    "description": "Remove the node at `path` from its parent's child list (the root cannot be removed). Invalidates the package.",
-    "input_schema": {
-      "properties": {
-        "path": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "path"
-      ],
-      "type": "object"
-    },
-    "name": "remove_aem_translated_node"
-  },
-  {
-    "description": "Build the AEM FileVault package (ZIP) from the current AEM tree. Requires an AEM tree (author it with set_aem_translated, or refine the pre-loaded one). Stores it for verification and export.",
+    "description": "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS templates, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing) is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
     "input_schema": {
       "properties": {},
       "required": [],
@@ -333,7 +37,7 @@
     "name": "build_aem_package"
   },
   {
-    "description": "Size and file list of the built package.",
+    "description": "Size and file list of the latest built package.",
     "input_schema": {
       "properties": {},
       "required": [],
@@ -361,42 +65,6 @@
       "type": "object"
     },
     "name": "read_package_file"
-  },
-  {
-    "description": "Validate the built package: checks the required FileVault structure (META-INF + jcr_root boilerplate) and validates the form and DAM .content.xml against the AEM contract (well-formedness, escaping, JCR/CQ/FD/Sling structure). Run after build_aem_package, before verifying with aem_verify_run or aem_verify_open.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "validate_aem_package"
-  },
-  {
-    "description": "Check the converted AEM tree on its own, on the rendered JCR XML that ships: naming_violations, label_issues, feedback_violations (the swept UBS rules: DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments, which the UBS partner and signature generics replace), and legacy_tables: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. It does not compare against the source: whether every source text, field and section arrived is yours to check, against xfa_render_page and xfa_page_text. Run once the tree is authored and before you report the stage done; fix every finding and re-run.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "review_output"
-  },
-  {
-    "description": "Generate the XSD schema for the form. Renders the working structured tree, or — on an AEM run, which has none — the working AEM tree lifted back to structured content.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "generate_xsd"
-  },
-  {
-    "description": "Generate an HTML preview of the form. Renders the working structured tree, or — on an AEM run, which has none — the working AEM tree lifted back to structured content.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "generate_html"
   },
   {
     "description": "List the profile's reference forms (hand-built, known-good worked examples). Consult references BEFORE building: they show the expected JCR structure, dictionary setup and DoR conventions for this profile's forms.",
@@ -532,34 +200,6 @@
     "name": "grep_reference_docs"
   },
   {
-    "description": "Return the JSON schema for a working tree: 'aem_translated' (what set_aem_translated and the AEM editors take) or 'structured' (what set_structured and the structured editors take).",
-    "input_schema": {
-      "properties": {
-        "kind": {
-          "enum": [
-            "aem_translated",
-            "structured"
-          ],
-          "type": "string"
-        }
-      },
-      "required": [
-        "kind"
-      ],
-      "type": "object"
-    },
-    "name": "get_schema"
-  },
-  {
-    "description": "Profile/AEM config: form_code, languages, JCR paths, binding flags.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "get_profile_info"
-  },
-  {
     "description": "Terminal REVIEW step (Reviewer role) — call once, last, after building/validating/reviewing. approved=true means the form is fully correct and ends the run; approved=false returns your detailed issue list to the author for a fix round.",
     "input_schema": {
       "properties": {
@@ -577,6 +217,179 @@
       "type": "object"
     },
     "name": "submit_review"
+  },
+  {
+    "description": "Structure of the output document at a JSON Pointer: one line per node with its path, type and a short excerpt. Depth- and count-capped, so it never returns the whole document. Start here, then json_get the part you need.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "default": 2,
+          "maximum": 6,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limit": {
+          "default": 100,
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pointer": {
+          "description": "RFC 6901 pointer; \"\" is the root",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer"
+      ],
+      "type": "object"
+    },
+    "name": "json_outline"
+  },
+  {
+    "description": "Read a subtree at a JSON Pointer. Depth-capped (deeper nodes are elided) and then character-windowed, and it reports when it truncated. Use offset to continue.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "depth": {
+          "default": 4,
+          "maximum": 8,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limit": {
+          "default": 4000,
+          "maximum": 20000,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "default": 0,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "pointer": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer"
+      ],
+      "type": "object"
+    },
+    "name": "json_get"
+  },
+  {
+    "description": "Find where a string occurs in the document. Returns JSON Pointers and counts with a short context snippet -- never the matched values themselves. Follow up with json_get on a pointer you care about.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "default": 50,
+          "maximum": 200,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pointer": {
+          "description": "subtree to search; \"\" is the root",
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "pointer",
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "json_search"
+  },
+  {
+    "description": "Apply RFC 6902 operations atomically. Requires expected_revision: if the document has moved on, the patch is refused and you must re-read before retrying. Include 'test' operations to make a conditional write safe.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "ops": {
+          "description": "RFC 6902 operations, applied atomically",
+          "items": {
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "ops",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
+    "name": "json_patch"
+  },
+  {
+    "description": "Validate the whole output document against the output format's JSON Schema. Returns violations as JSON Pointers. Read-only.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "json_validate"
+  },
+  {
+    "description": "List this dataset's active rules by id, title and description. Read-only. Use this to see what a rule_check verdict is checking before you call it.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "name": "rule_list"
+  },
+  {
+    "description": "Run the current document through active rules' check scripts, the same checks that run after you finish. Omit rule_ids to check every active rule, or name a subset. Returns each rule's verdict and violations. Read-only -- this never replaces the deterministic pass that actually records the run's verdicts. Every json_patch result already tells you what changed, so you rarely need to call this yourself -- it is here for a check you want without editing anything.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "rule_ids": {
+          "description": "Subset of rule ids to check; omit or empty for every active rule",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "name": "rule_check"
+  },
+  {
+    "description": "Apply the mechanical repair of every failing rule that has one. Requires expected_revision, the same as json_patch, and is refused on the same terms if the document has moved on. Only ever touches a rule marked autofix_available in a json_patch result or a rule_check verdict -- a rule with no mechanical repair, or whose repair does not actually resolve it, is reported and left untouched, never guessed at. Omit rule_ids to attempt every fixable rule, or name a subset.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "minimum": 0,
+          "type": "integer"
+        },
+        "rule_ids": {
+          "description": "Subset of rule ids to autofix; omit or empty for every fixable rule",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "expected_revision"
+      ],
+      "type": "object"
+    },
+    "name": "rule_autofix"
   },
   {
     "description": "List the raw /XFA packets a PDF carries — their declared names and byte lengths, in declaration order. Call this FIRST: it costs nothing (no parse, no layout) and names what `xfa_read` and `xfa_search` can address. A PDF with no XFA form returns an empty list — use pdf_info to confirm form_type.",

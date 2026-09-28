@@ -87,7 +87,7 @@ fn write_package_spec() -> serde_json::Value {
 fn validate_from_file_spec() -> serde_json::Value {
     serde_json::json!({
         "name": "validate_aem_package_from_file",
-        "description": "Validate an AEM FileVault package ZIP from a local file path (same checks as validate_aem_package: required FileVault structure, form and DAM content-XML validation). Operates on an external file — no conversion session or build_aem_package needed.",
+        "description": "Validate an AEM FileVault package ZIP from a local file path: the required FileVault structure, the form and DAM content XML, and whether it decodes into a UBS AEM document (as a package uploaded as a template must). Operates on an external file — no conversion session or build_aem_package needed.",
         "input_schema": {
             "type": "object",
             "properties": {
@@ -103,7 +103,7 @@ fn validate_from_file_spec() -> serde_json::Value {
 ///
 /// Scoped by `target` so a session never sees a tool the engine would then
 /// refuse — an AEM conversion is not offered `build_redacto_dump`.
-fn tool_catalog_for(target: blueprint::OutputTarget) -> Vec<serde_json::Value> {
+fn tool_catalog_for(target: agent::OutputTarget) -> Vec<serde_json::Value> {
     let mut specs = vec![
         start_conversion_spec(),
         write_package_spec(),
@@ -229,8 +229,8 @@ impl Blueprint {
         };
 
         let target = match args.get("output_target").and_then(|v| v.as_str()) {
-            None => blueprint::OutputTarget::Aem,
-            Some(raw) => match blueprint::OutputTarget::parse(raw) {
+            None => agent::OutputTarget::Aem,
+            Some(raw) => match agent::OutputTarget::parse(raw) {
                 Some(t) => t,
                 None => {
                     return CallToolResult::error(vec![Content::text(format!(
@@ -250,6 +250,18 @@ impl Blueprint {
             .collect::<Vec<_>>()
             .join(", ");
 
+        // A conversion whose document cannot be held to its check rules is
+        // refused before anything is recorded, like one whose verifier is not
+        // ready.
+        let rules_note = match agent::rules::readiness(target) {
+            Ok(report) => format!("Check rules ready: {report}."),
+            Err(e) => {
+                return CallToolResult::error(vec![Content::text(format!(
+                    "The check rules cannot run, so the conversion was not started:\n{e}"
+                ))]);
+            }
+        };
+
         // Verification is not optional, so a conversion whose verifier is not
         // ready is refused before anything is recorded. The settings are the
         // desktop app's (the shared history.db).
@@ -258,8 +270,8 @@ impl Blueprint {
             Err(e) => return CallToolResult::error(vec![Content::text(e)]),
         };
         let readiness = match target {
-            blueprint::OutputTarget::Aem => agent::u2s::aem_verify_readiness(&aem_verify).await,
-            blueprint::OutputTarget::Redacto => {
+            agent::OutputTarget::Aem => agent::u2s::aem_verify_readiness(&aem_verify).await,
+            agent::OutputTarget::Redacto => {
                 agent::u2s::redacto_verify_readiness(&redacto_verify).await
             }
         };
@@ -290,18 +302,17 @@ impl Blueprint {
                  not started.",
             )]);
         };
-        agent::db::insert_edit(&session, "Initial (empty)", "[]");
-
         let count = pdfs.len();
         // How many reference forms / docs are available for this profile. The
         // count distinguishes "no references exist" from a profile mismatch
         // returning an empty list.
         let ref_count = agent::references::count(profile.as_deref().unwrap_or_default());
-        let new_agent = ConversionAgent::new(profile, pdfs, session.clone(), target);
-        let new_agent = match target {
-            blueprint::OutputTarget::Aem => new_agent.with_aem_verify(&aem_verify),
-            blueprint::OutputTarget::Redacto => new_agent.with_redacto_verify(&redacto_verify),
-        };
+        let new_agent = ConversionAgent::new(profile, pdfs, session.clone(), target).and_then(
+            |new_agent| match target {
+                agent::OutputTarget::Aem => new_agent.with_aem_verify(&aem_verify),
+                agent::OutputTarget::Redacto => new_agent.with_redacto_verify(&redacto_verify),
+            },
+        );
         let new_agent = match new_agent {
             Ok(agent) => agent,
             Err(e) => {
@@ -322,8 +333,8 @@ impl Blueprint {
         // The reference forms are AEM packages, so a Redacto session is not
         // told about them.
         let target_notes = match target {
-            blueprint::OutputTarget::Redacto => format!("{verify_note}\n\n"),
-            blueprint::OutputTarget::Aem => {
+            agent::OutputTarget::Redacto => format!("{rules_note}\n{verify_note}\n\n"),
+            agent::OutputTarget::Aem => {
                 let ref_note = if ref_count > 0 {
                     format!(
                         "{ref_count} reference form(s) are available for this profile — BEFORE \
@@ -334,7 +345,7 @@ impl Blueprint {
                 } else {
                     "No reference forms are available for this profile.".to_string()
                 };
-                format!("{ref_note}\n\n{verify_note}\n\n")
+                format!("{ref_note}\n\n{rules_note}\n{verify_note}\n\n")
             }
         };
 
@@ -342,14 +353,15 @@ impl Blueprint {
         // `instructions`, because many MCP clients drop `instructions` and the
         // tool result is the one surface every client delivers to the model.
         let workflow = match target {
-            blueprint::OutputTarget::Aem => agent::SYSTEM_PROMPT,
-            blueprint::OutputTarget::Redacto => agent::REDACTO_SYSTEM_PROMPT,
+            agent::OutputTarget::Aem => agent::SYSTEM_PROMPT,
+            agent::OutputTarget::Redacto => agent::REDACTO_SYSTEM_PROMPT,
         };
         CallToolResult::success(vec![Content::text(format!(
             "Loaded {count} PDF(s) [{label}] as a {kind} conversion (session {session}).\n\n\
              {workflow}\n\n\
-             {target_notes}{MCP_ADDENDUM}{teardown_note}",
+             {target_notes}{MCP_ADDENDUM}{teardown_note}\n\n{format}",
             kind = target.label(),
+            format = agent::conversion::document_format(target),
             MCP_ADDENDUM = agent::MCP_ADDENDUM,
         ))])
     }
@@ -389,10 +401,23 @@ impl Blueprint {
             )]);
         };
         match std::fs::read(zip_path) {
-            Ok(bytes) => match agent::validate_package_bytes(&bytes) {
-                Ok(msg) => CallToolResult::success(vec![Content::text(msg)]),
-                Err(e) => CallToolResult::error(vec![Content::text(e)]),
-            },
+            Ok(bytes) => {
+                let decoded = u2s_aem_ubs_mcp::decode(&bytes)
+                    .map(|doc| format!("It decodes into a UBS AEM document in {:?}.", doc.languages))
+                    .map_err(|e| format!("It does not decode into a UBS AEM document: {e}"));
+                match (agent::validate_package_bytes(&bytes), decoded) {
+                    (Ok(valid), Ok(decoded)) => {
+                        CallToolResult::success(vec![Content::text(format!("{valid} {decoded}"))])
+                    }
+                    (valid, decoded) => CallToolResult::error(vec![Content::text(
+                        [valid, decoded]
+                            .into_iter()
+                            .map(|r| r.unwrap_or_else(|e| e))
+                            .collect::<Vec<_>>()
+                            .join("\n"),
+                    )]),
+                }
+            }
             Err(e) => CallToolResult::error(vec![Content::text(format!(
                 "Could not read {zip_path:?}: {e}"
             ))]),
@@ -434,7 +459,7 @@ impl ServerHandler for Blueprint {
             .lock()
             .await
             .as_ref()
-            .map_or(blueprint::OutputTarget::Aem, |conv| conv.target());
+            .map_or(agent::OutputTarget::Aem, |conv| conv.target());
         let tools = tool_catalog_for(target)
             .iter()
             .filter_map(to_mcp_tool)
@@ -598,7 +623,7 @@ mod tests {
         for advertised in props["output_target"]["enum"].as_array().unwrap() {
             let raw = advertised.as_str().unwrap();
             assert!(
-                blueprint::OutputTarget::parse(raw).is_some(),
+                agent::OutputTarget::parse(raw).is_some(),
                 "start_conversion advertises output_target {raw:?}, which it cannot parse"
             );
         }
@@ -628,7 +653,7 @@ mod tests {
         assert!(err.contains("nope.pdf"), "{err}");
     }
 
-    fn catalog_names(target: blueprint::OutputTarget) -> Vec<String> {
+    fn catalog_names(target: agent::OutputTarget) -> Vec<String> {
         tool_catalog_for(target)
             .iter()
             .filter_map(|s| s["name"].as_str().map(String::from))
@@ -637,7 +662,7 @@ mod tests {
 
     #[test]
     fn the_catalog_exposes_the_mcp_only_tools_alongside_the_engine_tools() {
-        let names = catalog_names(blueprint::OutputTarget::Aem);
+        let names = catalog_names(agent::OutputTarget::Aem);
         for mcp_only in [
             "start_conversion",
             "write_package",
@@ -659,11 +684,11 @@ mod tests {
     /// session and then refused on every call.
     #[test]
     fn the_catalog_never_advertises_a_tool_this_target_would_refuse() {
-        let aem = catalog_names(blueprint::OutputTarget::Aem);
+        let aem = catalog_names(agent::OutputTarget::Aem);
         assert!(!aem.iter().any(|n| n == "build_redacto_dump"), "{aem:?}");
         assert!(!aem.iter().any(|n| n == "review_redacto_output"), "{aem:?}");
 
-        let redacto = catalog_names(blueprint::OutputTarget::Redacto);
+        let redacto = catalog_names(agent::OutputTarget::Redacto);
         assert!(redacto.iter().any(|n| n == "build_redacto_dump"));
         assert!(!redacto.iter().any(|n| n == "set_aem_translated"), "{redacto:?}");
         assert!(!redacto.iter().any(|n| n == "build_aem_package"), "{redacto:?}");

@@ -97,7 +97,7 @@ pub struct ProcessingState {
     /// What the finished run produced. Recorded here rather than read from the
     /// upload selector so the result panel always describes the run that
     /// actually happened.
-    pub target: blueprint::OutputTarget,
+    pub target: agent::OutputTarget,
     pub form_code: Option<String>,
     pub aem_package: Option<Vec<u8>>,
     /// The AEM package built with `bind_to_xsd` on, offered as its own download.

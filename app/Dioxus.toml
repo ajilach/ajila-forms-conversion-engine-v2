@@ -21,5 +21,6 @@ icon = ["icons/icon.icns", "icons/icon.ico", "icons/icon.png"]
 # missing external_bin, so verify the staged path matches if the binary is
 # absent from a bundle.
 # pdfium, which the u2s PDF renderer loads from next to the executable, is
-# staged the same way (only the one built for the current platform exists).
-external_bin = ["sidecar/mcp", "sidecar/libpdfium.dylib", "sidecar/libpdfium.so"]
+# staged the same way (only the one built for the current platform exists), and
+# so is `u2s-rules-worker`, the process every check rule runs in.
+external_bin = ["sidecar/mcp", "sidecar/u2s-rules-worker", "sidecar/libpdfium.dylib", "sidecar/libpdfium.so"]

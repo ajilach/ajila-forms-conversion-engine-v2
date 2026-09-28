@@ -101,15 +101,11 @@ fn image_content(media_type: &str, data: &str) -> ToolResultContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use blueprint::OutputTarget;
+    use agent::OutputTarget;
 
     fn bare_agent() -> SharedAgent {
-        Arc::new(Mutex::new(ConversionAgent::new(
-            None,
-            Vec::new(),
-            "test-tools-bridge".into(),
-            OutputTarget::Redacto,
-        )))
+        Arc::new(Mutex::new(ConversionAgent::new(None, Vec::new(), "test-tools-bridge".into(), OutputTarget::Redacto)
+            .expect("an agent without sources starts")))
     }
 
     /// A text reply becomes plain text output — the common case, and the one

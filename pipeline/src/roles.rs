@@ -11,7 +11,7 @@ use agent::{
     SHARED_PREAMBLE, SYSTEM_PROMPT,
 };
 
-use blueprint::OutputTarget;
+use agent::OutputTarget;
 
 /// How many times a *transient* API failure (timeout, dropped connection,
 /// overload, rate limit, 5xx) is retried automatically before the run pauses and
@@ -27,8 +27,8 @@ pub(crate) const MAX_RETRY_BACKOFF_SECS: u64 = 60;
 /// How often the paused loop checks whether the user pressed Retry.
 pub(crate) const RETRY_POLL_MS: u64 = 200;
 
-/// How many consecutive `validate_aem_package` calls with identical output
-/// are allowed before a stage gives up (avoids an endless validate loop).
+/// How many consecutive calls of a stage's stuck tool with identical output are
+/// allowed before the stage gives up (avoids an endless build loop).
 pub(crate) const MAX_VALIDATE_REPEATS: usize = 3;
 /// How many consecutive turns that overflow the output-token cap we nudge
 /// toward incremental authoring before giving up (avoids an endless loop if the
@@ -36,31 +36,28 @@ pub(crate) const MAX_VALIDATE_REPEATS: usize = 3;
 pub(crate) const MAX_MAX_TOKEN_NUDGES: usize = 3;
 
 /// Injected when a turn is cut off at the output-token cap — almost always
-/// mid-way through one oversized tool call (a monolithic whole-tree write for a
+/// mid-way through one oversized tool call (a monolithic whole-form patch for a
 /// large form). Steers the agent to author incrementally so no single call has
 /// to fit under the output-token cap. Per target, because it names the tools the
 /// target actually has.
 pub(crate) const AEM_MAX_TOKENS_NUDGE: &str = "\
 Your previous turn was cut off at the output-token limit before it completed — that call \
 was NOT executed. This almost always means you tried to emit too much in a single tool call \
-(e.g. authoring a whole large form in one set_aem_translated). Do NOT retry it as one call. \
-Instead author the tree incrementally so no single call is oversized:\n\
-1. Call set_aem_translated with a SMALL skeleton only: the Root plus one empty Panel per \
-top-level section (titles set, no inner fields yet).\n\
-2. Then fill in each section one at a time with insert_aem_translated_node (add each field / \
-sub-panel into its section's Panel), replace_aem_translated_node and set_aem_translated_field.\n\
+(e.g. authoring a whole large form in one json_patch). Do NOT retry it as one call. \
+Instead author the form incrementally so no single call is oversized:\n\
+1. json_patch a SMALL skeleton only: one empty Panel per top-level section under \
+`/form/children` (titles set, no inner fields yet).\n\
+2. Then fill in each section one at a time with further json_patch calls, each adding the \
+fields and sub-panels of one section to its Panel's `children`.\n\
 Keep every individual call small. Proceed now.";
 
 pub(crate) const REDACTO_MAX_TOKENS_NUDGE: &str = "\
 Your previous turn was cut off at the output-token limit before it completed — that call \
 was NOT executed. This almost always means you tried to emit too much in a single tool call \
-(e.g. authoring a whole large document in one set_structured). Do NOT retry it as one call. \
-Instead author the document incrementally so no single call is oversized:\n\
-1. Call set_structured with a SMALL skeleton only: one empty section per top-level heading \
-(titles set, no inner content yet).\n\
-2. Then fill in each section one at a time with insert_structured_node (add each paragraph / \
-field into its section), replace_structured_node and set_structured_field.\n\
-Keep every individual call small. Proceed now.";
+(e.g. authoring a whole large document in one json_patch). Do NOT retry it as one call. \
+Instead author the document incrementally so no single call is oversized: json_patch one \
+section at a time, adding its assets to `/assets` and its components to `/body`. Keep every \
+individual call small. Proceed now.";
 
 // ── Roles ────────────────────────────────────────────────────────────────────
 
@@ -98,8 +95,8 @@ pub(crate) const AUTHOR: Role = Role {
     name: "Author",
     scope: agent::scope::AEM_AUTHOR,
     max_iterations: 110,
-    stuck_tool: Some("validate_aem_package"),
-    stuck_activity: "validation",
+    stuck_tool: Some("build_aem_package"),
+    stuck_activity: "the package build",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
 };
 
@@ -110,14 +107,14 @@ pub(crate) const REVIEWER: Role = Role {
     name: "Reviewer",
     scope: agent::scope::AEM_REVIEWER,
     max_iterations: 60,
-    stuck_tool: Some("validate_aem_package"),
-    stuck_activity: "validation",
+    stuck_tool: Some("build_aem_package"),
+    stuck_activity: "the package build",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
 };
 
 // ── Redacto roles ────────────────────────────────────────────────────────────
 //
-// A Redacto document is text only, so these stages never touch the AEM tree.
+// A Redacto document is text only, so these stages never touch an AEM form.
 
 pub(crate) const REDACTO_ANALYST: Role = Role {
     name: "Analyst",
@@ -172,15 +169,14 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
             author: &AUTHOR,
             reviewer: &REVIEWER,
             author_doing: "building the AEM form",
-            author_seed: "Begin building the form per your CONVERSION PLAN. Author the full tree, \
-                          then build_aem_package and validate_aem_package.",
-            author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the working tree, \
-                              then build_aem_package and validate_aem_package.",
-            author_continue_seed: "The working tree already holds what an earlier run built for \
-                                   this form. Inspect it against the source with \
-                                   get_aem_translated_outline, finish whatever is missing or \
-                                   incomplete, then build_aem_package and validate_aem_package. \
-                                   Do not start over.",
+            author_seed: "Begin building the form per your CONVERSION PLAN. Author the full form \
+                          in the document, then rule_check and build_aem_package.",
+            author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the document, then \
+                              rule_check and build_aem_package.",
+            author_continue_seed: "The document already holds what an earlier run built for this \
+                                   form. Inspect it against the source with json_outline, finish \
+                                   whatever is missing or incomplete, then rule_check and \
+                                   build_aem_package. Do not start over.",
         },
         OutputTarget::Redacto => TargetRoles {
             analyst: &REDACTO_ANALYST,
@@ -188,13 +184,13 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
             reviewer: &REDACTO_REVIEWER,
             author_doing: "building the Redacto document",
             author_seed: "Begin building the document per your CONVERSION PLAN. Author the full \
-                          structured content, then build_redacto_dump and review_redacto_output.",
-            author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the structured \
-                              content, then build_redacto_dump and review_redacto_output.",
-            author_continue_seed: "The structured content already holds what an earlier run built \
-                                   for this document. Inspect it against the source, finish \
-                                   whatever is missing or incomplete, then build_redacto_dump and \
-                                   review_redacto_output. Do not start over.",
+                          document, then build_redacto_dump.",
+            author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the document, then \
+                              build_redacto_dump.",
+            author_continue_seed: "The document already holds what an earlier run built for this \
+                                   document. Inspect it against the source with json_outline, \
+                                   finish whatever is missing or incomplete, then \
+                                   build_redacto_dump. Do not start over.",
         },
     }
 }
@@ -202,12 +198,21 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
 // ── Per-role system-prompt composition (plan + reviews pinned in `system`) ─────
 
 pub(crate) fn sys_analyst(target: OutputTarget, extra: &str) -> String {
-    match target {
+    let mut s = match target {
         OutputTarget::Aem => format!("{SHARED_PREAMBLE}{extra}\n\n{ANALYST_ADDENDUM}"),
         OutputTarget::Redacto => {
             format!("{REDACTO_SHARED_PREAMBLE}{extra}\n\n{REDACTO_ANALYST_ADDENDUM}")
         }
-    }
+    };
+    s.push_str(&format_note(target));
+    s
+}
+
+/// The document's format, pinned into every stage right after its role text
+/// and before the plan and reviews, so the part of the prompt that stays the
+/// same across rounds stays one prefix.
+fn format_note(target: OutputTarget) -> String {
+    format!("\n\n{}", agent::conversion::document_format(target))
 }
 
 /// The Author reuses the full [`SYSTEM_PROMPT`] authoring body, then the addendum,
@@ -229,6 +234,7 @@ pub(crate) fn sys_author(
             format!("{REDACTO_SYSTEM_PROMPT}{extra}\n\n{REDACTO_AUTHOR_ADDENDUM}")
         }
     };
+    s.push_str(&format_note(target));
     append_plan(&mut s, plan);
     append_reviews(
         &mut s,
@@ -250,6 +256,7 @@ pub(crate) fn sys_reviewer(
             format!("{REDACTO_SHARED_PREAMBLE}{extra}\n\n{REDACTO_REVIEWER_ADDENDUM}")
         }
     };
+    s.push_str(&format_note(target));
     append_plan(&mut s, plan);
     append_reviews(
         &mut s,
@@ -332,7 +339,7 @@ mod tests {
                 }
             }
             // Keyed off the role, not a hard-coded name.
-            assert_eq!(AUTHOR.stuck_tool, Some("validate_aem_package"));
+            assert_eq!(AUTHOR.stuck_tool, Some("build_aem_package"));
             assert_eq!(ANALYST.stuck_tool, None);
             assert_eq!(REDACTO_AUTHOR.stuck_tool, Some("build_redacto_dump"));
         }
@@ -386,20 +393,22 @@ mod tests {
                 // …and must name its own vocabulary.
                 assert!(prompt.contains("Redacto"), "{prompt}");
             }
-            assert!(prompts[1].contains("set_structured"));
+            assert!(prompts[1].contains("json_patch"));
             assert!(prompts[1].contains("xfa_page_text"));
             assert!(prompts[1].contains("build_redacto_dump"));
-            // The Author must be pointed at the batch editor and told the seeded
-            // structure is not to be re-created — without both, translating the
-            // document by rebuilding it is the cheaper path and the layout is lost.
-            assert!(prompts[1].contains("set_structured_fields"));
-            assert!(prompts[1].contains("columnFlow"));
-            // …and told where a flattened layout would show up.
-            assert!(prompts[1].contains("styled_panels"));
-    
+            // The Author must be told how a layout is expressed, or the columns
+            // and footnotes are flattened into plain containers.
+            assert!(prompts[1].contains("layout-split"));
+            assert!(prompts[1].contains("styledPanel"));
+            // Every stage carries its format's schema.
+            for prompt in &prompts {
+                assert!(prompt.contains("UBS Redacto document"), "{prompt}");
+            }
+
             // The AEM prompts must be untouched by the split.
             let aem = sys_author(OutputTarget::Aem, "", "", "", &[]);
             assert!(aem.contains("AemNodeTranslated"));
+            assert!(aem.contains("UBS AEM document"));
             assert!(!aem.contains("build_redacto_dump"));
         }
 
@@ -443,7 +452,7 @@ mod tests {
             // Every tool the seeds name must be one the Redacto Author may call.
             let offered =
                 agent::tools_for(OutputTarget::Redacto, REDACTO_AUTHOR.scope);
-            for tool in ["build_redacto_dump", "review_redacto_output"] {
+            for tool in ["build_redacto_dump", "json_outline"] {
                 assert!(
                     offered.iter().any(|t| t["name"].as_str() == Some(tool)),
                     "the Redacto Author seed names '{tool}', which it cannot call"
@@ -453,7 +462,7 @@ mod tests {
             // The AEM side keeps its own vocabulary.
             let aem = roles_for(OutputTarget::Aem);
             assert!(aem.author_seed.contains("build_aem_package"));
-            assert!(aem.author.max_tokens_nudge.contains("set_aem_translated"));
+            assert!(aem.author.max_tokens_nudge.contains("/form/children"));
         }
 
     

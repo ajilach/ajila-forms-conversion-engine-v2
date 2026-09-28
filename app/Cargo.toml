@@ -21,7 +21,6 @@ serde_json = { workspace = true }
 futures-util = "0.3"
 base64 = { workspace = true }
 image = { workspace = true }
-blueprint = { path = "../core" }
 agent = { path = "../agent" }
 pipeline = { path = "../pipeline" }
 runner = { path = "../runner" }

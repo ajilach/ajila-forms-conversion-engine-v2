@@ -923,10 +923,8 @@ fn register_fonts() -> Result<(), String> {
             use u2s_xfa::xfa::font_manager::{get_font_manager, register_profile_font_data};
 
             let mut fonts = Vec::new();
-            for profile in blueprint::list_profiles() {
-                if let Ok(files) = blueprint::profile_font_files(&profile) {
-                    fonts.extend(files);
-                }
+            for profile in crate::profiles::list_profiles() {
+                fonts.extend(crate::profiles::profile_font_files(&profile));
             }
             let fallback = fallback_font(&fonts)
                 .ok_or("no profile ships parser fonts; the u2s renderer cannot lay out text")?;

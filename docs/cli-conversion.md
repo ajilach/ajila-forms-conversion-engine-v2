@@ -1,14 +1,8 @@
 # Converting a form from the command line
 
-`blueprint convert` runs the same autonomous conversion the desktop app runs —
-the `pipeline` controller (Analyst → Author → Reviewer → fix rounds) over the
-shared `runner` transport, the same tool catalog, the same edit-history SQLite
-database. Only the reporting and the output location differ. A run started here
-can be reopened in the app, and vice versa.
+`blueprint convert` runs the same autonomous conversion the desktop app runs (Analyst → Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts land in an output directory instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
-This guide covers the `convert` subcommand and everything needed to get it
-running. For the deterministic export run (bare arguments, no model involved),
-see the CLI section in the [README](../README.md).
+This guide covers the `convert` subcommand and everything needed to get it running.
 
 ---
 
@@ -19,7 +13,7 @@ see the CLI section in the [README](../README.md).
 | Requirement | Why | Check |
 |---|---|---|
 | Rust 1.88+ (edition 2024) | Workspace `rust-version`; let-chains are used throughout | `rustc --version` |
-| Git LFS | `core/models/` holds a 235 MB safetensors model and a 17 MB tokenizer, both `include_bytes!`-embedded into the binary at compile time | `git lfs version` |
+| Git LFS | `agent/models/` holds a 235 MB safetensors model and a 17 MB tokenizer, both `include_bytes!`-embedded into the binary at compile time | `git lfs version` |
 
 Install both, then pull the large files. Without the LFS pull the build embeds
 LFS pointer text instead of the model and fails:
@@ -33,7 +27,7 @@ git lfs pull
 Verify the model is real and not a pointer — it must be hundreds of megabytes:
 
 ```sh
-ls -lh core/models/model.safetensors
+ls -lh agent/models/model.safetensors
 ```
 
 The Dioxus CLI is **not** needed. That is only for the desktop app.
@@ -42,12 +36,11 @@ The Dioxus CLI is **not** needed. That is only for the desktop app.
 
 ```sh
 cargo build --release -p blueprint-cli
+cargo build --release -p u2s-rules-host --bin u2s-rules-worker
 ```
 
 The binary lands at `target/release/blueprint`. Expect a long first build and a
-large binary — the embedded semantic-matching model (`semantic-matching` is a
-default feature of `core`, and the CLI enables it explicitly) accounts for most
-of it.
+large binary — the embedded semantic-matching model accounts for most of it.
 
 Every example below uses `cargo run --release -p blueprint-cli -- …`, which is
 interchangeable with calling `target/release/blueprint` directly.
@@ -72,11 +65,7 @@ app's setting, else the built-in default `claude-opus-5`.
 
 ### 1.4 A profile
 
-A profile supplies the AEM config, parser fonts, XSD types and reference
-library. `ubs` is currently the only one installed, so `--profile` can be
-omitted — the CLI picks it automatically when exactly one profile exists. It
-errors rather than guessing if several are installed, and a resumed session
-inherits the profile it was created with.
+A profile supplies the parser fonts and (in `history.db`) the reference library. `ubs` is currently the only one installed, so `--profile` can be omitted — the CLI picks it automatically when exactly one profile exists. It errors rather than guessing if several are installed, and a resumed session inherits the profile it was created with.
 
 ### 1.5 Verification setup (required)
 
@@ -106,6 +95,7 @@ You need:
 - The public Postgres image pulled (`verify prepare` does that)
 
 **For both targets:**
+- `u2s-rules-worker`: every check rule runs in this process, which must sit next to `blueprint` (`target/release/` after the build above); a conversion whose rules cannot run is refused before it starts.
 - `pdfium`: Run `./scripts/fetch-pdfium.sh` to download the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
 - Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM image (default none, must be pulled manually), data volume (default `u2s-aem-ubs-data`), AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: Postgres image (default `postgres:16-alpine`), optional rendering endpoint URL.
 - CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
@@ -203,8 +193,7 @@ exactly as the desktop app names them in Downloads:
 |---|---|
 | `aem` (default) | `forms-package-<code>.zip`, `forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd` |
 | `redacto` | `redacto-<code>.sql` |
-| both | `agent-log-<code>.md` — the Markdown run transcript |
-| with `--structured` | `structured-<code>.json` |
+| both | `document-<code>.json` (the final document), `agent-log-<code>.md` (the Markdown run transcript) |
 
 `forms-package-bindrefs` is the same package built with `bind_to_xsd` on: every
 field carries a `bindRef` and the schema is bundled. When the form code could
@@ -268,7 +257,6 @@ nothing.
 | `--profile <NAME>` | the only installed profile, or the session's | Errors if several exist and none is named |
 | `--target <aem\|redacto>` | `aem` | Case-insensitive |
 | `--out <DIR>` | `.` | Created if missing |
-| `--structured` | off | Also write the structured document as JSON |
 | `--provider <anthropic\|openai>` | the app's setting | `openai` means any OpenAI-compatible endpoint |
 | `--base-url <URL>` | `https://openrouter.ai/api/v1` | Implies `--provider openai` |
 | `--api-key <KEY>` | `$ANTHROPIC_API_KEY` / `$OPENAI_API_KEY`, then the app | |
@@ -290,8 +278,8 @@ nothing.
 # Redacto document instead of an AEM package
 cargo run --release -p blueprint-cli -- convert form.pdf --target redacto
 
-# Somewhere else, with the structured JSON alongside
-cargo run --release -p blueprint-cli -- convert form.pdf --out ./out --structured
+# Write artefacts to a specific directory
+cargo run --release -p blueprint-cli -- convert form.pdf --out ./out
 
 # A specific key and model
 ANTHROPIC_API_KEY=sk-… cargo run --release -p blueprint-cli -- convert form.pdf \
@@ -311,9 +299,6 @@ cargo run --release -p blueprint-cli -- convert form.pdf \
 # Override the AEM image and data volume for this run
 cargo run --release -p blueprint-cli -- convert form.pdf \
   --aem-image ajila.azurecr.io/aemforms-arm:6.5.17.0 --aem-volume my-data-volume
-
-# Redacto target (no AEM setup required, just Docker and Postgres)
-cargo run --release -p blueprint-cli -- convert form.pdf --target redacto
 ```
 
 ---
@@ -322,7 +307,7 @@ cargo run --release -p blueprint-cli -- convert form.pdf --target redacto
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Build fails in `core/src/semantic/` on `include_bytes!` | `core/models/` holds LFS pointers | `git lfs install && git lfs pull` |
+| Build fails in `agent/src/semantic/` on `include_bytes!` | `agent/models/` holds LFS pointers | `git lfs install && git lfs pull` |
 | `No API key for the anthropic provider` | Nothing in `--api-key`, `$ANTHROPIC_API_KEY` or the app's settings | Set one of the three |
 | `Several profiles are installed (…) — pick one with --profile.` | More than one profile present | Name it explicitly |
 | `Verification is not possible, so the run cannot start:` | Preflight failed (Docker, images, pdfium, settings) | Run `blueprint verify check` to see what is missing; `blueprint verify prepare` pulls public images; see `docker/aem/README.md` for AEM image setup |
@@ -335,12 +320,10 @@ cargo run --release -p blueprint-cli -- convert form.pdf --target redacto
 ## 7. Checking the result
 
 A converted form joins the deployed UBS corpus, whose CI guard fails any form
-that re-introduces a known systemic defect. Run it on a fresh conversion without
-importing anything:
+that re-introduces a known systemic defect. Run it on a package a conversion wrote:
 
 ```sh
-python3 scripts/check_feedback_rules.py core/input/AAOS_033_IT.pdf
-python3 scripts/check_feedback_rules.py --json core/input/AAOS_033_IT.pdf > report.json
+python3 scripts/check_feedback_rules.py out/AAOS_package.zip forms/AAOS_033_IT.pdf
 ```
 
 Exit code 0 means every enrolled rule is clean. Pass `--feedback-repo` when the

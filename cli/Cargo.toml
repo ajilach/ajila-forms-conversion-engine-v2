@@ -9,7 +9,6 @@ name = "blueprint"
 path = "src/main.rs"
 
 [dependencies]
-blueprint = { path = "../core", features = ["semantic-matching"] }
 # `convert` drives the same AI pipeline the desktop app does.
 agent = { path = "../agent" }
 pipeline = { path = "../pipeline" }

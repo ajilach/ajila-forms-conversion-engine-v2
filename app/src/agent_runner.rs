@@ -22,7 +22,7 @@ use crate::models::{
 /// The choices the user made before starting a run.
 pub struct RunConfig {
     pub profile: Option<String>,
-    pub target: blueprint::OutputTarget,
+    pub target: agent::OutputTarget,
     pub settings: crate::settings::AppSettings,
     /// Set by the Abort button to stop this run at its next checkpoint.
     pub abort: AbortFlag,
@@ -186,7 +186,7 @@ fn announce(
 fn apply_completed(
     state: &mut ProcessingState,
     completed: Result<runner::Completed, String>,
-    target: blueprint::OutputTarget,
+    target: agent::OutputTarget,
 ) -> Option<String> {
     let completed = match completed {
         Ok(completed) => completed,
@@ -221,7 +221,7 @@ fn apply_completed(
 /// Project a finished run onto the UI state, handing back its session.
 fn publish(
     completed: Result<runner::Completed, String>,
-    target: blueprint::OutputTarget,
+    target: agent::OutputTarget,
     mut processing_state: RunState,
 ) -> Option<String> {
     apply_completed(&mut processing_state.write(), completed, target)
@@ -261,7 +261,7 @@ mod tests {
     fn run_in_flight() -> ProcessingState {
         ProcessingState {
             step: ProcessingStep::Running,
-            target: blueprint::OutputTarget::Aem,
+            target: agent::OutputTarget::Aem,
             agent_steps: vec![AgentStep {
                 id: "t1".into(),
                 kind: AgentStepKind::Tool,
@@ -284,7 +284,7 @@ mod tests {
         let session = apply_completed(
             &mut state,
             Err("Agent failed (Author): overloaded".into()),
-            blueprint::OutputTarget::Aem,
+            agent::OutputTarget::Aem,
         );
 
         assert_eq!(session, None, "a run that never started records no session");
@@ -294,7 +294,7 @@ mod tests {
         );
         assert_eq!(state.agent_steps.len(), 1, "the transcript has to survive");
         assert_eq!(state.warnings, ["a page had no fields"]);
-        assert_eq!(state.target, blueprint::OutputTarget::Aem);
+        assert_eq!(state.target, agent::OutputTarget::Aem);
         assert_ne!(
             state.step,
             ProcessingStep::Complete,
@@ -316,7 +316,7 @@ mod tests {
                 outcome: None,
                 elapsed_secs: 12,
             }),
-            blueprint::OutputTarget::Aem,
+            agent::OutputTarget::Aem,
         );
 
         assert_eq!(session, None);

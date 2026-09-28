@@ -9,9 +9,10 @@ name = "mcp"
 path = "src/main.rs"
 
 [dependencies]
+# Decodes a package file the way a template upload is.
+u2s-aem-ubs-mcp = { path = "../u2s/crates/u2s-aem-ubs-mcp" }
 agent = { path = "../agent" }
 base64 = { workspace = true }
-blueprint = { path = "../core" }
 rmcp = { version = "1.7.0", features = ["server", "transport-io"] }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -10,7 +10,7 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use blueprint::OutputTarget;
+use agent::OutputTarget;
 use clap::Args;
 use pipeline::AbortFlag;
 use runner::{AppSettings, Artifact, Provider, TurnPlan};
@@ -112,9 +112,6 @@ pub struct ConvertArgs {
     #[arg(long, default_value = "2", value_name = "N")]
     retries: usize,
 
-    /// Also write the structured document as JSON.
-    #[arg(long)]
-    structured: bool,
 }
 
 fn parse_provider(value: &str) -> Result<Provider, String> {
@@ -148,10 +145,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
         if args.feedback.is_some() {
             return Err("Applying feedback needs the run's source PDF(s) as well.".into());
         }
-        if !files
-            .iter()
-            .any(|(_, bytes)| blueprint::detect_aem_zip(bytes))
-        {
+        if agent::conversion::template_of(&files).is_none() {
             return Err(
                 "Nothing to convert: pass a source PDF, an AEM content package, or both.".into(),
             );
@@ -316,14 +310,12 @@ fn write_artifacts(
         observer.transcript().as_bytes(),
     )?;
 
-    if args.structured {
-        let json = serde_json::to_vec_pretty(&outcome.envelope)?;
-        write_file(
-            &args.out,
-            &runner::artifact_filename("structured", code, "json"),
-            &json,
-        )?;
-    }
+    // The document the run authored, which a later run can be resumed from.
+    write_file(
+        &args.out,
+        &runner::artifact_filename("document", code, "json"),
+        &serde_json::to_vec_pretty(&outcome.document)?,
+    )?;
     Ok(())
 }
 
@@ -363,7 +355,7 @@ fn pdfs_only(files: &[(String, Vec<u8>)]) -> Sources {
 /// only one installed. Guessing between several would silently convert against
 /// the wrong AEM config and reference library.
 fn resolve_profile(args: &ConvertArgs) -> Result<Option<String>, Box<dyn Error>> {
-    let available = blueprint::list_profiles();
+    let available = agent::profiles::list_profiles();
 
     if let Some(name) = &args.profile {
         if !available.iter().any(|p| p == name) {

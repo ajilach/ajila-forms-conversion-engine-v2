@@ -202,11 +202,16 @@ jobs:
         # Desktop → Install button.
         run: |
           cargo build --release -p mcp --target ${{ matrix.target }}
+          # The rule worker every conversion runs its rules in, for both the app
+          # and the mcp server, which sit side by side.
+          cargo build --release -p u2s-rules-host --bin u2s-rules-worker --target ${{ matrix.target }}
           mkdir -p sidecar
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             cp "target/${{ matrix.target }}/release/mcp.exe" "sidecar/mcp-${{ matrix.target }}.exe"
+            cp "target/${{ matrix.target }}/release/u2s-rules-worker.exe" "sidecar/u2s-rules-worker-${{ matrix.target }}.exe"
           else
             cp "target/${{ matrix.target }}/release/mcp" "sidecar/mcp-${{ matrix.target }}"
+            cp "target/${{ matrix.target }}/release/u2s-rules-worker" "sidecar/u2s-rules-worker-${{ matrix.target }}"
           fi
           # pdfium travels the same external_bin way, next to the app binary.
           # Not on Windows: external_bin appends .exe, which a DLL cannot carry.
@@ -304,7 +309,11 @@ jobs:
         shell: bash
 
       - name: Build blueprint-cli
-        run: cargo build --release -p blueprint-cli --target ${{ matrix.target }}
+        # The rule worker ships next to the binary: every rule a run checks runs
+        # in it, and a run whose rules cannot run is refused.
+        run: |
+          cargo build --release -p blueprint-cli --target ${{ matrix.target }}
+          cargo build --release -p u2s-rules-host --bin u2s-rules-worker --target ${{ matrix.target }}
         shell: bash
 
       - name: Package artifact
@@ -313,11 +322,11 @@ jobs:
           OUT="target/${{ matrix.target }}/release"
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             cp vendor/pdfium/lib/pdfium.dll "$OUT/"
-            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe" "./$OUT/pdfium.dll"
+            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe" "./$OUT/u2s-rules-worker.exe" "./$OUT/pdfium.dll"
           else
-            chmod +x "$OUT/blueprint"
+            chmod +x "$OUT/blueprint" "$OUT/u2s-rules-worker"
             cp vendor/pdfium/lib/libpdfium.* "$OUT/"
-            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint $(cd "$OUT" && ls libpdfium.*)
+            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint u2s-rules-worker $(cd "$OUT" && ls libpdfium.*)
           fi
         shell: bash
 

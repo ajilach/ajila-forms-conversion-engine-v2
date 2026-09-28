@@ -10,7 +10,7 @@
 use std::sync::Arc;
 
 use agent::ConversionAgent;
-use blueprint::OutputTarget;
+use agent::OutputTarget;
 use rig_agent::agent::model::ModelHandle;
 
 use crate::hooks::PriceFn;
@@ -54,16 +54,9 @@ pub async fn describe_reference(
     context_budget: Arc<dyn ContextBudget>,
     obs: &SharedObserver,
 ) -> Result<String, String> {
-    let _ = blueprint::load_profile_fonts(profile);
-
     // A throwaway agent over the same catalog: it reads the source and the
     // uploaded package and edits nothing, so it needs no history session.
-    let mut agent = ConversionAgent::new(
-        Some(profile.to_string()),
-        pdfs,
-        String::new(),
-        OutputTarget::Aem,
-    );
+    let mut agent = ConversionAgent::new(Some(profile.to_string()), pdfs, String::new(), OutputTarget::Aem)?;
     agent.seed_package(package_zip);
     let shared_agent: crate::tools::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
 

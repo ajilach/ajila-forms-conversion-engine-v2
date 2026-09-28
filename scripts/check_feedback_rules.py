@@ -1,5 +1,5 @@
 """
-Run the feedback repo's regression guard on a package this engine just converted.
+Run the feedback repo's regression guard on a package this engine converted.
 
 The sweeps in `../ajila-forms-conversion-feedback` fix systemic defects across the
 deployed corpus, and its CI guard (`.claude/scripts/check_regressions.py`) fails any
@@ -7,15 +7,16 @@ form that re-introduces one. A form this engine converts is such a form: it goes
 that corpus. So the guard is the acceptance test for the AEM output, and this script is
 how to run it without importing the form into the corpus first.
 
-How it works: convert the PDFs with `blueprint-cli --aem`, then build the same one-form
-harness the feedback repo's intake app builds (`scripts/intake/core.py::_check_harness`).
-Every detector derives its repo root from `os.path.abspath(__file__)`, which normalises
-lexically and does NOT resolve symlinks, so a directory that merely looks like the repo
-IS the repo as far as they are concerned:
+It takes packages that already exist: the ZIP an AI conversion wrote (`blueprint convert`,
+or the MCP server's `write_package`), together with the form's source PDFs. It then builds
+the same one-form harness the feedback repo's intake app builds
+(`scripts/intake/core.py::_check_harness`). Every detector derives its repo root from
+`os.path.abspath(__file__)`, which normalises lexically and does NOT resolve symlinks, so
+a directory that merely looks like the repo IS the repo as far as they are concerned:
 
     <harness>/.claude                        -> symlink to the feedback repo's scripts
     <harness>/feedback/knowledge             -> symlink to the registry
-    <harness>/forms/issued/<F>/<F>_merged.zip = the package the CLI just wrote
+    <harness>/forms/issued/<F>/<F>_merged.zip = the package under test
     <harness>/forms/issued/<F>/<F>_<LANG>.pdf = the source PDFs (a detector may read them)
 
 Each detector's `glob("forms/issued/*/*_merged.zip")` then matches exactly the forms
@@ -25,16 +26,17 @@ under test instead of the ~304 of the corpus.
 not got round to repairing, which is no excuse for a package being produced now.
 
 Usage:
-    python3 scripts/check_feedback_rules.py core/input/AAOS_033_IT.pdf core/input/AAOV_033_IT.pdf
-    python3 scripts/check_feedback_rules.py core/input/BAGE_019_{DE,EN}.pdf   # one form, two languages
+    python3 scripts/check_feedback_rules.py out/AAOS_package.zip forms/AAOS_033_IT.pdf
+    python3 scripts/check_feedback_rules.py out/BAGE_package.zip forms/BAGE_019_{DE,EN}.pdf
     python3 scripts/check_feedback_rules.py --json ... > report.json
     python3 scripts/check_feedback_rules.py --keep ...      # keep the scratch dir and say where
 
-PDFs are grouped into forms by the `<CODE>_<ENTITY>` prefix of their file name, so
-several forms (and several languages per form) can be checked in one run.
+PDFs are grouped into forms by the `<CODE>_<ENTITY>` prefix of their file name, and each
+package is matched to its form by the form code in its own `AF_<CODE>` path, so several
+forms can be checked in one run.
 
-Exit code: 0 when the guard reports no violation, 1 otherwise (2 on a setup or
-conversion failure), so this can gate a commit.
+Exit code: 0 when the guard reports no violation, 1 otherwise (2 on a setup failure), so
+this can gate a commit.
 """
 
 import argparse
@@ -45,6 +47,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 ENGINE_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_FEEDBACK_REPO = os.path.join(os.path.dirname(ENGINE_ROOT), "ajila-forms-conversion-feedback")
@@ -74,25 +77,46 @@ def die(msg, code=2):
     sys.exit(code)
 
 
-def convert(pdfs, out_dir, profile, cli):
-    """Run the CLI on one form's PDFs and return the package it wrote."""
-    cmd = cli + [p for p, _ in pdfs] + ["--aem", "--profile", profile]
-    r = subprocess.run(cmd, cwd=out_dir, capture_output=True, text=True)
-    zips = [f for f in os.listdir(out_dir) if f.endswith(".zip")]
-    if r.returncode != 0 or not zips:
-        sys.stderr.write(r.stdout[-4000:])
-        sys.stderr.write(r.stderr[-4000:])
-        die(f"conversion failed for {os.path.basename(pdfs[0][0])}")
-    if len(zips) > 1:
-        die(f"conversion wrote more than one package: {sorted(zips)}")
-    return os.path.join(out_dir, zips[0])
+# `jcr_root/content/forms/af/<path>/AF_<CODE>/.content.xml` -> `<CODE>`.
+FORM_DIR = re.compile(r"^jcr_root/content/forms/af/.+/AF_(?P<code>[A-Za-z0-9]+)/")
+
+
+def package_code(zip_path):
+    """The form code a package installs, read from its own form path."""
+    try:
+        names = zipfile.ZipFile(zip_path).namelist()
+    except (OSError, zipfile.BadZipFile) as e:
+        die(f"{zip_path} is not a readable package: {e}")
+    codes = {m.group("code") for m in map(FORM_DIR.match, names) if m}
+    if len(codes) != 1:
+        die(f"{zip_path} installs {len(codes)} forms ({sorted(codes)}); expected exactly one")
+    return codes.pop()
+
+
+def pair_packages(zip_paths, forms):
+    """{form: (zip path, pdfs)}: each package with the form its code names."""
+    packages = {}
+    for zip_path in zip_paths:
+        code = package_code(zip_path)
+        matches = [f for f in forms if f.split("_")[0] == code]
+        if len(matches) != 1:
+            die(f"{os.path.basename(zip_path)} installs AF_{code}, which "
+                f"{'no' if not matches else 'more than one'} group of source PDFs names "
+                f"({', '.join(sorted(forms)) or 'none given'})")
+        if matches[0] in packages:
+            die(f"two packages for {matches[0]}")
+        packages[matches[0]] = (os.path.abspath(zip_path), forms[matches[0]])
+    missing = sorted(set(forms) - set(packages))
+    if missing:
+        die(f"no package given for {', '.join(missing)}")
+    return packages
 
 
 def build_harness(root, packages, feedback_repo):
     """A directory the feedback detectors read as their repo, holding only `packages`.
 
-    `packages` is {form_code: (zip path, [(pdf path, LANG)])}. The zip is COPIED (the
-    scratch conversion dir is temporary), the PDFs are copied too because at least one
+    `packages` is {form_code: (zip path, [(pdf path, LANG)])}. The zip is copied under
+    the name the detectors glob for, the PDFs are copied too because at least one
     detector (PROBLEM-metadata-languages) derives the form's languages from the file
     names next to the package.
     """
@@ -146,13 +170,10 @@ def count_enrolled(feedback_repo):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("pdfs", nargs="+", help="source PDFs; grouped into forms by file name")
+    ap.add_argument("files", nargs="+",
+                    help="the package ZIP(s) under test and their source PDFs")
     ap.add_argument("--feedback-repo", default=DEFAULT_FEEDBACK_REPO,
                     help="checkout of ajila-forms-conversion-feedback (default: %(default)s)")
-    ap.add_argument("--profile", default="ubs")
-    ap.add_argument("--cli", default=None,
-                    help="how to run the CLI (default: the release binary if built, else "
-                         "`cargo run --release -p blueprint-cli --`)")
     ap.add_argument("--json", action="store_true", help="print the guard's report as JSON")
     ap.add_argument("--keep", action="store_true", help="keep the scratch directory")
     args = ap.parse_args()
@@ -161,24 +182,17 @@ def main():
         die(f"{args.feedback_repo} does not look like the feedback repo "
             f"(no .claude/scripts); pass --feedback-repo")
 
-    if args.cli:
-        cli = args.cli.split()
-    else:
-        built = os.path.join(ENGINE_ROOT, "target", "release", "blueprint")
-        cli = [built] if os.path.isfile(built) else \
-            ["cargo", "run", "--quiet", "--release", "--manifest-path",
-             os.path.join(ENGINE_ROOT, "Cargo.toml"), "-p", "blueprint-cli", "--"]
+    zips = [f for f in args.files if f.lower().endswith(".zip")]
+    pdfs = [f for f in args.files if not f.lower().endswith(".zip")]
+    if not zips:
+        die("no package given: pass the ZIP a conversion wrote, with its source PDFs")
 
     scratch = tempfile.mkdtemp(prefix="feedback_check_")
     try:
-        forms = group_by_form(args.pdfs)
-        packages = {}
-        for form, pdfs in forms.items():
-            out = os.path.join(scratch, "convert", form)
-            os.makedirs(out)
-            print(f"converting {form} ({', '.join(l or '-' for _, l in pdfs)}) ...",
+        packages = pair_packages(zips, group_by_form(pdfs))
+        for form, (_, form_pdfs) in packages.items():
+            print(f"checking {form} ({', '.join(l or '-' for _, l in form_pdfs)}) ...",
                   file=sys.stderr)
-            packages[form] = (convert(pdfs, out, args.profile, cli), pdfs)
 
         harness = build_harness(os.path.join(scratch, "harness"), packages, args.feedback_repo)
         report, code, guard_stderr = run_guard(harness)

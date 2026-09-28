@@ -19,14 +19,12 @@ Decodes PDFs and extracts structured data for automated forms conversion.
 
 | Crate | Description |
 |---|---|
-| `core` | Core library — PDF parsing, XFA processing, analysis pipeline, and all output renderers. |
-| `cli` | Command-line interface: the deterministic export run, plus `convert` — the AI conversion the app runs, headless. |
+| `cli` | Command-line interface: the `convert` subcommand runs the AI conversion the app runs headless; `sessions` lists resumable conversions; `verify` checks setup. |
 | `app` | Dioxus desktop application: drag-and-drop upload driving the autonomous conversion agent. |
-| `agent` | Headless conversion-agent engine — the tool catalog/executor, edit-history store, reference store, and AEM client. No UI or LLM dependency, shared by the app, the pipeline and the MCP server. |
+| `agent` | Headless conversion-agent engine — the tool catalog/executor, edit-history store, reference store, and adapter over vendored u2s tools. No UI or LLM dependency, shared by the app, the pipeline and the MCP server. |
 | `pipeline` | The conversion controller: the Analyst → Author → Reviewer stage sequencing, retry recovery and abort handling. Depends on neither a UI framework nor an LLM provider — the consumer supplies a `TurnProvider` and a `RunObserver`. |
 | `runner` | The host side of a run, shared by the app and the CLI: the two LLM transports (the Anthropic Messages API with prompt caching, and any OpenAI-compatible endpoint), history eviction, the operator settings, and the entry points that build the agent, open an edit-history session and record the result. |
 | `mcp` | Model Context Protocol (stdio) server that exposes the conversion tools so an external LLM client (Claude Desktop, Claude Code, Cursor) can drive a conversion. |
-| `judge` | Evaluates translation quality of multi-language PDF forms and writes scores to CSV. |
 
 ## Prerequisites
 
@@ -55,78 +53,25 @@ git lfs pull
 cargo test --release
 ```
 
-## Running Benchmarks
-
-Benchmarks live in `core/benches/` and use [Criterion](https://github.com/bheisler/criterion.rs). They automatically discover all PDFs in `core/input/`.
-
-```sh
-cargo bench -p blueprint
-```
-
 ## CLI
 
-The CLI binary is defined in the `cli` crate.
-
-```sh
-# Basic analysis (no file output)
-cargo run --release -p blueprint-cli -- path/to/form.pdf
-
-# Export structured JSON
-cargo run --release -p blueprint-cli -- path/to/form.pdf --structured
-
-# Export standalone HTML
-cargo run --release -p blueprint-cli -- path/to/form.pdf --html
-
-# Export AEM Adaptive Forms JCR content XML (XFA PDFs only)
-cargo run --release -p blueprint-cli -- path/to/form.pdf --aem
-
-# Export XSD (XML Schema Definition)
-cargo run --release -p blueprint-cli -- path/to/form.pdf --xsd
-
-# Use a profile for output-specific configuration
-cargo run --release -p blueprint-cli -- path/to/form.pdf --aem --profile ubs
-
-# Export GraphViz DOT decision flow
-cargo run --release -p blueprint-cli -- path/to/form.pdf --graphviz
-
-# Render images (modes: plain, labelled, annotated; repeatable)
-cargo run --release -p blueprint-cli -- path/to/form.pdf --render plain --render labelled
-
-# Custom render scale (default 1.5)
-cargo run --release -p blueprint-cli -- path/to/form.pdf --render plain --scale 2.0
-
-# Enable analysis modules
-cargo run --release -p blueprint-cli -- path/to/form.pdf --module ubs
-
-# Multilingual merge (pass multiple language variants)
-cargo run --release -p blueprint-cli -- form_DE.pdf form_EN.pdf --structured --html
-
-# Dump raw XFA XML and exit
-cargo run --release -p blueprint-cli -- path/to/form.pdf --dump-xfa
-```
+The CLI binary is defined in the `cli` crate. It has three subcommands: `convert` (the AI conversion), `sessions` (to list and resume runs), and `verify` (to check setup).
 
 ### AI conversion from the console
 
-`blueprint convert` runs the same autonomous conversion the desktop app runs —
-the `pipeline` controller (Analyst → Author → Reviewer → fix rounds) over the
-shared `runner` transport, the same tool catalog, the same edit-history SQLite.
-Only the reporting and the output location differ: progress is printed as it
-happens, and the artefacts are written to `--out` instead of the Downloads
-folder. A run started here can be reopened in the app, and vice versa.
+`blueprint convert` runs the same autonomous conversion the desktop app runs (Analyst → Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts are written to `--out` instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
-The API key, model, review-round cap, extra instructions and AEM credentials
-default to whatever is configured in the app's settings; every one of them can be
-overridden per invocation.
+The API key, model, review-round cap, extra instructions and AEM credentials default to the app's settings; every one can be overridden per invocation.
 
 ```sh
-# Convert a form (multilingual sources allowed, as above)
+# Convert a form (multilingual sources allowed)
 cargo run --release -p blueprint-cli -- convert form_DE.pdf form_EN.pdf --profile ubs
 
 # Produce a Redacto document instead of an AEM package
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --target redacto
 
-# Write the artefacts somewhere else, and add the structured JSON
-cargo run --release -p blueprint-cli -- convert path/to/form.pdf --out ./out --structured
+# Write artefacts to a specific directory
+cargo run --release -p blueprint-cli -- convert path/to/form.pdf --out ./out
 
 # Use a specific key and model instead of the app's settings
 ANTHROPIC_API_KEY=sk-… cargo run --release -p blueprint-cli -- convert path/to/form.pdf --model claude-opus-4-8
@@ -135,17 +80,17 @@ ANTHROPIC_API_KEY=sk-… cargo run --release -p blueprint-cli -- convert path/to
 OPENAI_API_KEY=sk-or-… cargo run --release -p blueprint-cli -- convert path/to/form.pdf \
   --provider openai --base-url https://openrouter.ai/api/v1 --model anthropic/claude-opus-4.1
 
-# Steer the agent, and allow more review rounds
+# Steer the agent and allow more review rounds
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --instructions "Keep every footnote." --max-review-rounds 5
 
 # Modify an existing AEM package instead of authoring from scratch
 cargo run --release -p blueprint-cli -- convert form_DE.pdf template-package.zip
 
-# Carry an earlier run on: list the sessions, then continue one as it stands
+# List and resume earlier runs
 cargo run --release -p blueprint-cli -- sessions
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
 
-# Or refine it, by giving the agent something specific to apply
+# Refine a run with feedback
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> --feedback "The IBAN field must be mandatory."
 ```
 
@@ -175,6 +120,7 @@ container; if a rendering endpoint is configured it also returns rendered PDFs.
 Prerequisites for Redacto: Docker running and the public Postgres image pulled (`verify prepare` does that).
 
 **For both targets:**
+- `u2s-rules-worker`: `cargo build --release -p u2s-rules-host --bin u2s-rules-worker`. Every check rule runs in this process, next to the binary that converts; a run whose rules cannot run is refused. The agent tests need it built first.
 - `pdfium`: `./scripts/fetch-pdfium.sh` downloads the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
 - Settings: verifier settings live in the desktop app's settings (tab "Verification"): AEM image, data volume (default `u2s-aem-ubs-data`), container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL; for Redacto: Postgres image (default `postgres:16-alpine`), optional rendering URL. The CLI reads the same stored settings.
 - CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
@@ -236,42 +182,16 @@ Register the built binary (`target/release/mcp`) in the client's MCP config with
 cargo doc -p blueprint --open
 ```
 
-## Judge
-
-The judge evaluates translation quality of multi-language PDF forms in `core/input/`. It processes all form codes in parallel using all available CPU cores and writes scores to `judge/results.csv` (override with `--input-dir`, `--profile` and `--output`).
-
-```sh
-# Run the judge on all form codes (parallel)
-cargo run --release -p judge
-
-# Run the judge on a single form code
-cargo run --release -p judge -- --form-code ABCD_019
-
-# Compare results against a baseline
-cd judge
-cp results.csv results-baseline.csv
-# ... make changes ...
-cargo run --release -p judge
-python3 compare.py
-```
-
 ## Checking a conversion against the feedback guard
 
-The sister repo `ajila-forms-conversion-feedback` fixes systemic defects across the
-deployed UBS corpus, and its CI guard fails any form that re-introduces one. A form
-this engine converts joins that corpus, so the guard is the acceptance test for the
-AEM output. Run it on a fresh conversion without importing anything:
+The sister repo `ajila-forms-conversion-feedback` guards the deployed UBS corpus against systemic defects, and its CI fails any form that re-introduces one. A form this engine converts joins that corpus, so the guard is the acceptance test for AEM output. Run it on a package a conversion wrote:
 
 ```sh
-python3 scripts/check_feedback_rules.py core/input/AAOS_033_IT.pdf
-python3 scripts/check_feedback_rules.py core/input/BAGE_019_DE.pdf core/input/BAGE_019_EN.pdf
-python3 scripts/check_feedback_rules.py --json core/input/AAOS_033_IT.pdf > report.json
+python3 scripts/check_feedback_rules.py out/AAOS_package.zip forms/AAOS_033_IT.pdf
+python3 scripts/check_feedback_rules.py out/BAGE_package.zip forms/BAGE_019_DE.pdf forms/BAGE_019_EN.pdf
 ```
 
-It converts each form with `--aem --profile ubs`, builds a throwaway directory the
-feedback repo's detectors read as their corpus (holding only the forms under test), and
-runs `check_regressions.py --no-skip` over it. Exit code 0 means every enrolled rule is
-clean. Pass `--feedback-repo` when the checkout is not next to this one.
+The script matches each package to its source PDFs by the form code in its `AF_<CODE>` path and runs the feedback repo's detectors over it. Exit code 0 means every enrolled rule is clean. Pass `--feedback-repo` when the checkout is not next to this one.
 
 ## Regenerating build assets
 
@@ -279,7 +199,7 @@ Two scripts regenerate checked-in assets. Neither runs as part of the build; run
 them by hand when the asset needs to change.
 
 ```sh
-# The quantized sentence-embedding model in core/models/ (semantic matching).
+# The quantized sentence-embedding model in agent/models/ (semantic matching).
 pip install torch transformers safetensors
 python3 scripts/download_model.py
 
