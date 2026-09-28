@@ -300,7 +300,7 @@ pub fn outline(roots: &[StructuredNode]) -> String {
         walk(node, &i.to_string(), &mut out);
     }
     if out.is_empty() {
-        out.push_str("(empty structured tree — seed it with seed_structured_from_state first)");
+        out.push_str("(empty structured tree: author it with set_structured first)");
     }
     out
 }

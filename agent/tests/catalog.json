@@ -19,171 +19,15 @@
     "name": "get_source_info"
   },
   {
-    "description": "List discovered form states (label, pdf, selection count).",
+    "description": "Set the WHOLE working structured tree: `nodes` is a JSON array of StructuredNode (call get_schema('structured') for the exact shape), every text a per-language map carrying every source language. Author it in one call from what you read in the source, then refine with the targeted edits. `headers` optionally maps each language code to the page header text printed at the top of that language's source pages (read it with xfa_page_text); the output renders it in its page-header slot. Omit `headers` to keep the ones already set.",
     "input_schema": {
       "properties": {
-        "source": {
-          "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} to run the engine on a reference's input.",
-          "properties": {
-            "reference": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      },
-      "required": [],
-      "type": "object"
-    },
-    "name": "list_states"
-  },
-  {
-    "description": "Return the source's authoritative XFA XML (all PDFs concatenated). Replies with a 500-line window per PDF by default — pass offset (lines to skip) and limit (lines to return) to page through a larger one, or use search_xfa for a targeted lookup instead of paging through the whole thing. The total reply is capped regardless of limit; a truncation note says so if it is hit.",
-    "input_schema": {
-      "properties": {
-        "limit": {
-          "type": "integer"
-        },
-        "offset": {
-          "type": "integer"
-        },
-        "source": {
-          "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} to run the engine on a reference's input.",
-          "properties": {
-            "reference": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      },
-      "required": [],
-      "type": "object"
-    },
-    "name": "get_xfa"
-  },
-  {
-    "description": "Regex/substring search within the source's XFA; returns matching snippets. Capped at a total size across every PDF — a note says so, and names any PDFs the search did not reach, if the cap is hit.",
-    "input_schema": {
-      "properties": {
-        "query": {
-          "type": "string"
-        },
-        "regex": {
-          "type": "boolean"
-        },
-        "source": {
-          "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} to run the engine on a reference's input.",
-          "properties": {
-            "reference": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      },
-      "required": [
-        "query"
-      ],
-      "type": "object"
-    },
-    "name": "search_xfa"
-  },
-  {
-    "description": "Render a state's page image (plain).",
-    "input_schema": {
-      "properties": {
-        "source": {
-          "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} to run the engine on a reference's input.",
-          "properties": {
-            "reference": {
-              "type": "string"
-            }
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
           },
           "type": "object"
         },
-        "state_label": {
-          "description": "A label from list_states.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "state_label"
-      ],
-      "type": "object"
-    },
-    "name": "get_plain_state_image"
-  },
-  {
-    "description": "Render a state's page image with field-name overlays.",
-    "input_schema": {
-      "properties": {
-        "source": {
-          "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} to run the engine on a reference's input.",
-          "properties": {
-            "reference": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "state_label": {
-          "description": "A label from list_states.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "state_label"
-      ],
-      "type": "object"
-    },
-    "name": "get_annotated_state_image"
-  },
-  {
-    "description": "The engine's clean structured tree for ONE state (one language × one configurator selection). Carries no merge artifacts — no duplicated sections, colliding field names or mispaired translations. This is the building block you assemble the working tree from: inspect each state, compare against its page image and XFA, then seed from one and layer in the rest.",
-    "input_schema": {
-      "properties": {
-        "source": {
-          "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} to run the engine on a reference's input.",
-          "properties": {
-            "reference": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        },
-        "state_label": {
-          "description": "A label from list_states.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "state_label"
-      ],
-      "type": "object"
-    },
-    "name": "get_flattened_structure_for_state"
-  },
-  {
-    "description": "Load the engine's clean structured tree for ONE state as the working tree, replacing whatever is there. START HERE: the engine already got the block structure, the inline markup, the list nesting, the footnote markers and the multi-column sections right for that state — you only have to add the OTHER languages to each node. Far cheaper and far more faithful than emitting the tree yourself with set_structured. Pick the state in the master language, then layer in the rest with set_structured_field.",
-    "input_schema": {
-      "properties": {
-        "state_label": {
-          "description": "A label from list_states.",
-          "type": "string"
-        }
-      },
-      "required": [
-        "state_label"
-      ],
-      "type": "object"
-    },
-    "name": "seed_structured_from_state"
-  },
-  {
-    "description": "Set the WHOLE working structured tree as a JSON array of StructuredNode (call get_schema('structured') for the exact shape). Rarely needed: prefer seed_structured_from_state followed by targeted edits, which cannot silently drop a node or a language.",
-    "input_schema": {
-      "properties": {
         "nodes": {
           "type": "array"
         }
@@ -342,7 +186,7 @@
     "name": "build_redacto_dump"
   },
   {
-    "description": "Fidelity review: compare the engine's parse of the source against the text that actually reaches the generated dump, and report input text with no match, plus a coverage score. Compares the master language only. Reviews the DUMP, not the working tree — that is the artefact that ships.",
+    "description": "Check the generated dump on its own: its asset count, its languages, and every warning the Redacto converter raised while building it (node kinds it skipped, an empty document). Reviews the DUMP, not the working tree, because that is the artefact that ships. It does not compare against the source: whether every source text arrived is yours to check, with xfa_page_text and xfa_search on each language's PDF.",
     "input_schema": {
       "properties": {},
       "required": [],
@@ -528,7 +372,7 @@
     "name": "validate_aem_package"
   },
   {
-    "description": "Fidelity review: compare the input (the engine's merged structured parse) against the converted AEM tree and report input text/elements missing from the output, with a coverage score. Compares the master language only (spot-check other languages with search_xfa). Also reports naming_violations, label_issues, dropped_fragments (standard fragments the engine derives from this same source that the tree does not reference — a section rebuilt out of loose fields, and extra_fragments (referenced more often than the converter derives them — a rule applied where the form has no such block)), and feedback_violations — the swept UBS rules (DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments — the UBS partner and signature generics replace them), checked on the rendered JCR XML, which is the artefact that ships. Reports legacy_tables too: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. Run once the tree is authored and before you report the stage done; investigate every miss (fix the tree, or confirm it was intentionally dropped) and re-run.",
+    "description": "Check the converted AEM tree on its own, on the rendered JCR XML that ships: naming_violations, label_issues, feedback_violations (the swept UBS rules: DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments, which the UBS partner and signature generics replace), and legacy_tables: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. It does not compare against the source: whether every source text, field and section arrived is yours to check, against xfa_render_page and xfa_page_text. Run once the tree is authored and before you report the stage done; fix every finding and re-run.",
     "input_schema": {
       "properties": {},
       "required": [],

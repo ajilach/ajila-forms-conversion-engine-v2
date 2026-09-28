@@ -123,17 +123,11 @@ fn build_catalog() -> Vec<ToolSpec> {
 const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
     use scope::*;
     &[
-        // §1 extraction. The AEM Reviewer is the one stage without
+        // §1 source. The AEM Reviewer is the one stage without
         // get_source_info: it reviews the built package against the tree, and
         // the Redacto Reviewer needs it only because languages are the thing it
         // checks. Preserved as-is rather than quietly widened.
         ("get_source_info",                   target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_STAGES | MCP | DESCRIBE),
-        ("list_states",                       target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP | DESCRIBE),
-        ("get_xfa",                           target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP | DESCRIBE),
-        ("search_xfa",                        target::BOTH,    EVERYWHERE),
-        ("get_plain_state_image",             target::BOTH,    EVERYWHERE),
-        ("get_annotated_state_image",         target::BOTH,    EVERYWHERE),
-        ("get_flattened_structure_for_state", target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP | DESCRIBE),
 
         // §1b the source form through the vendored u2s servers (crate::u2s):
         // raw XFA reads, and rendering plus live interaction.
@@ -164,8 +158,7 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
 
         // §2a structured tree — executable under both targets (a resumed AEM
         // session seeds it), but only ever offered to the Redacto stages.
-        ("seed_structured_from_state",        target::BOTH,    REDACTO_AUTHOR | MCP),
-        ("set_structured",                    target::BOTH,    MCP),
+        ("set_structured",                    target::BOTH,    REDACTO_AUTHOR | MCP),
         ("get_structured_outline",            target::BOTH,    REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
         ("get_structured_node",               target::BOTH,    REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
         ("set_structured_field",              target::BOTH,    REDACTO_AUTHOR | MCP),
@@ -254,7 +247,6 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 "input_schema": { "type": "object", "properties": props, "required": required }
             })
         };
-        let state_label = serde_json::json!({ "state_label": {"type": "string", "description": "A label from list_states."} });
 
         vec![
             // §1 extraction (source-parameterized)
@@ -264,63 +256,14 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 with_source(serde_json::json!({})),
                 serde_json::json!([]),
             ),
-            t(
-                "list_states",
-                "List discovered form states (label, pdf, selection count).",
-                with_source(serde_json::json!({})),
-                serde_json::json!([]),
-            ),
-            t(
-                "get_xfa",
-                "Return the source's authoritative XFA XML (all PDFs concatenated). Replies with \
-                 a 500-line window per PDF by default — pass offset (lines to skip) and limit \
-                 (lines to return) to page through a larger one, or use search_xfa for a targeted \
-                 lookup instead of paging through the whole thing. The total reply is capped \
-                 regardless of limit; a truncation note says so if it is hit.",
-                with_source(
-                    serde_json::json!({"offset": {"type":"integer"}, "limit": {"type":"integer"}}),
-                ),
-                serde_json::json!([]),
-            ),
-            t(
-                "search_xfa",
-                "Regex/substring search within the source's XFA; returns matching snippets. \
-                 Capped at a total size across every PDF — a note says so, and names any PDFs \
-                 the search did not reach, if the cap is hit.",
-                with_source(
-                    serde_json::json!({"query": {"type":"string"}, "regex": {"type":"boolean"}}),
-                ),
-                serde_json::json!(["query"]),
-            ),
-            t(
-                "get_plain_state_image",
-                "Render a state's page image (plain).",
-                with_source(state_label.clone()),
-                serde_json::json!(["state_label"]),
-            ),
-            t(
-                "get_annotated_state_image",
-                "Render a state's page image with field-name overlays.",
-                with_source(state_label.clone()),
-                serde_json::json!(["state_label"]),
-            ),
-            t(
-                "get_flattened_structure_for_state",
-                "The engine's clean structured tree for ONE state (one language × one configurator selection). Carries no merge artifacts — no duplicated sections, colliding field names or mispaired translations. This is the building block you assemble the working tree from: inspect each state, compare against its page image and XFA, then seed from one and layer in the rest.",
-                with_source(state_label.clone()),
-                serde_json::json!(["state_label"]),
-            ),
-            // §2a structured tree (Redacto target) — seeded, then refined.
-            t(
-                "seed_structured_from_state",
-                "Load the engine's clean structured tree for ONE state as the working tree, replacing whatever is there. START HERE: the engine already got the block structure, the inline markup, the list nesting, the footnote markers and the multi-column sections right for that state — you only have to add the OTHER languages to each node. Far cheaper and far more faithful than emitting the tree yourself with set_structured. Pick the state in the master language, then layer in the rest with set_structured_field.",
-                state_label.clone(),
-                serde_json::json!(["state_label"]),
-            ),
+            // §2a structured tree (Redacto target): authored, then refined.
             t(
                 "set_structured",
-                "Set the WHOLE working structured tree as a JSON array of StructuredNode (call get_schema('structured') for the exact shape). Rarely needed: prefer seed_structured_from_state followed by targeted edits, which cannot silently drop a node or a language.",
-                serde_json::json!({"nodes": {"type":"array"}}),
+                "Set the WHOLE working structured tree: `nodes` is a JSON array of StructuredNode (call get_schema('structured') for the exact shape), every text a per-language map carrying every source language. Author it in one call from what you read in the source, then refine with the targeted edits. `headers` optionally maps each language code to the page header text printed at the top of that language's source pages (read it with xfa_page_text); the output renders it in its page-header slot. Omit `headers` to keep the ones already set.",
+                serde_json::json!({
+                    "nodes": {"type":"array"},
+                    "headers": {"type":"object", "additionalProperties": {"type":"string"}}
+                }),
                 serde_json::json!(["nodes"]),
             ),
             t(
@@ -373,7 +316,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "review_redacto_output",
-                "Fidelity review: compare the engine's parse of the source against the text that actually reaches the generated dump, and report input text with no match, plus a coverage score. Compares the master language only. Reviews the DUMP, not the working tree — that is the artefact that ships.",
+                "Check the generated dump on its own: its asset count, its languages, and every warning the Redacto converter raised while building it (node kinds it skipped, an empty document). Reviews the DUMP, not the working tree, because that is the artefact that ships. It does not compare against the source: whether every source text arrived is yours to check, with xfa_page_text and xfa_search on each language's PDF.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
@@ -456,7 +399,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "review_output",
-                "Fidelity review: compare the input (the engine's merged structured parse) against the converted AEM tree and report input text/elements missing from the output, with a coverage score. Compares the master language only (spot-check other languages with search_xfa). Also reports naming_violations, label_issues, dropped_fragments (standard fragments the engine derives from this same source that the tree does not reference \u{2014} a section rebuilt out of loose fields, and extra_fragments (referenced more often than the converter derives them \u{2014} a rule applied where the form has no such block)), and feedback_violations \u{2014} the swept UBS rules (DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments \u{2014} the UBS partner and signature generics replace them), checked on the rendered JCR XML, which is the artefact that ships. Reports legacy_tables too: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. Run once the tree is authored and before you report the stage done; investigate every miss (fix the tree, or confirm it was intentionally dropped) and re-run.",
+                "Check the converted AEM tree on its own, on the rendered JCR XML that ships: naming_violations, label_issues, feedback_violations (the swept UBS rules: DoR exclusion implies summary exclusion, the UBS panel everywhere, code-editor rules only, the Save Progress button, the internal-bank-use block and the Italy infobox reaching the PDF alone, checkbox richTextOptions, the jump-to-field button on the step-title panel, no retired germany/italy person or signature fragments, which the UBS partner and signature generics replace), and legacy_tables: every panel still holding a table the pre-HTML-component way (named TBL_, children all static draws), each of which belongs in one HtmlDisplayer node carrying a real <table>. Reads the AEM tree, so edits made only to the content XML are not reflected. It does not compare against the source: whether every source text, field and section arrived is yours to check, against xfa_render_page and xfa_page_text. Run once the tree is authored and before you report the stage done; fix every finding and re-run.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
@@ -841,12 +784,12 @@ mod catalog_guards {
             "the run is ended by the controller, not by a tool"
         );
 
-        // The Redacto Author edits the structured tree but never re-emits it
-        // wholesale: set_structured discards the grouping the seed carried.
+        // The Redacto Author authors the structured tree itself, from its own
+        // reading of the source, and builds the dump from it.
         assert!(has(
             OutputTarget::Redacto,
             scope::REDACTO_AUTHOR,
-            "seed_structured_from_state"
+            "set_structured"
         ));
         assert!(has(
             OutputTarget::Redacto,
@@ -855,9 +798,16 @@ mod catalog_guards {
         ));
         assert!(!has(
             OutputTarget::Redacto,
-            scope::REDACTO_AUTHOR,
+            scope::REDACTO_REVIEWER,
             "set_structured"
         ));
+
+        // Nobody is handed the engine's precomputed states any more: every
+        // stage reads the source form through the u2s tools.
+        for scope in [scope::AEM_ANALYST, scope::REDACTO_ANALYST, scope::DESCRIBE] {
+            assert!(has(OutputTarget::Aem, scope, "xfa_render_page"));
+            assert!(has(OutputTarget::Aem, scope, "xfa_outline"));
+        }
 
         // The Analyst reads and never edits.
         for stage in [scope::AEM_ANALYST, scope::REDACTO_ANALYST] {

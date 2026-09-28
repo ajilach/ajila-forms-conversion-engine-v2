@@ -6,58 +6,38 @@
 
 use super::*;
 
-/// Lines a windowed text tool (`get_xfa`, `read_package_file`) returns by
-/// default, when the caller does not ask for a specific window.
+/// Lines `read_package_file` returns by default, when the caller does not ask
+/// for a specific window.
 ///
 /// Unlike `read_reference_file`'s `offset`/`limit` (where 0 means "the whole
-/// file"), the sources these read from are not bounded the same way: a real
-/// form's XFA is measured in hundreds of thousands of bytes — one form in this
-/// repo alone is 1.16 MB per PDF — and an authored `.content.xml` reached 250
-/// KB in a run that blew its context window. `get_xfa` windows *per PDF* and
-/// joins the results, so this has to stay small enough that even a form with
-/// several source languages defaults to a reply well under
-/// `pipeline::run::LARGE_TOOL_REPLY_WARN_CHARS`: 500 lines is ~31,000
-/// characters at the density observed in a real form (~62 bytes/line), so
-/// three PDFs still land under 100,000 — comfortably below both that warning
-/// and the failure two orders of magnitude further out.
+/// file"), a package file is not bounded the same way: an authored
+/// `.content.xml` reached 250 KB in a run that blew its context window. 500
+/// lines is ~31,000 characters at the density observed in real forms (~62
+/// bytes/line), well under `pipeline::run::LARGE_TOOL_REPLY_WARN_CHARS`.
 pub(super) const DEFAULT_TEXT_WINDOW_LINES: usize = 500;
 
 /// Hard ceiling on a windowed tool's *total* reply, however it was reached.
 ///
 /// `DEFAULT_TEXT_WINDOW_LINES` bounds the default, but an explicit `limit` has
-/// no ceiling of its own, and `get_xfa` applies whatever `limit` it gets to
-/// *every* source PDF before joining them — so a generous explicit limit
-/// still multiplies with the source count exactly the way the original
-/// unbounded default did. This is the backstop that holds regardless: no
-/// windowed reply can reach the incident's scale (873,000 characters) no
-/// matter how large a limit is requested or how many PDFs the source has.
-/// Comfortably above the default so it only ever engages on a large
-/// *explicit* request, never silently on ordinary use.
+/// no ceiling of its own. This is the backstop that holds regardless: no
+/// windowed reply can reach the scale of the incident that prompted it (873,000
+/// characters) however large a limit is requested. Comfortably above the
+/// default so it only ever engages on a large *explicit* request, never
+/// silently on ordinary use.
 pub(super) const MAX_TOTAL_REPLY_CHARS: usize = 400_000;
-
-/// Total characters `search_xfa` collects across every PDF before it stops.
-///
-/// A per-PDF cap here would multiply with the source's PDF count exactly the
-/// way the unbounded `get_xfa` did; capping the total is what keeps a
-/// three-language form's search reply the same size as a one-language form's.
-///
-/// `pub(super)` so the regression test in the parent module — which exercises
-/// [`super::search_matching_lines`] directly, without a PDF fixture — can
-/// assert against the real constant rather than a copy that could drift.
-pub(super) const SEARCH_XFA_TOTAL_CHARS: usize = 4000;
 
 /// A bounded line-range slice of `content`, with a note appended when the
 /// window does not reach the end.
 ///
 /// `offset`/`limit` are both in lines; `limit == 0` (absent, or explicitly 0)
 /// means [`DEFAULT_TEXT_WINDOW_LINES`], not "everything" — see that constant's
-/// doc for why `get_xfa` and `read_package_file` cannot default to unbounded
-/// the way `read_reference_file`'s `offset`/`limit` does. Does not itself
+/// doc for why `read_package_file` cannot default to unbounded the way
+/// `read_reference_file`'s `offset`/`limit` does. Does not itself
 /// apply [`MAX_TOTAL_REPLY_CHARS`]: that is a property of the whole reply a
 /// caller assembles, not of one source's window — see [`cap_total`].
 ///
 /// `pub(super)` so it can be unit-tested directly, on synthetic content, rather
-/// than only indirectly through a built package or an extracted PDF.
+/// than only indirectly through a built package.
 pub(super) fn windowed_text(content: &str, offset: usize, limit: usize) -> String {
     let limit = if limit == 0 {
         DEFAULT_TEXT_WINDOW_LINES
@@ -106,8 +86,7 @@ pub(super) fn cap_total(text: String) -> String {
     }
     format!(
         "{}\n[reply truncated at {MAX_TOTAL_REPLY_CHARS} characters — narrow the request (a \
-         smaller limit, or search_xfa for a targeted lookup) instead of reading this much at \
-         once]",
+         smaller limit) instead of reading this much at once]",
         &text[..cut]
     )
 }
@@ -140,148 +119,32 @@ impl ConversionAgent {
                 }
                 Err(e) => ToolReply::Error(e),
             },
-            "list_states" => match self.extractor(input) {
-                Ok(ex) => {
-                    let list: Vec<_> = ex
-                        .states
-                        .iter()
-                        .map(|s| serde_json::json!({"label": s.label, "pdf": s.pdf_name, "selections": s.selections}))
-                        .collect();
-                    ToolReply::Text(serde_json::to_string_pretty(&list).unwrap_or_default())
-                }
-                Err(e) => ToolReply::Error(e),
-            },
-            "get_xfa" => {
-                // Absent or zero both mean "the default window", not "read
-                // everything" — see `windowed_text`. Pass a `limit` past the
-                // PDF's own line count to read all of it.
-                let offset = input["offset"].as_u64().unwrap_or(0) as usize;
-                let limit = input["limit"].as_u64().unwrap_or(0) as usize;
-                match self.extractor(input) {
-                    Ok(ex) if ex.xfa.is_empty() => {
-                        ToolReply::Error("No XFA present in the source.".into())
-                    }
-                    Ok(ex) => ToolReply::Text(cap_total(
-                        ex.xfa
-                            .iter()
-                            .map(|(n, x)| {
-                                format!(
-                                    "BEGIN XFA ({n})\n{}\nEND XFA ({n})",
-                                    windowed_text(x, offset, limit)
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join("\n\n"),
-                    )),
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "search_xfa" => {
-                let query = input["query"].as_str().unwrap_or_default().to_string();
-                let regex = input["regex"].as_bool().unwrap_or(false);
-                match self.extractor(input) {
-                    Ok(ex) => {
-                        let out = search_matching_lines(
-                            &ex.xfa,
-                            &query,
-                            regex,
-                            SEARCH_XFA_TOTAL_CHARS,
-                        );
-                        if out.is_empty() {
-                            ToolReply::Text("No matches.".into())
-                        } else {
-                            ToolReply::Text(out)
-                        }
-                    }
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "get_plain_state_image" | "get_annotated_state_image" => {
-                let label = input["state_label"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
-                let annotated = name == "get_annotated_state_image";
-                let scale = self.render_scale;
-                match self.extractor(input) {
-                    Ok(ex) => match ex.find(&label) {
-                        Some(rec) => {
-                            // Render one image per page so no single image exceeds
-                            // the vision API's size limit on tall multi-page forms.
-                            let pages = if annotated {
-                                rec.state.render_annotated_pages(scale)
-                            } else {
-                                rec.state.render_plain_pages(scale)
-                            };
-                            match pages.map_err(|e| e.to_string()).and_then(|imgs| {
-                                imgs.iter()
-                                    .map(|i| {
-                                        crate::image_encode::encode_rgba_to_jpeg(i, 82)
-                                            .map(|jpeg| base64_encode(&jpeg))
-                                            .map_err(|e| e.to_string())
-                                    })
-                                    .collect::<Result<Vec<String>, String>>()
-                            }) {
-                                Ok(images) => ToolReply::Image {
-                                    media_type: "image/jpeg",
-                                    images,
-                                },
-                                Err(e) => ToolReply::Error(format!("Render failed: {e}")),
-                            }
-                        }
-                        None => ToolReply::Error(format!("Unknown state_label: {label:?}")),
-                    },
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "get_flattened_structure_for_state" => {
-                let label = input["state_label"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
-                match self.extractor(input) {
-                    Ok(ex) => match ex.state_structured(&label) {
-                        Ok(content) => ToolReply::Text(
-                            serde_json::to_string_pretty(&content).unwrap_or_default(),
-                        ),
-                        Err(e) => ToolReply::Error(e),
-                    },
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
             // §2a structured tree (Redacto target)
-            "seed_structured_from_state" => {
-                let label = input["state_label"]
-                    .as_str()
-                    .unwrap_or_default()
-                    .to_string();
-                let seeded = match self.extractor(input) {
-                    Ok(ex) => ex.state_structured(&label),
-                    Err(e) => Err(e),
-                };
-                match seeded {
-                    Ok(nodes) => {
-                        let count = nodes.len();
-                        self.structured = nodes;
-                        self.structured_edited(&format!("AI: seed structured from {label}"));
-                        ToolReply::Text(format!(
-                            "OK — working structured tree seeded from '{label}' \
-                             ({count} top-level nodes). Use get_structured_outline to \
-                             review it, then add the other languages."
-                        ))
-                    }
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
             "set_structured" => {
                 let v = input.get("nodes").cloned().unwrap_or_else(|| input.clone());
+                let headers = match input.get("headers") {
+                    None | Some(serde_json::Value::Null) => None,
+                    Some(h) => match serde_json::from_value::<BTreeMap<String, String>>(h.clone()) {
+                        Ok(h) => Some(h),
+                        Err(e) => {
+                            return ToolReply::Error(format!(
+                                "headers must map a language code to the page header text: {e}"
+                            ));
+                        }
+                    },
+                };
                 match serde_json::from_value::<Vec<StructuredNode>>(v) {
                     Ok(nodes) => {
                         let count = nodes.len();
                         self.structured = nodes;
                         self.structured_edited("AI: set structured tree");
+                        if let Some(headers) = headers {
+                            self.set_headers(headers);
+                        }
                         ToolReply::Text(format!(
-                            "OK — working structured tree set ({count} top-level nodes)."
+                            "OK: working structured tree set ({count} top-level nodes, page \
+                             headers for {:?}).",
+                            self.headers.keys().collect::<Vec<_>>()
                         ))
                     }
                     Err(e) => ToolReply::Error(format!("Invalid StructuredNode JSON: {e}")),
@@ -402,13 +265,12 @@ impl ConversionAgent {
                 if self.structured.is_empty() {
                     return ToolReply::Error(NO_STRUCTURED_TREE.into());
                 }
-                let (dump, config) = match self.build_redacto() {
+                let (dump, _) = match self.build_redacto() {
                     Ok(pair) => pair,
                     Err(e) => return ToolReply::Error(e),
                 };
-                let source = self.source_envelope().content;
-                let report = blueprint::review_redacto(&source, &dump, &config.master_language);
-                ToolReply::Text(serde_json::to_string_pretty(&report).unwrap_or_default())
+                let checks = blueprint::check_redacto_output(&dump);
+                ToolReply::Text(serde_json::to_string_pretty(&checks).unwrap_or_default())
             }
             // §2 multilingual AEM tree (AemNodeTranslated)
             "set_aem_translated" => {
@@ -594,17 +456,12 @@ impl ConversionAgent {
                     Ok(pair) => pair,
                     Err(e) => return ToolReply::Error(e),
                 };
-                let merged = match self.extractor(&serde_json::Value::Null) {
-                    Ok(ex) => ex.merged.content.clone(),
-                    Err(e) => return ToolReply::Error(e),
-                };
                 let config = match self.config() {
                     Ok(c) => c,
                     Err(e) => return ToolReply::Error(e),
                 };
-                let master = config.master_language.clone();
-                let report = blueprint::review_output(&merged, &aem, &config, &master);
-                ToolReply::Text(serde_json::to_string_pretty(&report).unwrap_or_default())
+                let checks = blueprint::check_aem_output(&aem, &config);
+                ToolReply::Text(serde_json::to_string_pretty(&checks).unwrap_or_default())
             }
             "generate_xsd" => {
                 let p = match self.profile.clone() {

@@ -28,13 +28,16 @@ the existing tree (set_aem_translated_field / replace/insert/remove) to match th
 authoring a new tree from scratch; only call set_aem_translated to overwrite it wholesale if it is \
 unusable.\n\n\
 Typical workflow (call tools as needed; each step is a separate call):\n\
-1. Inspect the input: get_source_info, get_profile_info (form_code, languages, JCR paths, \
-binding flags), list_states, get_xfa (the authoritative text/fields, in every \
-language), search_xfa (find specific fields/labels), get_plain_state_image / \
-get_annotated_state_image, and get_flattened_structure_for_state (the engine's CLEAN, \
-single-language, single-variant tree for ONE state — your structural reference for fields and \
-grouping). A form is multilingual whenever get_source_info lists more than one language — trust \
-that over get_profile_info if they disagree. You MUST carry every one of those languages into the \
+1. Inspect the input yourself, from the source PDFs: get_source_info (each PDF's language and the \
+`doc_path` every xfa_* tool takes), get_profile_info (form_code, languages, JCR paths, binding \
+flags). Read the XFA, the authoritative text, fields and options in every language: xfa_packets, \
+then xfa_outline / xfa_node to browse the template, xfa_search to find a label or field, xfa_read to \
+quote exact text. Look at the pages with xfa_info and xfa_render_pages, and xfa_render_region for \
+fine print. Nobody has enumerated the form's variants for you: open the form with xfa_open, list its \
+controls with xfa_controls (it says which ones drive visibility), change each configurator choice \
+with xfa_set, re-render to see which sections appear, and xfa_reset between explorations. Hidden \
+sections exist in your output only if you reveal them here. A form is multilingual whenever \
+get_source_info lists more than one language; trust that over get_profile_info if they disagree. You MUST carry every one of those languages into the \
 final form; don't invent translations, and never drop a language the source contains. Do NOT author \
 regional locale variants yourself: the profile declares language SYNONYMS (here de → de-ch and \
 sp → es) and the packager emits each synonym's dictionary automatically from its base language, so \
@@ -64,12 +67,11 @@ every user-visible text field (title/label/content and option labels) is a per-l
 {\"de\":\"…\",\"en\":\"…\"}. Call get_schema('aem_translated') for the exact shape. There is no \
 automated merge — YOU combine the languages and configurator variants, because you can read every \
 language and see the rendered pages. Steps:\n\
-  a. Read each state with get_flattened_structure_for_state (every language × every configurator \
-selection, e.g. EN/Private-Person, DE/Company) plus its page image. The XFA is the authority for \
-verbatim text in each language; the images are the authority for layout, section order and \
-STRUCTURE. get_flattened_structure_for_state is the ENGINE'S reading of that page, not ground \
-truth — it can miss a table and hand you its cells as loose text draws. Where it disagrees with the \
-page image, the PAGE wins: author what the page shows, and note the discrepancy in your summary.\n\
+  a. Read every variant yourself: every language (each language is its own PDF) and every \
+configurator selection (e.g. EN/Private-Person, DE/Company, reached with xfa_set on the live form), \
+each with its rendered pages. The XFA is the authority for verbatim text in each language; the \
+rendered pages are the authority for layout, section order and STRUCTURE. Read tables, lists and \
+multi-column regions off the page, not off the flat run of text draws the XFA holds them as.\n\
   b. Build the whole tree in one set_aem_translated call: lay out the sections in source order; \
 for every text field include EVERY source language (pair translations by meaning and layout \
 position — never leave a language blank or collapse to one); give each fillable field the right \
@@ -175,9 +177,8 @@ guardian's own data section, if the form gives it one, is the ordinary PARTNER r
 for any other representative. Never reference a germany/italy person fragment. In a form with NO \
 configurator, a name pair that merely identifies the form's subject — a questionnaire's \
 \"Last name / First name(s)\" — is NOT a party data section: leave it as plain TXT_ textboxes, as \
-the deployed AAAC_019, ABFG_033, AAUT_033 and AAUI_033 do, and let review_output's \
-dropped_fragments tell you which small building-block fragments (IndividualBasic1, EntityBasic1) \
-the converter derives for it instead. Each generic \
+the deployed AAAC_019, ABFG_033, AAUT_033 and AAUI_033 do; use a small building-block fragment \
+(IndividualBasic1, EntityBasic1) for it only where a reference form of the same kind does. Each generic \
 contains six sub-panels (PN_EntityBasic, PN_FormAddress, PN_IndividualBasic, PN_Address, \
 PN_DOBNationality, PN_DateIncorporation); the fragment node itself is the repeating row \
 (min/maxOccur on it), and the host hides every sub-panel the source does not show via ONE \
@@ -257,24 +258,18 @@ translation dictionary, then ALWAYS run validate_aem_package — it checks the r
 structure and validates the form and DAM content XML against the AEM contract. If it reports \
 problems, fix them in the AEM tree (set_aem_translated_field / replace/insert/remove) and rebuild; \
 never upload or export an invalid package. Inspect with get_package_info / read_package_file.\n\
-5. Review end to end. (a) review_output compares the source against your tree and lists input \
-text/elements missing from the output plus a coverage score. For EVERY miss, fix it (edit the tree \
-and rebuild) or satisfy yourself it was an intentional drop; spot-check non-master languages with \
-search_xfa, since review_output compares the master language only. A miss inside a TABLE is compared \
-row by row, so a cell you split differently from the engine does NOT read as missing -- which means \
-a table value still listed as missing is a value that is genuinely not in your tree. Do not wave it \
-away as a tokenization artifact: look it up on the page image and either fix the number or say which \
-cell it belongs to. A measured run once dismissed 51 such misses as artifacts when 20 of them were \
-real (a dropped heading, a dropped label, and wrong figures). Every fillable source field \
+5. Review end to end. (a) review_output checks your tree on its own: naming, labels, the swept UBS \
+rules and legacy tables. Fix every finding and re-run it. It does NOT compare against the source, \
+so COVERAGE is yours to check: walk the source section by section with xfa_page_text (and \
+xfa_search for a specific label) and confirm every heading, label, option, paragraph and footnote \
+reached your tree, in EVERY language, reading each language's own PDF. Every fillable source field \
 (text boxes, numeric boxes, dates, dropdowns, checkboxes, radio/choice groups, signatures, …) MUST \
-have a counterpart in the output — investigate and resolve any field-count mismatch or missing \
-field (never silently dropped), since a lost field means data the form can no longer capture. \
-(b) STRUCTURE — no tool checks this, so YOU are the check. review_output compares text and field \
-counts against the ENGINE'S parse of the source, so a table whose cells were authored as loose text \
-draws scores exactly as well as the table does — and when the engine itself missed the table, both \
-sides of that comparison agree and the coverage score is clean. Render your form with generate_html \
-(where the profile has an HTML config) and walk it section by section against the source page \
-images (get_plain_state_image / get_annotated_state_image). For each region, decide from the PAGE \
+have a counterpart in the output: count them in xfa_controls and in your tree, and resolve any \
+difference (never silently dropped), since a lost field means data the form can no longer capture. \
+Include the sections that only appear under a configurator choice. (b) STRUCTURE: no tool checks \
+this either, so YOU are the check. Render your form with generate_html (where the profile has an \
+HTML config) and walk it section by section against the source pages (xfa_render_pages, with \
+xfa_set for the conditional ones). For each region, decide from the PAGE \
 what it is — a table, a list, a multi-column region, a panel, a heading at some level, a repeatable \
 — and confirm your tree says the same, along with the section order, grouping, field layout and \
 overall appearance. Tables are the ones most often lost, so look for them explicitly: a grid of \
@@ -400,8 +395,8 @@ review_output's feedback_violations tells you which of the corpus-wide rules the
 pub const SHARED_PREAMBLE: &str = "\
 You are one stage of a pipeline that converts an uploaded PDF form into an AEM Adaptive Form \
 analogous to the source. Invariants for every stage: (1) Never invent text — take all labels, \
-options, help and titles verbatim from the XFA (get_xfa / search_xfa); the source is the only \
-authority for content. (2) Carry EVERY language get_source_info lists and ONLY those; a non-master \
+options, help and titles verbatim from the XFA (xfa_read / xfa_search / xfa_page_text); the source \
+is the only authority for content. (2) Carry EVERY language get_source_info lists and ONLY those; a non-master \
 value that merely repeats the master-language text is an untranslated stub, not a translation. \
 Regional locale variants are not authored: the packager derives each configured synonym locale \
 (here de-ch from de, es from sp) from its base language, so a deployed package carrying more \
@@ -420,13 +415,18 @@ you found or changed.";
 pub const ANALYST_ADDENDUM: &str = "\
 ROLE: Analyst. You do NOT edit the tree. Produce ONE detailed CONVERSION PLAN that lets the Author \
 build the form without re-reading the bulky source. Inspect exhaustively (get_source_info + \
-get_profile_info — form codes ending 019 = Germany, 033 = Italy; list_states; \
-get_plain_state_image / get_annotated_state_image; get_xfa / search_xfa; \
-get_flattened_structure_for_state per state) AND research precedents FIRST via the reference \
+get_profile_info: form codes ending 019 = Germany, 033 = Italy; xfa_packets, xfa_outline, xfa_node, \
+xfa_search and xfa_read for the XFA; xfa_render_pages for every page of every language's PDF) and \
+EXPLORE THE VARIANTS yourself: nothing lists them for you. Open the form with xfa_open, find the \
+controls that drive visibility with xfa_controls, set each configurator choice with xfa_set, \
+re-render, and xfa_reset between explorations; a section you do not reveal is a section the Author \
+never builds. Research precedents FIRST via the reference \
 documentation (list_reference_docs, read_reference_doc, grep_reference_docs — the \"AF Fragments and \
 Common Fields\" catalogue, wizard pages & step-title headings, DoR/summary exclusions, translation \
 rules), then per section search_references / grep_references / get_reference_package / \
-read_reference_file. The plan must give, per top-level SECTION in source order: whether it is a \
+read_reference_file. The plan must list every VARIANT you found: which control and which value \
+reveal it, and which sections it shows or hides. It must give, per top-level SECTION in source \
+order: whether it is a \
 wizard page (a first-level section = one page); its heading and the verbatim labels / options / \
 field text in EVERY language; each field's control type; which regions are TABLES (their column \
 count, whether the header row is ruled or arrives as detached headings, and whether any cell holds a \
@@ -465,8 +465,8 @@ Author works from it, not by re-reading the source.";
 /// Author role: appended AFTER the full [`SYSTEM_PROMPT`] authoring body.
 pub const AUTHOR_ADDENDUM: &str = "\
 STAGE NOTE: A CONVERSION PLAN produced by an Analyst is appended below as your section / field / \
-precedent map — trust it and use search_xfa only to fill specific gaps rather than re-dumping the \
-whole XFA. A separate Reviewer judges fidelity after you, so do not try to end the run; once you \
+precedent map. Trust it and use xfa_search / xfa_read only to fill specific gaps rather than \
+re-reading the whole XFA. A separate Reviewer judges fidelity after you, so do not try to end the run; once you \
 have authored a complete tree, compared every rendered page against it and fixed the structural \
 mismatches that comparison showed (step 5b), run build_aem_package + validate_aem_package, and, \
 when the browser tools are offered, uploaded and clicked through the deployed form once (step 5c: \
@@ -480,9 +480,12 @@ If REVIEW FEEDBACK appears below, address EVERY point from every round, then reb
 /// Reviewer role: read-only quality gate that ends by calling `submit_review`.
 pub const REVIEWER_ADDENDUM: &str = "\
 ROLE: Reviewer / validator. You do NOT edit the tree. build_aem_package, then ALWAYS \
-validate_aem_package; run review_output (coverage vs the source, master language) and spot-check \
-non-master languages with search_xfa; render the form with generate_html (where the profile has an \
-HTML config) and compare it against the source images. If an AEM connection is configured, \
+validate_aem_package; run review_output (naming, labels, the swept rules, legacy tables: the tree \
+on its own). COVERAGE against the source is your own check, since no tool makes it: walk the \
+source with xfa_page_text and xfa_search, every language from its own PDF and every configurator \
+variant (xfa_open / xfa_set), and confirm each heading, label, option, paragraph and field reached \
+the tree. Render the form with generate_html (where the profile has an HTML config) and compare it \
+against the source pages (xfa_render_pages). If an AEM connection is configured, \
 upload_to_aem and, when the browser tools are offered, USE THE DEPLOYED FORM AS A READER WOULD: \
 aem_form_urls, browser_navigate to the master-language preview URL exactly as given (its `mandator` \
 parameter — 033 Italy, 019 Germany — is required for Submit/DoR to work), browser_snapshot; walk every wizard \
@@ -501,13 +504,9 @@ a defect: authorable when the tree causes it, otherwise under ENGINE DEFECTS. Wi
 tools, fetch_aem_form_html / fetch_aem_dor_pdf are the fallback. Check the STRUCTURE against those \
 images section by section: the section order, the grouping, the heading levels, the TABLES, the \
 lists, the multi-column regions and the repeatables must all be analogous, not merely the text \
-present. review_output is blind to this — its coverage compares text and field counts against the \
-ENGINE'S parse of the source, so a table whose cells were authored as loose text draws scores \
-exactly as well as the table, and where the engine itself missed the table both sides agree; a \
-clean coverage score is no reason to skip the comparison. Nor is a LOW one a reason to dismiss it: \
-table cells are compared row by row, so a value review_output still lists as missing is really \
-absent from the tree -- check each against the page rather than accepting a tokenization \
-artifact as the explanation, and do not approve while any remain unexplained. Tables go missing most often: a grid of \
+present. No tool checks this: a table whose cells were authored as loose text draws carries exactly \
+the same text as the table, so only comparing against the page catches it. Do not approve while any \
+source text, field or section is unaccounted for. Tables go missing most often: a grid of \
 aligned rows on the page is a table even when only some rules are drawn, even with a single column, \
 and even when one column is empty on every row; a run of consecutive one-line text draws facing a \
 ruled grid, or headings that are really the header row of the table below them, are the shapes it \
@@ -541,8 +540,8 @@ summaryExclusion (a wrapper missing either flag is a defect, not a pass), and no
 separately authored \"UBS Europe SE\" draw beside it; in an addressee-driven form every person block is one of the \
 four UBS generic partner fragments chosen by party role (a germany/italy person or signature \
 fragRef is a defect — those libraries are retired), while in a form with no configurator a bare \
-name pair stays plain TXT_ textboxes and a partner generic there is a defect — check \
-extra_fragments, with the unneeded sub-panels hidden via an Initialize \
+name pair stays plain TXT_ textboxes and a partner generic there is a defect, with the unneeded \
+sub-panels hidden via an Initialize \
 hideAFHideDor rule; count the signature panels in the TREE and compare that number with the \
 signers the source shows — a plan that says \"two signature blocks\" is not evidence the tree has \
 two, and one panel with no minOccur/maxOccur is one signer, not two; every signature is \
@@ -554,14 +553,12 @@ feedback_violations reports every fragRef still pointing into the germany/italy 
 PROBLEM-fragment-library-consolidation (the deliberately market-specific internal-bank-use, \
 footnote, infobox and banking-relationship families excepted); the package must carry ZERO such \
 entries, and every one is an authorable defect to return — name the panel and the UBS generic that \
-replaces it. VERIFY equally that no fragment was LOST and none was INVENTED: review_output's \
-dropped_fragments lists every standard fragment the engine derives from this very source that the \
-tree does not reference, which is what rebuilding such a section out of loose fields looks like \
-from the outside, and extra_fragments lists every one referenced more often than the converter \
-derives it — a block the form does not have is how a rule applied out of place looks, so account \
-for each — the package \
-still builds, validates and deploys. Every entry is a defect to return: reference the fragment \
-instead of the hand-built fields. DoR exclusions set; no invented text; \
+replaces it. VERIFY equally that no fragment was LOST and none was INVENTED, by comparing the \
+tree's fragment references with the source's sections: a standard section (address, signature, \
+person block, banking relationship, internal-bank-use) rebuilt out of loose fields is a lost \
+fragment, and a fragment for a block the source does not have is a rule applied out of place. The \
+package still builds, validates and deploys either way, so both are defects to return. DoR \
+exclusions set; no invented text; \
 every source language present and non-stub — but a packager-derived synonym locale (de-ch from de, es \
 from sp) matching its base language is CORRECT, not a stub, so never flag it as one; cascading \
 dropdowns implemented as static visibility-gated \
@@ -604,8 +601,8 @@ noting any engine-intrinsic limitations separately. Do not fix anything yourself
 pub const REDACTO_SHARED_PREAMBLE: &str = "\
 You are one stage of a pipeline that converts an uploaded PDF into a Redacto text document \
 analogous to the source. Invariants for every stage: (1) Never invent text — take all headings, \
-paragraphs, list items and footnotes verbatim from the source (get_xfa / search_xfa); the source is \
-the only authority for content. (2) Carry EVERY language get_source_info lists and ONLY those; a \
+paragraphs, list items and footnotes verbatim from the source (xfa_read / xfa_search / \
+xfa_page_text); the source is the only authority for content. (2) Carry EVERY language get_source_info lists and ONLY those; a \
 non-master value that merely repeats the master-language text is an untranslated stub, not a \
 translation. (3) A Redacto document is text only — it has no fillable fields, no scripts and no \
 conditional behaviour. When your stage is done, stop and reply with a concise, structured summary \
@@ -623,33 +620,29 @@ sections. A Redacto document is TEXT ONLY: it has no fillable fields. If the sou
 carry input fields, say so plainly in your summary rather than inventing a representation for \
 them.\n\n\
 Typical workflow (call tools as needed; each step is a separate call):\n\
-1. Inspect the input: get_source_info, list_states, get_xfa (the authoritative \
-text, in every language), search_xfa (find specific passages), get_plain_state_image / \
-get_annotated_state_image, and get_flattened_structure_for_state (the engine's CLEAN, \
-single-language, single-variant tree for ONE state). A document is multilingual whenever \
-get_source_info lists more than one language. You MUST carry every one of those languages into the \
+1. Inspect the input yourself, from the source PDFs: get_source_info (each PDF's language and the \
+`doc_path` every xfa_* tool takes). Read the text with xfa_page_text page by page, xfa_search to find \
+a passage and xfa_read to quote the XFA exactly; look at the layout with xfa_render_pages, and \
+xfa_render_region for fine print. A document is multilingual whenever get_source_info lists more \
+than one language: each language is its own PDF, and you MUST carry every one of them into the \
 final document; don't invent translations, and never drop a language the source contains.\n\
-2. SEED, don't hand-author. Call seed_structured_from_state with the master-language state: the \
-engine has already parsed that variant correctly — block structure, heading levels, list nesting, \
-inline markup, footnote markers and multi-column sections all intact. Re-emitting that yourself \
-with set_structured would lose exactly those details. Seed first, always.\n\
-3. Layer in the other languages WITHOUT rebuilding the tree. There is no automated merge — YOU pair \
-the languages, because you can read every one of them and see the rendered pages. For each state in \
-another language, read it with get_flattened_structure_for_state, then map its text onto the seeded \
-nodes: get_structured_outline lists every node by path, get_structured_node shows a node's exact \
-shape, and set_structured_fields writes MANY nodes back in ONE call (an array of \
-{path, field, value}). Every text is a per-language map like {\"de\":[…],\"en\":[…]} — call \
-get_schema('structured') for the exact shape, and always write the map with EVERY language at once, \
-including the one already there. Pair by meaning and layout position (use the page images), never by \
-guesswork. Never leave a language blank, and never collapse a multilingual text onto a single \
-entry.\n\
-   The seeded structure is not yours to re-create WHILE YOU TRANSLATE: the groups, their \
-`columnFlow` flag, the heading levels and the list nesting came from the engine's reading of the \
-rendered page, and adding a translation NEVER requires changing them. If you find yourself about to \
-emit a large number of nodes, you are rebuilding rather than translating — go back to \
-set_structured_fields. The seed is a starting point, not an authority: where it disagrees with the \
-rendered page the seed is wrong and you fix it — but deliberately, in step 6, not in passing \
-here.\n\
+2. Author the whole tree in ONE set_structured call, from the master-language PDF. Call \
+get_schema('structured') for the exact shape. Read the structure off the rendered pages: the \
+section order, each heading at its level, the list nesting, the tables, the multi-column sections \
+(a group with `columnFlow`), the inline emphasis and the footnote markers. Every text is a \
+per-language map like {\"de\":[…],\"en\":[…]}. Pass `headers` too: the page header printed at the \
+top of each language's pages (a legal entity, a validity line), read with xfa_page_text, keyed by \
+language.\n\
+3. Add the other languages WITHOUT rebuilding the tree. There is no automated merge: YOU pair the \
+languages, because you can read every one of them and see the rendered pages. For each other \
+language, read its PDF with xfa_page_text and map its text onto the nodes: get_structured_outline \
+lists every node by path, get_structured_node shows a node's exact shape, and set_structured_fields \
+writes MANY nodes back in ONE call (an array of {path, field, value}). Always write a text map with \
+EVERY language at once, including the one already there. Pair by meaning and layout position (use \
+the rendered pages), never by guesswork. Never leave a language blank, and never collapse a \
+multilingual text onto a single entry. Adding a translation NEVER requires changing the structure: \
+if you find yourself about to emit a large number of nodes, you are rebuilding rather than \
+translating, so go back to set_structured_fields.\n\
 4. Fix what the outline flags. `⚠ text?` / `⚠ label?` mark missing or placeholder text; \
 `⚠ unsupported` marks a node the Redacto output cannot represent (a field, image, conditional or \
 repeatable) — those are dropped from the dump, so remove them deliberately or restructure them into \
@@ -666,21 +659,22 @@ Zero panels where the source has columns means the layout was flattened — the 
 identical, so this is the only place it shows.\n\
    A document is laid out in four sections: an optional `firstHeader` for the first page, a \
 `header` drawn at the top of every page, the `body` you author, and a `footer` at the bottom of \
-every page. The header and footer are page furniture recovered from the source's master page and \
-resolved by the profile, not something you author with the structured-tree tools; the report gives \
-them per language as `headers` and `footers` with the `header_assets` / `footer_assets` counts. \
-Read them: an empty header or footer where the rendered page clearly shows one (a validity line, a \
-legal entity, a form code) means the profile could not recover it, and a non-master language \
-carrying the master language's wording means that variant's furniture was not found. Report either \
-in your summary — you cannot fix it from the tree, but it must not pass unnoticed.\n\
+every page. The header and footer are page furniture the profile renders per language: the header \
+from the `headers` you pass to set_structured, the footer from the source's own XFA variables. The \
+report gives them per language as `headers` and `footers` with the `header_assets` / \
+`footer_assets` counts. Read them: an empty header where the rendered page clearly shows one means \
+you have not set it, so pass `headers` again; an empty footer, or a non-master language carrying the \
+master language's footer wording, means the profile could not recover it. Report that in your \
+summary: you cannot fix it from the tree, but it must not pass unnoticed.\n\
 6. Review end to end. TWO separate checks, both required — one for text, one for structure.\n\
-   TEXT: review_redacto_output compares the source against the text that actually reaches the \
-generated dump and lists anything missing, with a coverage score. For EVERY miss, fix it and \
-rebuild, or satisfy yourself it was an intentional drop; it compares the master language only, so \
-spot-check the others with search_xfa.\n\
-   STRUCTURE: no tool checks this — the coverage score is computed on text alone, so a table whose \
-cells ship as one paragraph each scores exactly as well as the table does. YOU are the check. \
-Render every page with get_plain_state_image and walk the pages against get_structured_outline, \
+   TEXT: review_redacto_output checks the generated dump on its own (its assets, its languages and \
+every warning the converter raised); it does not compare against the source. So walk each \
+language's PDF with xfa_page_text against get_structured_outline and confirm every heading, \
+paragraph, list item, table cell and footnote reached the document. For EVERY miss, fix it and \
+rebuild, or satisfy yourself it was an intentional drop.\n\
+   STRUCTURE: no tool checks this either: a table whose cells ship as one paragraph each carries \
+exactly the same text as the table does. YOU are the check. \
+Render every page with xfa_render_pages and walk the pages against get_structured_outline, \
 section by section. For each region, decide from the PAGE what it is — a table, a list, a \
 multi-column region, a heading at some level, or plain paragraphs — and confirm the tree says the \
 same. Tables are the ones most often lost, so look for them explicitly: a grid of aligned rows is a \
@@ -702,13 +696,12 @@ valid JSON.";
 pub const REDACTO_ANALYST_ADDENDUM: &str = "\
 ROLE: Analyst. You do NOT edit the document. Produce ONE detailed CONVERSION PLAN that lets the \
 Author build the Redacto document without re-reading the bulky source. Inspect exhaustively: \
-get_source_info (the authority on which languages the source has), list_states, \
-get_plain_state_image / get_annotated_state_image, get_xfa / search_xfa, and \
-get_flattened_structure_for_state for EVERY state. The plan must give, per top-level SECTION in \
-source order: its role (heading / body text / list / table / footnote block / multi-column region); \
-its heading level; and, crucially, HOW THE LANGUAGES LINE UP — state which state label carries each \
-language, whether their block structures correspond one-to-one, and call out every place they do \
-NOT. Those mismatches are the entire difficulty of this conversion: the automatic merger cannot \
+get_source_info (the authority on which languages the source has, one PDF each), then for EVERY \
+language's PDF xfa_render_pages and xfa_page_text, with xfa_search / xfa_read for exact wording. The \
+plan must give, per top-level SECTION in source order: its role (heading / body text / list / table \
+/ footnote block / multi-column region); its heading level; and, crucially, HOW THE LANGUAGES LINE \
+UP: which PDF carries each language, whether their block structures correspond one-to-one, and \
+every place they do NOT. Those mismatches are the entire difficulty of this conversion: the automatic merger cannot \
 resolve them, which is why the Author pairs the languages by hand. Also record: any footnote \
 markers and the text they refer to; any multi-column section; the page header and footer drawn on \
 the master page, quoted per language (they ship as the document's header and footer sections, so \
@@ -722,10 +715,10 @@ re-reading the source.";
 /// what the controller's review loop depends on, and is copied in substance.
 pub const REDACTO_AUTHOR_ADDENDUM: &str = "\
 STAGE NOTE: A CONVERSION PLAN produced by an Analyst is appended below as your section / language \
-map — trust it and use search_xfa only to fill specific gaps rather than re-dumping the whole \
-source. A separate Reviewer judges fidelity after you, so do not try to end the run; once you \
-have seeded \
-the tree, layered in every language, compared every rendered page against the tree and fixed the \
+map. Trust it and use xfa_search / xfa_page_text only to fill specific gaps rather than re-reading \
+the whole source. A separate Reviewer judges fidelity after you, so do not try to end the run; \
+once you have authored the tree with its page headers, added every language, compared every \
+rendered page against the tree and fixed the \
 structural mismatches it showed (step 6), and run build_redacto_dump with no problems reported, \
 stop with a short summary — say in it which sections you compared against the page images and what \
 you changed. Do not hand the Reviewer a structural mismatch you could see yourself. If REVIEW \
@@ -735,24 +728,22 @@ FEEDBACK appears below, address EVERY point from every round, then rebuild and r
 pub const REDACTO_REVIEWER_ADDENDUM: &str = "\
 ROLE: Reviewer. You do NOT edit the document — you judge the Author's result and report. Verify \
 independently: run build_redacto_dump (every `problem` is disqualifying; every `warning` means \
-content was dropped) and review_redacto_output (investigate every missing text and the coverage \
-score). Read the document with get_structured_outline and resolve every `⚠` flag: `⚠ unsupported` \
+content was dropped) and review_redacto_output (the dump on its own: every note is to be \
+explained). COVERAGE against the source is your own check: walk each language's PDF with \
+xfa_page_text against the document and name every heading, paragraph, list item, table cell or \
+footnote that did not arrive. Read the document with get_structured_outline and resolve every `⚠` flag: `⚠ unsupported` \
 means content will be dropped from the dump, and a text present in only one language when the \
-source has several is an untranslated stub. Then check the STRUCTURE against the source page images \
-(get_plain_state_image), section by section: the section order, the heading levels, the TABLES, the \
-lists and the multi-column layout must all be analogous, not merely the text present. The coverage \
-score is blind to this — a table whose cells shipped as one paragraph each scores exactly as well \
-as the table — so this comparison is the only check that catches it, and a clean coverage score is \
-no reason to skip it. Tables go missing most often: a grid of aligned rows on the page is a table \
+source has several is an untranslated stub. Then check the STRUCTURE against the source pages \
+(xfa_render_pages), section by section: the section order, the heading levels, the TABLES, the \
+lists and the multi-column layout must all be analogous, not merely the text present. A table whose \
+cells shipped as one paragraph each carries exactly the same text as the table, so this comparison \
+is the only check that catches it. Tables go missing most often: a grid of aligned rows on the page is a table \
 even when only some rules are drawn, even with a single column, and even when one column is empty \
 on every row; a run of consecutive one-line paragraphs facing a ruled grid, or headings that are \
 really the header row of the table below them, are the shapes it fails in. Check the page furniture \
 as well: where the rendered pages show a header or a footer, the report's `headers` and `footers` \
-must show real per-language content — an empty header, or a footer whose fields are all blank, is \
-suspicious — and a non-master language repeating the master's wording is a stub the profile failed \
-to recover. Spot-check non-master \
-languages with \
-search_xfa, since review_redacto_output compares the master language only. End by calling \
+must show real per-language content (an empty header, or a footer whose fields are all blank, is \
+suspicious), and a non-master language repeating the master's wording is a stub. End by calling \
 submit_review with approved=true ONLY if the dump has no problems and every remaining issue is \
 resolved; otherwise approved=false and report = a detailed, actionable message listing every issue \
 with node paths where possible. Do not fix anything yourself.";

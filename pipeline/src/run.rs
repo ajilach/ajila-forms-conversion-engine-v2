@@ -879,8 +879,8 @@ fn text_reply_chars(reply: &ToolReply) -> usize {
 /// that motivated this recorded one text reply at 873,000 characters (base64
 /// profile assets `generate_html` no longer inlines) that blew a stage's whole
 /// context window before anyone could see it happening. Comfortably above the
-/// normal large text replies (`get_flattened_structure_for_state` runs
-/// 50-80,000) so this fires only on the kind of reply that is actually a
+/// normal large text replies (a wide `xfa_read` window or a big
+/// `read_package_file` runs 50-80,000) so this fires only on the kind of reply that is actually a
 /// problem, not on a legitimately large page render.
 pub(crate) const LARGE_TOOL_REPLY_WARN_CHARS: usize = 200_000;
 
@@ -1042,7 +1042,7 @@ mod tests {
     /// prompt tokens in a single call, and nothing recorded a reply's size
     /// at all — the run reported success and moved on. The threshold has
     /// to sit above the normal large replies this run makes
-    /// (`get_flattened_structure_for_state` runs 50-80,000 characters) so
+    /// (a wide `xfa_read` window runs 50-80,000 characters) so
     /// it does not fire on ordinary tool traffic.
     #[test]
     fn the_warn_threshold_sits_above_ordinary_large_replies_and_below_the_incident() {
@@ -1053,7 +1053,7 @@ mod tests {
     }
 
     /// Regression, caught by this instrumentation on its first real run:
-    /// `get_annotated_state_image` legitimately replies with well over
+    /// `xfa_render_page` legitimately replies with well over
     /// 300,000 base64 characters for one full-page render — bounded to
     /// under 1,600 real tokens by the vision encoder regardless — and the
     /// size warning must not fire on it. Warning on every ordinary page
@@ -1112,7 +1112,7 @@ mod tests {
             media_type: "image/jpeg",
             images: vec!["x".repeat(400_000)],
         };
-        assert!(oversized_reply_warning("get_plain_state_image", &big_image).is_none());
+        assert!(oversized_reply_warning("xfa_render_page", &big_image).is_none());
     }
 
     #[test]
@@ -1222,6 +1222,7 @@ mod outputs_tests {
             som_path: None,
             source_name: None,
         })]);
+        agent.seed_headers([("en".to_string(), "AUTHORED-HEADER".to_string())].into());
 
         let outputs = agent::outputs::build(&mut agent, Some("ubs"));
 
@@ -1241,10 +1242,11 @@ mod outputs_tests {
             agent.aem_translated().is_none(),
             "a Redacto run produces no AEM tree"
         );
-        // The recovered master-page header must survive into the configuration.
-        assert!(
-            outputs.envelope.context.header.is_some(),
-            "the context must come from the merged source envelope"
+        // The page header the agent set must survive into the configuration.
+        assert_eq!(
+            outputs.envelope.context.header.as_deref(),
+            Some("AUTHORED-HEADER"),
+            "the context must carry the authored page header"
         );
     }
 

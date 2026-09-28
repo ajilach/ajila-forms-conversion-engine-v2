@@ -14,11 +14,11 @@
 //! calls [`ConversionAgent::tools`] / [`ConversionAgent::execute`], and surfaces
 //! the results. Network tools hit the engine's AEM client.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use blueprint::{
     AemConfig, AemConnection, AemI18nText, AemNode, AemNodeTranslated, AemOptionTranslated,
-    Context, DocumentEnvelope, OutputTarget, RedactoDump, StructuredNode,
+    Context, OutputTarget, RedactoDump, StructuredNode,
 };
 
 /// Error returned by the AEM-tree tools when nothing has been authored yet.
@@ -30,8 +30,7 @@ pub const NO_PACKAGE: &str = "No package built yet; call build_aem_package.";
 
 /// Error returned by the structured-tree tools when nothing has been authored
 /// yet.
-const NO_STRUCTURED_TREE: &str =
-    "No structured tree yet; seed one with seed_structured_from_state.";
+const NO_STRUCTURED_TREE: &str = "No structured tree yet; author one with set_structured.";
 
 /// Returned when AEM-only machinery is reached in a run aimed at another target.
 /// Should be unreachable through the app (roles are never offered out-of-scope
@@ -97,9 +96,6 @@ pub(crate) fn collect_translated_languages(
 
 /// The package writer's translation dictionary: master text → { lang → text }.
 type I18nDict = std::collections::HashMap<String, std::collections::HashMap<String, String>>;
-
-/// Render scale for on-demand page images.
-const RENDER_SCALE: f32 = 1.5;
 
 /// The result of executing one tool call, to be returned to the model as a
 /// `tool_result` content block.
@@ -276,137 +272,33 @@ pub fn validate_package_bytes(pkg: &[u8]) -> Result<String, String> {
 
 // ── Per-source extraction (sync; cached) ─────────────────────────────────────
 
-struct StateRec {
-    label: String,
-    pdf_name: String,
-    selections: usize,
-    state: blueprint::FormState,
-    context: Context,
-}
-
-/// The engine's view of one input source (the uploaded form, or a reference):
-/// discovered states (for listing / rendering / per-state structure), the XFA,
-/// and the merged structured tree.
+/// The engine's reading of one input source (the uploaded form, or a
+/// reference): each source PDF's name and context, in upload order.
+///
+/// A context carries its PDF's language and XFA variables. The language
+/// variants do not share one, so an output with single-valued configuration
+/// must pick one deliberately (see [`ConversionAgent::source_context`]).
+/// `None` for a PDF the engine could not read.
 struct Extractor {
-    states: Vec<StateRec>,
-    xfa: Vec<(String, String)>,
-    /// The merged multilingual envelope — content *and* context. The context is
-    /// the only carrier of [`Context::header`], which `Blueprint::context()`
-    /// never sets (only `merged_structured()` does), so consumers that want the
-    /// recovered master-page header must read it from here.
-    merged: DocumentEnvelope,
-    /// Why the cross-language merge failed, if it did (`merged.content` is empty
-    /// in that case). Swallowing this is what produced silently empty Redacto
-    /// dumps: a document whose language variants are too dissimilar to merge
-    /// looked exactly like a document with no content.
-    merge_error: Option<String>,
-    /// One context per source PDF, in upload order.
-    ///
-    /// The language variants do not share a context: each carries its own
-    /// master-page header and its own `Footer_Line_*` XFA variables. An output
-    /// whose configuration is single-valued (as Redacto's header and footer are)
-    /// must therefore pick one deliberately — by master language, not by upload
-    /// order. See [`ConversionAgent::source_context`].
-    contexts: Vec<Context>,
+    documents: Vec<(String, Option<Context>)>,
 }
 
 impl Extractor {
-    /// `semantic` is the sentence-embedding matcher used to align nodes across
-    /// languages when merging the per-PDF (per-language) trees into one
-    /// bilingual tree. Without it `merge_translations` can only align nodes
-    /// structurally, which duplicates whole sections (one per language, with
-    /// colliding field names) whenever the language variants don't line up
-    /// node-for-node — so always pass it for a multi-language source.
-    fn build(
-        pdfs: &[(String, Vec<u8>)],
-        semantic: Option<&blueprint::semantic::SemanticMatcher>,
-    ) -> Self {
-        let multi = pdfs.len() > 1;
-        let mut states = Vec::new();
-        let mut xfa = Vec::new();
-        let mut envelopes: Vec<DocumentEnvelope> = Vec::new();
-
-        for (name, bytes) in pdfs {
-            if let Ok(Some(x)) = blueprint::extract_xfa_from_pdf_bytes(bytes) {
-                xfa.push((name.clone(), String::from_utf8_lossy(&x).into_owned()));
-            }
-            if let Ok(mut bp) = blueprint::Blueprint::from_pdf_bytes(bytes) {
-                let context = bp.context();
-                if let Ok(fs) = bp.states() {
-                    for s in fs.iter() {
-                        let label = if multi {
-                            format!("{name}::{}", s.label)
-                        } else {
-                            s.label.clone()
-                        };
-                        let selections = s.selections.len();
-                        states.push(StateRec {
-                            label,
-                            pdf_name: name.clone(),
-                            selections,
-                            state: s,
-                            context: context.clone(),
-                        });
-                    }
-                }
-            }
-            // Merged structured needs its own Blueprint (states()/merged both &mut).
-            if let Ok(mut bp2) = blueprint::Blueprint::from_pdf_bytes(bytes)
-                && let Ok(env) = bp2.merged_structured()
-            {
-                envelopes.push(env);
-            }
-        }
-
-        // Each single-PDF `merged_structured()` succeeds even when the
-        // cross-language merge does not, so keep the first envelope's context as
-        // the base: it carries the recovered master-page header, which would
-        // otherwise be lost exactly when the merge fails.
-        let base_context = envelopes
-            .first()
-            .map(|e| e.context.clone())
-            .unwrap_or_else(|| Context::with_language("en"));
-        let empty = |context: Context| DocumentEnvelope {
-            context,
-            content: Vec::new(),
-            state_count: 1,
-        };
-
-        let contexts: Vec<Context> = envelopes.iter().map(|e| e.context.clone()).collect();
-
-        let (merged, merge_error) = match envelopes.len() {
-            0 => (empty(base_context), None),
-            1 => (envelopes.into_iter().next().unwrap(), None),
-            _ => match blueprint::merge_translations(envelopes, semantic) {
-                Ok(env) => (env, None),
-                Err(e) => (empty(base_context), Some(e.to_string())),
-            },
-        };
-
-        Extractor {
-            states,
-            xfa,
-            merged,
-            merge_error,
-            contexts,
-        }
+    fn build(pdfs: &[(String, Vec<u8>)]) -> Self {
+        let documents = pdfs
+            .iter()
+            .map(|(name, bytes)| {
+                let context = blueprint::Blueprint::from_pdf_bytes(bytes)
+                    .ok()
+                    .map(|bp| bp.context());
+                (name.clone(), context)
+            })
+            .collect();
+        Extractor { documents }
     }
 
-    fn find(&self, label: &str) -> Option<&StateRec> {
-        self.states.iter().find(|s| s.label == label)
-    }
-
-    /// The clean, single-language structured tree for one state (one language ×
-    /// one configurator selection). Unlike the merged tree this carries no
-    /// cross-language/cross-state merge artifacts (no duplicated sections,
-    /// colliding field names or mispaired translations) — it's the engine's
-    /// faithful read of exactly one rendered variant, suitable as a base to
-    /// assemble the working tree from.
-    fn state_structured(&self, label: &str) -> Result<Vec<StructuredNode>, String> {
-        let rec = self
-            .find(label)
-            .ok_or_else(|| format!("No state with label '{label}'. Use list_states."))?;
-        Ok(rec.state.structured(rec.context.clone()).content)
+    fn contexts(&self) -> impl Iterator<Item = &Context> {
+        self.documents.iter().filter_map(|(_, c)| c.as_ref())
     }
 }
 
@@ -499,6 +391,12 @@ pub struct ConversionAgent {
     current_pdfs: Vec<(String, Vec<u8>)>,
     extractors: HashMap<String, Extractor>,
 
+    /// The page header per language, as the agent read it off the source's
+    /// master page and set it with `set_structured`. Output targets with a
+    /// page-header slot (Redacto's `page.header`) render it; recorded under the
+    /// session's `#headers` sibling so a resumed run keeps it.
+    headers: BTreeMap<String, String>,
+
     /// The working structured tree. Under [`OutputTarget::Redacto`] this is what
     /// the agent authors and the dump is generated from; under
     /// [`OutputTarget::Aem`] it stays empty (the agent authors the AEM tree
@@ -518,9 +416,6 @@ pub struct ConversionAgent {
     /// The Reviewer role's latest `submit_review` outcome, drained by the
     /// controller via [`take_review`](Self::take_review).
     review: Option<ReviewResult>,
-
-    /// Scale for on-demand page renders; see [`ConversionAgent::with_render_scale`].
-    render_scale: f32,
 
     /// The browser the preflight started, when browser verification is on.
     /// Offers its tools to the Author and Reviewer (see `catalog::BROWSER_SCOPES`).
@@ -582,10 +477,10 @@ impl ConversionAgent {
             current_pdfs: pdfs,
             extractors: HashMap::new(),
             structured: Vec::new(),
+            headers: BTreeMap::new(),
             target: target_state,
             structured_session,
             matcher: None,
-            render_scale: RENDER_SCALE,
             review: None,
             browser: None,
             u2s: None,
@@ -670,17 +565,6 @@ impl ConversionAgent {
         }
     }
 
-    /// Override the scale on-demand page images are rendered at.
-    ///
-    /// Vision tokens scale with pixel area, so a read-only pass that only has to
-    /// *read* a form can halve its image cost. Set at construction rather than
-    /// exposed as a tool argument: the model should not be able to spend more by
-    /// choosing.
-    pub fn with_render_scale(mut self, scale: f32) -> Self {
-        self.render_scale = scale;
-        self
-    }
-
     /// Attach the browser session the preflight started. From then on the
     /// stages in `catalog::BROWSER_SCOPES` are offered its tools and
     /// `browser_*` calls are forwarded to it.
@@ -741,77 +625,56 @@ impl ConversionAgent {
 
     /// The current working structured tree.
     ///
-    /// Empty on a fresh run: the agent authors the AEM tree directly and only
-    /// seeds this when resuming a session. Use
-    /// [`source_structured`](Self::source_structured) for the converted source
-    /// document.
+    /// Empty on a fresh AEM run: the agent authors the AEM tree directly and
+    /// only seeds this when resuming a session.
     pub fn structured(&self) -> &[StructuredNode] {
         &self.structured
     }
 
-    /// The merged structured tree of the current source PDFs — the plain
-    /// conversion of the document, identical to what the CLI produces.
-    ///
-    /// Builds and caches the extractor if the run has not needed it yet, so
-    /// this is free once the agent has read the source (the usual case) and a
-    /// full conversion otherwise. Returns an empty slice if extraction fails.
-    pub fn source_structured(&mut self) -> &[StructuredNode] {
-        match self.extractor(&serde_json::json!({})) {
-            Ok(extractor) => &extractor.merged.content,
-            Err(_) => &[],
-        }
+    /// The page headers the agent authored, by language.
+    pub fn headers(&self) -> &BTreeMap<String, String> {
+        &self.headers
     }
 
-    /// The merged source [`DocumentEnvelope`] — [`source_structured`](Self::source_structured)
-    /// plus the context it was extracted with.
+    /// Restore page headers recorded by an earlier run of this session.
+    pub fn seed_headers(&mut self, headers: BTreeMap<String, String>) {
+        self.headers = headers;
+    }
+
+    /// One context per readable source PDF, in upload order, each carrying the
+    /// page header the agent authored for its language.
     ///
-    /// Prefer this over pairing `source_structured()` with
-    /// [`context`](Self::context) when building an output: only this context
-    /// carries [`Context::header`], the master-page header the analysis
-    /// recovers. `ConversionAgent::context` is taken from `Blueprint::context()`
-    /// before any analysis has run and always has `header: None`.
-    pub fn source_envelope(&mut self) -> DocumentEnvelope {
-        match self.extractor(&serde_json::json!({})) {
-            Ok(extractor) => extractor.merged.clone(),
-            Err(_) => DocumentEnvelope {
-                context: self.context.clone(),
-                content: Vec::new(),
-                state_count: 1,
-            },
+    /// Falls back to [`context`](Self::context) when no source PDF is readable
+    /// (a template-only run).
+    fn source_contexts(&mut self) -> Vec<Context> {
+        let mut contexts: Vec<Context> = match self.extractor(&serde_json::json!({})) {
+            Ok(ex) => ex.contexts().cloned().collect(),
+            Err(_) => Vec::new(),
+        };
+        if contexts.is_empty() {
+            contexts.push(self.context.clone());
         }
+        for context in &mut contexts {
+            context.header = self.headers.get(context.language()).cloned();
+        }
+        contexts
     }
 
     /// The source context to resolve an output configuration against, preferring
     /// the variant written in `master_language`.
     ///
-    /// Each language variant of a document carries its own master-page header
-    /// and its own `Footer_Line_*` XFA variables, so a single-valued
-    /// configuration (Redacto's `header`/`footer`) takes whichever variant it is
-    /// pointed at. Defaulting to upload order made that arbitrary — a document
-    /// uploaded SP-first got a Spanish header on an English-master document.
+    /// Each language variant of a document carries its own page header and its
+    /// own `Footer_Line_*` XFA variables, so a single-valued configuration
+    /// (Redacto's `header`/`footer`) takes whichever variant it is pointed at.
+    /// Defaulting to upload order made that arbitrary — a document uploaded
+    /// SP-first got a Spanish header on an English-master document.
     pub fn source_context(&mut self, master_language: &str) -> Context {
-        match self.extractor(&serde_json::json!({})) {
-            Ok(ex) => ex
-                .contexts
-                .iter()
-                .find(|c| c.language() == master_language)
-                .or_else(|| ex.contexts.first())
-                .cloned()
-                .unwrap_or_else(|| ex.merged.context.clone()),
-            Err(_) => self.context.clone(),
-        }
-    }
-
-    /// Why the source's cross-language merge failed, if it did.
-    ///
-    /// A `Some` here means [`source_structured`](Self::source_structured) is
-    /// empty for a reason worth reporting rather than because the document has
-    /// no content.
-    pub fn source_merge_error(&mut self) -> Option<String> {
-        match self.extractor(&serde_json::json!({})) {
-            Ok(extractor) => extractor.merge_error.clone(),
-            Err(_) => None,
-        }
+        let contexts = self.source_contexts();
+        contexts
+            .iter()
+            .find(|c| c.language() == master_language)
+            .unwrap_or(&contexts[0])
+            .clone()
     }
 
     /// The working AEM (translated) tree — what the agent actually authored.
@@ -901,13 +764,17 @@ impl ConversionAgent {
         input: &serde_json::Value,
     ) -> Result<Vec<(String, String, std::path::PathBuf)>, String> {
         let pdfs = self.source_pdfs(input)?;
+        let languages: Vec<String> = self
+            .extractor(input)?
+            .documents
+            .iter()
+            .map(|(_, c)| c.as_ref().map_or("unknown", |c| c.language()).to_string())
+            .collect();
         let group = Self::source_key(input).replace(':', "-");
         let tools = self.u2s_tools()?;
         pdfs.iter()
-            .map(|(name, bytes)| {
-                let language = blueprint::Blueprint::from_pdf_bytes(bytes)
-                    .map(|bp| bp.context().language().to_string())
-                    .unwrap_or_else(|_| "unknown".to_string());
+            .zip(languages)
+            .map(|((name, bytes), language)| {
                 let path = tools.add_document(&group, name, bytes)?;
                 Ok((name.clone(), language, path))
             })
@@ -919,17 +786,7 @@ impl ConversionAgent {
         let key = Self::source_key(input);
         if !self.extractors.contains_key(&key) {
             let pdfs = self.source_pdfs(input)?;
-            // A multi-language source must be merged with the semantic matcher
-            // (see Extractor::build). Load it best-effort; if it can't load we
-            // fall back to None and the structural merge. Single-PDF sources
-            // need no cross-language merge, so don't pay the load cost.
-            let ex = if pdfs.len() > 1 {
-                let _ = self.matcher();
-                Extractor::build(&pdfs, self.matcher.as_ref())
-            } else {
-                Extractor::build(&pdfs, None)
-            };
-            self.extractors.insert(key.clone(), ex);
+            self.extractors.insert(key.clone(), Extractor::build(&pdfs));
         }
         Ok(self.extractors.get(&key).unwrap())
     }
@@ -964,10 +821,8 @@ impl ConversionAgent {
         // so the languages are reported even before the tree is seeded.
         let mut cfg = if !self.structured.is_empty() {
             blueprint::resolve_aem_languages(&self.structured, &cfg)
-        } else if let Ok(ex) = self.extractor(&serde_json::Value::Null) {
-            blueprint::resolve_aem_languages(&ex.merged.content, &cfg)
         } else {
-            cfg
+            self.with_source_languages(cfg)
         };
         // Carry any languages present in the working tree (e.g. a pre-loaded
         // template) into the config so they survive lowering — important for
@@ -980,6 +835,20 @@ impl ConversionAgent {
             }
         }
         Ok(cfg)
+    }
+
+    /// `cfg` with its languages replaced by the source PDFs' own, when there is
+    /// at least one readable source PDF (the same rule `resolve_aem_languages`
+    /// applies to a tree).
+    fn with_source_languages(&mut self, mut cfg: AemConfig) -> AemConfig {
+        let Ok(ex) = self.extractor(&serde_json::json!({})) else {
+            return cfg;
+        };
+        let languages: BTreeSet<String> = ex.contexts().map(|c| c.language().to_string()).collect();
+        if !languages.is_empty() {
+            cfg.languages = languages.into_iter().collect();
+        }
+        cfg
     }
 
     /// Snapshot the working AEM (translated) tree for versioning.
@@ -1013,22 +882,35 @@ impl ConversionAgent {
         }
     }
 
+    /// Replace the page headers and record them under the `#headers` sibling
+    /// session, so a resumed run restores them.
+    fn set_headers(&mut self, headers: BTreeMap<String, String>) {
+        if let Some(redacto) = self.target.redacto_mut() {
+            redacto.dump = None;
+        }
+        self.headers = headers;
+        if let Ok(json) = serde_json::to_string(&self.headers) {
+            crate::db::insert_edit(
+                &format!("{}#headers", self.structured_session),
+                "AI: set page headers",
+                &json,
+            );
+        }
+    }
+
     /// Build the Redacto dump for the working structured tree, and cache it.
     ///
-    /// The contexts come from the source extraction rather than
-    /// [`context`](Self::context) so the recovered master-page header reaches
-    /// the profile's `page.header`. All language variants are passed: the page
-    /// header and footer are rendered per language, and core picks the
-    /// master-language variant for the document's identity.
+    /// The contexts are [`source_contexts`](Self::source_contexts), so the page
+    /// header the agent authored reaches the profile's `page.header`. All
+    /// language variants are passed: the page header and footer are rendered
+    /// per language, and core picks the master-language variant for the
+    /// document's identity.
     fn build_redacto(&mut self) -> Result<(RedactoDump, blueprint::RedactoConfig), String> {
         let profile = self
             .profile
             .clone()
             .ok_or("No profile selected — the Redacto dump needs a profile.")?;
-        let contexts = match self.extractor(&serde_json::json!({})) {
-            Ok(extractor) if !extractor.contexts.is_empty() => extractor.contexts.clone(),
-            _ => vec![self.context.clone()],
-        };
+        let contexts = self.source_contexts();
         let (dump, config) =
             blueprint::to_redacto_dump_for_profile(&profile, &contexts, &self.structured)?;
         if let Some(redacto) = self.target.redacto_mut() {
@@ -1219,60 +1101,6 @@ fn truncate(s: &str, max: usize) -> String {
     }
 }
 
-fn line_matches(line: &str, query: &str, regex: bool) -> bool {
-    if regex {
-        regex_lite::Regex::new(query)
-            .map(|re| re.is_match(line))
-            .unwrap_or(false)
-    } else {
-        line.to_lowercase().contains(&query.to_lowercase())
-    }
-}
-
-/// Concatenate matching lines from every `(name, text)` source, up to
-/// `total_cap` characters in total.
-///
-/// The cap is on the *total*, checked after every line, and the whole search
-/// stops the moment it is crossed — one source cannot re-open the budget for
-/// the next. A per-source break instead of a per-total one does not multiply
-/// the cap by the source count (the accumulator is shared either way), but it
-/// still lets every later source append one more line past the cap before its
-/// own check re-fires — one extra, unbounded-length line per remaining
-/// source, silently, every time. Breaking the whole search instead is what
-/// makes the cap a real ceiling rather than "usually close to it."
-///
-/// Stopping early can leave whole sources unsearched, so the reply says so
-/// rather than reading like a complete result: a query for a language-
-/// specific phrase that matches heavily in one PDF must not come back
-/// claiming the others hold nothing, when they were never actually checked.
-fn search_matching_lines(
-    sources: &[(String, String)],
-    query: &str,
-    regex: bool,
-    total_cap: usize,
-) -> String {
-    let mut out = String::new();
-    let mut stopped_at = None;
-    'sources: for (idx, (n, x)) in sources.iter().enumerate() {
-        for line in x.lines().filter(|l| line_matches(l, query, regex)) {
-            out.push_str(&format!("{n}: {}\n", line.trim()));
-            if out.len() > total_cap {
-                stopped_at = Some(idx);
-                break 'sources;
-            }
-        }
-    }
-    if let Some(idx) = stopped_at {
-        let unsearched: Vec<&str> = sources[idx..].iter().map(|(n, _)| n.as_str()).collect();
-        out.push_str(&format!(
-            "\n[stopped after {total_cap} characters — matches past this point, including any \
-             remaining in {}, were not searched; narrow the query or read that source directly]",
-            unsearched.join(", ")
-        ));
-    }
-    out
-}
-
 /// The form's JCR node path from its AEM config.
 fn form_jcr_path(cfg: &AemConfig) -> String {
     join_form_path(&cfg.form_path, &cfg.form_dir)
@@ -1344,7 +1172,7 @@ fn render_pdf_pages(pdf: &[u8]) -> Result<Vec<String>, String> {
     let states = bp.states().map_err(|e| format!("states: {e}"))?;
     let state = states.iter().next().ok_or("no state in DoR PDF")?;
     let pages = state
-        .render_plain_pages(RENDER_SCALE)
+        .render_plain_pages(1.5)
         .map_err(|e| format!("render: {e}"))?;
     pages
         .iter()
@@ -1367,34 +1195,6 @@ mod tests {
             .filter(|t| t.targets == mask)
             .map(|t| t.name())
             .collect()
-    }
-
-    /// A fresh agent authors the AEM tree directly and never fills
-    /// `structured`, so anything deriving output from the source document must
-    /// go through `source_structured` instead. Regression guard: exporting from
-    /// `structured()` silently produced an empty document.
-    #[test]
-    fn source_structured_holds_the_converted_document_while_structured_is_empty() {
-        let pdf =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/input/AAEV_019_EN.pdf");
-        let bytes = std::fs::read(&pdf).expect("read AAEV_019_EN.pdf");
-
-        let mut agent = ConversionAgent::new(
-            Some("ubs".into()),
-            vec![("AAEV_019_EN.pdf".to_string(), bytes)],
-            None,
-            "test-source-structured".into(),
-            OutputTarget::Aem,
-        );
-
-        assert!(
-            agent.structured().is_empty(),
-            "a fresh agent has no working structured tree"
-        );
-        assert!(
-            !agent.source_structured().is_empty(),
-            "the converted source document must be reachable for non-AEM exports"
-        );
     }
 
     /// A minimal bilingual AEM tree: one panel holding one labelled text field.
@@ -1664,33 +1464,65 @@ mod tests {
         assert!(!dir.exists(), "shutdown removes the output directory");
     }
 
-    /// A single-PDF source keeps the whole merged envelope, not just its
-    /// content. Regression guard for the master-page header: `Context::header`
-    /// is set only by `merged_structured()`, so an output built from
-    /// `agent.context()` (which is `Blueprint::context()`, always
-    /// `header: None`) silently loses it.
-    #[test]
-    fn source_envelope_carries_the_recovered_header() {
+    /// The page header is document furniture the agent reads off the source
+    /// and sets itself: it must reach the context of its own language, and only
+    /// that one.
+    #[tokio::test]
+    async fn authored_headers_reach_the_context_of_their_language() {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
-            vec![fixture("AAEV_019_EN.pdf")],
+            vec![fixture("AAAL_019_SP.pdf"), fixture("AAAL_019_EN.pdf")],
             None,
-            "test-source-envelope".into(),
-            OutputTarget::Aem,
+            String::new(),
+            OutputTarget::Redacto,
+        );
+        assert!(agent.source_context("en").header.is_none());
+
+        let reply = agent
+            .execute(
+                "set_structured",
+                &serde_json::json!({
+                    "nodes": [],
+                    "headers": { "en": "UBS Europe SE", "es": "UBS Europe SE, Sucursal en España" }
+                }),
+            )
+            .await;
+        assert!(reply_text(reply).starts_with("OK"));
+
+        assert_eq!(agent.source_context("en").header.as_deref(), Some("UBS Europe SE"));
+        assert_eq!(
+            agent.source_context("es").header.as_deref(),
+            Some("UBS Europe SE, Sucursal en España")
         );
 
-        assert!(
-            agent.context().header.is_none(),
-            "the agent's own context is taken before any analysis has run"
+        // Omitting `headers` keeps the ones already set.
+        let reply = agent
+            .execute("set_structured", &serde_json::json!({ "nodes": [] }))
+            .await;
+        assert!(reply_text(reply).starts_with("OK"));
+        assert_eq!(agent.headers().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn headers_that_are_not_a_language_to_text_map_are_refused() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            Vec::new(),
+            None,
+            String::new(),
+            OutputTarget::Redacto,
         );
-        assert!(
-            agent.source_envelope().context.header.is_some(),
-            "the merged envelope must carry the header the analysis recovered"
-        );
-        assert!(
-            agent.source_merge_error().is_none(),
-            "one PDF needs no merge"
-        );
+        match agent
+            .execute(
+                "set_structured",
+                &serde_json::json!({ "nodes": [], "headers": ["UBS Europe SE"] }),
+            )
+            .await
+        {
+            ToolReply::Error(e) => assert!(e.contains("headers"), "{e}"),
+            _ => panic!("a malformed headers value must be refused"),
+        }
+        assert!(agent.headers().is_empty());
     }
 
     /// Each language variant carries its own master-page header and its own
@@ -1713,35 +1545,6 @@ mod tests {
         // An unknown language falls back to the first variant rather than
         // failing — better an arbitrary header than none.
         assert_eq!(agent.source_context("fr").language(), "es");
-    }
-
-    /// Regression: `Extractor::build` used to swallow a cross-language merge
-    /// failure with `unwrap_or_default()`, leaving an empty merged tree that was
-    /// indistinguishable from a document with no content. Every output derived
-    /// from it — the Redacto dump in particular — then came out silently empty.
-    #[test]
-    fn extractor_merge_failure_is_reported_not_swallowed() {
-        // Two unrelated forms: far below the structural-similarity threshold
-        // `merge_translations` requires of language variants of one document.
-        let mut agent = ConversionAgent::new(
-            Some("ubs".into()),
-            vec![fixture("AAAA_019_DE.pdf"), fixture("AABH_019_EN.pdf")],
-            None,
-            "test-merge-error".into(),
-            OutputTarget::Aem,
-        );
-
-        let reason = agent
-            .source_merge_error()
-            .expect("a failed merge must be reported");
-        assert!(
-            reason.to_lowercase().contains("similar"),
-            "the reason must name the structural-similarity check, got: {reason}"
-        );
-        assert!(
-            agent.source_structured().is_empty(),
-            "a failed merge yields no content — which is precisely why it must be reported"
-        );
     }
 
     /// The app never offers an out-of-scope tool to a role, but MCP serves the
@@ -1812,7 +1615,6 @@ mod tests {
                 "get_structured_outline",
                 "get_structured_node",
                 "set_structured_field",
-                "seed_structured_from_state",
             ] {
                 assert!(
                     agent.target_refusal(tool).is_none(),
@@ -1868,17 +1670,18 @@ mod tests {
         }
     }
 
-    /// The whole point of the Redacto target: the agent seeds the engine's clean
-    /// per-state tree and the dump is generated from that, so the artefact that
-    /// ships is the one it worked on — with the markup, footnotes and multi-column
-    /// layout the engine already got right.
+    /// The whole point of the Redacto target: the Author authors the structured
+    /// tree itself, and the dump is generated from exactly that tree, in the
+    /// format the vendored u2s verifier decodes.
     #[tokio::test]
-    async fn seeding_from_a_state_yields_a_shippable_redacto_dump() {
+    async fn a_tree_authored_with_set_structured_yields_a_shippable_redacto_dump() {
+        use blueprint::{InlineText, ParagraphNode, TranslatedText};
+
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAEV_019_EN.pdf")],
             None,
-            "test-redacto-seed".into(),
+            "test-redacto-authored".into(),
             OutputTarget::Redacto,
         );
 
@@ -1889,28 +1692,31 @@ mod tests {
             .await
         {
             ToolReply::Error(e) => assert_eq!(e, NO_STRUCTURED_TREE),
-            _ => panic!("an unseeded tree must not build a dump"),
+            _ => panic!("an empty tree must not build a dump"),
         }
 
-        let states = reply_text(agent.execute("list_states", &serde_json::json!({})).await);
-        let label = serde_json::from_str::<serde_json::Value>(&states).unwrap()[0]["label"]
-            .as_str()
-            .expect("a state label")
-            .to_string();
-
-        let seeded = reply_text(
-            agent
-                .execute(
-                    "seed_structured_from_state",
-                    &serde_json::json!({"state_label": label}),
-                )
-                .await,
-        );
-        assert!(seeded.starts_with("OK"), "{seeded}");
-        assert!(
-            !agent.structured().is_empty(),
-            "seeding must fill the working tree"
-        );
+        let paragraph = |text: &str| {
+            let mut content = TranslatedText::empty();
+            content.insert("en", InlineText::plain(text));
+            StructuredNode::Paragraph(ParagraphNode {
+                content,
+                som_path: None,
+                source_name: None,
+            })
+        };
+        let nodes: Vec<StructuredNode> = (1..=8)
+            .map(|i| paragraph(&format!("Paragraph number {i} of the authored document.")))
+            .collect();
+        let reply = agent
+            .execute(
+                "set_structured",
+                &serde_json::json!({
+                    "nodes": serde_json::to_value(&nodes).unwrap(),
+                    "headers": { "en": "UBS Switzerland AG" }
+                }),
+            )
+            .await;
+        assert!(reply_text(reply).starts_with("OK"));
 
         let built = reply_text(
             agent
@@ -1921,14 +1727,16 @@ mod tests {
         assert_eq!(
             report["problems"].as_array().map(Vec::len),
             Some(0),
-            "seeded content must produce a shippable dump: {built}"
+            "an authored tree must produce a shippable dump: {built}"
         );
         assert!(
-            report["assets"].as_u64().unwrap_or(0) > 5,
-            "expected a text-heavy document: {built}"
+            report["assets"].as_u64().unwrap_or(0) >= 8,
+            "every authored paragraph must become an asset: {built}"
         );
+
         let dump = agent.redacto_dump().expect("the dump must be cached for finalize");
         let sql = dump.to_sql();
+        assert!(sql.contains("UBS Switzerland AG"), "the authored header must ship");
         if let Err(e) = u2s_mapper_redacto::decode::decode(sql.as_bytes()) {
             panic!("the u2s Redacto verifier must accept the engine's dump: {e}");
         }
@@ -1967,97 +1775,7 @@ mod tests {
         );
     }
 
-    #[test]
-    fn line_matches_literal_and_regex() {
-        assert!(line_matches("Account Holder", "holder", false));
-        assert!(!line_matches("Account Holder", "nope", false));
-        assert!(line_matches("field_42", r"field_\d+", true));
-        assert!(!line_matches("field_x", r"field_\d+", true));
-        // invalid regex → no match (not a panic)
-        assert!(!line_matches("anything", "(", true));
-    }
-
-    /// Only the total accumulator is shared in the old per-source-break code
-    /// too, so it does not multiply the cap by the source count the way an
-    /// earlier version of this comment claimed — but it is still a real leak:
-    /// once the cap is crossed, each later source's own inner loop gets to
-    /// append one more line before its check re-fires, every single source,
-    /// silently. Ten extra sources is ten extra unbounded-length lines the
-    /// cap was supposed to rule out. Breaking the whole search removes that
-    /// leak entirely, and the reply says so instead of looking complete.
-    #[test]
-    fn later_sources_are_not_each_given_one_more_line_past_the_cap() {
-        let first = ("de.pdf".to_string(), "hit line\n".repeat(2000));
-        let later: Vec<(String, String)> = (0..10)
-            .map(|i| (format!("extra-{i}.pdf"), "hit\n".to_string()))
-            .collect();
-
-        let mut sources = vec![first.clone()];
-        sources.extend(later);
-
-        let cap = execute::SEARCH_XFA_TOTAL_CHARS;
-        let capped_at_first = search_matching_lines(std::slice::from_ref(&first), "hit", false, cap);
-        let out = search_matching_lines(&sources, "hit", false, cap);
-
-        // The matched lines themselves must be identical either way — the
-        // extra sources contribute no additional "name: line" entries.
-        let matches_only = |s: &str| s.split("\n[stopped").next().unwrap().to_string();
-        assert_eq!(
-            matches_only(&out),
-            matches_only(&capped_at_first),
-            "a source after the one that already spent the budget must \
-             contribute no matched lines"
-        );
-
-        // The stopping point moved nothing, so the reply must say which
-        // sources it never got to — not read as though de.pdf were the whole
-        // answer.
-        assert!(out.contains("extra-0.pdf") && out.contains("extra-9.pdf"));
-        assert!(!capped_at_first.contains("extra-0.pdf"));
-    }
-
-    /// The cap is a total, not a per-source rule: several sources that each
-    /// match should combine into one bounded reply, not each get a fresh
-    /// budget the moment an earlier one crosses it.
-    #[test]
-    fn matches_across_several_sources_share_one_budget() {
-        let a = ("a.pdf".to_string(), "hit\n".repeat(2000));
-        let b = ("b.pdf".to_string(), "hit\n".repeat(2000));
-        let c = ("c.pdf".to_string(), "hit\n".repeat(2000));
-
-        let cap = execute::SEARCH_XFA_TOTAL_CHARS;
-        let out = search_matching_lines(&[a.clone(), b, c], "hit", false, cap);
-        let from_a_alone = search_matching_lines(std::slice::from_ref(&a), "hit", false, cap);
-
-        let matches_only = |s: &str| s.split("\n[stopped").next().unwrap().to_string();
-        assert_eq!(
-            matches_only(&out),
-            matches_only(&from_a_alone),
-            "the first source alone already spends the whole budget, so b \
-             and c must add no matched lines"
-        );
-        assert!(out.len() > cap, "the sole source must still be over the cap");
-        assert!(
-            out.contains("b.pdf") && out.contains("c.pdf"),
-            "the reply must name the sources it never got to search"
-        );
-    }
-
-    /// A search that never crosses the cap needs no note at all — it read
-    /// everything, and saying otherwise would be exactly the false claim of
-    /// completeness the note exists to prevent.
-    #[test]
-    fn a_search_under_the_cap_carries_no_truncation_note() {
-        let out = search_matching_lines(
-            &[("only.pdf".to_string(), "hit\n".to_string())],
-            "hit",
-            false,
-            execute::SEARCH_XFA_TOTAL_CHARS,
-        );
-        assert!(!out.contains("[stopped"));
-    }
-
-    /// The pure windowing behind `get_xfa` and `read_package_file`: a source
+    /// The pure windowing behind `read_package_file`: a source
     /// under the window is returned whole and silently, one that reaches past
     /// it says so and names where to continue.
     #[test]
@@ -2156,124 +1874,6 @@ mod tests {
         assert!(!first.contains("line100"), "the first window must not reach into the second");
     }
 
-    /// `get_xfa` on real extracted XFA — not synthetic text — applies the same
-    /// window and reports the same kind of note. `AABF_019_EN.pdf`'s XFA is
-    /// north of ten thousand lines, comfortably past the default window.
-    #[tokio::test]
-    async fn get_xfa_windows_a_real_forms_xfa_by_default() {
-        let mut agent = ConversionAgent::new(
-            Some("ubs".into()),
-            vec![fixture("AABF_019_EN.pdf")],
-            None,
-            "test-get-xfa-window".into(),
-            OutputTarget::Aem,
-        );
-
-        let out = match agent.execute("get_xfa", &serde_json::json!({})).await {
-            ToolReply::Text(out) => out,
-            other => panic!("get_xfa failed: {other:?}"),
-        };
-        assert!(
-            out.contains("showing lines"),
-            "a form with thousands of XFA lines must be windowed by default"
-        );
-        assert!(out.contains("BEGIN XFA") && out.contains("END XFA"));
-
-        let all = match agent
-            .execute("get_xfa", &serde_json::json!({"limit": 1_000_000}))
-            .await
-        {
-            ToolReply::Text(out) => out,
-            other => panic!("get_xfa failed: {other:?}"),
-        };
-        assert!(
-            !all.contains("showing lines"),
-            "a limit past the source's own size must read all of it, unwindowed"
-        );
-        assert!(
-            all.len() > out.len(),
-            "the explicit large limit must return more than the default window"
-        );
-    }
-
-    /// The regression that matters most: `get_xfa` windows *per PDF*, so a
-    /// multi-language form's default reply is the sum of every PDF's window —
-    /// this is where a per-PDF default that looked safe for one PDF can still
-    /// reproduce the original failure at three. The default for this form's
-    /// full three-language source must stay comfortably under the size
-    /// warning, not merely under the incident's scale.
-    #[tokio::test]
-    async fn get_xfas_default_stays_small_across_a_multilingual_forms_full_source() {
-        let mut agent = ConversionAgent::new(
-            Some("ubs".into()),
-            vec![
-                fixture("AABF_019_DE.pdf"),
-                fixture("AABF_019_EN.pdf"),
-                fixture("AABF_019_SP.pdf"),
-            ],
-            None,
-            "test-get-xfa-multi-pdf".into(),
-            OutputTarget::Aem,
-        );
-
-        let out = match agent.execute("get_xfa", &serde_json::json!({})).await {
-            ToolReply::Text(out) => out,
-            other => panic!("get_xfa failed: {other:?}"),
-        };
-        // `agent` has no dependency on `pipeline`, so this mirrors
-        // `pipeline::run::LARGE_TOOL_REPLY_WARN_CHARS` (200,000) rather than
-        // importing it — the number that matters is that this stays well
-        // under it.
-        const MIRRORS_PIPELINES_WARN_THRESHOLD: usize = 200_000;
-        assert!(
-            out.len() < MIRRORS_PIPELINES_WARN_THRESHOLD,
-            "the default reply across three source PDFs is {} characters — a per-PDF default \
-             that looks safe for one PDF can still fail at three",
-            out.len()
-        );
-        // All three PDFs must still be present — this is a size bound, not a
-        // dropped-source bug.
-        for name in ["AABF_019_DE.pdf", "AABF_019_EN.pdf", "AABF_019_SP.pdf"] {
-            assert!(out.contains(name), "{name} missing from {out}");
-        }
-    }
-
-    /// However large a `limit` is requested, and however many source PDFs the
-    /// form has, the assembled reply must never approach the incident's
-    /// scale. `windowed_text`'s own per-source window has no ceiling on an
-    /// explicit `limit`, so this is `cap_total` doing its job on real,
-    /// multi-PDF content rather than on synthetic text.
-    #[tokio::test]
-    async fn get_xfa_stays_bounded_even_with_an_enormous_explicit_limit_on_every_pdf() {
-        let mut agent = ConversionAgent::new(
-            Some("ubs".into()),
-            vec![
-                fixture("AABF_019_DE.pdf"),
-                fixture("AABF_019_EN.pdf"),
-                fixture("AABF_019_SP.pdf"),
-            ],
-            None,
-            "test-get-xfa-hard-cap".into(),
-            OutputTarget::Aem,
-        );
-
-        let out = match agent
-            .execute("get_xfa", &serde_json::json!({"limit": 1_000_000}))
-            .await
-        {
-            ToolReply::Text(out) => out,
-            other => panic!("get_xfa failed: {other:?}"),
-        };
-        assert!(
-            out.len() <= execute::MAX_TOTAL_REPLY_CHARS + 500,
-            "an explicit limit large enough to read all three PDFs whole still produced {} \
-             characters — nowhere near the incident's 873,000, but the hard cap should have \
-             engaged well before this",
-            out.len()
-        );
-        assert!(out.contains("truncated"));
-    }
-
     #[test]
     fn config_reflects_languages_in_seeded_structured_tree() {
         use blueprint::{InlineText, ParagraphNode, StructuredNode, TranslatedText};
@@ -2316,6 +1916,21 @@ mod tests {
             "config.languages must include every language in the seeded tree, got {:?}",
             after.languages
         );
+    }
+
+    /// Before any tree exists, the AEM configuration takes its languages from
+    /// the source PDFs themselves.
+    #[test]
+    fn config_takes_the_source_languages_before_a_tree_exists() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAAL_019_SP.pdf"), fixture("AAAL_019_EN.pdf")],
+            None,
+            String::new(),
+            OutputTarget::Aem,
+        );
+        let config = agent.config().expect("config loads for the ubs profile");
+        assert_eq!(config.languages, vec!["en".to_string(), "es".to_string()]);
     }
 
     #[test]

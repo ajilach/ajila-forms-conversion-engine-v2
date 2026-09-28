@@ -19,20 +19,15 @@ use crate::observer::{AbortFlag, SharedObserver};
 use crate::roles::Role;
 use crate::run::run_stage;
 
-/// Render scale for the describe pass's page images.
-///
-/// Below the pipeline default: vision tokens scale with pixel area, and at this
-/// resolution form text stays comfortably legible to the model, so a pass that
-/// only has to *read* the form pays about half the image cost of one that has to
-/// reproduce it.
-const DESCRIBE_RENDER_SCALE: f32 = 1.0;
-
 const DESCRIBE_PROMPT: &str = "\
 You are cataloguing a reference form so it can later be matched against similar forms. \
-First ANALYSE THE INPUTS using the tools: inspect the source form via `list_states`, \
-`get_plain_state_image`, `get_flattened_structure_for_state`, and `get_xfa` (the XFA is the \
-authoritative field/label/option source), and inspect the resulting AEM package via \
-`get_package_info` and `read_package_file`. Call as many as you need before answering.\n\n\
+First ANALYSE THE INPUTS using the tools. Call `get_source_info` for the source PDFs and their \
+`doc_path`. Read the form's structure with `xfa_outline`, `xfa_node` and `xfa_search` (the XFA is \
+the authoritative field/label/option source), and look at its pages with `xfa_render_pages`. \
+Pass `dpi: 72`: you only have to read the pages, and a lower resolution costs far fewer tokens. \
+Use `xfa_controls` to find the controls that show or hide sections. Inspect the resulting AEM \
+package via `get_package_info` and `read_package_file`. Call as many as you need before \
+answering.\n\n\
 Then write a detailed description covering: the overall purpose; each section and its heading; \
 the fields in order with their literal labels and types (text, date, number, select, radio, \
 checkbox); logical groupings (address blocks, signature blocks, account-holder / client-details \
@@ -69,8 +64,7 @@ pub async fn describe_reference(
         None,
         String::new(),
         OutputTarget::Aem,
-    )
-    .with_render_scale(DESCRIBE_RENDER_SCALE);
+    );
     agent.seed_package(package_zip);
     let shared_agent: crate::tools::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
 

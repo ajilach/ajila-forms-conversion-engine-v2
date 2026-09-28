@@ -31893,6 +31893,63 @@ fn review_output_reports_sibling_inputs_that_share_a_title() {
     );
 }
 
+/// The source-free checks are exactly the output half of the full review: the
+/// agent reviews with them alone, so they must not drift from it.
+#[test]
+fn check_aem_output_matches_the_output_half_of_the_full_review() {
+    use crate::aem::{AemAttrs, AemNode};
+
+    let (input, root, config) = helpers::build_aem_test_output(&[("AAAI_019_DE.pdf", "de")]);
+    let master = config.master_language.clone();
+
+    // A raw (prefix-less) name, so there is a naming violation to find.
+    let AemNode::Root { title, children } = &root else {
+        unreachable!("conversion always yields a Root");
+    };
+    let mut children = children.clone();
+    children.push(AemNode::DatePicker {
+        uuid: uuid::Uuid::new_v4(),
+        name: "whenever".to_string(),
+        label: "Date".to_string(),
+        mandatory: false,
+        visible: true,
+        attrs: AemAttrs::default(),
+        colspan: 6,
+        dor_colspan: None,
+        bind_ref: None,
+    });
+    let output = AemNode::Root {
+        title: title.clone(),
+        children,
+    };
+
+    let full = crate::review_output(&input, &output, &config, &master);
+    let checks = crate::check_aem_output(&output, &config);
+
+    assert!(
+        checks.naming_violations.iter().any(|v| v.name == "whenever"),
+        "the raw name must be reported: {:?}",
+        checks.naming_violations
+    );
+    assert_eq!(checks.output_field_count, full.output_field_count);
+    assert_eq!(
+        serde_json::to_value(&checks.naming_violations).unwrap(),
+        serde_json::to_value(&full.naming_violations).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&checks.label_issues).unwrap(),
+        serde_json::to_value(&full.label_issues).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&checks.feedback_violations).unwrap(),
+        serde_json::to_value(&full.feedback_violations).unwrap()
+    );
+    assert_eq!(checks.legacy_tables, full.legacy_tables);
+    for note in &checks.notes {
+        assert!(full.notes.contains(note), "{note:?} missing from {:?}", full.notes);
+    }
+}
+
 /// A screen-only notice ships as the UBS message box, kept out of the DoR.
 ///
 /// `relevant="-print"` means the note addresses whoever fills the form and not
@@ -34863,6 +34920,22 @@ fn review_redacto_does_not_pass_an_empty_dump() {
         report.notes.iter().any(|n| n.contains("no text assets")),
         "notes must say the dump is empty: {:?}",
         report.notes
+    );
+}
+
+/// The source-free Redacto check still refuses to call an empty dump clean.
+#[test]
+fn check_redacto_output_flags_an_empty_dump() {
+    let config = helpers::test_redacto_config(&["en"]);
+    let dump = crate::generate_redacto_dump(&[], &config);
+
+    let checks = crate::check_redacto_output(&dump);
+
+    assert_eq!(checks.asset_count, 0);
+    assert!(
+        checks.notes.iter().any(|n| n.contains("no text assets")),
+        "notes must say the dump is empty: {:?}",
+        checks.notes
     );
 }
 

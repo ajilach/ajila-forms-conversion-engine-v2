@@ -279,7 +279,7 @@ mod tests {
         // text); byte/4 should land in the right order of magnitude.
         assert!((90..=150).contains(&est), "got {est}");
 
-        let call = assistant_tool_use("t1", "get_xfa", &json!({"state": "DE"}));
+        let call = assistant_tool_use("t1", "xfa_read", &json!({"state": "DE"}));
         assert!(estimate_message_tokens(&call) > 0);
     }
 

@@ -42,7 +42,7 @@ const SSE_BODY: &str = concat!(
     r#"data: {"type":"content_block_stop","index":0}"#,
     "\n\n",
     "event: content_block_start\n",
-    r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_xfa","input":{}}}"#,
+    r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"xfa_read","input":{}}}"#,
     "\n\n",
     "event: content_block_delta\n",
     r#"data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"state\""}}"#,
@@ -166,7 +166,7 @@ async fn a_streamed_anthropic_turn_is_assembled_and_billed() {
         .expect("the endpoint resolves to a model");
 
     let tools = vec![ToolDefinition {
-        name: "get_xfa".into(),
+        name: "xfa_read".into(),
         description: "Read the XFA for a state.".into(),
         parameters: serde_json::json!({
             "type": "object",
@@ -211,7 +211,7 @@ async fn a_streamed_anthropic_turn_is_assembled_and_billed() {
         })
         .collect();
     assert_eq!(calls.len(), 1, "expected one tool call");
-    assert_eq!(calls[0].function.name, "get_xfa");
+    assert_eq!(calls[0].function.name, "xfa_read");
     assert_eq!(
         calls[0].function.arguments,
         serde_json::json!({"state": "DE"})
@@ -243,7 +243,7 @@ async fn a_streamed_anthropic_turn_is_assembled_and_billed() {
     assert_eq!(json["model"], "claude-opus-5");
     assert_eq!(json["stream"], true);
     // The tool goes out under the key a model reads, not the catalog's.
-    assert_eq!(json["tools"][0]["name"], "get_xfa");
+    assert_eq!(json["tools"][0]["name"], "xfa_read");
     assert!(json["tools"][0]["input_schema"]["properties"]["state"].is_object());
     // Caching is configured, or a long run pays full input price every turn.
     assert!(

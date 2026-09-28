@@ -17,7 +17,7 @@
 //! therefore prefers a non-empty structured snapshot when one exists and
 //! otherwise reconstructs the document from the AEM tree.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use blueprint::aem::TranslationData;
 use blueprint::{
@@ -39,6 +39,8 @@ pub struct RestoredSession {
     /// `envelope.content` would discard the agent's own work (and for an agent
     /// run whose structured tree is empty, would yield an empty tree).
     pub aem_translated: Option<AemNodeTranslated>,
+    /// The page headers the agent set, by language (the `#headers` sibling).
+    pub headers: BTreeMap<String, String>,
 }
 
 /// Restore `session_id` from the edit-history store, reading the latest
@@ -50,7 +52,11 @@ pub struct RestoredSession {
 pub fn restore(session_id: &str, profile: Option<&str>) -> Option<RestoredSession> {
     let structured = latest_snapshot(session_id);
     let aem = latest_snapshot(&format!("{session_id}#aem"));
-    restore_from_snapshots(structured.as_ref(), aem.as_ref(), profile)
+    let mut restored = restore_from_snapshots(structured.as_ref(), aem.as_ref(), profile)?;
+    restored.headers = latest_snapshot(&format!("{session_id}#headers"))
+        .and_then(|s| serde_json::from_str(&s.json).ok())
+        .unwrap_or_default();
+    Some(restored)
 }
 
 /// The latest row of one session, with the timestamp that orders it against the
@@ -92,6 +98,7 @@ pub fn restore_from_snapshots(
         return Some(RestoredSession {
             envelope,
             aem_translated: tree,
+            headers: BTreeMap::new(),
         });
     }
 
@@ -109,6 +116,7 @@ pub fn restore_from_snapshots(
             state_count: 1,
         },
         aem_translated: Some(tree),
+        headers: BTreeMap::new(),
     })
 }
 

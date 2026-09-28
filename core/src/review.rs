@@ -218,20 +218,39 @@ fn compare_fragments(
     (dropped, extra)
 }
 
-/// Review the converted AEM `output` against the engine's parse of the `input`
-/// (the merged structured tree), comparing text in `master_language`.
-pub fn review_output(
-    input: &[StructuredNode],
-    output: &AemNode,
-    config: &AemConfig,
-    master_language: &str,
-) -> ReviewReport {
-    let mut input_texts: Vec<String> = Vec::new();
-    let mut input_fields = 0usize;
-    for node in input {
-        collect_input(node, master_language, &mut input_texts, &mut input_fields);
-    }
+/// The findings on a converted AEM output that need no source to compare
+/// against: naming, labels, the swept feedback rules and legacy tables.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct OutputChecks {
+    /// Number of output field-like leaves (text boxes, pickers, choice groups…).
+    pub output_field_count: usize,
+    /// See [`ReviewReport::naming_violations`].
+    pub naming_violations: Vec<NamingViolation>,
+    /// See [`ReviewReport::label_issues`].
+    pub label_issues: Vec<LabelIssue>,
+    /// See [`ReviewReport::feedback_violations`].
+    pub feedback_violations: Vec<FeedbackViolation>,
+    /// See [`ReviewReport::legacy_tables`].
+    pub legacy_tables: Vec<String>,
+    /// Human-readable observations (counts, truncation).
+    pub notes: Vec<String>,
+}
 
+/// Check a converted AEM `output` on its own, with no source to compare it to.
+pub fn check_aem_output(output: &AemNode, config: &AemConfig) -> OutputChecks {
+    aem_output_checks(output, config).0
+}
+
+/// What [`review_output`] reuses from [`aem_output_checks`]: the output's
+/// texts and table rows for coverage, and the rendered JCR XML for the
+/// fragment comparison.
+struct CollectedOutput {
+    texts: Vec<String>,
+    rows: Vec<String>,
+    aem_xml: String,
+}
+
+fn aem_output_checks(output: &AemNode, config: &AemConfig) -> (OutputChecks, CollectedOutput) {
     let mut output_texts: Vec<String> = Vec::new();
     let mut output_rows: Vec<String> = Vec::new();
     let mut output_fields = 0usize;
@@ -256,29 +275,9 @@ pub fn review_output(
     let mut legacy_tables = Vec::new();
     collect_legacy_tables(output, &mut legacy_tables);
 
-    let (dropped_fragments, extra_fragments) = compare_fragments(input, &aem_xml, config);
-
     collect_duplicate_sibling_titles(output, &mut label_issues);
 
-    let (coverage, mut missing) =
-        coverage_against(&input_texts, &output_texts, &output_rows);
-
     let mut notes = Vec::new();
-    if input.is_empty() {
-        notes.push("input (merged structured tree) is empty — nothing to compare".into());
-    }
-    if input_fields != output_fields {
-        notes.push(format!(
-            "field count differs: input has {input_fields}, output has {output_fields}"
-        ));
-    }
-    if missing.len() > MAX_MISSING {
-        notes.push(format!(
-            "missing_text truncated to {MAX_MISSING} of {} entries",
-            missing.len()
-        ));
-        missing.truncate(MAX_MISSING);
-    }
     let [n_ok, n_wrong, n_raw] = naming_counts;
     if !naming_violations.is_empty() {
         notes.push(format!("naming: {n_wrong} wrong-prefix, {n_raw} raw ({n_ok} ok)"));
@@ -316,6 +315,13 @@ pub fn review_output(
             rules.join(", ")
         ));
     }
+    if feedback_violations.len() > MAX_FEEDBACK {
+        notes.push(format!(
+            "feedback_violations truncated to {MAX_FEEDBACK} of {} entries",
+            feedback_violations.len()
+        ));
+        feedback_violations.truncate(MAX_FEEDBACK);
+    }
     if !legacy_tables.is_empty() {
         notes.push(format!(
             "{} panel(s) still hold a table as loose draws; convert each to one HtmlDisplayer \
@@ -331,6 +337,65 @@ pub fn review_output(
         ));
         legacy_tables.truncate(MAX_LEGACY_TABLES);
     }
+
+    (
+        OutputChecks {
+            output_field_count: output_fields,
+            naming_violations,
+            label_issues,
+            feedback_violations,
+            legacy_tables,
+            notes,
+        },
+        CollectedOutput {
+            texts: output_texts,
+            rows: output_rows,
+            aem_xml,
+        },
+    )
+}
+
+/// Review the converted AEM `output` against the engine's parse of the `input`
+/// (the merged structured tree), comparing text in `master_language`: the
+/// [`check_aem_output`] findings plus text coverage and the fragment
+/// comparison.
+pub fn review_output(
+    input: &[StructuredNode],
+    output: &AemNode,
+    config: &AemConfig,
+    master_language: &str,
+) -> ReviewReport {
+    let mut input_texts: Vec<String> = Vec::new();
+    let mut input_fields = 0usize;
+    for node in input {
+        collect_input(node, master_language, &mut input_texts, &mut input_fields);
+    }
+
+    let (checks, collected) = aem_output_checks(output, config);
+    let output_fields = checks.output_field_count;
+    let (dropped_fragments, extra_fragments) =
+        compare_fragments(input, &collected.aem_xml, config);
+
+    let (coverage, mut missing) =
+        coverage_against(&input_texts, &collected.texts, &collected.rows);
+
+    let mut notes = Vec::new();
+    if input.is_empty() {
+        notes.push("input (merged structured tree) is empty — nothing to compare".into());
+    }
+    if input_fields != output_fields {
+        notes.push(format!(
+            "field count differs: input has {input_fields}, output has {output_fields}"
+        ));
+    }
+    if missing.len() > MAX_MISSING {
+        notes.push(format!(
+            "missing_text truncated to {MAX_MISSING} of {} entries",
+            missing.len()
+        ));
+        missing.truncate(MAX_MISSING);
+    }
+    notes.extend(checks.notes);
 
     if !dropped_fragments.is_empty() {
         let list: Vec<&str> = dropped_fragments
@@ -360,23 +425,15 @@ pub fn review_output(
         ));
     }
 
-    if feedback_violations.len() > MAX_FEEDBACK {
-        notes.push(format!(
-            "feedback_violations truncated to {MAX_FEEDBACK} of {} entries",
-            feedback_violations.len()
-        ));
-        feedback_violations.truncate(MAX_FEEDBACK);
-    }
-
     ReviewReport {
         coverage,
         input_field_count: input_fields,
-        output_field_count: output_fields,
+        output_field_count: checks.output_field_count,
         missing_text: missing,
-        naming_violations,
-        label_issues,
-        feedback_violations,
-        legacy_tables,
+        naming_violations: checks.naming_violations,
+        label_issues: checks.label_issues,
+        feedback_violations: checks.feedback_violations,
+        legacy_tables: checks.legacy_tables,
         dropped_fragments,
         extra_fragments,
         notes,
@@ -480,6 +537,39 @@ fn collect_legacy_tables(node: &AemNode, out: &mut Vec<String>) {
     }
 }
 
+/// The findings on a generated [`RedactoDump`] that need no source to compare
+/// against.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RedactoOutputChecks {
+    /// Number of text assets in the dump.
+    pub asset_count: usize,
+    /// The languages the dump's asset versions carry.
+    pub languages: Vec<String>,
+    /// Human-readable observations: an empty document, and every warning the
+    /// Redacto converter raised while building the dump.
+    pub notes: Vec<String>,
+}
+
+/// Check a generated [`RedactoDump`] on its own, with no source to compare it
+/// to.
+pub fn check_redacto_output(dump: &crate::redacto::RedactoDump) -> RedactoOutputChecks {
+    let mut languages: Vec<String> = dump.asset_versions.iter().map(|v| v.language.clone()).collect();
+    languages.sort();
+    languages.dedup();
+
+    let mut notes = Vec::new();
+    if dump.assets.is_empty() {
+        notes.push("the dump contains no text assets — it describes an empty document".into());
+    }
+    notes.extend(dump.warnings.iter().cloned());
+
+    RedactoOutputChecks {
+        asset_count: dump.assets.len(),
+        languages,
+        notes,
+    }
+}
+
 /// Review a generated [`RedactoDump`] against the engine's parse of the `input`,
 /// comparing text in `master_language`.
 ///
@@ -534,12 +624,10 @@ pub fn review_redacto(
 
     let (coverage, mut missing) = coverage_against(&input_texts, &output_texts, &[]);
 
+    let checks = check_redacto_output(dump);
     let mut notes = Vec::new();
     if input.is_empty() {
         notes.push("input (structured tree) is empty — nothing to compare".into());
-    }
-    if dump.assets.is_empty() {
-        notes.push("the dump contains no text assets — it describes an empty document".into());
     }
     if input_fields > 0 {
         notes.push(format!(
@@ -547,9 +635,7 @@ pub fn review_redacto(
              text-only documents"
         ));
     }
-    for warning in &dump.warnings {
-        notes.push(warning.clone());
-    }
+    notes.extend(checks.notes);
     if missing.len() > MAX_MISSING {
         notes.push(format!(
             "missing_text truncated to {MAX_MISSING} of {} entries",

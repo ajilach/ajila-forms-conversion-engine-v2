@@ -386,7 +386,8 @@ mod tests {
                 // …and must name its own vocabulary.
                 assert!(prompt.contains("Redacto"), "{prompt}");
             }
-            assert!(prompts[1].contains("seed_structured_from_state"));
+            assert!(prompts[1].contains("set_structured"));
+            assert!(prompts[1].contains("xfa_page_text"));
             assert!(prompts[1].contains("build_redacto_dump"));
             // The Author must be pointed at the batch editor and told the seeded
             // structure is not to be re-created — without both, translating the

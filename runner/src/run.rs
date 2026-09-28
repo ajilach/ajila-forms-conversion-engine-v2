@@ -194,6 +194,7 @@ pub async fn resume(
     }
     if let Some(prior) = prior {
         agent.seed_structured(prior.envelope.content);
+        agent.seed_headers(prior.headers);
         // A no-op for a Redacto run, which has no AEM tree to seed.
         if let Some(tree) = prior.aem_translated {
             agent.seed_aem_translated(tree);
