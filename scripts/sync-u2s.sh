@@ -23,11 +23,6 @@ if [ -n "$(git -C "$ROOT" status --porcelain -- u2s docker/aem)" ]; then
 fi
 
 COMMIT="$(git -C "$SRC" rev-parse --short HEAD)"
-# The recorded commit must describe exactly what was copied.
-if [ -n "$(git -C "$SRC" status --porcelain -- crates specs vendor/fonts corpus fixtures docker/aem)" ]; then
-  echo "$SRC has uncommitted changes; commit them upstream first so $COMMIT matches what is copied" >&2
-  exit 1
-fi
 
 # Keep in step with the table in u2s/VENDORED.md and the workspace members.
 CRATES=(
@@ -39,6 +34,17 @@ CRATES=(
   u2s-render-xfa-mcp u2s-rules u2s-rules-host u2s-schema u2s-verify-core
   u2s-xfa u2s-xfa-mcp
 )
+
+# The recorded commit must describe exactly what is copied: only the paths
+# copied below must be clean upstream, so work in progress on the rest of the
+# upstream workspace does not block a sync.
+COPIED=(specs/AEM.md vendor/fonts corpus/ubs fixtures docker/aem)
+for c in "${CRATES[@]}"; do COPIED+=("crates/$c"); done
+if [ -n "$(git -C "$SRC" status --porcelain -- "${COPIED[@]}")" ]; then
+  echo "$SRC has uncommitted changes in what is copied; commit them upstream first so $COMMIT matches:" >&2
+  git -C "$SRC" status --short -- "${COPIED[@]}" >&2
+  exit 1
+fi
 
 for c in "${CRATES[@]}"; do
   rsync -a --delete --exclude target "$SRC/crates/$c/" "$DEST/crates/$c/"
