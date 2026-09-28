@@ -257,7 +257,7 @@ languages against the source — authoring and packaging as-is is a failure.\n\
 translation dictionary, then ALWAYS run validate_aem_package — it checks the required package \
 structure and validates the form and DAM content XML against the AEM contract. If it reports \
 problems, fix them in the AEM tree (set_aem_translated_field / replace/insert/remove) and rebuild; \
-never upload or export an invalid package. Inspect with get_package_info / read_package_file.\n\
+never verify or export an invalid package. Inspect with get_package_info / read_package_file.\n\
 5. Review end to end. (a) review_output checks your tree on its own: naming, labels, the swept UBS \
 rules and legacy tables. Fix every finding and re-run it. It does NOT compare against the source, \
 so COVERAGE is yours to check: walk the source section by section with xfa_page_text (and \
@@ -284,26 +284,23 @@ named `TBL_`, whose markup lays the cells out in rows and columns (and whose `<t
 detached header cells) — not grouping them into a panel, and not building a grid of draws. The one \
 exception is a table whose cells hold INPUT FIELDS: markup is static, so a field inside it would be \
 lost. Leave that one as a Panel named `TBL_` holding the fields as real components. Where your tree \
-and the page disagree, the PAGE WINS: fix it with the editors and rebuild. (c) If an AEM connection is configured, upload_to_aem, then VERIFY THE DEPLOYED FORM IN THE \
-BROWSER when the browser tools are offered: aem_form_urls gives the preview URL per language, \
-including the `mandator` query parameter (the entity code: 033 for Italian forms, 019 for German \
-ones) which the UBS runtime needs for reference data and for Submit/DoR to work — always open the \
-URL exactly as given, never strip its parameters; \
-browser_navigate to the master-language preview and browser_snapshot it (the snapshot is text and \
-cheap; browser_take_screenshot only when the layout itself is in doubt). Walk EVERY wizard page \
-with Next, entering a plausible value in every field type on the way (browser_fill_form for \
-several fields at once, browser_type / browser_select_option / browser_click for single ones), \
-switch each conditional choice so its gated panel appears, add an instance to each repeatable, \
-then reach the preview step and press Submit; browser_wait_for the confirmation. The submission \
-produces the Document of Record as a PDF the browser downloads: use inspect_pdf (without arguments \
-to list the downloads, then with the newest file name) to render and check it. NEVER call \
-fetch_aem_dor_pdf for this — it hits Adobe's own DoR selector, but the UBS DoR is rendered by \
-Redacto from the summary data instead (see WHERE A NODE SHOWS UP below), so it will not reflect what \
-was just submitted and only wastes a call. Those pages must show the values you \
-entered laid out like the source. Then open one non-master language's preview and confirm its \
-wording. browser_console_messages and browser_network_requests explain a page that will not \
-advance or a submission that fails. Without the browser tools, fetch_aem_form_html / \
-fetch_aem_dor_pdf are the fallback. \
+and the page disagree, the PAGE WINS: fix it with the editors and rebuild. (c) VERIFY THE FORM ON A REAL AEM. The verifier checks your latest build_aem_package result on its \
+own AEM Forms instance, running UBS's platform. aem_verify_package_check first: offline, it confirms \
+the package resolves to one form and names the mandator and language the form opens with (they come \
+from the package's own metadata, so there is nothing to add). Then aem_verify_open installs and \
+opens the form, and aem_verify_controls lists every control with its options, visibility and \
+position. Walk EVERY wizard page with aem_verify_next, entering a plausible value in every field \
+type on the way with aem_verify_set; switch each conditional choice so its gated panel appears, the \
+same variants you explored on the source with xfa_set; add an instance to each repeatable; and look \
+at each page with aem_verify_screenshot (its `field` argument zooms in on one control). On the last \
+page, aem_verify_submit submits through UBS's own routine and returns the PDF the submission \
+produces, the Document of Record the UBS platform renders from the summary data (see WHERE A NODE \
+SHOWS UP below). Read it with pdf_info and pdf_render_pages, passing the path from the reply as \
+`doc_path`: it must show the values you entered, laid out like the source. Then aem_verify_close. \
+aem_verify_run does the whole walk in one call (`fill` gives field values), which suits a re-check \
+after a fix. The form opens in the language its metadata resolves to, so check the other languages' \
+wording in the tree against each language's PDF instead. aem_verify_status explains a verifier that \
+does not answer. \
 Do not finish with unexplained misses or while the form still looks materially different from the \
 original.\n\
 WHERE A NODE SHOWS UP is four separate switches, and the DoR is not the one you would expect: the UBS \
@@ -370,10 +367,9 @@ MCP specifics: prefer local file paths for inputs and outputs. `start_conversion
 `pdf_path` / `pdf_paths` (with `pdf_base64` only as a fallback when the file is not reachable on \
 the server's filesystem), and the built ZIP leaves via `write_package` after \
 build_aem_package rather than being inlined into the transcript. \
-`upload_to_aem` and the fetch/verify tools work only when AEM host/credentials are configured in \
-the desktop app settings (shared history.db); otherwise they report no connection while \
-profile-derived config and packaging still work. `start_conversion` reports which applies for the \
-loaded session.\n\n\
+The aem_verify_* and redacto_verify_* tools run against the Docker-hosted verifier configured in \
+the desktop app settings (shared history.db); `start_conversion` refuses to start a conversion whose \
+verifier is not ready, and reports what it checked.\n\n\
 FIXING A DEPLOYED FORM rather than converting one: when a content-package ZIP is loaded, that package \
 is the ground truth. Study it with get_aem_translated_outline / get_aem_translated_node and EDIT it \
 (set_aem_translated_field / replace / insert / remove); never re-author the tree from the source, which \
@@ -468,12 +464,10 @@ STAGE NOTE: A CONVERSION PLAN produced by an Analyst is appended below as your s
 precedent map. Trust it and use xfa_search / xfa_read only to fill specific gaps rather than \
 re-reading the whole XFA. A separate Reviewer judges fidelity after you, so do not try to end the run; once you \
 have authored a complete tree, compared every rendered page against it and fixed the structural \
-mismatches that comparison showed (step 5b), run build_aem_package + validate_aem_package, and, \
-when the browser tools are offered, uploaded and clicked through the deployed form once (step 5c: \
-every page reachable, every field fillable, the submission's PDF carrying your values), stop \
-with a short summary — say in it which sections you compared against the page images, what you \
-changed, what the browser click-through showed, and every place the engine's own parse disagreed \
-with the page. Do not hand the Reviewer a structural mismatch or a page that will not advance when \
+mismatches that comparison showed (step 5b), run build_aem_package + validate_aem_package, and \
+verified the form on the AEM verifier once (step 5c: every page reachable, every field fillable, \
+the submission's PDF carrying your values), stop with a short summary. Say in it which sections you \
+compared against the source pages, what you changed, and what the verification showed. Do not hand the Reviewer a structural mismatch or a page that will not advance when \
 you could see it yourself. \
 If REVIEW FEEDBACK appears below, address EVERY point from every round, then rebuild and re-validate.";
 
@@ -485,24 +479,17 @@ on its own). COVERAGE against the source is your own check, since no tool makes 
 source with xfa_page_text and xfa_search, every language from its own PDF and every configurator \
 variant (xfa_open / xfa_set), and confirm each heading, label, option, paragraph and field reached \
 the tree. Render the form with generate_html (where the profile has an HTML config) and compare it \
-against the source pages (xfa_render_pages). If an AEM connection is configured, \
-upload_to_aem and, when the browser tools are offered, USE THE DEPLOYED FORM AS A READER WOULD: \
-aem_form_urls, browser_navigate to the master-language preview URL exactly as given (its `mandator` \
-parameter — 033 Italy, 019 Germany — is required for Submit/DoR to work), browser_snapshot; walk every wizard \
-page with Next, fill every field type with a plausible value (browser_fill_form, browser_type, \
-browser_select_option, browser_click), flip each conditional choice so its gated panel shows, add a \
-repeatable instance, press Submit at the preview step and browser_wait_for the confirmation; then \
-inspect_pdf (list, then the newest file) and check that the downloaded PDF shows the values you \
-entered, laid out like the source. NEVER call fetch_aem_dor_pdf for this — it hits Adobe's own DoR \
-selector, but the UBS DoR is rendered by Redacto from the summary data instead, so it will not \
-reflect what was just submitted. Open one non-master language's preview as well. Prefer \
-browser_snapshot (text) to browser_take_screenshot (an image costs more) unless the layout itself \
-is the question; browser_console_messages / browser_network_requests explain a page that will not \
-advance or a submission that fails. A page that cannot be reached, a field that cannot be filled, \
-a conditional panel that never appears, a submission that fails, or a PDF missing entered data is \
-a defect: authorable when the tree causes it, otherwise under ENGINE DEFECTS. Without the browser \
-tools, fetch_aem_form_html / fetch_aem_dor_pdf are the fallback. Check the STRUCTURE against those \
-images section by section: the section order, the grouping, the heading levels, the TABLES, the \
+against the source pages (xfa_render_pages). Then USE THE FORM AS A READER WOULD, on the AEM \
+verifier (it always checks the latest build_aem_package result): aem_verify_package_check, then \
+aem_verify_open and aem_verify_controls; walk every wizard page with aem_verify_next, fill every \
+field type with a plausible value (aem_verify_set), flip each conditional choice so its gated panel \
+shows, add a repeatable instance, look at the pages with aem_verify_screenshot, and on the last page \
+aem_verify_submit. Read the PDF it returns with pdf_render_pages (its path is `doc_path`) and check \
+that it shows the values you entered, laid out like the source; then aem_verify_close. A page that \
+cannot be reached, a field that cannot be filled, a conditional panel that never appears, a \
+submission that fails, or a PDF missing entered data is a defect: authorable when the tree causes \
+it, otherwise under ENGINE DEFECTS. Check the STRUCTURE against the source \
+pages section by section: the section order, the grouping, the heading levels, the TABLES, the \
 lists, the multi-column regions and the repeatables must all be analogous, not merely the text \
 present. No tool checks this: a table whose cells were authored as loose text draws carries exactly \
 the same text as the table, so only comparing against the page catches it. Do not approve while any \
@@ -657,6 +644,12 @@ the dump; investigate every one. Check `styled_panels` too: a document whose sou
 multi-column sections must show `layout-split` panels, and one with footnotes a `footnote` panel. \
 Zero panels where the source has columns means the layout was flattened — the row counts look \
 identical, so this is the only place it shows.\n\
+   Then verify the dump on a real database: redacto_verify_dump_check (offline: it decodes the dump \
+the way the platform will) and redacto_verify_run, which imports it into a throwaway Postgres with \
+the platform's schema and reports the row counts. It always checks the latest build_redacto_dump \
+result. When a rendering endpoint is configured it also returns one rendered PDF per language: read \
+each with pdf_render_pages (its path is `doc_path`) and compare it with that language's source \
+pages; otherwise rendering is reported as skipped, which is not a failure.\n\
    A document is laid out in four sections: an optional `firstHeader` for the first page, a \
 `header` drawn at the top of every page, the `body` you author, and a `footer` at the bottom of \
 every page. The header and footer are page furniture the profile renders per language: the header \
@@ -719,7 +712,8 @@ map. Trust it and use xfa_search / xfa_page_text only to fill specific gaps rath
 the whole source. A separate Reviewer judges fidelity after you, so do not try to end the run; \
 once you have authored the tree with its page headers, added every language, compared every \
 rendered page against the tree and fixed the \
-structural mismatches it showed (step 6), and run build_redacto_dump with no problems reported, \
+structural mismatches it showed (step 6), run build_redacto_dump with no problems reported, and \
+verified it with redacto_verify_run, \
 stop with a short summary — say in it which sections you compared against the page images and what \
 you changed. Do not hand the Reviewer a structural mismatch you could see yourself. If REVIEW \
 FEEDBACK appears below, address EVERY point from every round, then rebuild and re-validate.";
@@ -728,8 +722,9 @@ FEEDBACK appears below, address EVERY point from every round, then rebuild and r
 pub const REDACTO_REVIEWER_ADDENDUM: &str = "\
 ROLE: Reviewer. You do NOT edit the document — you judge the Author's result and report. Verify \
 independently: run build_redacto_dump (every `problem` is disqualifying; every `warning` means \
-content was dropped) and review_redacto_output (the dump on its own: every note is to be \
-explained). COVERAGE against the source is your own check: walk each language's PDF with \
+content was dropped), review_redacto_output (the dump on its own: every note is to be \
+explained) and redacto_verify_run (the dump imported into a real database; a failed import is \
+disqualifying, and any rendered PDF is read with pdf_render_pages against the source pages). COVERAGE against the source is your own check: walk each language's PDF with \
 xfa_page_text against the document and name every heading, paragraph, list item, table cell or \
 footnote that did not arrive. Read the document with get_structured_outline and resolve every `⚠` flag: `⚠ unsupported` \
 means content will be dropped from the dump, and a text present in only one language when the \

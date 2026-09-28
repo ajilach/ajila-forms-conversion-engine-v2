@@ -24,7 +24,6 @@ use rig_agent::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use rig_core::message::ToolResultContent;
 use tokio::sync::Mutex;
 
-use crate::observer::{RunEvent, SharedObserver};
 use crate::turns::media_media_type;
 
 /// The one `ConversionAgent` a run drives, shared across every stage's tools
@@ -38,33 +37,19 @@ pub type SharedAgent = Arc<Mutex<ConversionAgent>>;
 /// this only wraps each spec in the erased dispatch rig's runner needs. A spec
 /// missing a name is dropped rather than panicking — the catalog's own tests
 /// are what guarantee every entry has one.
-///
-/// `obs` is threaded through to report warnings the agent itself accumulates
-/// during a call (a browser restart, say) — bookkeeping that belongs where
-/// the mutation happens, right after `execute()`, rather than being inferred
-/// later from a hook that never touches the agent directly.
-pub fn dynamic_tools_for(
-    agent: &SharedAgent,
-    specs: &[serde_json::Value],
-    obs: &SharedObserver,
-) -> Vec<DynamicTool> {
+pub fn dynamic_tools_for(agent: &SharedAgent, specs: &[serde_json::Value]) -> Vec<DynamicTool> {
     specs
         .iter()
-        .filter_map(|spec| dynamic_tool_from(agent, spec, obs))
+        .filter_map(|spec| dynamic_tool_from(agent, spec))
         .collect()
 }
 
-fn dynamic_tool_from(
-    agent: &SharedAgent,
-    spec: &serde_json::Value,
-    obs: &SharedObserver,
-) -> Option<DynamicTool> {
+fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value) -> Option<DynamicTool> {
     let name = spec["name"].as_str()?.to_string();
     let description = spec["description"].as_str().unwrap_or_default().to_string();
     let parameters = spec["input_schema"].clone();
     let agent = agent.clone();
     let dispatch_name = name.clone();
-    let obs = obs.clone();
 
     Some(DynamicTool::new(
         name,
@@ -73,17 +58,9 @@ fn dynamic_tool_from(
         move |_ctx, args| {
             let agent = agent.clone();
             let name = dispatch_name.clone();
-            let obs = obs.clone();
             Box::pin(async move {
                 let mut agent = agent.lock().await;
                 let reply = agent.execute(&name, &args).await;
-                // A browser restart is the agent's business to perform and the
-                // operator's to know about — reported here, next to the call
-                // that may have triggered it, same as the hand-rolled loop did
-                // right after each `execute()`.
-                for warning in agent.take_warnings() {
-                    obs.emit(RunEvent::Warning(warning));
-                }
                 reply_to_tool_output(reply)
             })
         },
@@ -137,7 +114,6 @@ mod tests {
         Arc::new(Mutex::new(ConversionAgent::new(
             None,
             Vec::new(),
-            None,
             "test-tools-bridge".into(),
             OutputTarget::Redacto,
         )))
@@ -200,7 +176,6 @@ mod tests {
     #[tokio::test]
     async fn a_built_tool_dispatches_to_the_real_agent() {
         let agent = bare_agent();
-        let obs = SharedObserver::new(crate::observer::NullObserver);
         let tools = dynamic_tools_for(
             &agent,
             &[serde_json::json!({
@@ -208,7 +183,6 @@ mod tests {
                 "description": "Info about the source.",
                 "input_schema": {"type": "object", "properties": {}},
             })],
-            &obs,
         );
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].name(), "get_source_info");
@@ -234,48 +208,7 @@ mod tests {
     #[test]
     fn a_spec_with_no_name_is_dropped() {
         let agent = bare_agent();
-        let obs = SharedObserver::new(crate::observer::NullObserver);
-        let tools = dynamic_tools_for(&agent, &[serde_json::json!({"description": "no name"})], &obs);
+        let tools = dynamic_tools_for(&agent, &[serde_json::json!({"description": "no name"})]);
         assert!(tools.is_empty());
-    }
-
-    /// A warning the agent accumulates during a call (a browser restart, in
-    /// production) is reported through the observer right after that call —
-    /// not silently dropped because the tool bridge, unlike the hand-rolled
-    /// loop, has no obvious place left to drain it from.
-    #[tokio::test]
-    async fn a_warning_the_agent_accumulates_during_a_call_is_reported() {
-        let agent = bare_agent();
-        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        struct Logging(std::sync::Arc<std::sync::Mutex<Vec<RunEvent>>>);
-        impl crate::observer::RunObserver for Logging {
-            fn emit(&mut self, event: RunEvent) {
-                self.0.lock().unwrap().push(event);
-            }
-            fn retry_prompt(&mut self, _role: &str, _error: &str) {}
-            fn poll_retry(&mut self) -> Option<crate::observer::RetryAction> {
-                None
-            }
-            fn retry_resolved(&mut self, _action: crate::observer::RetryAction) {}
-        }
-        let obs = SharedObserver::new(Logging(log.clone()));
-        let tools = dynamic_tools_for(
-            &agent,
-            &[serde_json::json!({
-                "name": "get_source_info",
-                "description": "Info about the source.",
-                "input_schema": {"type": "object", "properties": {}},
-            })],
-            &obs,
-        );
-        let set = rig_agent::tool::ToolSet::from_dynamic_tools(tools);
-        let mut ctx = rig_agent::tool::ToolContext::new();
-
-        // A bare agent accumulates no warnings on an ordinary call — this
-        // pins that the plumbing is at least present and inert, since
-        // provoking a real browser-restart warning needs a live browser
-        // session this test does not have.
-        let _ = set.execute("get_source_info", "{}", &mut ctx).await;
-        assert!(log.lock().unwrap().is_empty());
     }
 }

@@ -58,8 +58,6 @@ mod imp {
     /// than the strict cross-lingual match threshold because a short query is
     /// compared against a longer description.
     const SEMANTIC_THRESHOLD: f32 = 0.4;
-    /// Render scale for on-demand page images (matches the pipeline default).
-    const RENDER_SCALE: f32 = 1.5;
 
     fn now() -> String {
         chrono::Utc::now().to_rfc3339()
@@ -425,44 +423,6 @@ mod imp {
             .collect::<String>()
             .replace('\n', " ");
         slice.trim().to_string()
-    }
-
-    // ── Page rendering ─────────────────────────────────────────────────────────
-
-    /// Render a source-PDF page of a reference to one JPEG per page. `page` is
-    /// currently advisory — the default form state is rendered, split per page
-    /// so a tall multi-page form isn't returned as one oversized image.
-    pub fn render_reference_page(
-        ref_id: &str,
-        pdf_index: usize,
-        _page: usize,
-    ) -> Result<Vec<Vec<u8>>, String> {
-        let conn = crate::db::open().map_err(|e| e.to_string())?;
-        let bytes: Vec<u8> = conn
-            .query_row(
-                "SELECT pdf_bytes FROM reference_pdfs WHERE ref_id = ?1 AND pdf_index = ?2",
-                params![ref_id, pdf_index as i64],
-                |r| r.get(0),
-            )
-            .map_err(|_| format!("No PDF {pdf_index} for reference {ref_id}"))?;
-
-        let mut bp = blueprint::Blueprint::from_pdf_bytes(&bytes)
-            .map_err(|e| format!("PDF parse failed: {e}"))?;
-        let states = bp.states().map_err(|e| format!("State discovery failed: {e}"))?;
-        let state = states
-            .iter()
-            .next()
-            .ok_or_else(|| "No renderable state in PDF".to_string())?;
-        let pages = state
-            .render_plain_pages(RENDER_SCALE)
-            .map_err(|e| format!("Render failed: {e}"))?;
-        pages
-            .iter()
-            .map(|img| {
-                crate::image_encode::encode_rgba_to_jpeg(img, 82)
-                    .map_err(|e| format!("Encode failed: {e}"))
-            })
-            .collect()
     }
 
     // ── Import / export ──────────────────────────────────────────────────────────

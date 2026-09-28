@@ -10,7 +10,7 @@ mod console;
 mod convert;
 
 use blueprint::{
-    FieldLabelMap, GraphSelection, GraphState, HtmlConfig, PipelineConfig, PipelineEvent,
+    FieldLabelMap, GraphSelection, GraphState, HtmlConfig, OutputTarget, PipelineConfig, PipelineEvent,
     PipelineStep, build_field_label_map, generate_dot, run_pipeline,
 };
 use clap::{Args as ClapArgs, Parser, Subcommand, ValueEnum};
@@ -105,61 +105,59 @@ enum Command {
     /// List the conversion sessions a `convert --feedback` run can resume.
     Sessions,
 
-    /// The browser the Author and Reviewer use to verify a deployed form.
-    Browser(BrowserArgs),
+    /// The Docker-hosted verifiers the Author and Reviewer check their output
+    /// with: the AEM Forms instance for an AEM run, Postgres for a Redacto run.
+    Verify(VerifyArgs),
 }
 
 #[derive(ClapArgs, Debug)]
-struct BrowserArgs {
+struct VerifyArgs {
     #[command(subcommand)]
-    action: BrowserAction,
+    action: VerifyAction,
 
-    /// Path to `npx`, when it is not on PATH or in the usual Node locations.
-    /// Defaults to the desktop app's setting, then to auto-detection.
-    #[arg(long, value_name = "PATH", global = true)]
-    npx: Option<PathBuf>,
+    /// Which target's verifier to check: aem or redacto.
+    #[arg(long, default_value = "aem", value_parser = convert::parse_target, global = true)]
+    target: OutputTarget,
 }
 
 #[derive(Subcommand, Debug)]
-enum BrowserAction {
-    /// Warm the npm cache with the pinned Playwright MCP and confirm Node and
-    /// Google Chrome are usable. Needs a network connection once; needs no AEM.
+enum VerifyAction {
+    /// Pull the public images the verifiers run (headless Chromium, Postgres).
+    /// Needs a network connection once. The AEM image is private: pull it by
+    /// hand after `az acr login` (see docker/aem/README.md).
     Prepare,
-    /// The full preflight a run performs: prepare, log in to the configured
-    /// AEM instance, start the browser and open the instance in it.
+    /// The preflight a run performs: the settings, Docker, the images, the AEM
+    /// data volume and pdfium.
     Check,
 }
 
-/// `blueprint browser prepare|check`.
-fn browser_command(args: BrowserArgs) -> Result<(), Box<dyn std::error::Error>> {
+/// `blueprint verify prepare|check`.
+fn verify_command(args: VerifyArgs) -> Result<(), Box<dyn std::error::Error>> {
     let settings = runner::AppSettings::load();
-    let npx = args.npx.or_else(|| {
-        let configured = settings.browser_npx_path.trim();
-        (!configured.is_empty()).then(|| PathBuf::from(configured))
-    });
-    let cfg = agent::browser::BrowserConfig { npx };
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
-    let mut progress = |line: &str| println!("{line}");
     runtime.block_on(async {
         match args.action {
-            BrowserAction::Prepare => {
-                let prepared = agent::browser::prepare(&cfg, &mut progress).await?;
-                println!("{prepared}");
-                println!("Ready. Runs with --upload will use this without touching the network.");
-            }
-            BrowserAction::Check => {
-                let Some(conn) = settings.aem_connection() else {
-                    return Err(
-                        "No AEM connection configured in the desktop app settings; `browser check` logs in \
-                         to AEM. Use `browser prepare` for the machine-side checks only."
-                            .into(),
-                    );
+            VerifyAction::Prepare => {
+                let platform = match settings.aem_verify.platform.trim() {
+                    "" => "linux/amd64",
+                    platform => platform,
                 };
-                println!("AEM: {} as {}", conn.host, conn.username);
-                let (report, session) = agent::browser::preflight(&cfg, &conn, &mut progress).await?;
-                session.shutdown().await;
+                agent::u2s::pull_public_images(
+                    &["chromedp/headless-shell:stable", &settings.redacto_verify.postgres_image],
+                    platform,
+                )
+                .await?;
+                println!("The public verifier images are present.");
+            }
+            VerifyAction::Check => {
+                let report = match args.target {
+                    OutputTarget::Aem => agent::u2s::aem_verify_readiness(&settings.aem_verify).await?,
+                    OutputTarget::Redacto => {
+                        agent::u2s::redacto_verify_readiness(&settings.redacto_verify).await?
+                    }
+                };
                 println!("{report}");
                 println!("Ready.");
             }
@@ -200,7 +198,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             list_sessions();
             return Ok(());
         }
-        Some(Command::Browser(browser_args)) => return browser_command(browser_args),
+        Some(Command::Verify(verify_args)) => return verify_command(verify_args),
         None => {}
     }
 

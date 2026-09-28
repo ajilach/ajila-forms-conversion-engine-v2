@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use dioxus::prelude::*;
 
-use crate::models::{AbortFlag, ProcessingState, RunState, UploadState};
+use crate::models::{AbortFlag, ProcessingState, RunState};
 use crate::tabs::{
     active_after_close, RestoredView, SavedTab, SavedWorkspace, TabId, TabPhase, MAX_TABS,
     WORKSPACE_VERSION,
@@ -49,8 +49,6 @@ pub struct Tab {
     pub session_id: Signal<Option<String>>,
     /// Stops this tab's run, and only this tab's run.
     pub abort: Signal<AbortFlag>,
-    /// Progress of the on-demand "Upload to AEM" action.
-    pub aem_upload: Signal<UploadState>,
     /// Set when this tab came back from a previous session and has not been
     /// re-run since, so the box can say what did and did not survive.
     pub restored: Signal<Option<RestoredView>>,
@@ -86,7 +84,6 @@ impl Tab {
             timeline_open: app(false),
             session_id: app(None),
             abort: app(AbortFlag::default()),
-            aem_upload: app(UploadState::default()),
             restored: app(None),
             last_download: app(HashMap::new()),
             total_spend: app(pipeline::Spend::default()),
@@ -121,11 +118,6 @@ impl Tab {
             timeline_open: app(false),
             session_id: app(saved.session_id.clone()),
             abort: app(AbortFlag::default()),
-            aem_upload: app(if saved.aem_uploaded {
-                UploadState::Success
-            } else {
-                UploadState::default()
-            }),
             restored: app(match view {
                 RestoredView::Finished | RestoredView::Interrupted => Some(view),
                 // Nothing came back, so there is nothing to explain.
@@ -156,8 +148,6 @@ impl Tab {
                 .collect(),
             phase: TabPhase::of(&state, (self.processing)()),
             form_code: state.form_code.clone(),
-            aem_uploaded: state.aem_uploaded,
-            aem_form_path: state.aem_form_path.clone(),
             elapsed_secs: state.elapsed_secs,
             warnings: state.warnings.clone(),
             feedback_draft: self.feedback.read().clone(),
@@ -183,7 +173,6 @@ impl Tab {
         self.timeline_open.manually_drop();
         self.session_id.manually_drop();
         self.abort.manually_drop();
-        self.aem_upload.manually_drop();
         self.restored.manually_drop();
         self.last_download.manually_drop();
         self.total_spend.manually_drop();

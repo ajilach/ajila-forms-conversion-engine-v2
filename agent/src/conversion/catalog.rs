@@ -192,12 +192,24 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
         ("generate_xsd",                      target::BOTH,    AEM_AUTHOR | MCP),
         ("generate_html",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | MCP),
 
-        // §6 live AEM.
-        ("upload_to_aem",                     target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("fetch_aem_form_html",               target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("fetch_aem_dor_pdf",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_form_urls",                     target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("inspect_pdf",                       target::AEM,     AEM_AUTHOR | AEM_REVIEWER),
+        // §6 verification through the vendored u2s verifiers (crate::u2s): the
+        // AEM package against a Docker AEM, the Redacto dump against a throwaway
+        // Postgres.
+        ("aem_verify_status",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_package_check",          target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_run",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_open",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_controls",               target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_set",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_next",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_prev",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_reset",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_screenshot",             target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_submit",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("aem_verify_close",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("redacto_verify_status",             target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("redacto_verify_dump_check",         target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("redacto_verify_run",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
 
         // §7 references. The reference *forms* are AEM packages, so they are
         // pure token cost for a text-only Redacto document; only the reference
@@ -219,13 +231,6 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
     ]
 };
 
-/// The single scoping decision for the externally discovered browser tool
-/// family (Playwright MCP, see `crate::browser`). Its tool names are only known
-/// at runtime, so this is one row for the whole family rather than one per
-/// tool: the Author and Reviewer of an AEM run, nobody else. An external MCP
-/// client brings its own browser, the Analyst and the describe pass only read,
-/// and a Redacto document has nothing to click through.
-pub const BROWSER_SCOPES: scope::Mask = scope::AEM_AUTHOR | scope::AEM_REVIEWER;
 
 fn tool_specs() -> Vec<serde_json::Value> {
     {
@@ -372,7 +377,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             // §5 output
             t(
                 "build_aem_package",
-                "Build the AEM FileVault package (ZIP) from the current AEM tree. Requires an AEM tree (author it with set_aem_translated, or refine the pre-loaded one). Stores it for upload/export.",
+                "Build the AEM FileVault package (ZIP) from the current AEM tree. Requires an AEM tree (author it with set_aem_translated, or refine the pre-loaded one). Stores it for verification and export.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
@@ -393,7 +398,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "validate_aem_package",
-                "Validate the built package: checks the required FileVault structure (META-INF + jcr_root boilerplate) and validates the form and DAM .content.xml against the AEM contract (well-formedness, escaping, JCR/CQ/FD/Sling structure). Run after build_aem_package, before upload_to_aem.",
+                "Validate the built package: checks the required FileVault structure (META-INF + jcr_root boilerplate) and validates the form and DAM .content.xml against the AEM contract (well-formedness, escaping, JCR/CQ/FD/Sling structure). Run after build_aem_package, before verifying with aem_verify_run or aem_verify_open.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
@@ -413,37 +418,6 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 "generate_html",
                 "Generate an HTML preview of the form. Renders the working structured tree, or — on an AEM run, which has none — the working AEM tree lifted back to structured content.",
                 serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            // §6 deploy + verify
-            t(
-                "upload_to_aem",
-                "Upload and install the built package on the configured AEM instance.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "fetch_aem_form_html",
-                "Fetch the rendered Adaptive Form HTML from AEM (after upload) for verification.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "fetch_aem_dor_pdf",
-                "Fetch the Document-of-Record PDF from AEM and view its first page.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "aem_form_urls",
-                "The deployed form's URLs (after upload_to_aem): its JCR path, one preview URL per language (the DAM rendition outside the editor, which is what a reviewer opens with browser_navigate) and the editor URL.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "inspect_pdf",
-                "Look at a PDF the browser downloaded (the PDF a submission produces). Without `path`: list the files in the browser's output directory, newest first. With `path` (a file name from that list): render every page of that PDF as an image. Only files the browser produced can be inspected.",
-                serde_json::json!({"path": {"type": "string", "description": "File name from the listing. Omit to list."}}),
                 serde_json::json!([]),
             ),
             // §7 references
@@ -605,7 +579,17 @@ mod catalog_guards {
         "total_matches",
         "xfa_foreground",
         "xfa_full",
+        // Verifier arguments and reply fields.
+        "artifact_blob",
+        "artifact_path",
+        "dry_run",
+        "has_next",
+        "is_terminal",
+        "package_path",
+        "session_id",
         // Tool family prefixes (`xfa_*`), not tools.
+        "aem_verify",
+        "redacto_verify",
         "xfa",
         "parent_path",
         "ref_id",
@@ -620,7 +604,6 @@ mod catalog_guards {
         "start_conversion",
         "write_package",
         "validate_aem_package_from_file",
-        "upload_aem_package_from_file",
     ];
 
     fn specs() -> Vec<serde_json::Value> {
@@ -665,10 +648,7 @@ mod catalog_guards {
     #[test]
     fn prose_only_names_tools_that_exist() {
         let catalog = specs();
-        let mut names: BTreeSet<&str> = catalog.iter().filter_map(|t| t["name"].as_str()).collect();
-        // The browser tools are offered alongside the catalog (see BROWSER_SCOPES),
-        // so the prompts may name them too.
-        names.extend(crate::browser::BROWSER_TOOLS.iter().copied());
+        let names: BTreeSet<&str> = catalog.iter().filter_map(|t| t["name"].as_str()).collect();
 
         let mut prose = String::new();
         for tool in &catalog {
@@ -829,49 +809,26 @@ mod catalog_guards {
         }
     }
 
-    /// The browser family is offered next to the catalog, so its names must not
-    /// shadow an engine tool, and it must reach exactly the two stages that
-    /// upload and verify, never a read-only pass, a Redacto stage or an MCP
-    /// client that has its own browser.
+    /// Each verifier checks one target's artifact, so it reaches that target's
+    /// Author and Reviewer (and an MCP client), never the other target, a
+    /// read-only pass or the Analyst.
     #[test]
-    fn the_browser_family_is_scoped_once_and_collides_with_nothing() {
-        for name in crate::browser::BROWSER_TOOLS {
-            assert!(
-                !catalog().iter().any(|t| t.name() == *name),
-                "{name} is both a browser tool and an engine tool"
-            );
-            assert!(
-                name.starts_with("browser_"),
-                "{name}: the executor routes on the prefix"
-            );
-        }
-        assert_eq!(BROWSER_SCOPES, scope::AEM_AUTHOR | scope::AEM_REVIEWER);
-        assert_eq!(
-            BROWSER_SCOPES
-                & (scope::MCP | scope::DESCRIBE | scope::AEM_ANALYST | scope::REDACTO_STAGES),
-            0
-        );
-
-        // The Rust-side companions of the browser go where the browser goes.
-        let has = |scope, name: &str| {
-            tools_for(OutputTarget::Aem, scope)
+    fn each_verifier_reaches_only_its_own_targets_writers() {
+        for (prefix, target) in [
+            ("aem_verify_", OutputTarget::Aem),
+            ("redacto_verify_", OutputTarget::Redacto),
+        ] {
+            let family: Vec<&ToolSpec> = catalog()
                 .iter()
-                .any(|t| t["name"].as_str() == Some(name))
-        };
-        for name in ["aem_form_urls", "inspect_pdf"] {
-            assert!(
-                has(scope::AEM_AUTHOR, name) && has(scope::AEM_REVIEWER, name),
-                "{name}"
-            );
-            assert!(
-                !has(scope::AEM_ANALYST, name) && !has(scope::DESCRIBE, name),
-                "{name}"
-            );
+                .filter(|t| t.name().starts_with(prefix))
+                .collect();
+            assert!(!family.is_empty(), "no {prefix}* tools in the catalog");
+            for tool in family {
+                assert_eq!(tool.targets, target_mask(target), "{}", tool.name());
+                assert_eq!(tool.scopes & (scope::DESCRIBE | scope::AEM_ANALYST | scope::REDACTO_ANALYST), 0, "{}", tool.name());
+                assert_ne!(tool.scopes & scope::MCP, 0, "{}", tool.name());
+            }
         }
-        // inspect_pdf reads the browser's output directory, which an MCP client
-        // never has; aem_form_urls is useful to anyone who uploaded.
-        assert!(!has(scope::MCP, "inspect_pdf"));
-        assert!(has(scope::MCP, "aem_form_urls"));
     }
 
     #[test]

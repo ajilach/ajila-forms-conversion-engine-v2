@@ -17,7 +17,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use blueprint::{
-    AemConfig, AemConnection, AemI18nText, AemNode, AemNodeTranslated, AemOptionTranslated,
+    AemConfig, AemI18nText, AemNode, AemNodeTranslated, AemOptionTranslated,
     Context, OutputTarget, RedactoDump, StructuredNode,
 };
 
@@ -136,44 +136,6 @@ pub enum ReplyBlock {
 pub struct ReviewResult {
     pub approved: bool,
     pub report: String,
-}
-
-/// Settings key under which the desktop app persists its serialized settings
-/// blob in the shared `history.db` (see `app`'s `AppSettings`).
-const APP_SETTINGS_KEY: &str = "app";
-
-/// Build an AEM connection from the app settings stored in the shared
-/// `history.db`, so a conversion driven headlessly (e.g. over MCP) can
-/// upload/verify against the same instance the desktop app is configured for.
-///
-/// Reads the `aem_host` / `aem_username` / `aem_password` fields out of the
-/// settings blob — mirroring `AppSettings::aem_connection` — and returns `None`
-/// when no settings are stored or host/username are blank.
-pub fn aem_connection_from_settings() -> Option<AemConnection> {
-    let json = crate::db::get_setting(APP_SETTINGS_KEY)?;
-    let v: serde_json::Value = serde_json::from_str(&json).ok()?;
-    let host = v
-        .get("aem_host")
-        .and_then(|h| h.as_str())
-        .unwrap_or_default()
-        .trim();
-    let username = v
-        .get("aem_username")
-        .and_then(|u| u.as_str())
-        .unwrap_or_default()
-        .trim();
-    if host.is_empty() || username.is_empty() {
-        return None;
-    }
-    let password = v
-        .get("aem_password")
-        .and_then(|p| p.as_str())
-        .unwrap_or_default();
-    Some(AemConnection {
-        host: host.trim_end_matches('/').to_string(),
-        username: username.to_string(),
-        password: password.to_string(),
-    })
 }
 
 /// Validate FileVault package bytes (session-agnostic).
@@ -320,10 +282,6 @@ struct AemState {
     package_bound: Option<Vec<u8>>,
     /// The derived `#aem` edit-history session id, once anything is snapshotted.
     session: Option<String>,
-    /// Set once the package has been uploaded + installed on AEM.
-    uploaded: bool,
-    /// JCR path of the uploaded form on AEM (for the "done" screen).
-    form_path: Option<String>,
 }
 
 /// Everything a run aimed at [`OutputTarget::Redacto`] accumulates.
@@ -387,7 +345,6 @@ impl TargetState {
 pub struct ConversionAgent {
     profile: Option<String>,
     context: Context,
-    conn: Option<AemConnection>,
     current_pdfs: Vec<(String, Vec<u8>)>,
     extractors: HashMap<String, Extractor>,
 
@@ -417,10 +374,6 @@ pub struct ConversionAgent {
     /// controller via [`take_review`](Self::take_review).
     review: Option<ReviewResult>,
 
-    /// The browser the preflight started, when browser verification is on.
-    /// Offers its tools to the Author and Reviewer (see `catalog::BROWSER_SCOPES`).
-    browser: Option<crate::browser::BrowserSession>,
-
     /// The vendored u2s tool servers, created on the first u2s call or
     /// `get_source_info` (see [`Self::u2s_tools`]).
     u2s: Option<crate::u2s::U2sTools>,
@@ -438,7 +391,6 @@ impl ConversionAgent {
     pub fn new(
         profile: Option<String>,
         files: Vec<(String, Vec<u8>)>,
-        conn: Option<AemConnection>,
         structured_session: String,
         target: OutputTarget,
     ) -> Self {
@@ -473,7 +425,6 @@ impl ConversionAgent {
         let mut agent = Self {
             profile,
             context,
-            conn,
             current_pdfs: pdfs,
             extractors: HashMap::new(),
             structured: Vec::new(),
@@ -482,7 +433,6 @@ impl ConversionAgent {
             structured_session,
             matcher: None,
             review: None,
-            browser: None,
             u2s: None,
         };
         // Record the pre-loaded template as the initial AEM edit so it shows in
@@ -491,23 +441,6 @@ impl ConversionAgent {
             agent.aem_translated_edited("Template (from uploaded package)");
         }
         agent
-    }
-
-    /// Where an AEM run will install this form, before any work is done.
-    ///
-    /// `None` when the run targets no AEM instance, or when the profile has no
-    /// AEM config to derive a path from. Deliberately reads the *base* config
-    /// rather than [`Self::config`]: only `form_path` and `form_dir` matter
-    /// here, and those do not depend on which languages the document turns out
-    /// to carry — so the path is knowable up front, which is what lets a
-    /// colliding run be refused before it spends a token.
-    pub fn planned_jcr_path(&self) -> Option<String> {
-        if self.target.target() != OutputTarget::Aem {
-            return None;
-        }
-        let profile = self.profile.as_deref()?;
-        let cfg = blueprint::load_aem_config(profile, &self.context).ok()?;
-        Some(form_jcr_path(&cfg))
     }
 
     // ── Target-state access ──────────────────────────────────────────────────
@@ -565,48 +498,57 @@ impl ConversionAgent {
         }
     }
 
-    /// Attach the browser session the preflight started. From then on the
-    /// stages in `catalog::BROWSER_SCOPES` are offered its tools and
-    /// `browser_*` calls are forwarded to it.
-    pub fn with_browser(mut self, session: crate::browser::BrowserSession) -> Self {
-        self.browser = Some(session);
-        self
+    /// Start the UBS AEM verifier for this run: from then on the
+    /// `aem_verify_*` tools check the built package against a Docker AEM.
+    /// Run [`crate::u2s::aem_verify_readiness`] first; this only validates the
+    /// settings.
+    pub fn with_aem_verify(mut self, settings: &crate::u2s::AemVerifySettings) -> Result<Self, String> {
+        self.u2s_tools()?.attach_aem_verify(settings)?;
+        Ok(self)
     }
 
-    /// Whether a browser session is attached to this run.
-    pub fn has_browser(&self) -> bool {
-        self.browser.is_some()
+    /// Start the UBS Redacto verifier for this run: from then on the
+    /// `redacto_verify_*` tools import the built dump into a throwaway
+    /// Postgres. Run [`crate::u2s::redacto_verify_readiness`] first.
+    pub fn with_redacto_verify(
+        mut self,
+        settings: &crate::u2s::RedactoVerifySettings,
+    ) -> Result<Self, String> {
+        self.u2s_tools()?.attach_redacto_verify(settings);
+        Ok(self)
     }
 
-    /// The tools a stage is offered: the catalog's, plus the browser's for the
-    /// stages `catalog::BROWSER_SCOPES` names when a session is attached. This
-    /// is what the controller hands the model; `tools_for` alone is the
-    /// catalog-only view the MCP server and the tests use.
+    /// Whether a verifier is attached (and not yet torn down).
+    pub fn has_verifier(&self) -> bool {
+        self.u2s.as_ref().is_some_and(|t| t.has_verifier())
+    }
+
+    /// The tools a stage is offered.
     pub fn tools_for_stage(&self, scopes: scope::Mask) -> Vec<serde_json::Value> {
-        let mut tools = tools_for(self.target(), scopes);
-        if let Some(browser) = &self.browser
-            && self.target() == OutputTarget::Aem
-            && scopes & catalog::BROWSER_SCOPES != 0
-        {
-            tools.extend(browser.tools().iter().cloned());
+        tools_for(self.target(), scopes)
+    }
+
+    /// Tear down the containers the verifier started, if any. Called by the
+    /// controller on every way out of a run, so no AEM or Postgres container
+    /// outlives it.
+    pub async fn shutdown_verifiers(&mut self) -> Result<(), String> {
+        match self.u2s.as_mut() {
+            Some(tools) => tools.shutdown().await,
+            None => Ok(()),
         }
-        tools
     }
 
-    /// Notes the browser session accumulated since the last call (restarts),
-    /// for the run's observer.
-    pub fn take_warnings(&mut self) -> Vec<String> {
-        self.browser
-            .as_mut()
-            .map(|b| b.take_warnings())
-            .unwrap_or_default()
-    }
-
-    /// Close the browser, if one is attached. Called by the controller on every
-    /// way out of a run, so no headless Chrome outlives it.
-    pub async fn shutdown_browser(&mut self) {
-        if let Some(browser) = self.browser.take() {
-            browser.shutdown().await;
+    /// What a verifier tool checks: the latest package or dump this run built.
+    fn verify_artifact(&self) -> Option<crate::u2s::Artifact> {
+        match self.target() {
+            OutputTarget::Aem => self.package().map(|bytes| crate::u2s::Artifact {
+                file_name: "package.zip",
+                bytes,
+            }),
+            OutputTarget::Redacto => self.redacto_dump().map(|dump| crate::u2s::Artifact {
+                file_name: "dump.sql",
+                bytes: dump.to_sql().into_bytes(),
+            }),
         }
     }
 
@@ -715,16 +657,6 @@ impl ConversionAgent {
     /// non-empty.
     pub fn session_id(&self) -> &str {
         &self.structured_session
-    }
-
-    /// Whether the package has been uploaded + installed on AEM.
-    pub fn aem_uploaded(&self) -> bool {
-        self.target.aem().is_some_and(|s| s.uploaded)
-    }
-
-    /// The JCR path of the uploaded form, once uploaded.
-    pub fn aem_form_path(&self) -> Option<String> {
-        self.target.aem().and_then(|s| s.form_path.clone())
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
@@ -1082,106 +1014,10 @@ impl ConversionAgent {
 
 // ── Small helpers ────────────────────────────────────────────────────────────
 
-fn base64_encode(bytes: &[u8]) -> String {
-    use base64::Engine;
-    base64::prelude::BASE64_STANDARD.encode(bytes)
-}
-
 fn dedup(mut v: Vec<&str>) -> Vec<String> {
     v.sort();
     v.dedup();
     v.into_iter().map(String::from).collect()
-}
-
-fn truncate(s: &str, max: usize) -> String {
-    if s.chars().count() > max {
-        format!("{}…", s.chars().take(max).collect::<String>())
-    } else {
-        s.to_string()
-    }
-}
-
-/// The form's JCR node path from its AEM config.
-fn form_jcr_path(cfg: &AemConfig) -> String {
-    join_form_path(&cfg.form_path, &cfg.form_dir)
-}
-
-fn join_form_path(form_path: &str, form_dir: &str) -> String {
-    format!(
-        "/content/forms/af/{}/{}",
-        form_path.trim_matches('/'),
-        form_dir.trim_matches('/')
-    )
-}
-
-/// The preview a reviewer opens in a browser: the DAM rendition of the form,
-/// outside the editor, in one language. This is what humans use; the form's
-/// own `.html` render under `/content/forms/af` tends to 401 outside the
-/// editor.
-fn form_preview_url(host: &str, cfg: &AemConfig, lang: &str) -> String {
-    // The mandator (entity code, e.g. 033 for Italy, 019 for Germany) is not
-    // decoration: the UBS runtime reads it for reference data and the
-    // submit/DoR backend, so a preview without it renders but cannot submit.
-    let mandator = cfg
-        .mandator
-        .as_deref()
-        .map(|m| format!("&mandator={m}"))
-        .unwrap_or_default();
-    format!(
-        "{}/content/dam/formsanddocuments/{}/{}/jcr:content?wcmmode=disabled&afAcceptLang={lang}{mandator}",
-        host.trim_end_matches('/'),
-        cfg.form_path.trim_matches('/'),
-        cfg.form_dir.trim_matches('/')
-    )
-}
-
-/// The form opened in the AEM Forms editor.
-fn form_editor_url(host: &str, cfg: &AemConfig) -> String {
-    format!(
-        "{}/editor.html{}.html",
-        host.trim_end_matches('/'),
-        form_jcr_path(cfg)
-    )
-}
-
-/// The URLs of a deployed form, as the `aem_form_urls` tool and the
-/// `upload_to_aem` result report them: the JCR path, one preview per language
-/// (master first) and the editor.
-fn form_urls_text(host: &str, cfg: &AemConfig) -> String {
-    let mut langs: Vec<&str> = vec![cfg.master_language.as_str()];
-    for l in &cfg.languages {
-        if !langs.contains(&l.as_str()) {
-            langs.push(l);
-        }
-    }
-    let mut out = format!("jcr_path: {}\n", form_jcr_path(cfg));
-    for lang in langs {
-        out.push_str(&format!(
-            "preview ({lang}): {}\n",
-            form_preview_url(host, cfg, lang)
-        ));
-    }
-    out.push_str(&format!("editor: {}", form_editor_url(host, cfg)));
-    out
-}
-
-/// Render the DoR PDF to one base64 JPEG per page via the engine.
-fn render_pdf_pages(pdf: &[u8]) -> Result<Vec<String>, String> {
-    let mut bp =
-        blueprint::Blueprint::from_pdf_bytes(pdf).map_err(|e| format!("PDF parse: {e}"))?;
-    let states = bp.states().map_err(|e| format!("states: {e}"))?;
-    let state = states.iter().next().ok_or("no state in DoR PDF")?;
-    let pages = state
-        .render_plain_pages(1.5)
-        .map_err(|e| format!("render: {e}"))?;
-    pages
-        .iter()
-        .map(|img| {
-            crate::image_encode::encode_rgba_to_jpeg(img, 82)
-                .map(|jpeg| base64_encode(&jpeg))
-                .map_err(|e| format!("encode: {e}"))
-        })
-        .collect()
 }
 
 #[cfg(test)]
@@ -1239,7 +1075,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             "test-derived-outputs".into(),
             OutputTarget::Aem,
         );
@@ -1290,7 +1125,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             "test-generate-html-size".into(),
             OutputTarget::Aem,
         );
@@ -1325,145 +1159,6 @@ mod tests {
         (name.to_string(), bytes)
     }
 
-    fn aem_connection() -> AemConnection {
-        AemConnection {
-            host: "http://localhost:4502".into(),
-            username: "admin".into(),
-            password: "admin".into(),
-        }
-    }
-
-    /// The URLs a reviewer opens are derived from the profile's paths: the DAM
-    /// preview per language (master first) and the editor. Before an upload
-    /// the tool refuses rather than pointing at a form that is not there.
-    #[tokio::test]
-    async fn aem_form_urls_follow_the_profile_and_need_an_upload() {
-        let mut agent = ConversionAgent::new(
-            Some("ubs".into()),
-            vec![fixture("AAEV_019_EN.pdf")],
-            Some(aem_connection()),
-            "test-form-urls".into(),
-            OutputTarget::Aem,
-        );
-        match agent.execute("aem_form_urls", &serde_json::json!({})).await {
-            ToolReply::Error(e) => assert!(e.contains("upload_to_aem"), "{e}"),
-            other => panic!("expected an error before upload, got {other:?}"),
-        }
-
-        let cfg = agent.config().expect("ubs config");
-        let text = form_urls_text("http://localhost:4502/", &cfg);
-        let jcr = form_jcr_path(&cfg);
-        assert!(text.contains(&format!("jcr_path: {jcr}")), "{text}");
-        assert_eq!(
-            cfg.mandator.as_deref(),
-            Some("019"),
-            "AAEV_019 is a Germany form"
-        );
-        assert!(
-            text.contains(&format!(
-                "preview ({}): http://localhost:4502/content/dam/formsanddocuments/{}/{}/jcr:content?wcmmode=disabled&afAcceptLang={}&mandator=019",
-                cfg.master_language,
-                cfg.form_path.trim_matches('/'),
-                cfg.form_dir.trim_matches('/'),
-                cfg.master_language
-            )),
-            "{text}"
-        );
-        assert!(
-            text.contains(&format!(
-                "editor: http://localhost:4502/editor.html{jcr}.html"
-            )),
-            "{text}"
-        );
-        // Every source language gets a preview, each once.
-        for lang in &cfg.languages {
-            assert_eq!(
-                text.matches(&format!("preview ({lang}):")).count(),
-                1,
-                "{text}"
-            );
-        }
-    }
-
-    /// `inspect_pdf` lists the browser's downloads and renders one of them, and
-    /// never reaches outside the browser's output directory.
-    #[tokio::test]
-    async fn inspect_pdf_lists_and_renders_only_the_browser_downloads() {
-        // Rendering needs the profile's fonts, which `pipeline::run` loads at
-        // the start of a run.
-        let _ = blueprint::load_profile_fonts("ubs");
-        let dir = std::env::temp_dir().join(format!("blueprint-inspect-{}", uuid::Uuid::new_v4()));
-        std::fs::create_dir_all(&dir).unwrap();
-        let (name, bytes) = fixture("AAEV_019_EN.pdf");
-        std::fs::write(dir.join("submission.pdf"), &bytes).unwrap();
-        std::fs::write(dir.join("notes.txt"), b"not a pdf").unwrap();
-
-        let mut without = ConversionAgent::new(
-            None,
-            vec![(name.clone(), bytes.clone())],
-            None,
-            "t".into(),
-            OutputTarget::Aem,
-        );
-        assert!(matches!(
-            without.execute("inspect_pdf", &serde_json::json!({})).await,
-            ToolReply::Error(e) if e.contains("No browser session")
-        ));
-
-        let mut agent = ConversionAgent::new(
-            None,
-            vec![(name, bytes)],
-            None,
-            "t".into(),
-            OutputTarget::Aem,
-        )
-        .with_browser(crate::browser::BrowserSession::detached(
-            Vec::new(),
-            dir.clone(),
-        ));
-
-        match agent.execute("inspect_pdf", &serde_json::json!({})).await {
-            ToolReply::Text(listing) => {
-                assert!(
-                    listing.contains("submission.pdf") && listing.contains("notes.txt"),
-                    "{listing}"
-                );
-            }
-            other => panic!("expected a listing, got {other:?}"),
-        }
-        match agent
-            .execute(
-                "inspect_pdf",
-                &serde_json::json!({"path": "submission.pdf"}),
-            )
-            .await
-        {
-            ToolReply::Image { media_type, images } => {
-                assert_eq!(media_type, "image/jpeg");
-                assert!(!images.is_empty(), "at least one rendered page");
-            }
-            other => panic!("expected page images, got {other:?}"),
-        }
-        assert!(matches!(
-            agent.execute("inspect_pdf", &serde_json::json!({"path": "notes.txt"})).await,
-            ToolReply::Error(e) if e.contains("not a PDF")
-        ));
-        let outside =
-            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/input/AAEV_019_EN.pdf");
-        assert!(matches!(
-            agent.execute("inspect_pdf", &serde_json::json!({"path": outside.display().to_string()})).await,
-            ToolReply::Error(e) if e.contains("outside")
-        ));
-        assert!(matches!(
-            agent
-                .execute("inspect_pdf", &serde_json::json!({"path": "../"}))
-                .await,
-            ToolReply::Error(_)
-        ));
-        agent.shutdown_browser().await;
-        assert!(!dir.exists(), "shutdown removes the output directory");
-    }
-
     /// The page header is document furniture the agent reads off the source
     /// and sets itself: it must reach the context of its own language, and only
     /// that one.
@@ -1472,7 +1167,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAAL_019_SP.pdf"), fixture("AAAL_019_EN.pdf")],
-            None,
             String::new(),
             OutputTarget::Redacto,
         );
@@ -1508,7 +1202,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             String::new(),
             OutputTarget::Redacto,
         );
@@ -1535,7 +1228,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAAL_019_SP.pdf"), fixture("AAAL_019_EN.pdf")],
-            None,
             "test-master-context".into(),
             OutputTarget::Redacto,
         );
@@ -1555,7 +1247,6 @@ mod tests {
         let agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             "test-redacto-guard".into(),
             OutputTarget::Redacto,
         );
@@ -1563,7 +1254,6 @@ mod tests {
         assert_eq!(agent.target(), OutputTarget::Redacto);
         assert!(agent.aem_translated().is_none());
         assert!(agent.package().is_none());
-        assert!(!agent.aem_uploaded());
         assert!(agent.aem_session().is_none());
         assert!(agent.form_code().is_none());
 
@@ -1585,7 +1275,6 @@ mod tests {
         let agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             "test-aem-only-guard".into(),
             OutputTarget::Aem,
         );
@@ -1606,7 +1295,6 @@ mod tests {
             let agent = ConversionAgent::new(
                 Some("ubs".into()),
                 Vec::new(),
-                None,
                 format!("test-shared-{}", target.as_str()),
                 target,
             );
@@ -1632,7 +1320,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             "test-schema".into(),
             OutputTarget::Redacto,
         );
@@ -1680,7 +1367,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAEV_019_EN.pdf")],
-            None,
             "test-redacto-authored".into(),
             OutputTarget::Redacto,
         );
@@ -1749,7 +1435,6 @@ mod tests {
         let agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             "test-aem-guard".into(),
             OutputTarget::Aem,
         );
@@ -1881,7 +1566,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             Vec::new(),
-            None,
             "test-config-languages".into(),
             OutputTarget::Aem,
         );
@@ -1925,24 +1609,11 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAAL_019_SP.pdf"), fixture("AAAL_019_EN.pdf")],
-            None,
             String::new(),
             OutputTarget::Aem,
         );
         let config = agent.config().expect("config loads for the ubs profile");
         assert_eq!(config.languages, vec!["en".to_string(), "es".to_string()]);
-    }
-
-    #[test]
-    fn form_path_trims_slashes() {
-        assert_eq!(
-            join_form_path("/ubs/all/", "/AF_FORM/"),
-            "/content/forms/af/ubs/all/AF_FORM"
-        );
-        assert_eq!(
-            join_form_path("ubs", "AF_FORM"),
-            "/content/forms/af/ubs/AF_FORM"
-        );
     }
 
     /// The source documents `get_source_info` lists, parsed.
@@ -1957,7 +1628,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAOS_033_IT.pdf")],
-            None,
             "test-u2s-read".into(),
             OutputTarget::Aem,
         );
@@ -1989,7 +1659,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAOS_033_IT.pdf")],
-            None,
             "test-u2s-refuse".into(),
             OutputTarget::Aem,
         );
@@ -2013,7 +1682,6 @@ mod tests {
         let mut agent = ConversionAgent::new(
             Some("ubs".into()),
             vec![fixture("AAOS_033_IT.pdf")],
-            None,
             "test-u2s-render".into(),
             OutputTarget::Redacto,
         );
@@ -2036,6 +1704,113 @@ mod tests {
             ),
             other => panic!("expected image blocks, got {:?}", reply_kind(&other)),
         }
+    }
+
+    /// Settings that pass validation but point at no real image: enough to
+    /// attach the verifier, whose offline checks never touch Docker.
+    fn offline_aem_verify() -> crate::u2s::AemVerifySettings {
+        crate::u2s::AemVerifySettings {
+            image: "blueprint-test/aem:unused".into(),
+            ..Default::default()
+        }
+    }
+
+    /// The verifier checks the run's own latest build, whatever path the model
+    /// passes, and says what to build when there is nothing yet.
+    #[tokio::test]
+    async fn aem_verify_package_check_checks_the_runs_own_build() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAOS_033_IT.pdf")],
+            "test-verify-package".into(),
+            OutputTarget::Aem,
+        )
+        .with_aem_verify(&offline_aem_verify())
+        .expect("complete settings attach the verifier");
+
+        match agent
+            .execute("aem_verify_package_check", &serde_json::json!({}))
+            .await
+        {
+            ToolReply::Error(e) => assert!(e.contains("build_aem_package"), "{e}"),
+            other => panic!("nothing is built yet: {}", reply_kind(&other)),
+        }
+
+        let set = agent
+            .execute("set_aem_translated", &serde_json::json!({"root": small_aem_tree()}))
+            .await;
+        assert!(!matches!(set, ToolReply::Error(_)), "{}", reply_kind(&set));
+        let built = agent.execute("build_aem_package", &serde_json::json!({})).await;
+        assert!(!matches!(built, ToolReply::Error(_)), "{}", reply_kind(&built));
+
+        let checked = reply_text(
+            agent
+                .execute(
+                    "aem_verify_package_check",
+                    &serde_json::json!({ "package_path": "/nonexistent/other.zip" }),
+                )
+                .await,
+        );
+        assert!(checked.contains("form_jcr_path"), "{checked}");
+        assert!(checked.contains("/content/forms/af/"), "{checked}");
+    }
+
+    /// A verifier tool without a verifier attached says so rather than failing
+    /// obscurely, and the other target's verifier tools are refused outright.
+    #[tokio::test]
+    async fn a_verifier_tool_needs_its_verifier() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            Vec::new(),
+            String::new(),
+            OutputTarget::Aem,
+        );
+        agent.seed_package(vec![0u8; 4]);
+        match agent.execute("aem_verify_package_check", &serde_json::json!({})).await {
+            ToolReply::Error(e) => assert!(e.contains("verifier was not started"), "{e}"),
+            other => panic!("{}", reply_kind(&other)),
+        }
+        match agent.execute("redacto_verify_status", &serde_json::json!({})).await {
+            ToolReply::Error(e) => assert!(e.contains("not available for the"), "{e}"),
+            other => panic!("{}", reply_kind(&other)),
+        }
+    }
+
+    /// The Redacto verifier decodes the run's own dump, offline.
+    #[tokio::test]
+    async fn redacto_verify_dump_check_checks_the_runs_own_dump() {
+        use blueprint::{InlineText, ParagraphNode, TranslatedText};
+
+        let settings = crate::u2s::RedactoVerifySettings::default();
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAEV_019_EN.pdf")],
+            "test-verify-dump".into(),
+            OutputTarget::Redacto,
+        )
+        .with_redacto_verify(&settings)
+        .expect("the Redacto verifier attaches without Docker");
+
+        let mut content = TranslatedText::empty();
+        content.insert("en", InlineText::plain("A paragraph the dump must carry."));
+        let nodes = vec![StructuredNode::Paragraph(ParagraphNode {
+            content,
+            som_path: None,
+            source_name: None,
+        })];
+        let set = agent
+            .execute("set_structured", &serde_json::json!({ "nodes": serde_json::to_value(&nodes).unwrap() }))
+            .await;
+        assert!(reply_text(set).starts_with("OK"));
+        let built = agent.execute("build_redacto_dump", &serde_json::json!({})).await;
+        assert!(!matches!(built, ToolReply::Error(_)), "{}", reply_kind(&built));
+
+        let checked = reply_text(
+            agent
+                .execute("redacto_verify_dump_check", &serde_json::json!({}))
+                .await,
+        );
+        assert!(checked.contains("\"ok\":true") || checked.contains("\"ok\": true"), "{checked}");
     }
 
     fn reply_kind(reply: &ToolReply) -> String {

@@ -8,17 +8,17 @@ mod tabs;
 mod upload;
 mod workspace;
 
-// The headless engine layer (edit-history store, reference store, AEM client)
-// lives in the `agent` crate; the LLM transport and the operator settings live
-// in `runner`, shared with the CLI. Re-export both under the historical
+// The headless engine layer (edit-history store, reference store) lives in
+// the `agent` crate; the LLM transport and the operator settings live in
+// `runner`, shared with the CLI. Re-export both under the historical
 // `crate::*` paths so the rest of the app is unchanged.
-pub use agent::{aem_client, db, references, session};
+pub use agent::{db, references, session};
 pub use runner::settings;
 
 use dioxus::prelude::*;
 
 use components::{AgentFlow, FormTabs, ReferencesPage, SettingsPage};
-use models::{ProcessingState, ProcessingStep, UploadState};
+use models::{ProcessingState, ProcessingStep};
 use settings::AppSettings;
 use tabs::{restored_view, RestoredView, SavedTab, SavedWorkspace, WORKSPACE_KEY};
 use workspace::{Tab, Workspace};
@@ -200,7 +200,6 @@ fn App() -> Element {
         }
 
         tab.session_id.clone().set(None);
-        tab.aem_upload.clone().set(UploadState::Idle);
 
         let config = run_config(tab);
         begin_run(tab);
@@ -279,43 +278,6 @@ fn App() -> Element {
         });
     };
 
-    // ── On-demand AEM install ────────────────────────────────────────────────
-    // Started here rather than inside the result panel: switching tabs unmounts
-    // that panel, and Dioxus cancels a scope's tasks along with it, which would
-    // abandon an install already in flight.
-    let on_aem_upload = move |tab: Tab| {
-        let Some(connection) = app_settings.read().aem_connection() else {
-            return;
-        };
-        let (package, package_name) = {
-            let run = tab.state.read();
-            let Some(package) = run.aem_package.clone() else {
-                return;
-            };
-            (
-                package,
-                run.form_code
-                    .clone()
-                    .unwrap_or_else(|| "forms-package".to_string()),
-            )
-        };
-
-        let mut upload = tab.aem_upload;
-        upload.set(UploadState::Uploading);
-        spawn(async move {
-            match crate::aem_client::upload_and_install_package(
-                &connection,
-                package,
-                &package_name,
-            )
-            .await
-            {
-                Ok(()) => upload.set(UploadState::Success),
-                Err(e) => upload.set(UploadState::Error(e)),
-            }
-        });
-    };
-
     let active = workspace.active_tab();
     let running = workspace.running_count();
 
@@ -386,7 +348,6 @@ fn App() -> Element {
                 tab: active,
                 profiles,
                 ai_available: !app_settings.read().active_api_key().is_empty(),
-                aem_connection: app_settings.read().aem_connection(),
                 on_ai_process: move |files: Vec<(String, Vec<u8>)>| {
                     on_ai_process(active, files);
                 },
@@ -396,16 +357,12 @@ fn App() -> Element {
                 on_continue: move |()| {
                     resume_run(active, pipeline::RunSeed::Continue);
                 },
-                on_aem_upload: move |()| {
-                    on_aem_upload(active);
-                },
                 on_reset: move |_| {
                     active.processing.clone().set(false);
                     active.session_id.clone().set(None);
                     active.files.clone().set(Vec::new());
                     active.feedback.clone().set(String::new());
                     active.timeline_open.clone().set(false);
-                    active.aem_upload.clone().set(UploadState::Idle);
                     active.state.clone().set(ProcessingState::default());
                     // Starting over begins a different form in this tab
                     // slot, so its cost should not carry the old form's total.

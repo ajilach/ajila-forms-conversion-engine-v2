@@ -213,8 +213,6 @@ fn apply_completed(
     state.aem_package_bound = outcome.aem_package_bound;
     state.redacto_sql = outcome.redacto_sql;
     state.form_code = outcome.form_code;
-    state.aem_uploaded = outcome.aem_uploaded;
-    state.aem_form_path = outcome.aem_form_path;
     state.elapsed_secs = Some(completed.elapsed_secs);
 
     Some(completed.session_id)
@@ -267,7 +265,7 @@ mod tests {
             agent_steps: vec![AgentStep {
                 id: "t1".into(),
                 kind: AgentStepKind::Tool,
-                label: "inspect_pdf".into(),
+                label: "pdf_info".into(),
                 detail: String::new(),
                 status: AgentStepStatus::Done,
             }],

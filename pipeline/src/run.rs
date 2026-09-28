@@ -45,8 +45,6 @@ pub struct RunConfig {
     pub extra_instructions: String,
     /// Extra Author guidance when a template tree was pre-loaded; empty if not.
     pub template_note: &'static str,
-    /// Whether an AEM connection is configured — gates the finalize upload step.
-    pub has_aem_connection: bool,
     /// The model every stage runs against. `runner` resolves and rate-limits
     /// this; the controller carries no model tables of its own.
     pub model: ModelHandle,
@@ -132,8 +130,6 @@ pub struct RunOutcome {
     pub xsd_schema: Option<String>,
     pub redacto_sql: Option<String>,
     pub form_code: Option<String>,
-    pub aem_uploaded: bool,
-    pub aem_form_path: Option<String>,
     /// Notes the run accumulated that did not stop it.
     pub warnings: Vec<String>,
 }
@@ -150,8 +146,13 @@ pub async fn run(
 ) -> Option<RunOutcome> {
     let outcome = run_stages(&shared_agent, &config, seed, &obs).await;
     // Every way out (approved, unapproved, aborted, given up at a retry
-    // prompt) closes the browser, so no headless Chrome outlives the run.
-    shared_agent.lock().await.shutdown_browser().await;
+    // prompt) tears the verifier down, so no AEM or Postgres container
+    // outlives the run.
+    if let Err(e) = shared_agent.lock().await.shutdown_verifiers().await {
+        obs.emit(RunEvent::Warning(format!(
+            "The verification containers could not be removed: {e}"
+        )));
+    }
     outcome
 }
 
@@ -304,11 +305,11 @@ async fn run_stages(
         warnings.push(w);
     }
 
-    // Building and uploading a CRX package is AEM-only; for any other target the
-    // dump the Author already validated is the artefact, and calling this would
-    // paint a failed build step on an otherwise successful run.
+    // Building a CRX package is AEM-only; for any other target the dump the
+    // Author already validated is the artefact, and calling this would paint a
+    // failed build step on an otherwise successful run.
     if target == OutputTarget::Aem {
-        ensure_built_and_uploaded(shared_agent, config.has_aem_connection, obs).await;
+        tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
     }
 
     Some(finalize(shared_agent, config, warnings).await)
@@ -344,8 +345,6 @@ async fn finalize(
         xsd_schema,
         redacto_sql,
         form_code,
-        aem_uploaded: agent.aem_uploaded(),
-        aem_form_path: agent.aem_form_path(),
         warnings,
     }
 }
@@ -542,7 +541,6 @@ pub(crate) async fn run_stage(
         max_tokens,
         shared_agent,
         &specs,
-        obs,
         &session_id,
         role.name,
         context_budget.policy(),
@@ -703,12 +701,11 @@ fn build_stage_agent(
     max_tokens: u32,
     shared_agent: &SharedAgent,
     specs: &[serde_json::Value],
-    obs: &SharedObserver,
     session_id: &str,
     role_name: &str,
     memory_policy: Arc<dyn MemoryPolicy>,
 ) -> Agent {
-    let dynamic_tools = tools::dynamic_tools_for(shared_agent, specs, obs);
+    let dynamic_tools = tools::dynamic_tools_for(shared_agent, specs);
     let mut builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
 
     // A throwaway agent with no session of its own (`describe_reference`'s
@@ -818,22 +815,6 @@ async fn tool_step(shared_agent: &SharedAgent, id: &str, tool: &str, obs: &Share
         obs.emit(RunEvent::Warning(warning));
     }
     ok
-}
-
-/// Ensure the package reflects the latest tree (rebuild), then upload if an AEM
-/// connection is configured and it hasn't been uploaded yet. Reuses the agent's
-/// own tools.
-async fn ensure_built_and_uploaded(
-    shared_agent: &SharedAgent,
-    has_aem_connection: bool,
-    obs: &SharedObserver,
-) {
-    let built = tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
-
-    let already_uploaded = shared_agent.lock().await.aem_uploaded();
-    if built && has_aem_connection && !already_uploaded {
-        tool_step(shared_agent, "finalize-upload", "upload_to_aem", obs).await;
-    }
 }
 
 /// A reply's content, split into text characters and image (base64) payload
@@ -1200,7 +1181,6 @@ mod outputs_tests {
         ConversionAgent::new(
             Some("ubs".into()),
             vec![("AAEV_019_EN.pdf".to_string(), bytes)],
-            None,
             format!("test-outputs-{}", target.as_str()),
             target,
         )
@@ -1447,7 +1427,6 @@ mod controller {
         Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(
             None,
             Vec::new(),
-            None,
             String::new(),
             OutputTarget::Redacto,
         )))
@@ -1481,7 +1460,6 @@ mod controller {
             max_review_rounds,
             extra_instructions: String::new(),
             template_note: "",
-            has_aem_connection: false,
             model: ModelHandle::new(model),
             price: no_price(),
             max_tokens: 4096,
@@ -1489,147 +1467,60 @@ mod controller {
         }
     }
 
-    fn browser_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join(format!(
-            "blueprint-pipeline-browser-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&dir).unwrap();
-        dir
-    }
-
-    fn fake_browser_tools() -> Vec<serde_json::Value> {
-        vec![serde_json::json!({
-            "name": "browser_navigate",
-            "description": "fake",
-            "input_schema": {"type": "object", "properties": {"url": {"type": "string"}}, "required": ["url"]},
-        })]
-    }
-
-    fn names(tools: &[serde_json::Value]) -> Vec<&str> {
-        tools.iter().filter_map(|t| t["name"].as_str()).collect()
-    }
-
-    /// Session id empty for the same reason as `bare_agent`.
-    fn aem_agent() -> ConversionAgent {
-        ConversionAgent::new(None, Vec::new(), None, String::new(), OutputTarget::Aem)
-    }
-
-    /// Session id empty for the same reason as `bare_agent`.
-    fn plain_redacto_agent() -> ConversionAgent {
-        ConversionAgent::new(None, Vec::new(), None, String::new(), OutputTarget::Redacto)
-    }
-
-    fn with_fake_browser(agent: ConversionAgent, dir: std::path::PathBuf) -> ConversionAgent {
-        agent.with_browser(agent::browser::BrowserSession::detached(
-            fake_browser_tools(),
-            dir,
-        ))
-    }
-
     fn shared(agent: ConversionAgent) -> SharedAgent {
         Arc::new(tokio::sync::Mutex::new(agent))
     }
 
-    /// The browser family is offered to exactly the stages `BROWSER_SCOPES`
-    /// names, and only when a session is attached: the Author and Reviewer of
-    /// an AEM run see it, the Analyst never does, and a Redacto run has nothing
-    /// to click through even with a session attached. No model involved: this
-    /// is pure tool-catalog scoping.
-    #[test]
-    fn browser_tools_reach_only_the_aem_author_and_reviewer() {
-        let roles = roles::roles_for(OutputTarget::Aem);
-
-        let without = aem_agent();
-        for role in [roles.analyst, roles.author, roles.reviewer] {
-            assert_eq!(
-                without.tools_for_stage(role.scope),
-                agent::tools_for(OutputTarget::Aem, role.scope),
-                "{}",
-                role.name
-            );
-        }
-
-        let with = with_fake_browser(aem_agent(), browser_dir());
-        assert!(with.has_browser());
-        for role in [roles.author, roles.reviewer] {
-            let tools = with.tools_for_stage(role.scope);
-            assert!(
-                names(&tools).contains(&"browser_navigate"),
-                "{}: {:?}",
-                role.name,
-                names(&tools)
-            );
-            // The catalog tools come first and are untouched.
-            assert_eq!(
-                &tools[..tools.len() - 1],
-                &agent::tools_for(OutputTarget::Aem, role.scope)[..]
-            );
-        }
-        assert!(!names(&with.tools_for_stage(roles.analyst.scope)).contains(&"browser_navigate"));
-
-        let redacto = with_fake_browser(plain_redacto_agent(), browser_dir());
-        let redacto_roles = roles::roles_for(OutputTarget::Redacto);
-        for role in [
-            redacto_roles.analyst,
-            redacto_roles.author,
-            redacto_roles.reviewer,
-        ] {
-            assert!(
-                !names(&redacto.tools_for_stage(role.scope)).contains(&"browser_navigate"),
-                "{}",
-                role.name
-            );
-        }
+    /// A Redacto agent with its verifier attached. Attaching touches no
+    /// Docker; only a verifier call or the teardown would.
+    fn redacto_agent_with_verifier() -> SharedAgent {
+        let settings = agent::u2s::RedactoVerifySettings::default();
+        let agent = ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
+            .with_redacto_verify(&settings)
+            .expect("attaching the verifier needs no Docker");
+        assert!(agent.has_verifier());
+        shared(agent)
     }
 
-    /// Whatever way a run ends, its browser is closed and its output directory
-    /// removed: no headless Chrome and no downloads outlive the run.
+    /// Whatever way a run ends, its verifier is torn down: no AEM or Postgres
+    /// container outlives the run. The teardown itself may fail where no
+    /// Docker runs, but it always detaches the verifier.
     #[tokio::test]
-    async fn every_way_out_of_a_run_closes_the_browser() {
+    async fn every_way_out_of_a_run_tears_the_verifier_down() {
         // Approved.
-        let dir = browser_dir();
-        let agent = shared(with_fake_browser(aem_agent(), dir.clone()));
+        let agent = redacto_agent_with_verifier();
         let model = MockCompletionModel::from_stream_turns([
             text_turn("PLAN"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
-        let mut run_config = config(AbortFlag::default(), 1, model);
-        run_config.target = OutputTarget::Aem;
         let (obs, _) = recorder();
-        let outcome = run(agent, run_config, RunSeed::Fresh, obs).await;
+        let outcome = run(agent.clone(), config(AbortFlag::default(), 1, model), RunSeed::Fresh, obs).await;
         assert!(outcome.is_some());
-        assert!(!dir.exists(), "the browser output directory must be removed on approval");
+        assert!(!agent.lock().await.has_verifier(), "torn down on approval");
 
         // Unapproved: the review rounds run out.
-        let dir = browser_dir();
-        let agent = shared(with_fake_browser(aem_agent(), dir.clone()));
+        let agent = redacto_agent_with_verifier();
         let model = MockCompletionModel::from_stream_turns([
             text_turn("PLAN"),
             text_turn("BUILT"),
             review_turn(false, "nope"),
             text_turn("FIXED"),
         ]);
-        let mut run_config = config(AbortFlag::default(), 1, model);
-        run_config.target = OutputTarget::Aem;
         let (obs, _) = recorder();
-        let outcome = run(agent, run_config, RunSeed::Fresh, obs).await;
+        let outcome = run(agent.clone(), config(AbortFlag::default(), 1, model), RunSeed::Fresh, obs).await;
         assert!(outcome.is_some());
-        assert!(!dir.exists(), "the browser output directory must be removed when unapproved");
+        assert!(!agent.lock().await.has_verifier(), "torn down when unapproved");
 
         // Aborted before the first turn.
-        let dir = browser_dir();
-        let agent = shared(with_fake_browser(aem_agent(), dir.clone()));
+        let agent = redacto_agent_with_verifier();
         let abort = AbortFlag::default();
         abort.abort();
         let model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
-        let mut run_config = config(abort, 1, model);
-        run_config.target = OutputTarget::Aem;
         let (obs, _) = recorder();
-        let outcome = run(agent, run_config, RunSeed::Fresh, obs).await;
+        let outcome = run(agent.clone(), config(abort, 1, model), RunSeed::Fresh, obs).await;
         assert!(outcome.is_none());
-        assert!(!dir.exists(), "the browser output directory must be removed on abort");
+        assert!(!agent.lock().await.has_verifier(), "torn down on abort");
     }
 
     /// A stage that burns its whole turn budget without finishing (no
@@ -2045,7 +1936,6 @@ mod controller {
             Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(
                 None,
                 Vec::new(),
-                None,
                 session_id.clone(),
                 OutputTarget::Redacto,
             )))

@@ -29,20 +29,6 @@ pub enum ProcessingStep {
     Complete,
 }
 
-/// Lifecycle of the on-demand "Upload to AEM" action, surfaced inside the button.
-///
-/// Held by the tab rather than by the button: the upload runs in the background
-/// and switching tabs unmounts the button, which would otherwise both cancel the
-/// request and lose the fact that it was ever made.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
-pub enum UploadState {
-    #[default]
-    Idle,
-    Uploading,
-    Success,
-    Error(String),
-}
-
 /// Kind of an agent activity step.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum AgentStepKind {
@@ -134,11 +120,6 @@ pub struct ProcessingState {
     pub warnings: Vec<String>,
     /// Live activity log for the Agent Processing run (thoughts + tool calls).
     pub agent_steps: Vec<AgentStep>,
-    /// `true` once the agent has successfully uploaded + installed the built
-    /// package on the configured AEM instance during its run.
-    pub aem_uploaded: bool,
-    /// JCR path of the uploaded form on AEM, shown on the agent "done" screen.
-    pub aem_form_path: Option<String>,
     /// Wall-clock duration of the most recent agent run, in seconds. Shown
     /// next to "Finished" on the agent "done" screen.
     pub elapsed_secs: Option<u64>,

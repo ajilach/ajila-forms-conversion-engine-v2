@@ -19,16 +19,6 @@ title = "{{ xfa.formrange_code }}"
 
 master_language = "en"
 
-# =============================================================================
-# AEM upload connection (optional) — used by "Edit AEM" → Upload to AEM and the
-# Smart AEM Edit auto-upload. AEM 6.5, HTTP basic auth. Prefer `password_env` so
-# the secret is not committed.
-# =============================================================================
-# [connection]
-# host = "http://localhost:4502"
-# username = "admin"
-# password_env = "AEM_PASSWORD"   # or: password = "admin"
-
 # Where the schema lives when a package binds to one. Always set, because it is
 # what lets a bound package be built on demand; the DAM metadata only advertises
 # it when `bind_to_xsd` is on, so the default package is unaffected.

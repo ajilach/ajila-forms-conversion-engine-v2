@@ -18,7 +18,6 @@
 //! executors). A rig-native memory/compaction policy taking over per-turn
 //! shaping is tracked separately, not yet built.
 
-pub mod aem_lock;
 pub mod artifacts;
 pub mod client;
 pub mod models;

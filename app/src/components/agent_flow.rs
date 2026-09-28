@@ -14,7 +14,7 @@ use super::spinner::{Spinner, SpinnerSize};
 use crate::files::download_file;
 use crate::models::{
     AbortFlag, AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, RetryAction,
-    RunStateRead, UploadState,
+    RunStateRead,
 };
 use crate::run_status::{screen_for, RunStatus, Screen};
 use crate::tabs::RestoredView;
@@ -72,8 +72,6 @@ pub fn AgentFlow(
     profiles: Vec<String>,
     /// Whether agent processing is available (an API key is configured).
     ai_available: bool,
-    /// AEM upload connection from settings, or `None` if not configured.
-    aem_connection: Option<blueprint::AemConnection>,
     /// Start a fresh agent run in this tab from its uploaded files.
     on_ai_process: EventHandler<Vec<(String, Vec<u8>)>>,
     /// Re-run the agent in the same session with the user's feedback.
@@ -81,8 +79,6 @@ pub fn AgentFlow(
     /// Carry the tab's existing session on with nothing to apply — the agent
     /// finishes the tree the previous run left behind.
     on_continue: EventHandler<()>,
-    /// Install the finished package on the configured AEM instance.
-    on_aem_upload: EventHandler<()>,
     /// Discard the finished result and return to a clean upload state.
     on_reset: EventHandler<()>,
 ) -> Element {
@@ -115,9 +111,7 @@ pub fn AgentFlow(
                                 total_spend: *tab.total_spend.read(),
                                 files: uploaded_files,
                                 profile: tab.profile.read().clone(),
-                                aem_connection,
                                 abort: tab.abort.peek().clone(),
-                                aem_upload: tab.aem_upload,
                                 restored: *tab.restored.read(),
                                 // The same rule the run itself uses, so the box
                                 // never offers an action that would find nothing
@@ -126,7 +120,6 @@ pub fn AgentFlow(
                                 last_download: tab.last_download,
                                 timeline_open,
                                 feedback,
-                                on_aem_upload: move |()| on_aem_upload.call(()),
                                 on_feedback: move |text: String| on_feedback.call(text),
                                 on_continue: move |()| on_continue.call(()),
                                 // Answer a paused run's retry prompt; the agent loop
@@ -325,11 +318,7 @@ fn RunBox(
     total_spend: pipeline::Spend,
     files: Signal<Vec<(String, Vec<u8>)>>,
     profile: Option<String>,
-    aem_connection: Option<blueprint::AemConnection>,
     abort: AbortFlag,
-    /// Progress of the on-demand AEM install, held by the tab so switching away
-    /// mid-upload neither cancels the request nor forgets it was made.
-    aem_upload: Signal<UploadState>,
     /// Set when this tab came back from a previous session, so the box can say
     /// what did and did not survive the restart.
     restored: Option<RestoredView>,
@@ -343,7 +332,6 @@ fn RunBox(
     on_feedback: EventHandler<String>,
     /// Resume this tab's session as it stands, with nothing to apply.
     on_continue: EventHandler<()>,
-    on_aem_upload: EventHandler<()>,
     /// Resume a paused run by re-sending the request that failed.
     on_retry: EventHandler<()>,
     /// Abandon a paused run instead of retrying it.
@@ -398,19 +386,13 @@ fn RunBox(
 
             // ---- Result + feedback (done only) ----
             if done {
-                if state.read().aem_uploaded && let Some(path) = state.read().aem_form_path.as_ref() {
-                    div { class: "ag-aem",
-                        span { class: "ag-aem-label", "Uploaded to AEM" }
-                        span { class: "ag-aem-path", "{path}" }
-                    }
-                }
                 if let Some(restored) = restored {
                     RestoredNotice { restored, can_continue }
                     if can_continue {
                         ContinueBar { restored, on_continue }
                     }
                 }
-                ResultActions { state, aem_connection, aem_upload, last_download, on_aem_upload }
+                ResultActions { state, last_download }
                 if can_continue {
                     FeedbackBox { feedback, on_feedback }
                 }
@@ -924,17 +906,12 @@ fn AbortButton(abort: AbortFlag) -> Element {
     }
 }
 
-/// Everything the finished run offers: one button per artefact it produced,
-/// then the AEM install as the row's single emphasised action.
+/// Everything the finished run offers: one button per artefact it produced.
 #[component]
 fn ResultActions(
     state: RunStateRead,
-    aem_connection: Option<blueprint::AemConnection>,
-    aem_upload: Signal<UploadState>,
     last_download: Signal<std::collections::HashMap<String, std::path::PathBuf>>,
-    on_aem_upload: EventHandler<()>,
 ) -> Element {
-    let upload_state = aem_upload;
     let run = state.read();
 
     rsx! {
@@ -947,42 +924,6 @@ fn ResultActions(
                         artifact,
                         state,
                         last_download,
-                    }
-                }
-            }
-            if run.aem_package.as_ref().filter(|_| Artifact::Package.is_offered(&run)).is_some() {
-                {
-                    let st = upload_state.read().clone();
-                    let uploading = st == UploadState::Uploading;
-                    let no_connection = aem_connection.is_none();
-                    let upload_title = match &st {
-                        UploadState::Error(msg) => msg.clone(),
-                        _ if no_connection => {
-                            "Configure the AEM connection in Settings to enable this".to_string()
-                        }
-                        _ => "Upload and install the package on the configured AEM instance".to_string(),
-                    };
-
-                    rsx! {
-                        button {
-                            class: "btn btn-primary",
-                            disabled: uploading || no_connection,
-                            title: upload_title,
-                            // The request is started by the app, not here: this
-                            // scope unmounts the moment the user switches tab,
-                            // and Dioxus cancels a scope's tasks with it — which
-                            // would abandon an install already in flight.
-                            onclick: move |_| on_aem_upload.call(()),
-                            match st {
-                                UploadState::Uploading => rsx! {
-                                    Spinner { size: SpinnerSize::Sm }
-                                    span { "Uploading…" }
-                                },
-                                UploadState::Success => rsx! { "✓ Uploaded to AEM" },
-                                UploadState::Error(_) => rsx! { "⚠ Upload failed — retry" },
-                                UploadState::Idle => rsx! { "⬆ Upload to AEM" },
-                            }
-                        }
                     }
                 }
             }
@@ -1262,7 +1203,7 @@ mod tests {
             ),
             step(
                 AgentStepKind::Tool,
-                "upload_to_aem",
+                "aem_verify_run",
                 "",
                 AgentStepStatus::Error,
             ),
@@ -1275,7 +1216,7 @@ mod tests {
             "{md}"
         );
         // A detail-less tool call must not leave a dangling em dash.
-        assert!(md.contains("- ✗ `upload_to_aem`\n"), "{md}");
+        assert!(md.contains("- ✗ `aem_verify_run`\n"), "{md}");
     }
 
     /// A multi-line thought has to stay inside the blockquote, otherwise the

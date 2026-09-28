@@ -173,49 +173,6 @@ pub fn load_aem_config(name: &str, ctx: &Context) -> Result<AemConfig, String> {
     Ok(config)
 }
 
-/// Resolved AEM upload connection (host + credentials), ready to use.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AemConnection {
-    /// Base URL of the AEM author instance, with any trailing `/` trimmed.
-    pub host: String,
-    pub username: String,
-    pub password: String,
-}
-
-/// Load the AEM upload connection for a profile, if its `aem/config.toml`
-/// declares a `[connection]` table.
-///
-/// Returns `Ok(None)` when the profile has an AEM config but no `[connection]`.
-/// The password is taken from `password` (literal) or, failing that, the
-/// environment variable named by `password_env`.
-pub fn load_aem_connection(name: &str) -> Result<Option<AemConnection>, String> {
-    if !has_aem_config(name) {
-        return Ok(None);
-    }
-    let profile: AemProfile = read_profile_config_toml(name, "aem")?;
-    let Some(conn) = profile.connection else {
-        return Ok(None);
-    };
-
-    let password = match (&conn.password, &conn.password_env) {
-        (Some(p), _) if !p.is_empty() => p.clone(),
-        (_, Some(var)) => std::env::var(var).map_err(|_| {
-            format!("AEM connection password env var '{var}' is not set for profile '{name}'")
-        })?,
-        _ => {
-            return Err(format!(
-                "AEM connection for profile '{name}' must set either `password` or `password_env`"
-            ));
-        }
-    };
-
-    Ok(Some(AemConnection {
-        host: conn.host.trim_end_matches('/').to_string(),
-        username: conn.username,
-        password,
-    }))
-}
-
 /// Load HTML custom styles for an embedded profile.
 pub fn load_html_custom_styles(name: &str) -> Result<HtmlCustomStyles, String> {
     let html_dir = PROFILES_DIR

@@ -9,11 +9,10 @@
 use std::time::Instant;
 
 use agent::ConversionAgent;
-use agent::browser::BrowserSession;
+use agent::u2s::{AemVerifySettings, RedactoVerifySettings};
 use blueprint::OutputTarget;
 use pipeline::{AbortFlag, RunEvent, RunOutcome, RunSeed, SharedObserver};
 
-use crate::aem_lock::{self, AemLease};
 use crate::settings::AppSettings;
 use crate::turns::TurnPlan;
 
@@ -62,9 +61,9 @@ pub async fn run_fresh(
         .iter()
         .any(|(_, bytes)| blueprint::detect_aem_zip(bytes));
 
-    // The browser preflight comes first: it is the one step that can refuse
-    // the run, and a refused run should leave no session behind.
-    let browser = browser_for(opts, obs).await?;
+    // The verification preflight comes first: it is the one step that can
+    // refuse the run, and a refused run should leave no session behind.
+    let verification = verification_for(opts, obs).await?;
 
     // Hash on the PDFs when present, otherwise on the template, so the session
     // id is stable for template-only runs.
@@ -89,23 +88,22 @@ pub async fn run_fresh(
             session_label,
         ) {
             Some(id) => id,
-            None => {
-                close_browser(browser).await;
-                return Err(NO_SESSION.to_string());
-            }
+            None => return Err(NO_SESSION.to_string()),
         };
     agent::db::insert_edit(&session_id, "Initial (empty)", "[]");
 
-    let mut agent = ConversionAgent::new(
+    let agent = match verification.attach(ConversionAgent::new(
         opts.profile.clone(),
         files,
-        opts.settings.aem_connection(),
         session_id.clone(),
         opts.target,
-    );
-    if let Some(browser) = browser {
-        agent = agent.with_browser(browser);
-    }
+    )) {
+        Ok(agent) => agent,
+        Err(e) => {
+            agent::db::delete_session(&session_id);
+            return Err(e);
+        }
+    };
 
     // An uploaded content package is an AEM artefact; it is not pre-loaded for
     // any other target, so don't tell the Author it was.
@@ -117,27 +115,7 @@ instead of authoring from scratch."
         ""
     };
 
-    // Before the first token is spent. A refused run leaves no session behind:
-    // an empty session is litter in the history the operator never asked for.
-    let lease = match claim_aem_form(&agent, opts) {
-        Ok(lease) => lease,
-        Err(e) => {
-            agent::db::delete_session(&session_id);
-            agent.shutdown_browser().await;
-            return Err(e);
-        }
-    };
-
-    Ok(drive(
-        agent,
-        opts,
-        RunSeed::Fresh,
-        template_note,
-        session_id,
-        lease,
-        obs,
-    )
-    .await)
+    Ok(drive(agent, opts, RunSeed::Fresh, template_note, session_id, obs).await)
 }
 
 /// Reported when a continuation names a session that holds no document. There
@@ -180,18 +158,14 @@ pub async fn resume(
         return Err(no_prior_state(&session_id));
     }
 
-    let browser = browser_for(opts, obs).await?;
+    let verification = verification_for(opts, obs).await?;
 
-    let mut agent = ConversionAgent::new(
+    let mut agent = verification.attach(ConversionAgent::new(
         opts.profile.clone(),
         pdfs,
-        opts.settings.aem_connection(),
         session_id.clone(),
         opts.target,
-    );
-    if let Some(browser) = browser {
-        agent = agent.with_browser(browser);
-    }
+    ))?;
     if let Some(prior) = prior {
         agent.seed_structured(prior.envelope.content);
         agent.seed_headers(prior.headers);
@@ -201,83 +175,60 @@ pub async fn resume(
         }
     }
 
-    // A resumed run installs over the same form as the run it continues, so it
-    // contends exactly like a fresh one. The session already exists and is the
-    // user's own history, so it is left alone.
-    let lease = match claim_aem_form(&agent, opts) {
-        Ok(lease) => lease,
-        Err(e) => {
-            agent.shutdown_browser().await;
-            return Err(e);
+    Ok(drive(agent, opts, seed, "", session_id, obs).await)
+}
+
+/// The verifier a run's target needs, checked and ready to attach.
+enum Verification {
+    Aem(AemVerifySettings),
+    Redacto(RedactoVerifySettings),
+}
+
+impl Verification {
+    fn attach(self, agent: ConversionAgent) -> Result<ConversionAgent, String> {
+        match self {
+            Verification::Aem(settings) => agent.with_aem_verify(&settings),
+            Verification::Redacto(settings) => agent.with_redacto_verify(&settings),
+        }
+    }
+}
+
+/// Check that the target's verifier can run: Docker, the images, the AEM data
+/// volume and pdfium. There is no way to run without verification, so a
+/// verifier that is not ready refuses the run, before it spends a token.
+async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<Verification, String> {
+    obs.emit(RunEvent::Thought("Checking the verification setup…".into()));
+    let refuse = |e: String| {
+        format!(
+            "Verification is not possible, so the run cannot start:\n{e}\n\
+             See docker/aem/README.md for the setup."
+        )
+    };
+    let (report, verification) = match opts.target {
+        OutputTarget::Aem => {
+            let settings = opts.settings.aem_verify.clone();
+            let report = agent::u2s::aem_verify_readiness(&settings).await.map_err(refuse)?;
+            (report, Verification::Aem(settings))
+        }
+        OutputTarget::Redacto => {
+            let settings = opts.settings.redacto_verify.clone();
+            let report = agent::u2s::redacto_verify_readiness(&settings)
+                .await
+                .map_err(refuse)?;
+            (report, Verification::Redacto(settings))
         }
     };
-
-    Ok(drive(agent, opts, seed, "", session_id, lease, obs).await)
-}
-
-/// Run the browser preflight when the settings ask for a browser: a started,
-/// logged-in session on success, `None` when the browser is off, and the
-/// preflight's own error otherwise, which the caller returns before the run
-/// spends a token. Only an AEM target has anything to open.
-async fn browser_for(
-    opts: &RunOptions,
-    obs: &SharedObserver,
-) -> Result<Option<BrowserSession>, String> {
-    if opts.target != OutputTarget::Aem {
-        return Ok(None);
-    }
-    let (Some(cfg), Some(conn)) = (
-        opts.settings.browser_config(),
-        opts.settings.aem_connection(),
-    ) else {
-        return Ok(None);
-    };
-    obs.emit(RunEvent::Thought(
-        "Checking the browser for form verification…".into(),
-    ));
-    let (report, session) = {
-        let mut progress = |line: &str| obs.emit(RunEvent::Thought(line.to_string()));
-        agent::browser::preflight(&cfg, &conn, &mut progress)
-            .await
-            .map_err(|e| format!("Browser verification is not possible: {e}"))?
-    };
-    obs.emit(RunEvent::Thought(format!(
-        "Browser verification ready.\n{report}"
-    )));
-    Ok(Some(session))
-}
-
-async fn close_browser(browser: Option<BrowserSession>) {
-    if let Some(browser) = browser {
-        browser.shutdown().await;
-    }
+    obs.emit(RunEvent::Thought(format!("Verification ready. {report}")));
+    Ok(verification)
 }
 
 /// Drive the controller over `agent` and record what it produced.
-/// Claim this run's AEM form so no other run can install over it.
-///
-/// Only AEM runs against a configured instance can collide; a Redacto run
-/// touches no instance and is never blocked. A profile with no AEM config yields
-/// no path, and a run that cannot name its target cannot conflict over it.
-fn claim_aem_form(agent: &ConversionAgent, opts: &RunOptions) -> Result<Option<AemLease>, String> {
-    let Some(connection) = opts.settings.aem_connection() else {
-        return Ok(None);
-    };
-    let Some(path) = agent.planned_jcr_path() else {
-        return Ok(None);
-    };
-    aem_lock::acquire(&connection.host, &path).map(Some)
-}
-
 async fn drive(
     agent: ConversionAgent,
     opts: &RunOptions,
     seed: RunSeed,
     template_note: &'static str,
     session_id: String,
-    // Held for the whole run and released when it returns, so the next run of
-    // the same form starts only once this one has stopped touching it.
-    _aem_lease: Option<AemLease>,
     obs: &SharedObserver,
 ) -> Completed {
     let started_at = Instant::now();
@@ -306,7 +257,6 @@ async fn drive(
             &opts.settings.agent_instructions,
         ),
         template_note,
-        has_aem_connection: opts.settings.aem_connection().is_some(),
         model: resolved.model,
         price: resolved.price,
         max_tokens: resolved.max_tokens,
@@ -352,51 +302,41 @@ mod tests {
     use super::*;
     use pipeline::{NullObserver, SharedObserver};
 
-    /// A run that asks for the browser and cannot have it must not start: no
-    /// session is opened, no token is spent, and the error says what to fix.
+    /// An AEM run whose verifier is not set up must not start: no session is
+    /// opened, no token is spent, and the error says what to fix. Missing
+    /// settings are refused before Docker is even asked.
     #[tokio::test]
-    async fn a_failed_browser_preflight_refuses_the_run_before_it_starts() {
-        let settings = AppSettings {
-            aem_host: "http://localhost:4502".into(),
-            aem_username: "admin".into(),
-            browser_enabled: true,
-            browser_npx_path: "/nonexistent/blueprint-test/npx".into(),
-            ..AppSettings::default()
-        };
-        assert!(settings.browser_config().is_some());
-
+    async fn an_aem_run_without_its_verifier_refuses_to_start() {
         let opts = RunOptions {
             profile: None,
             target: OutputTarget::Aem,
-            settings,
+            settings: AppSettings::default(),
             abort: AbortFlag::default(),
         };
+        assert!(opts.settings.aem_verify.image.is_empty(), "no image by default");
         let err = run_fresh(Vec::new(), &opts, "preflight-test", &SharedObserver::new(NullObserver))
             .await
             .err()
             .expect("the run must be refused");
-        assert!(
-            err.contains("Browser verification is not possible"),
-            "{err}"
-        );
-        assert!(err.contains("/nonexistent/blueprint-test/npx"), "{err}");
-        assert!(err.contains("--no-browser"), "{err}");
+        assert!(err.contains("Verification is not possible"), "{err}");
+        assert!(err.contains("U2S_AEM_VERIFY_IMAGE"), "{err}");
+        assert!(err.contains("docker/aem/README.md"), "{err}");
     }
 
-    /// The resume path runs the same preflight before restoring anything.
+    /// The resume path runs the same preflight before restoring anything, and
+    /// a Redacto run is held to its own verifier the same way.
     #[tokio::test]
     async fn a_feedback_run_is_refused_the_same_way() {
-        let settings = AppSettings {
-            aem_host: "http://localhost:4502".into(),
-            aem_username: "admin".into(),
-            browser_enabled: true,
-            browser_npx_path: "/nonexistent/blueprint-test/npx".into(),
-            ..AppSettings::default()
-        };
         let opts = RunOptions {
             profile: None,
-            target: OutputTarget::Aem,
-            settings,
+            target: OutputTarget::Redacto,
+            settings: AppSettings {
+                redacto_verify: agent::u2s::RedactoVerifySettings {
+                    postgres_image: String::new(),
+                    ..Default::default()
+                },
+                ..AppSettings::default()
+            },
             abort: AbortFlag::default(),
         };
         let err = resume(
@@ -409,24 +349,21 @@ mod tests {
         .await
         .err()
         .expect("the run must be refused");
-        assert!(err.contains("/nonexistent/blueprint-test/npx"), "{err}");
-        assert!(err.contains("--no-browser"), "{err}");
+        assert!(err.contains("Verification is not possible"), "{err}");
+        assert!(err.contains("no Postgres image"), "{err}");
     }
 
     /// A continuation is nothing but the tree it was seeded with, so a session
     /// that holds no form has to be refused before a stage is spent on it.
     ///
-    /// The browser is off here on purpose: with it on the preflight would refuse
-    /// the run first, and this check would never be the reason.
+    /// Checked before the verification preflight, so it is the reason even on
+    /// a machine where verification is not set up.
     #[tokio::test]
     async fn a_continuation_with_nothing_to_continue_is_refused() {
         let opts = RunOptions {
             profile: None,
             target: OutputTarget::Aem,
-            settings: AppSettings {
-                browser_enabled: false,
-                ..AppSettings::default()
-            },
+            settings: AppSettings::default(),
             abort: AbortFlag::default(),
         };
 
@@ -441,31 +378,5 @@ mod tests {
         .err()
         .expect("a continuation with no prior state must be refused");
         assert_eq!(err, no_prior_state("no-such-session"));
-    }
-
-    /// The browser only ever accompanies an AEM upload, and a Redacto run has
-    /// nothing to open: neither gets a browser config.
-    #[test]
-    fn the_browser_needs_an_aem_connection_and_the_switch() {
-        let mut settings = AppSettings::default();
-        assert!(settings.browser_enabled, "on by default");
-        assert!(
-            settings.browser_config().is_some(),
-            "the default settings carry an AEM host"
-        );
-
-        settings.browser_enabled = false;
-        assert!(settings.browser_config().is_none());
-
-        settings.browser_enabled = true;
-        settings.aem_host = String::new();
-        assert!(settings.browser_config().is_none(), "no AEM, no browser");
-
-        settings.aem_host = "http://localhost:4502".into();
-        settings.browser_npx_path = "  /opt/homebrew/bin/npx ".into();
-        assert_eq!(
-            settings.browser_config().unwrap().npx,
-            Some(std::path::PathBuf::from("/opt/homebrew/bin/npx"))
-        );
     }
 }

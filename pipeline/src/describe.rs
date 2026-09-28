@@ -61,7 +61,6 @@ pub async fn describe_reference(
     let mut agent = ConversionAgent::new(
         Some(profile.to_string()),
         pdfs,
-        None,
         String::new(),
         OutputTarget::Aem,
     );

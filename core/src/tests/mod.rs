@@ -66,13 +66,6 @@ fn aem_node_json_round_trips() {
 }
 
 #[test]
-fn load_aem_connection_none_when_absent() {
-    // The UBS profile ships its [connection] block commented out.
-    let conn = crate::load_aem_connection("ubs").expect("load_aem_connection ok");
-    assert!(conn.is_none(), "UBS profile has no active [connection]");
-}
-
-#[test]
 fn structured_schema_is_object_with_defs() {
     let schema = crate::structured_schema();
     let obj = schema.as_object().expect("schema is a JSON object");

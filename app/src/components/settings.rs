@@ -38,7 +38,7 @@ impl SettingsTab {
         match self {
             Self::General => "General",
             Self::Ai => "AI Model",
-            Self::Aem => "AEM Connection",
+            Self::Aem => "Verification",
             Self::References => "References",
         }
     }
@@ -66,11 +66,11 @@ pub fn SettingsPage(
     let mut mcp_installed = use_signal(crate::mcp_install::is_installed);
     let mut mcp_install_error: Signal<Option<String>> = use_signal(|| None);
 
-    // The browser preparation's progress and outcome, shown under its row.
-    // `Ok` lines are progress and the final report; `Err` is the preflight's
-    // own message, which already says what to fix.
-    let mut browser_status: Signal<Option<Result<String, String>>> = use_signal(|| None);
-    let mut browser_preparing = use_signal(|| false);
+    // The image-pull and readiness-check progress and outcome, shown under the
+    // verification buttons. `Ok` lines are progress and the final report; `Err`
+    // is the check's own message, which already says what to fix.
+    let mut verify_status: Signal<Option<Result<String, String>>> = use_signal(|| None);
+    let mut verify_busy = use_signal(|| false);
 
     // The single write path: every row below calls this with the one field it
     // owns, so there is no per-row copy of the settings struct.
@@ -291,88 +291,224 @@ pub fn SettingsPage(
 
                     SettingsTab::Aem => rsx! {
                         div { class: "settings-section",
-                            h3 { class: "settings-section-title", "AEM Connection" }
+                            h3 { class: "settings-section-title", "AEM verification" }
                             TextRow {
-                                label: "AEM Host",
-                                desc: "Base URL of the AEM author instance used for package upload.",
-                                value: s.aem_host.clone(),
-                                placeholder: "http://localhost:4502",
+                                label: "AEM image",
+                                desc: "The AEM Forms image the verifier boots, from ajila's private registry. Pull it after `az acr login` (see docker/aem/README.md).",
+                                value: s.aem_verify.image.clone(),
+                                placeholder: "",
                                 secret: false,
                                 on_change: move |v: String| {
-                                    update.call(Box::new(move |s| s.aem_host = v.trim().to_string()))
+                                    update.call(Box::new(move |s| s.aem_verify.image = v.trim().to_string()))
                                 },
                             }
                             TextRow {
-                                label: "AEM Username",
-                                desc: "Username for AEM HTTP basic auth.",
-                                value: s.aem_username.clone(),
-                                placeholder: "admin",
+                                label: "Data volume",
+                                desc: "The Docker volume holding the deployed UBS platform.",
+                                value: s.aem_verify.data_volume.clone(),
+                                placeholder: "",
                                 secret: false,
                                 on_change: move |v: String| {
-                                    update.call(Box::new(move |s| s.aem_username = v.trim().to_string()))
-                                },
-                            }
-                            TextRow {
-                                label: "AEM Password",
-                                desc: "Password for AEM HTTP basic auth. Stored locally on disk.",
-                                value: s.aem_password.clone(),
-                                placeholder: "••••••••",
-                                secret: true,
-                                on_change: move |v: String| update.call(Box::new(move |s| s.aem_password = v)),
-                            }
-                        }
-                        div { class: "settings-section",
-                            h3 { class: "settings-section-title", "Browser verification" }
-                            ToggleRow {
-                                label: "Verify the deployed form in a browser",
-                                desc: "After uploading, the Author and Reviewer open the form in a headless Chrome (Playwright MCP, pinned), fill it in, submit it and read the PDF. Needs Node.js and Google Chrome; a run refuses to start when the check fails.",
-                                checked: s.browser_enabled,
-                                on_toggle: move |v: bool| update.call(Box::new(move |s| s.browser_enabled = v)),
-                            }
-                            TextRow {
-                                label: "npx path",
-                                desc: "Leave empty to find npx on PATH and in the usual Node.js locations.",
-                                value: s.browser_npx_path.clone(),
-                                placeholder: "auto-detect",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update.call(Box::new(move |s| s.browser_npx_path = v.trim().to_string()))
+                                    update
+                                        .call(
+                                            Box::new(move |s| s.aem_verify.data_volume = v.trim().to_string()),
+                                        )
                                 },
                             }
                             div { class: "row",
                                 RowInfo {
-                                    label: "Prepare browser tooling",
-                                    desc: "Download the pinned Playwright MCP into the npm cache once and confirm Node.js and Google Chrome are usable, so runs never wait on the network.",
+                                    label: "Container port",
+                                    desc: "The port AEM listens on inside the image.".to_string(),
+                                }
+                                input {
+                                    class: "settings-input-number",
+                                    r#type: "number",
+                                    placeholder: "8080",
+                                    value: "{s.aem_verify.container_port}",
+                                    onchange: move |e: Event<FormData>| {
+                                        if let Ok(v) = e.value().parse::<u16>() {
+                                            update.call(Box::new(move |s| s.aem_verify.container_port = v));
+                                        }
+                                    },
+                                }
+                            }
+                            TextRow {
+                                label: "AEM Username",
+                                desc: "The AEM admin login inside the verifier's container.",
+                                value: s.aem_verify.user.clone(),
+                                placeholder: "admin",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.aem_verify.user = v.trim().to_string()))
+                                },
+                            }
+                            TextRow {
+                                label: "AEM Password",
+                                desc: "The AEM admin password inside the verifier's container. Stored locally on disk.",
+                                value: s.aem_verify.password.clone(),
+                                placeholder: "••••••••",
+                                secret: true,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.aem_verify.password = v))
+                                },
+                            }
+                            TextRow {
+                                label: "Platform",
+                                desc: "Empty uses the default.",
+                                value: s.aem_verify.platform.clone(),
+                                placeholder: "linux/amd64",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.aem_verify.platform = v.trim().to_string()))
+                                },
+                            }
+                            TextRow {
+                                label: "Redacto URL",
+                                desc: "Only for a Redacto renderer running outside AEM.",
+                                value: s.aem_verify.redacto_url.clone(),
+                                placeholder: "",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| s.aem_verify.redacto_url = v.trim().to_string()),
+                                        )
+                                },
+                            }
+                            TextRow {
+                                label: "Mandator",
+                                desc: "Optional.",
+                                value: s.aem_verify.mandator.clone(),
+                                placeholder: "",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update
+                                        .call(Box::new(move |s| s.aem_verify.mandator = v.trim().to_string()))
+                                },
+                            }
+                        }
+                        div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Redacto verification" }
+                            TextRow {
+                                label: "Postgres image",
+                                desc: "The public Postgres image dumps are imported into.",
+                                value: s.redacto_verify.postgres_image.clone(),
+                                placeholder: "postgres:16-alpine",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.redacto_verify.postgres_image = v.trim().to_string()
+                                            }),
+                                        )
+                                },
+                            }
+                            TextRow {
+                                label: "Rendering URL",
+                                desc: "Empty skips rendering; the import check still runs.",
+                                value: s.redacto_verify.rendering_url.clone(),
+                                placeholder: "",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.redacto_verify.rendering_url = v.trim().to_string()
+                                            }),
+                                        )
+                                },
+                            }
+                            TextRow {
+                                label: "Username",
+                                desc: "Basic auth username for the Redacto platform.",
+                                value: s.redacto_verify.user.clone(),
+                                placeholder: "admin",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.redacto_verify.user = v.trim().to_string()))
+                                },
+                            }
+                            TextRow {
+                                label: "Password",
+                                desc: "Basic auth password. Stored locally on disk.",
+                                value: s.redacto_verify.password.clone(),
+                                placeholder: "••••••••",
+                                secret: true,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.redacto_verify.password = v))
+                                },
+                            }
+                        }
+                        div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Verifier tooling" }
+                            div { class: "row",
+                                RowInfo {
+                                    label: "Pull images",
+                                    desc: "Download the public verifier images (headless Chrome, Postgres) so a run never waits on the network. The AEM image is private and has to be pulled by hand after `az acr login`.".to_string(),
+                                }
+                                button {
+                                    class: "btn btn-secondary btn-sm",
+                                    disabled: verify_busy(),
+                                    onclick: move |_| {
+                                        let s = settings.read();
+                                        let images = [
+                                            "chromedp/headless-shell:stable".to_string(),
+                                            s.redacto_verify.postgres_image.clone(),
+                                        ];
+                                        let platform = {
+                                            let p = s.aem_verify.platform.trim();
+                                            if p.is_empty() { "linux/amd64".to_string() } else { p.to_string() }
+                                        };
+                                        verify_busy.set(true);
+                                        verify_status.set(None);
+                                        spawn(async move {
+                                            let refs: Vec<&str> = images.iter().map(String::as_str).collect();
+                                            let result = agent::u2s::pull_public_images(&refs, &platform)
+                                                .await
+                                                .map(|()| "Images pulled.".to_string());
+                                            verify_status.set(Some(result));
+                                            verify_busy.set(false);
+                                        });
+                                    },
+                                    if verify_busy() { "Pulling…" } else { "Pull images" }
                                 }
                                 button {
                                     class: "btn btn-primary btn-sm",
-                                    disabled: browser_preparing(),
+                                    disabled: verify_busy(),
                                     onclick: move |_| {
-                                        let npx = settings.read().browser_npx_path.trim().to_string();
-                                        let cfg = agent::browser::BrowserConfig {
-                                            npx: (!npx.is_empty()).then(|| std::path::PathBuf::from(npx)),
-                                        };
-                                        browser_preparing.set(true);
-                                        browser_status.set(Some(Ok(String::new())));
+                                        let s = settings.read();
+                                        let aem_verify = s.aem_verify.clone();
+                                        let redacto_verify = s.redacto_verify.clone();
+                                        verify_busy.set(true);
+                                        verify_status.set(None);
                                         spawn(async move {
-                                            let mut progress = |line: &str| {
-                                                let mut status = browser_status.write();
-                                                if let Some(Ok(text)) = status.as_mut() {
-                                                    if !text.is_empty() {
-                                                        text.push('\n');
+                                            let aem = agent::u2s::aem_verify_readiness(&aem_verify).await;
+                                            let redacto = agent::u2s::redacto_verify_readiness(
+                                                    &redacto_verify,
+                                                )
+                                                .await;
+                                            let report = match (&aem, &redacto) {
+                                                (Ok(a), Ok(r)) => Ok(format!("AEM: {a}\nRedacto: {r}")),
+                                                _ => {
+                                                    let mut problems = Vec::new();
+                                                    if let Err(e) = &aem {
+                                                        problems.push(format!("AEM: {e}"));
                                                     }
-                                                    text.push_str(line);
+                                                    if let Err(e) = &redacto {
+                                                        problems.push(format!("Redacto: {e}"));
+                                                    }
+                                                    Err(problems.join("\n"))
                                                 }
                                             };
-                                            let result = agent::browser::prepare(&cfg, &mut progress).await;
-                                            browser_status.set(Some(result.map(|p| format!("Ready.\n{p}"))));
-                                            browser_preparing.set(false);
+                                            verify_status.set(Some(report));
+                                            verify_busy.set(false);
                                         });
                                     },
-                                    if browser_preparing() { "Preparing…" } else { "Prepare" }
+                                    if verify_busy() { "Checking…" } else { "Check" }
                                 }
                             }
-                            match browser_status.read().as_ref() {
+                            match verify_status.read().as_ref() {
                                 Some(Ok(text)) if !text.is_empty() => rsx! { div { class: "browser-status", "{text}" } },
                                 Some(Err(err)) => rsx! { div { class: "mcp-error", "{err}" } },
                                 _ => rsx! {},

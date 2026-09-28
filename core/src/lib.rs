@@ -100,8 +100,8 @@ pub use context::Context;
 
 // Embedded profile loading
 pub use profiles::{
-    AemConnection, has_aem_config, has_html_config, has_redacto_config, has_xsd_config,
-    list_profiles, load_aem_config, load_aem_connection, load_aem_fragments, load_aem_profile,
+    has_aem_config, has_html_config, has_redacto_config, has_xsd_config,
+    list_profiles, load_aem_config, load_aem_fragments, load_aem_profile,
     load_html_custom_styles, load_profile_fonts, load_redacto_config, load_xsd_config, profile_font_files,
     profile_targets, redacto_master_language,
 };
@@ -174,7 +174,7 @@ pub fn aem_translated_schema() -> serde_json::Value {
 
 // AEM generation
 pub use aem::{
-    AemAttrs, AemConfig, AemConnectionProfile, AemI18nText, AemNode, AemNodeTranslated, AemOption,
+    AemAttrs, AemConfig, AemI18nText, AemNode, AemNodeTranslated, AemOption,
     AemOptionTranslated, AemProfile, AemScriptEngine, ConditionRule, LowerConflict,
     OptionAlignment, ParsedAemPackage, ParsedFragment, ResolvedCustomElement, aem_to_structured,
     aem_to_translated, aem_translations_from_content, collect_languages, convert_to_aem,

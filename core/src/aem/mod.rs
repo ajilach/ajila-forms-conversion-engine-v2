@@ -46,7 +46,7 @@ pub use parser::{
     AemScript, ParsedAemPackage, TranslationData, VisibilityCondition, detect_aem_zip,
     parse_aem_zip,
 };
-pub use profile::{AemConnectionProfile, AemProfile, InjectMode};
+pub use profile::{AemProfile, InjectMode};
 pub use script_engine::AemScriptEngine;
 pub use to_structured::aem_to_structured;
 pub use to_translated::aem_to_translated;

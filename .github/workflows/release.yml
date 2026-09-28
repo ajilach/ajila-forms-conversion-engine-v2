@@ -185,6 +185,12 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Fetch pdfium
+        # The u2s PDF renderer loads pdfium dynamically from next to the
+        # executable; the script pins the release and checks its SHA-256.
+        run: ./scripts/fetch-pdfium.sh
+        shell: bash
+
       - name: Build and stage the mcp sidecar
         # Bundle the standalone `mcp` stdio server alongside the app (see
         # [bundle].external_bin in app/Dioxus.toml). dx resolves the external_bin
@@ -201,6 +207,13 @@ jobs:
             cp "target/${{ matrix.target }}/release/mcp.exe" "sidecar/mcp-${{ matrix.target }}.exe"
           else
             cp "target/${{ matrix.target }}/release/mcp" "sidecar/mcp-${{ matrix.target }}"
+          fi
+          # pdfium travels the same external_bin way, next to the app binary.
+          # Not on Windows: external_bin appends .exe, which a DLL cannot carry.
+          if [[ "${{ matrix.os }}" == macos* ]]; then
+            cp vendor/pdfium/lib/libpdfium.dylib "sidecar/libpdfium.dylib-${{ matrix.target }}"
+          elif [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
+            cp vendor/pdfium/lib/libpdfium.so "sidecar/libpdfium.so-${{ matrix.target }}"
           fi
         shell: bash
 
@@ -285,6 +298,11 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
+      - name: Fetch pdfium
+        # Shipped next to the binary: the u2s PDF renderer loads it from there.
+        run: ./scripts/fetch-pdfium.sh
+        shell: bash
+
       - name: Build blueprint-cli
         run: cargo build --release -p blueprint-cli --target ${{ matrix.target }}
         shell: bash
@@ -292,11 +310,14 @@ jobs:
       - name: Package artifact
         run: |
           mkdir -p release-artifacts
+          OUT="target/${{ matrix.target }}/release"
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            7z a "release-artifacts/${{ matrix.artifact }}" "./target/${{ matrix.target }}/release/blueprint.exe"
+            cp vendor/pdfium/lib/pdfium.dll "$OUT/"
+            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe" "./$OUT/pdfium.dll"
           else
-            chmod +x "target/${{ matrix.target }}/release/blueprint"
-            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "target/${{ matrix.target }}/release" blueprint
+            chmod +x "$OUT/blueprint"
+            cp vendor/pdfium/lib/libpdfium.* "$OUT/"
+            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint $(cd "$OUT" && ls libpdfium.*)
           fi
         shell: bash
 

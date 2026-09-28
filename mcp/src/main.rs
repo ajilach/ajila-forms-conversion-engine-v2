@@ -98,24 +98,6 @@ fn validate_from_file_spec() -> serde_json::Value {
     })
 }
 
-/// Spec for the MCP-only `upload_aem_package_from_file` tool: upload and install
-/// a FileVault package ZIP from disk on the configured AEM instance, without a
-/// conversion session.
-fn upload_from_file_spec() -> serde_json::Value {
-    serde_json::json!({
-        "name": "upload_aem_package_from_file",
-        "description": "Upload and install an AEM FileVault package ZIP from a local file path on the configured AEM instance (credentials from the shared desktop-app settings). Operates on an external file — no conversion session needed. Reports an error if no AEM connection is configured.",
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "zip_path": {"type": "string", "description": "Absolute path to the .zip package file to upload."},
-                "package_name": {"type": "string", "description": "Optional CRX package name (defaults to the file stem, e.g. \"AAMQ_019_merged\")."}
-            },
-            "required": ["zip_path"]
-        }
-    })
-}
-
 /// The full advertised catalog: the MCP-only bootstrap/export tools plus the
 /// engine tools scoped to an MCP client.
 ///
@@ -126,7 +108,6 @@ fn tool_catalog_for(target: blueprint::OutputTarget) -> Vec<serde_json::Value> {
         start_conversion_spec(),
         write_package_spec(),
         validate_from_file_spec(),
-        upload_from_file_spec(),
     ];
     specs.extend(agent::tools_for(target, agent::scope::MCP));
     specs
@@ -275,6 +256,26 @@ impl Blueprint {
             .collect::<Vec<_>>()
             .join(", ");
 
+        // Verification is not optional, so a conversion whose verifier is not
+        // ready is refused before anything is recorded. The settings are the
+        // desktop app's (the shared history.db).
+        let (aem_verify, redacto_verify) = agent::u2s::stored_verify_settings();
+        let readiness = match target {
+            blueprint::OutputTarget::Aem => agent::u2s::aem_verify_readiness(&aem_verify).await,
+            blueprint::OutputTarget::Redacto => {
+                agent::u2s::redacto_verify_readiness(&redacto_verify).await
+            }
+        };
+        let verify_note = match readiness {
+            Ok(report) => format!("Verification is ready: {report}"),
+            Err(e) => {
+                return CallToolResult::error(vec![Content::text(format!(
+                    "Verification is not possible, so the conversion was not started:\n{e}\n\
+                     Configure it in the desktop app settings; see docker/aem/README.md."
+                ))]);
+            }
+        };
+
         // Version the conversion into the shared edit-history DB so the desktop
         // app can later review it. Fail loudly when the session cannot be
         // created: a derived id would have no row in `sessions`, so every
@@ -294,32 +295,33 @@ impl Blueprint {
         };
         agent::db::insert_edit(&session, "Initial (empty)", "[]");
 
-        // Reuse the AEM connection the desktop app is configured with (read from
-        // the shared history.db settings). When present, upload_to_aem and the
-        // fetch/verify tools work; otherwise they report no connection.
-        let connection = agent::aem_connection_from_settings();
-        let aem_note = match &connection {
-            Some(c) => format!(
-                "upload_to_aem and the fetch/verify tools are available (AEM: {}).",
-                c.host
-            ),
-            None => "upload_to_aem and the fetch/verify tools are unavailable (no AEM connection \
-                     configured in the desktop app settings); profile-derived config and \
-                     packaging still work."
-                .to_string(),
-        };
         let count = pdfs.len();
         // How many reference forms / docs are available for this profile. The
         // count distinguishes "no references exist" from a profile mismatch
         // returning an empty list.
         let ref_count = agent::references::count(profile.as_deref().unwrap_or_default());
-        let new_agent = ConversionAgent::new(profile, pdfs, connection, session.clone(), target);
-        *self.agent.lock().await = Some(new_agent);
+        let new_agent = ConversionAgent::new(profile, pdfs, session.clone(), target);
+        let new_agent = match target {
+            blueprint::OutputTarget::Aem => new_agent.with_aem_verify(&aem_verify),
+            blueprint::OutputTarget::Redacto => new_agent.with_redacto_verify(&redacto_verify),
+        };
+        let new_agent = match new_agent {
+            Ok(agent) => agent,
+            Err(e) => return CallToolResult::error(vec![Content::text(e)]),
+        };
+        let previous = self.agent.lock().await.replace(new_agent);
+        let teardown_note = match previous {
+            Some(mut previous) => match previous.shutdown_verifiers().await {
+                Ok(()) => String::new(),
+                Err(e) => format!("\n\nThe previous conversion's verifier could not be torn down: {e}"),
+            },
+            None => String::new(),
+        };
 
-        // The reference forms are AEM packages and the AEM connection only
-        // matters for an AEM run, so a Redacto session is told neither.
+        // The reference forms are AEM packages, so a Redacto session is not
+        // told about them.
         let target_notes = match target {
-            blueprint::OutputTarget::Redacto => String::new(),
+            blueprint::OutputTarget::Redacto => format!("{verify_note}\n\n"),
             blueprint::OutputTarget::Aem => {
                 let ref_note = if ref_count > 0 {
                     format!(
@@ -331,7 +333,7 @@ impl Blueprint {
                 } else {
                     "No reference forms are available for this profile.".to_string()
                 };
-                format!("{ref_note}\n\n{aem_note}\n\n")
+                format!("{ref_note}\n\n{verify_note}\n\n")
             }
         };
 
@@ -345,7 +347,7 @@ impl Blueprint {
         CallToolResult::success(vec![Content::text(format!(
             "Loaded {count} PDF(s) [{label}] as a {kind} conversion (session {session}).\n\n\
              {workflow}\n\n\
-             {target_notes}{MCP_ADDENDUM}",
+             {target_notes}{MCP_ADDENDUM}{teardown_note}",
             kind = target.label(),
             MCP_ADDENDUM = agent::MCP_ADDENDUM,
         ))])
@@ -390,46 +392,6 @@ impl Blueprint {
                 Ok(msg) => CallToolResult::success(vec![Content::text(msg)]),
                 Err(e) => CallToolResult::error(vec![Content::text(e)]),
             },
-            Err(e) => CallToolResult::error(vec![Content::text(format!(
-                "Could not read {zip_path:?}: {e}"
-            ))]),
-        }
-    }
-
-    /// Handle the MCP-only `upload_aem_package_from_file` tool: read a ZIP from
-    /// disk and upload+install it on the configured AEM instance. The AEM
-    /// connection comes from the shared settings (no session needed).
-    async fn upload_aem_package_from_file(&self, args: &serde_json::Value) -> CallToolResult {
-        let Some(zip_path) = args.get("zip_path").and_then(|v| v.as_str()) else {
-            return CallToolResult::error(vec![Content::text(
-                "upload_aem_package_from_file requires `zip_path`.",
-            )]);
-        };
-        let name = args
-            .get("package_name")
-            .and_then(|v| v.as_str())
-            .map(str::to_string)
-            .unwrap_or_else(|| {
-                std::path::Path::new(zip_path)
-                    .file_stem()
-                    .map(|s| s.to_string_lossy().into_owned())
-                    .unwrap_or_else(|| "package".to_string())
-            });
-        let Some(conn) = agent::aem_connection_from_settings() else {
-            return CallToolResult::error(vec![Content::text(
-                "No AEM connection configured (set host/credentials in the desktop app settings).",
-            )]);
-        };
-        let host = conn.host.clone();
-        match std::fs::read(zip_path) {
-            Ok(bytes) => {
-                match agent::aem_client::upload_and_install_package(&conn, bytes, &name).await {
-                    Ok(()) => CallToolResult::success(vec![Content::text(format!(
-                        "Uploaded and installed {name}.zip on AEM ({host})."
-                    ))]),
-                    Err(e) => CallToolResult::error(vec![Content::text(e)]),
-                }
-            }
             Err(e) => CallToolResult::error(vec![Content::text(format!(
                 "Could not read {zip_path:?}: {e}"
             ))]),
@@ -495,9 +457,6 @@ impl ServerHandler for Blueprint {
             "validate_aem_package_from_file" => {
                 return Ok(self.validate_aem_package_from_file(&input).await);
             }
-            "upload_aem_package_from_file" => {
-                return Ok(self.upload_aem_package_from_file(&input).await);
-            }
             _ => {}
         }
 
@@ -515,8 +474,16 @@ impl ServerHandler for Blueprint {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let transport = rmcp::transport::stdio();
-    let service = Blueprint::new().serve(transport).await?;
+    let server = Blueprint::new();
+    let agent = server.agent.clone();
+    let service = server.serve(transport).await?;
     service.waiting().await?;
+    // The client is gone: remove the containers the last conversion started.
+    if let Some(mut last) = agent.lock().await.take()
+        && let Err(e) = last.shutdown_verifiers().await
+    {
+        eprintln!("blueprint: the verifier could not be torn down: {e}");
+    }
     Ok(())
 }
 
@@ -674,7 +641,6 @@ mod tests {
             "start_conversion",
             "write_package",
             "validate_aem_package_from_file",
-            "upload_aem_package_from_file",
         ] {
             assert!(
                 names.iter().any(|n| n == mcp_only),

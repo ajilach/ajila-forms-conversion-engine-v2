@@ -655,7 +655,6 @@ mod tests {
         std::sync::Arc::new(tokio::sync::Mutex::new(agent::ConversionAgent::new(
             None,
             Vec::new(),
-            None,
             "test-hooks".into(),
             blueprint::OutputTarget::Redacto,
         )))
@@ -758,7 +757,6 @@ mod tests {
                 "description": "Info about the source.",
                 "input_schema": {"type": "object", "properties": {}},
             })],
-            &obs,
         );
 
         let model = MockCompletionModel::from_stream_turns([
@@ -803,7 +801,6 @@ mod tests {
                 "description": "Record the review verdict.",
                 "input_schema": {"type": "object", "properties": {}},
             })],
-            &SharedObserver::new(crate::observer::NullObserver),
         );
 
         let model = MockCompletionModel::from_stream_turns([
@@ -853,7 +850,6 @@ mod tests {
                 "description": "Info about the source.",
                 "input_schema": {"type": "object", "properties": {}},
             })],
-            &SharedObserver::new(crate::observer::NullObserver),
         );
 
         // The same tool call, repeated: `get_source_info` on an unchanged
@@ -1060,7 +1056,6 @@ mod tests {
                 "description": "Info about the source.",
                 "input_schema": {"type": "object", "properties": {}},
             })],
-            &SharedObserver::new(crate::observer::NullObserver),
         );
 
         // Every turn is a tool call, so the loop keeps going (a plain text

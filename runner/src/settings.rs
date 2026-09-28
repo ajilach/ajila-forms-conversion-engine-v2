@@ -62,23 +62,14 @@ pub struct AppSettings {
     /// [`DEFAULT_MAX_REVIEW_ROUNDS`] in [`AppSettings::load`].
     #[serde(default)]
     pub max_review_rounds: usize,
-    /// Base URL of the AEM author instance for package upload
-    /// (e.g. "http://localhost:4502").
-    pub aem_host: String,
-    /// Username for AEM HTTP basic auth.
-    pub aem_username: String,
-    /// Password for AEM HTTP basic auth. Stored locally on disk.
-    pub aem_password: String,
-    /// Whether the Author and Reviewer get a real browser to click through the
-    /// deployed form (Playwright MCP, spawned per run). Only takes effect with
-    /// an AEM connection; a failed preflight aborts the run rather than
-    /// degrading it.
-    #[serde(default = "default_browser_enabled")]
-    pub browser_enabled: bool,
-    /// Where `npx` is, when auto-detection (PATH plus the usual Node locations)
-    /// cannot find it. Empty = auto-detect.
-    #[serde(default)]
-    pub browser_npx_path: String,
+    /// The Docker-hosted AEM the UBS verifier boots for an AEM run. Stored
+    /// flat (`aem_verify_*`), and read by the MCP server from the same blob.
+    #[serde(flatten)]
+    pub aem_verify: agent::u2s::AemVerifySettings,
+    /// The throwaway Postgres the Redacto verifier imports dumps into, stored
+    /// flat (`redacto_verify_*`).
+    #[serde(flatten)]
+    pub redacto_verify: agent::u2s::RedactoVerifySettings,
     /// How many model requests may be in flight at once against one endpoint,
     /// across every conversion running in parallel. `0` means no cap.
     ///
@@ -109,23 +100,12 @@ impl Default for AppSettings {
             openai_api_key: String::new(),
             openai_model: String::new(),
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
-            aem_host: "http://localhost:4502".to_string(),
-            aem_username: "admin".to_string(),
-            aem_password: "admin".to_string(),
-            browser_enabled: default_browser_enabled(),
-            browser_npx_path: String::new(),
+            aem_verify: agent::u2s::AemVerifySettings::default(),
+            redacto_verify: agent::u2s::RedactoVerifySettings::default(),
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
         }
     }
-}
-
-/// Settings saved before the browser existed load with it on. The defaults
-/// also carry a local AEM host, so out of the box a run expects a reachable
-/// AEM author on localhost:4502 and refuses to start without one; an operator
-/// who has no AEM turns the switch off (or blanks the host) once.
-fn default_browser_enabled() -> bool {
-    true
 }
 
 impl AppSettings {
@@ -160,34 +140,6 @@ impl AppSettings {
         }
     }
 
-    /// Build an AEM upload connection from the configured host/credentials,
-    /// or `None` if host or username have not been set.
-    pub fn aem_connection(&self) -> Option<blueprint::AemConnection> {
-        let host = self.aem_host.trim();
-        let username = self.aem_username.trim();
-        if host.is_empty() || username.is_empty() {
-            return None;
-        }
-        Some(blueprint::AemConnection {
-            host: host.trim_end_matches('/').to_string(),
-            username: username.to_string(),
-            password: self.aem_password.clone(),
-        })
-    }
-
-    /// The browser configuration for a run: `Some` only when browser
-    /// verification is on AND an AEM connection exists, since the browser has
-    /// nothing to open without one. This is what every consumer asks.
-    pub fn browser_config(&self) -> Option<agent::browser::BrowserConfig> {
-        if !self.browser_enabled || self.aem_connection().is_none() {
-            return None;
-        }
-        let npx = self.browser_npx_path.trim();
-        Some(agent::browser::BrowserConfig {
-            npx: (!npx.is_empty()).then(|| std::path::PathBuf::from(npx)),
-        })
-    }
-
     /// Coerce missing/zero values to their real defaults. Guards against configs
     /// saved before these fields had sensible defaults (where a `0` would
     /// otherwise show in the UI and read as "off").
@@ -200,6 +152,9 @@ impl AppSettings {
 
         let d = Self::default();
         or_default(&mut self.max_review_rounds, d.max_review_rounds);
+        if self.aem_verify.container_port == 0 {
+            self.aem_verify.container_port = d.aem_verify.container_port;
+        }
 
         // Settings saved before the provider switch existed carry no base URL.
         if self.openai_base_url.trim().is_empty() {
@@ -266,6 +221,19 @@ mod tests {
             "https://openrouter.ai/api/v1/chat/completions"
         );
         assert_eq!(settings.active_model(), "anthropic/claude-opus-4.1");
+    }
+
+    /// Settings written while the app still uploaded to a configured AEM and
+    /// drove a Playwright browser carry fields that no longer exist; they must
+    /// load all the same, with the verifier defaults filled in.
+    #[test]
+    fn settings_saved_with_the_retired_aem_connection_still_load() {
+        let json = r#"{"anthropic_api_key":"k","aem_host":"http://localhost:4502","aem_username":"admin","aem_password":"admin","browser_enabled":true,"browser_npx_path":""}"#;
+        let settings: AppSettings = serde_json::from_str(json).expect("old settings load");
+        assert_eq!(settings.anthropic_api_key, "k");
+        assert_eq!(settings.aem_verify.container_port, 8080);
+        assert_eq!(settings.aem_verify.data_volume, "u2s-aem-ubs-data");
+        assert!(settings.aem_verify.image.is_empty());
     }
 
     /// Settings written before the switch existed carry neither field, and must

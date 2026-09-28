@@ -324,7 +324,7 @@
     "name": "remove_aem_translated_node"
   },
   {
-    "description": "Build the AEM FileVault package (ZIP) from the current AEM tree. Requires an AEM tree (author it with set_aem_translated, or refine the pre-loaded one). Stores it for upload/export.",
+    "description": "Build the AEM FileVault package (ZIP) from the current AEM tree. Requires an AEM tree (author it with set_aem_translated, or refine the pre-loaded one). Stores it for verification and export.",
     "input_schema": {
       "properties": {},
       "required": [],
@@ -363,7 +363,7 @@
     "name": "read_package_file"
   },
   {
-    "description": "Validate the built package: checks the required FileVault structure (META-INF + jcr_root boilerplate) and validates the form and DAM .content.xml against the AEM contract (well-formedness, escaping, JCR/CQ/FD/Sling structure). Run after build_aem_package, before upload_to_aem.",
+    "description": "Validate the built package: checks the required FileVault structure (META-INF + jcr_root boilerplate) and validates the form and DAM .content.xml against the AEM contract (well-formedness, escaping, JCR/CQ/FD/Sling structure). Run after build_aem_package, before verifying with aem_verify_run or aem_verify_open.",
     "input_schema": {
       "properties": {},
       "required": [],
@@ -397,56 +397,6 @@
       "type": "object"
     },
     "name": "generate_html"
-  },
-  {
-    "description": "Upload and install the built package on the configured AEM instance.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "upload_to_aem"
-  },
-  {
-    "description": "Fetch the rendered Adaptive Form HTML from AEM (after upload) for verification.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "fetch_aem_form_html"
-  },
-  {
-    "description": "Fetch the Document-of-Record PDF from AEM and view its first page.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "fetch_aem_dor_pdf"
-  },
-  {
-    "description": "The deployed form's URLs (after upload_to_aem): its JCR path, one preview URL per language (the DAM rendition outside the editor, which is what a reviewer opens with browser_navigate) and the editor URL.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "aem_form_urls"
-  },
-  {
-    "description": "Look at a PDF the browser downloaded (the PDF a submission produces). Without `path`: list the files in the browser's output directory, newest first. With `path` (a file name from that list): render every page of that PDF as an image. Only files the browser produced can be inspected.",
-    "input_schema": {
-      "properties": {
-        "path": {
-          "description": "File name from the listing. Omit to list.",
-          "type": "string"
-        }
-      },
-      "required": [],
-      "type": "object"
-    },
-    "name": "inspect_pdf"
   },
   {
     "description": "List the profile's reference forms (hand-built, known-good worked examples). Consult references BEFORE building: they show the expected JCR structure, dictionary setup and DoR conventions for this profile's forms.",
@@ -1505,5 +1455,267 @@
       "type": "object"
     },
     "name": "pdf_search_text"
+  },
+  {
+    "description": "Reports this server's configured profile (the AEM and Chromium images, the submit artefact strategy, the Redacto rendering dependency UBS's own submit path calls out to), whether Docker and Redacto are currently reachable, and whether `session_id`'s own persistent AEM session is up and for how long (plus how many sessions are active across every `session_id`). Touches nothing -- safe to call at any time, including before ever running Docker, and is how a caller distinguishes \"this server is misconfigured\" from \"Docker is not running right now\". In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_status"
+  },
+  {
+    "description": "Validates a FileVault package offline: is it a well-formed ZIP, does its META-INF/vault/filter.xml resolve to exactly one form, what JCR path does it render at, and (UBS-specific) what mandator/language entities its own metadata component authors and which one this server would open the form as. Exactly one of `package` (a u2s blob handle) or `package_path` (a filesystem path, for conformance test vectors) must be given. Never touches Docker, AEM or a network -- this is the check `aem_verify_run`'s own `dry_run: true` performs internally before anything with a side effect runs. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_package_check"
+  },
+  {
+    "description": "Installs the package on this profile's persistent AEM session (booted from this profile's prebuilt image on first use, then reused across calls), opens the form with the `mandator`/`afAcceptLang` URL parameters this package's own metadata component resolves to (a UBS form otherwise fails server-side with \"No metadata information for mandator\"), walks its wizard panel by panel, and -- unless `submit: false` -- fills the fields named in `fill` and submits via UBS's own `window.forms.ubs.navigation.submit(...)` routine (not a raw `guideBridge.submit()`, which would take AEM's native XDP rendering path -- unavailable on this workspace's own ARM Docker image), capturing the Redacto rendering dependency's PDF as a browser download; the package is uninstalled again afterward so the session stays clean for the next call. Every screenshot and artefact travels as a blob, never inline: a real run's images would not fit a tool result. `dry_run: true` validates the package and reports Docker reachability without starting anything. This tool is side-effecting: it installs software on a session it does not tear down and, unless `dry_run` or `submit: false`, submits the rendered form. It is never offered to the Conversion Agent. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "description": "Validate inputs and report Docker reachability only; default false.",
+          "type": "boolean"
+        },
+        "fill": {
+          "description": "Field name to value. Each name must be the guide node's own `name` -- GuideBridge exposes it as a global carrying `.value`. Ignored when `submit` is false.",
+          "type": "object"
+        },
+        "submit": {
+          "description": "Fill and submit after rendering; default true.",
+          "type": "boolean"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_run"
+  },
+  {
+    "description": "Installs a FileVault package on this profile's persistent session and opens its form for interaction, one step at a time -- the alternative to aem_verify_run's own one-shot walk. Returns a `form` handle plus `revision: 0`; every later interactive call names both, and `expected_revision`/`revision` is refused (naming the current one) if it does not match, so a caller can never act on a view of the form that has moved. Call aem_verify_controls next to see what can be set. Refused if a form is already open on this session_id -- call aem_verify_close first. This tool is side-effecting: it installs software on a session it does not tear down. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_open"
+  },
+  {
+    "description": "Every control on the open form: every radio group, checkbox, dropdown and text field, with its options (for a choice control), what it is currently set to, whether it is visible, enabled and required, which panel it lives on, and -- when visible -- where it is drawn (feed straight into aem_verify_screenshot's own `field` argument to zoom in on it). Addressed by `form` and `revision`, answering for the form as it stands after whatever interactions already happened -- this is how a control a script only reveals mid-fill is found: absent before the interaction that reveals it, present after. Also reports the current panel and the driver's own `has_next`/`is_terminal` navigation signals. A read: `revision` must match exactly, but this call never advances it. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The form's current revision, from verify_open or the last interactive call.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_controls"
+  },
+  {
+    "description": "Sets one control the way a person would: focus into it, change it, focus out. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. `field` is a control's own name, from aem_verify_controls; an unknown one is refused naming the fields that do exist. `value` is one of the control's own option values for a radio or dropdown, an array of option values for a multi-select checkbox, or free text/a number for anything else -- a value that is not one of a choice control's own options is refused naming the real ones, never silently coerced. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, and the driver's own navigation signals. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "The revision this call is based on.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "field": {
+          "description": "A control's own name, from verify_controls.",
+          "type": "string"
+        },
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        },
+        "value": {
+          "description": "What to set it to -- one of the control's own option values (an array for a multi-select checkbox), or free text/a number."
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_set"
+  },
+  {
+    "description": "Advances to the next wizard panel, the same click aem_verify_run's own wizard walk performs, confirming the visible panel actually changed. Refused if no \"next\" control could be clicked, or if one was clicked but the panel never changed (a validation script may be blocking navigation). Returns the same shape aem_verify_set does, with `field`/`value` both null. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "The revision this call is based on.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_next"
+  },
+  {
+    "description": "Goes back to the previous wizard panel -- the same mechanics as aem_verify_next, in reverse. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "The revision this call is based on.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_prev"
+  },
+  {
+    "description": "Puts the form back the way it opened, keeping the same `form` handle -- cheaper than closing and opening again, since the package stays installed and only the page itself is reloaded. Returns the same shape aem_verify_next does, describing what changed relative to how the form stood just before the reset. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "The revision this call is based on.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_reset"
+  },
+  {
+    "description": "Renders the open form as an image: the whole page, or -- when `field` is given -- just that control's own on-screen rectangle (from aem_verify_controls' own `position`; refused if the control is not currently visible, since there is nothing to crop). Returns the image inline when it is small enough, otherwise a blob handle the caller dereferences out of band. A read: `revision` must match exactly, but this call never advances it. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "A control's own name, to crop the screenshot to just that control; omit for the whole page.",
+          "type": "string"
+        },
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        },
+        "format": {
+          "description": "Image format; default png.",
+          "enum": [
+            "png",
+            "jpeg"
+          ],
+          "type": "string"
+        },
+        "revision": {
+          "description": "The form's current revision.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_screenshot"
+  },
+  {
+    "description": "Submits the form from its current panel -- refused unless the driver's own navigation signals already say this is the wizard's last panel (call aem_verify_next until `has_next` is false and `is_terminal` is true first). Captures whatever this profile's submit artefact strategy produces (a browser download, a Document of Record fetch, or nothing), the same way aem_verify_run's own submit step does. Does not close the form -- call aem_verify_close afterward. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "The revision this call is based on.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_submit"
+  },
+  {
+    "description": "Closes the page and browser session, uninstalls the package, and releases the `form` handle. Always worth calling once done with a form, so the session's one installed-package slot is free for the next aem_verify_open or aem_verify_run -- until then, aem_verify_run on the same session_id is refused. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "form": {
+          "description": "The handle verify_open returned.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_close"
+  },
+  {
+    "description": "Reports this profile's own configuration (the Postgres image it boots, and whether -- and where -- a rendering endpoint is configured), whether Docker is currently reachable, whether the configured rendering endpoint (if any) answers right now, and whether `session_id`'s own throwaway Postgres session is up and for how long. Touches nothing side-effecting -- safe to call at any time, and is how a caller distinguishes \"this server is misconfigured\" from \"Docker is not running right now\". In this run the latest build_redacto_dump result is checked automatically and the session is managed for you: pass no `artifact_blob`, `artifact_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": null,
+      "type": "object"
+    },
+    "name": "redacto_verify_status"
+  },
+  {
+    "description": "Validates a dump offline: does it decode (well-formed SQL, every asset reference resolving, a non-empty body, every declared language covered). Exactly one of `artifact_blob` (a u2s blob handle) or `artifact_path` (a filesystem path, for conformance test vectors) must be given. Never touches Docker or a network -- this is the check `redacto_verify_run`'s own `dry_run: true` performs internally before anything with a side effect runs. In this run the latest build_redacto_dump result is checked automatically and the session is managed for you: pass no `artifact_blob`, `artifact_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {},
+      "required": null,
+      "type": "object"
+    },
+    "name": "redacto_verify_dump_check"
+  },
+  {
+    "description": "Imports the dump into `session_id`'s own throwaway Postgres session (booted on first use, then reused across calls -- wiped clean at the start of every import, so the same document can be re-verified after an edit without a primary-key collision against its own previous run) and reports the resulting row counts. When this profile has a rendering endpoint configured, also calls it once per declared language and returns each rendered PDF as an artefact -- this assumes the SAME dump has already been imported into that platform's own database out of band; otherwise rendering is reported as skipped, not failed. `dry_run: true` performs only the offline dump check and reports nothing about Docker or a network. Every artefact travels as a blob, never inline. This tool is side-effecting: it writes to a real (if throwaway) database and is never offered to the Conversion Agent. In this run the latest build_redacto_dump result is checked automatically and the session is managed for you: pass no `artifact_blob`, `artifact_path` or `session_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "dry_run": {
+          "description": "Validate the dump offline only; default false.",
+          "type": "boolean"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "redacto_verify_run"
   }
 ]

@@ -75,33 +75,12 @@ pub enum InjectMode {
     Step,
 }
 
-/// Connection details for uploading the generated package to an AEM instance
-/// (AEM 6.5, HTTP basic auth). Configured via a `[connection]` table in the
-/// profile's `aem/config.toml`.
-#[derive(Debug, Clone, Deserialize)]
-pub struct AemConnectionProfile {
-    /// Base URL of the AEM author instance (e.g. `"http://localhost:4502"`).
-    pub host: String,
-    /// Username for HTTP basic auth.
-    pub username: String,
-    /// Literal password. Prefer `password_env` to avoid committing secrets.
-    #[serde(default)]
-    pub password: Option<String>,
-    /// Name of an environment variable to read the password from at runtime.
-    #[serde(default)]
-    pub password_env: Option<String>,
-}
-
 /// An AEM output profile loaded from a TOML file.
 ///
 /// All template-typed fields accept Tera syntax. Non-template fields are
 /// plain strings passed through as-is.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AemProfile {
-    /// Optional AEM upload connection (host + credentials).
-    #[serde(default)]
-    pub connection: Option<AemConnectionProfile>,
-
     /// Master / primary language code (e.g. `"en"`, `"de"`).
     /// Default: `"en"`.
     pub master_language: Option<String>,

@@ -52,8 +52,8 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
     limits, blob store and profile as values; `new()` delegates to it. The Redacto verifier
     also gets `shutdown()`, which tears down its default session.
   - `u2s-aem-ubs-verify-mcp` gets a `lib.rs` exposing its driver and specs.
-  - `u2s-aem-verify-core`'s `AemVerifyServer` becomes public, with `with_parts`, `dispatch`,
-    `spawn_idle_sweep` and `shutdown`.
+  - `u2s-aem-verify-core`'s `AemVerifyServer` becomes public, with `with_parts`, `dispatch`
+    and `shutdown`, and `remove_leftover_containers` becomes public for the readiness check.
 
 Not vendored, so their fixture links are dropped: `u2s-aem-mcp` (`generic_minimal.zip`) and
 `u2s-test-verify-mcp` (`verify_fixture_package.json`).

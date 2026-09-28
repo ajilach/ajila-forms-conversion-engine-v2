@@ -122,8 +122,6 @@ pub struct SavedTab {
     pub source_names: Vec<String>,
     pub phase: TabPhase,
     pub form_code: Option<String>,
-    pub aem_uploaded: bool,
-    pub aem_form_path: Option<String>,
     pub elapsed_secs: Option<u64>,
     pub warnings: Vec<String>,
     /// Unsent feedback, so a half-typed note is not lost to a restart.
@@ -280,8 +278,6 @@ pub fn restored_run(saved: &SavedTab, view: RestoredView) -> RestoredRun {
             step,
             target: saved.target,
             form_code: saved.form_code.clone(),
-            aem_uploaded: saved.aem_uploaded,
-            aem_form_path: saved.aem_form_path.clone(),
             elapsed_secs: saved.elapsed_secs,
             warnings: saved.warnings.clone(),
             ..ProcessingState::default()

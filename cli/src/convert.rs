@@ -83,35 +83,15 @@ pub struct ConvertArgs {
     #[arg(long, value_name = "PATH", conflicts_with = "instructions")]
     instructions_file: Option<PathBuf>,
 
-    /// Hand the run its AEM connection: enables the agent's fetch/verify tools
-    /// and uploads the finished package to the author instance. Off by default,
-    /// so a console run touches nothing outside this machine.
-    #[arg(long)]
-    upload: bool,
+    /// The AEM Forms image the verifier boots, overriding the desktop app's
+    /// setting. See docker/aem/README.md.
+    #[arg(long, value_name = "IMAGE")]
+    aem_image: Option<String>,
 
-    /// AEM author instance to upload to. Defaults to the desktop app's setting.
-    #[arg(long, value_name = "URL", requires = "upload")]
-    aem_host: Option<String>,
-
-    /// AEM user for the upload. Defaults to the desktop app's setting.
-    #[arg(long, value_name = "NAME", requires = "upload")]
-    aem_user: Option<String>,
-
-    /// AEM password for the upload. Defaults to the desktop app's setting.
-    #[arg(long, value_name = "PASSWORD", requires = "upload")]
-    aem_password: Option<String>,
-
-    /// Skip the browser click-through of the deployed form. With --upload the
-    /// Author and Reviewer otherwise get a headless Chrome (Playwright MCP,
-    /// pinned) to fill, submit and read back the form; its preflight has to
-    /// pass or the run does not start.
-    #[arg(long, requires = "upload")]
-    no_browser: bool,
-
-    /// Path to `npx`, when it is not on PATH or in the usual Node locations.
-    /// Defaults to the desktop app's setting, then to auto-detection.
-    #[arg(long, value_name = "PATH", requires = "upload")]
-    npx: Option<PathBuf>,
+    /// The Docker volume holding the deployed UBS platform, overriding the
+    /// desktop app's setting.
+    #[arg(long, value_name = "VOLUME")]
+    aem_volume: Option<String>,
 
     /// Refine an earlier run instead of converting afresh: applies this feedback
     /// to the result held in --session. Skips the Analyst.
@@ -147,7 +127,7 @@ fn parse_provider(value: &str) -> Result<Provider, String> {
     })
 }
 
-fn parse_target(value: &str) -> Result<OutputTarget, String> {
+pub(crate) fn parse_target(value: &str) -> Result<OutputTarget, String> {
     OutputTarget::parse(value).ok_or_else(|| {
         let known: Vec<&str> = OutputTarget::ALL.iter().map(|t| t.as_str()).collect();
         format!(
@@ -201,17 +181,15 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     println!("Profile: {}", profile.as_deref().unwrap_or("(none)"));
     println!("Target: {}", args.target.label());
     println!("{}", plan.describe());
-    match settings.aem_connection() {
-        Some(conn) => println!("AEM upload: on ({} as {})", conn.host, conn.username),
-        None => println!("AEM upload: off (pass --upload to enable it)"),
-    }
-    match settings.browser_config() {
-        Some(_) => println!(
-            "Browser verification: on (Playwright MCP {}, checked before the run starts)",
-            agent::browser::PLAYWRIGHT_MCP_VERSION
+    match args.target {
+        OutputTarget::Aem => println!(
+            "Verification: AEM image {}, data volume {} (checked before the run starts)",
+            settings.aem_verify.image, settings.aem_verify.data_volume
         ),
-        None if settings.aem_connection().is_some() => println!("Browser verification: off"),
-        None => {}
+        OutputTarget::Redacto => println!(
+            "Verification: Postgres image {} (checked before the run starts)",
+            settings.redacto_verify.postgres_image
+        ),
     }
 
     let opts = runner::RunOptions {
@@ -289,10 +267,6 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     println!("Elapsed: {}s", completed.elapsed_secs);
     if let Some(code) = &outcome.form_code {
         println!("Form code: {code}");
-    }
-    if outcome.aem_uploaded {
-        let path = outcome.aem_form_path.as_deref().unwrap_or("(path unknown)");
-        println!("Uploaded to AEM: {path}");
     }
     for warning in &outcome.warnings {
         println!("Warning: {warning}");
@@ -493,30 +467,11 @@ fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
             .map_err(|e| format!("Could not read {}: {e}", path.display()))?;
     }
 
-    // Without --upload the run gets no AEM connection at all: no upload, and no
-    // AEM fetch/verify tools either. Blanking the host is how that is expressed
-    // — `aem_connection()` is what every consumer asks.
-    if args.upload {
-        if let Some(host) = &args.aem_host {
-            settings.aem_host = host.clone();
-        }
-        if let Some(user) = &args.aem_user {
-            settings.aem_username = user.clone();
-        }
-        if let Some(password) = &args.aem_password {
-            settings.aem_password = password.clone();
-        }
-        if settings.aem_connection().is_none() {
-            return Err("--upload needs an AEM host and user (--aem-host / --aem-user).".into());
-        }
-        if args.no_browser {
-            settings.browser_enabled = false;
-        }
-        if let Some(npx) = &args.npx {
-            settings.browser_npx_path = npx.display().to_string();
-        }
-    } else {
-        settings.aem_host = String::new();
+    if let Some(image) = &args.aem_image {
+        settings.aem_verify.image = image.clone();
+    }
+    if let Some(volume) = &args.aem_volume {
+        settings.aem_verify.data_volume = volume.clone();
     }
 
     Ok(settings)

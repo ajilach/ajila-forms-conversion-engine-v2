@@ -96,15 +96,6 @@ impl AemVerifyServer {
         })
     }
 
-    /// Starts the background sweep that tears down sessions idle longer than
-    /// the profile's idle timeout, as `run_main` does for the stdio binary.
-    pub fn spawn_idle_sweep(&self) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(idle_sweep_loop(
-            Arc::clone(&self.profile),
-            Arc::clone(&self.session),
-        ))
-    }
-
     /// Tears down every session that is not in use right now.
     pub async fn shutdown(&self) -> Result<(), String> {
         let docker = DockerLifecycle::connect()
@@ -675,7 +666,7 @@ pub async fn remove_leftover_containers(profile: &Profile) {
 /// lifetime, since `DockerLifecycle::connect` is cheap and this way a
 /// Docker daemon that restarted mid-session is not a reason for the sweep
 /// itself to die.
-pub async fn idle_sweep_loop(profile: Arc<Profile>, session: Arc<SessionPool>) {
+async fn idle_sweep_loop(profile: Arc<Profile>, session: Arc<SessionPool>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         match DockerLifecycle::connect().await {
