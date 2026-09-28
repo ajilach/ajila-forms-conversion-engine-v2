@@ -217,11 +217,21 @@ fn a_visual_editor_rule_in_passthrough_is_reported() {
     );
 }
 
-/// Every rule directory loads through the file loader hosts use.
+/// Every rule loads, and the rules compiled into the crate are exactly the
+/// rule directories.
 #[test]
-fn every_rule_loads_through_the_rules_directory_loader() {
-    let loaded = u2s_doc_tools::rules_dir::load_rules_dir(&rules_dir()).expect("the rules load");
-    assert_eq!(loaded.len(), rules().len());
+fn the_compiled_rules_are_the_rule_directories() {
+    let from_dir = u2s_doc_tools::rules_dir::load_rules_dir(&rules_dir()).expect("the rules load");
+    let compiled = u2s_doc_tools::rules_dir::load_rules(u2s_aem_ubs_mcp::rule_files())
+        .expect("the compiled rules load");
+    assert_eq!(from_dir.len(), rules().len());
+    let ids = |rules: &[u2s_doc_tools::native::RuleForCheck]| {
+        rules
+            .iter()
+            .map(|r| (r.id, r.script_js.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&compiled), ids(&from_dir));
 }
 
 #[test]

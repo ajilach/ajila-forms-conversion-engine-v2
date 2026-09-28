@@ -6,3 +6,9 @@
 pub mod document;
 
 pub use document::{Error, RedactoSource, UbsRedactoDocument, decode, encode, to_redacto};
+
+/// The JSON Schema of [`UbsRedactoDocument`], which `json_validate` checks a document
+/// against.
+pub fn document_schema() -> serde_json::Value {
+    serde_json::to_value(schemars::schema_for!(UbsRedactoDocument)).expect("the schema serializes")
+}

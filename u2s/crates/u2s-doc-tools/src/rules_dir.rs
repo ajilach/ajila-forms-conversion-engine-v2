@@ -171,6 +171,20 @@ pub enum RulesDirError {
     },
 }
 
+/// One rule's files, read from wherever the host keeps them: a rules
+/// directory ([`load_rules_dir`]), or data compiled into the binary.
+#[derive(Debug, Clone)]
+pub struct RuleFiles {
+    /// The rule's directory name, which orders the rules and names them in errors.
+    pub slug: String,
+    /// The text of `rule.toml`.
+    pub rule_toml: String,
+    /// The text of `check.js`.
+    pub check_js: String,
+    /// The text of `fix.js`, if the rule has one.
+    pub fix_js: Option<String>,
+}
+
 /// Reads one [`RuleForCheck`] per subdirectory of `dir`, sorted by
 /// directory name (the "slug") for a deterministic, diffable order.
 ///
@@ -184,7 +198,7 @@ pub fn load_rules_dir(dir: &Path) -> Result<Vec<RuleForCheck>, RulesDirError> {
         source,
     })?;
 
-    let mut slugs: Vec<(String, PathBuf)> = Vec::new();
+    let mut files = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|source| RulesDirError::RulesDirUnreadable {
             path: dir.to_path_buf(),
@@ -199,114 +213,96 @@ pub fn load_rules_dir(dir: &Path) -> Result<Vec<RuleForCheck>, RulesDirError> {
             .and_then(|name| name.to_str())
             .ok_or_else(|| RulesDirError::SlugNotUtf8 { path: path.clone() })?
             .to_owned();
-        slugs.push((slug, path));
+        files.push(read_rule_files(slug, &path)?);
     }
-    slugs.sort_by(|a, b| a.0.cmp(&b.0));
+    load_rules(files)
+}
+
+/// The rules in `files`, sorted by slug, each checked in full: see
+/// [`RulesDirError`] for everything that is refused.
+pub fn load_rules(mut files: Vec<RuleFiles>) -> Result<Vec<RuleForCheck>, RulesDirError> {
+    files.sort_by(|a, b| a.slug.cmp(&b.slug));
 
     let budget = ScriptBudget::default();
     let mut seen_ids: HashMap<RuleId, String> = HashMap::new();
-    let mut rules = Vec::with_capacity(slugs.len());
+    let mut rules = Vec::with_capacity(files.len());
 
-    for (slug, path) in slugs {
-        let rule = load_one_rule(&slug, &path, &budget)?;
-
+    for files in files {
+        let (id, rule) = parse_rule(&files, &budget)?;
         if let Some(first_slug) = seen_ids.get(&rule.id) {
             return Err(RulesDirError::DuplicateId {
-                id: rule_toml_id_for_error(&path)?,
+                id,
                 first_slug: first_slug.clone(),
-                slug,
+                slug: files.slug,
             });
         }
-        seen_ids.insert(rule.id, slug);
-
+        seen_ids.insert(rule.id, files.slug);
         rules.push(rule);
     }
 
     Ok(rules)
 }
 
-/// Re-reads a rule's `id` string purely to name it in a [`RulesDirError`]:
-/// by the time a duplicate is detected, [`load_one_rule`] has already
-/// consumed the parsed [`RuleToml`] into a [`RuleForCheck`], which carries
-/// the derived [`RuleId`] but not the original string. Re-parsing here
-/// (rather than threading the string through the happy path just for this
-/// message) keeps [`RuleForCheck`] itself free of a field nothing else
-/// reads.
-fn rule_toml_id_for_error(dir: &Path) -> Result<String, RulesDirError> {
-    let slug = dir
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or_default()
-        .to_owned();
-    let toml_path = dir.join(RULE_TOML);
-    let text = std::fs::read_to_string(&toml_path).map_err(|source| {
+fn read_rule_files(slug: String, dir: &Path) -> Result<RuleFiles, RulesDirError> {
+    let rule_toml = std::fs::read_to_string(dir.join(RULE_TOML)).map_err(|source| {
         RulesDirError::RuleTomlUnreadable {
             slug: slug.clone(),
             source,
         }
     })?;
-    let parsed: RuleToml =
-        toml::from_str(&text).map_err(|source| RulesDirError::RuleTomlInvalid { slug, source })?;
-    Ok(parsed.id)
-}
-
-fn load_one_rule(
-    slug: &str,
-    dir: &Path,
-    budget: &ScriptBudget,
-) -> Result<RuleForCheck, RulesDirError> {
-    let toml_path = dir.join(RULE_TOML);
-    let toml_text = std::fs::read_to_string(&toml_path).map_err(|source| {
-        RulesDirError::RuleTomlUnreadable {
-            slug: slug.to_owned(),
-            source,
-        }
-    })?;
-    let rule_toml: RuleToml =
-        toml::from_str(&toml_text).map_err(|source| RulesDirError::RuleTomlInvalid {
-            slug: slug.to_owned(),
-            source,
-        })?;
-
     let check_js = std::fs::read_to_string(dir.join(CHECK_JS)).map_err(|source| {
         RulesDirError::CheckJsMissing {
-            slug: slug.to_owned(),
+            slug: slug.clone(),
             source,
         }
     })?;
-
-    let fix_path = dir.join(FIX_JS);
-    let fix_js = match std::fs::read_to_string(&fix_path) {
+    let fix_js = match std::fs::read_to_string(dir.join(FIX_JS)) {
         Ok(text) => Some(text),
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => None,
-        Err(source) => {
-            return Err(RulesDirError::FixJsUnreadable {
-                slug: slug.to_owned(),
-                source,
-            });
-        }
+        Err(source) => return Err(RulesDirError::FixJsUnreadable { slug, source }),
     };
+    Ok(RuleFiles {
+        slug,
+        rule_toml,
+        check_js,
+        fix_js,
+    })
+}
 
-    let requires =
-        read_requires(&check_js, budget).map_err(|source| RulesDirError::CheckJsInvalid {
-            slug: slug.to_owned(),
+/// One rule, with the `id` string it was derived from (for a duplicate's error).
+fn parse_rule(
+    files: &RuleFiles,
+    budget: &ScriptBudget,
+) -> Result<(String, RuleForCheck), RulesDirError> {
+    let slug = &files.slug;
+    let rule_toml: RuleToml =
+        toml::from_str(&files.rule_toml).map_err(|source| RulesDirError::RuleTomlInvalid {
+            slug: slug.clone(),
             source,
         })?;
+
+    let requires = read_requires(&files.check_js, budget).map_err(|source| {
+        RulesDirError::CheckJsInvalid {
+            slug: slug.clone(),
+            source,
+        }
+    })?;
     if !requires.is_empty() {
         return Err(RulesDirError::RuleRequiresFacts {
-            slug: slug.to_owned(),
+            slug: slug.clone(),
             requires,
         });
     }
 
-    Ok(RuleForCheck {
+    let rule = RuleForCheck {
         id: derive_rule_id(&rule_toml.id),
         title: rule_toml.title,
         description_md: rule_toml.description,
-        script_js: check_js,
-        fix_js,
+        script_js: files.check_js.clone(),
+        fix_js: files.fix_js.clone(),
         facts: u2s_facts::FactsForCheck::Ready(serde_json::Map::new()),
-    })
+    };
+    Ok((rule_toml.id, rule))
 }
 
 #[cfg(test)]
