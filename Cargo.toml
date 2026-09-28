@@ -8,6 +8,27 @@ members = [
     "pipeline",
     "runner",
     "judge",
+    # Vendored from ajila-forms-conversion-engine-v3, see u2s/VENDORED.md.
+    "u2s/crates/u2s-aem",
+    "u2s/crates/u2s-aem-ubs-verify-mcp",
+    "u2s/crates/u2s-aem-verify-core",
+    "u2s/crates/u2s-blob",
+    "u2s/crates/u2s-core",
+    "u2s/crates/u2s-mapper-aem",
+    "u2s/crates/u2s-mapper-redacto",
+    "u2s/crates/u2s-mcp",
+    "u2s/crates/u2s-redacto",
+    "u2s/crates/u2s-redacto-ubs-verify-mcp",
+    "u2s/crates/u2s-redacto-verify-core",
+    "u2s/crates/u2s-render-core",
+    "u2s/crates/u2s-render-pdf",
+    "u2s/crates/u2s-render-pdf-mcp",
+    "u2s/crates/u2s-render-test-harness",
+    "u2s/crates/u2s-render-xfa",
+    "u2s/crates/u2s-render-xfa-mcp",
+    "u2s/crates/u2s-verify-core",
+    "u2s/crates/u2s-xfa",
+    "u2s/crates/u2s-xfa-mcp",
 ]
 resolver = "3"
 
@@ -46,5 +67,21 @@ rig-agent = { version = "=0.42.0", default-features = false }
 rig-memory = { version = "=0.42.0" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-uuid = { version = "1", features = ["v4"] }
+uuid = { version = "1", features = ["v4", "v5", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+
+# Only the vendored u2s crates inherit these; versions and pins follow upstream's
+# own workspace manifest so the vendored Cargo.toml files stay unchanged.
+anyhow = "1"
+boa_engine = "0.20"
+# Pinned exactly upstream: its query_parameters/model split is not stable across minors.
+bollard = "0.21.1"
+# Pinned exactly upstream: its CDP types are generated and shift between minors.
+chromiumoxide = "0.9.1"
+futures = "0.3"
+jsonschema = { version = "0.30", default-features = false }
+regex = "1"
+schemars = "1"
+thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tracing = "0.1"

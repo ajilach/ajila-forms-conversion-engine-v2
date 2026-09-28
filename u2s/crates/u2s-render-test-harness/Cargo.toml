@@ -1,0 +1,15 @@
+[package]
+name = "u2s-render-test-harness"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Black-box MCP test battery shared by the u2s render servers"
+publish = false
+
+[dependencies]
+image = { workspace = true }
+rmcp = { version = "3.1", features = ["client", "transport-child-process"] }
+u2s-mcp = { path = "../u2s-mcp" }
+serde_json = { workspace = true }
+sha2 = "0.10"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "time"] }

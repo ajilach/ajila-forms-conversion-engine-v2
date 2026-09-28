@@ -1,0 +1,15 @@
+[package]
+name = "u2s-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Domain identifier types shared across the web-app crates (DatasetSlug, DatasetId)"
+
+[dependencies]
+regex = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

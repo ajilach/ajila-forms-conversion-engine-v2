@@ -1,0 +1,1 @@
+../crates/u2s-mapper-redacto/tests/fixtures/redacto-AAEV_019.sql

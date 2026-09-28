@@ -1,0 +1,10 @@
+[package]
+name = "u2s-blob"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Content-addressed blob handles: large payloads never enter a prompt"
+
+[dependencies]
+sha2 = "0.10"
+thiserror = { workspace = true }

@@ -38,3 +38,5 @@ test-utils = []
 tokio = { version = "1", features = ["macros", "rt"] }
 # An in-process fake MCP server stands in for Playwright in the browser tests.
 rmcp = { version = "1.7.0", default-features = false, features = ["client", "server", "transport-child-process"] }
+# Proves the engine's Redacto dump is what the vendored verifier decodes.
+u2s-mapper-redacto = { path = "../u2s/crates/u2s-mapper-redacto" }

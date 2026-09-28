@@ -1,0 +1,16 @@
+[package]
+name = "u2s-aem"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Generic AEM Adaptive Forms output model: one typed structure, schema generated from it"
+
+[dependencies]
+regex = { workspace = true }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+jsonschema = { workspace = true }

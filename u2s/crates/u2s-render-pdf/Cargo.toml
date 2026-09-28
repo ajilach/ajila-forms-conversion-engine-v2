@@ -1,0 +1,28 @@
+[package]
+name = "u2s-render-pdf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "True per-page PDF rasterization on pdfium: info, render, region zoom, page text, text search"
+
+[dependencies]
+image = { workspace = true }
+log = { workspace = true }
+u2s-render-core = { path = "../u2s-render-core" }
+# The ABI feature is pinned to the exact pdfium build scripts/fetch-pdfium.sh
+# downloads (chromium/7881). Tracking "pdfium_latest" instead would let a
+# pdfium-render upgrade silently require a different binary, which surfaces
+# as a dlsym failure at startup rather than at build time.
+pdfium-render = { version = "0.9.3", default-features = false, features = [
+    "pdfium_7881",
+    "image_latest",
+    "thread_safe",
+] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+image = { workspace = true }
+image_hasher = "3"
+lopdf = "0.44"

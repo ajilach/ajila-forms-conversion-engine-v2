@@ -1,0 +1,1179 @@
+{
+  "$defs": {
+    "AssistPriority": {
+      "description": "AEM.md §6.1 `assistPriority`. Defaults to `Label`, AEM's own default.",
+      "enum": [
+        "label",
+        "caption",
+        "custom"
+      ],
+      "type": "string"
+    },
+    "AutofillHint": {
+      "description": "AEM.md §19.3 `autofillFieldKeyword`: the HTML `autocomplete` vocabulary\nAEM exposes, not the full HTML spec.",
+      "enum": [
+        "name",
+        "given-name",
+        "family-name",
+        "email",
+        "tel",
+        "street-address",
+        "address-line1",
+        "address-line2",
+        "postal-code",
+        "country",
+        "bday",
+        "organization"
+      ],
+      "type": "string"
+    },
+    "ChoiceOption": {
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "$ref": "#/$defs/I18nText"
+        },
+        "value": {
+          "pattern": "^[^,\\\\\\r\\n]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "label"
+      ],
+      "type": "object"
+    },
+    "ChoiceOptions": {
+      "items": {
+        "$ref": "#/$defs/ChoiceOption"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "Common": {
+      "additionalProperties": false,
+      "description": "Attributes every component carries (AEM.md §6.1).\n\n**Why `resource_type`/`guide_node_class` live here, agent-authored,\nrather than being derived by the mapper from a node's Rust variant.**\nEarlier drafts of this model had `u2s-mapper-aem` choose a fixed\n`sling:resourceType` per `Node` variant (`fd/af/components/panel` for\nevery panel, say). That baked a customer's own component catalogue\nchoice into Rust — the exact \"hardcoded rule\" the mapper's own module\ndoc always disclaimed but did not, in practice, avoid. Every node now\nstates its own resource type explicitly, the same way a real package's\nown author chose one; the mapper only ever spells whatever value it is\ngiven, correctly, as XML.",
+      "properties": {
+        "bind_ref": {
+          "default": null,
+          "description": "Carried, not derived, unlike earlier drafts of this model that had\nthe encoder always compute one from tree position. A real package's\nown `bindRef` does not always match that derivation (the fixture's\nown `formmodel=\"none\"` form still carries stray `bindRef` values on\nsome nodes), so a decoded value takes precedence; `None` under\n[`super::DataModel::XmlSchema`] still falls back to\n`u2s_mapper_aem::xsd::generate`'s mechanical derivation, so a\ngreen-field form the Conversion Agent authors is unaffected.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "css": {
+          "$ref": "#/$defs/CssClasses",
+          "default": []
+        },
+        "enabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "guide_node_class": {
+          "default": null,
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "jcr_name": {
+          "default": null,
+          "description": "The real JCR element name, when it differs from [`Common::name`] --\na real package's own element is not always named after its `name`\nattribute (`panel_00000000000040008000000000000001` carrying\n`name=\"PN_...\"` is the ordinary case, not the exception). `None`\nmeans the encoder uses `name` itself, which is every green-field\nform this system's own Conversion Agent produces.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "description": "Unique within the form (checked by [`crate::model::validate`]). Used\nas the JCR element name when [`Common::jcr_name`] is absent.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+          "type": "string"
+        },
+        "passthrough": {
+          "$ref": "#/$defs/Passthrough",
+          "default": {
+            "raw_attributes": {},
+            "raw_children": []
+          },
+          "description": "Everything this node's own JCR element carried that no field above\nor on the specific [`super::Node`] variant represents. See\n[`Passthrough`]'s own doc for why this makes decode lossless without\nthe model having to know what every JCR attribute means."
+        },
+        "presence": {
+          "$ref": "#/$defs/Presence",
+          "default": {
+            "dor_exclude_description": false,
+            "dor_exclude_title": false,
+            "dor_exclusion": false,
+            "summary_exclusion": false
+          }
+        },
+        "resource_type": {
+          "default": null,
+          "description": "`sling:resourceType` — which component this is, in AEM's own\nvocabulary (a foundation type, an overlay of one, or a fully\ncustomer-specific component). See this struct's own doc for why the\nmapper never chooses this. `None` for a JCR element that carries no\nresource type at all -- a real package has plenty of these\n(`fd:rules`, `fd:visible`, and other plain `nt:unstructured`\nconfiguration nodes are not AEM *components* and were never going\nto have one).",
+          "pattern": "^/?[A-Za-z0-9_][A-Za-z0-9_./-]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "visible": {
+          "default": true,
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "CssClasses": {
+      "description": "A validated, orderless list of CSS classes (AEM.md §6.1 `css`). Each\nclass validates itself at the edge; this wrapper exists so the list has\nits own place in the schema rather than being a raw space-separated\nstring.",
+      "items": {
+        "pattern": "^-?[A-Za-z_][A-Za-z0-9_-]*$",
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "DataModel": {
+      "description": "AEM.md §19.1 `formmodel`. `Unbound` means no field carries a `bindRef`;\n`XmlSchema` means the encoder generates an XSD and assigns every\n`bindRef` in that same walk, which is why `bindRef` never appears\nanywhere in this model.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "unbound",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "xml_schema",
+              "type": "string"
+            },
+            "root_element": {
+              "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "root_element"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DateFormat": {
+      "description": "AEM.md §18.1: a date display/validation format, either a named preset or\nan explicit symbol pattern.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "named",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/NamedDateFormat"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "pattern",
+              "type": "string"
+            },
+            "value": {
+              "pattern": "^[DMYE .,/:-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DorMode": {
+      "description": "AEM.md §5.3 `dorType`.",
+      "enum": [
+        "none",
+        "generate"
+      ],
+      "type": "string"
+    },
+    "FieldCommon": {
+      "additionalProperties": false,
+      "description": "Attributes every input field carries beyond [`Common`]. Checkbox has no\nAEM concept of `mandatory` (AEM.md §6.7); it uses [`LabelCommon`]\ninstead, so that gap is a missing field rather than an unused flag.",
+      "properties": {
+        "assist": {
+          "$ref": "#/$defs/AssistPriority",
+          "default": "label"
+        },
+        "label": {
+          "$ref": "#/$defs/I18nText"
+        },
+        "mandatory": {
+          "default": false,
+          "type": "boolean"
+        },
+        "mandatory_message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/I18nText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "placeholder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/I18nText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "FieldLayout": {
+      "additionalProperties": false,
+      "description": "AEM.md §7.3 `cq:responsive`, in AEM's 12-column grid. `offset` is\n`Option<ColSpan>` rather than a bare `ColSpan` because \"no offset\" (0\ncolumns) is the common case and `ColSpan` itself only spans 1..=12.",
+      "properties": {
+        "offset": {
+          "default": null,
+          "maximum": 12,
+          "minimum": 1,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "width": {
+          "maximum": 12,
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "width"
+      ],
+      "type": "object"
+    },
+    "FormMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "chrome": {
+          "$ref": "#/$defs/Passthrough",
+          "default": {
+            "raw_attributes": {},
+            "raw_children": []
+          },
+          "description": "`guideContainer`'s own remainder: every attribute AEM.md documents\nthere beyond `fd:version`/`dorType` (which stay typed fields, since\nthis model already needed them structurally) -- `actionType`,\n`autoSaveStrategyType`, `clientLibRef`, `dorTemplateRef`, `redirect`,\n`thankYouOption`, `thankYouMessage`, `themeRef`, `useExistingAF`,\n`guideCss`, ... -- plus every child `guideContainer` carries beyond\n`rootPanel` (`autoSaveInfo`, `signerInfo`, `view`, ...). Real,\nper-deployment configuration, not mechanical boilerplate, so it\ngets the same lossless treatment a node's own [`Common::passthrough`]\ndoes rather than a dedicated typed field per attribute this model\nwould otherwise need to keep inventing."
+        },
+        "dam_chrome": {
+          "$ref": "#/$defs/Passthrough",
+          "default": {
+            "raw_attributes": {},
+            "raw_children": []
+          },
+          "description": "The DAM asset's own `<metadata>` node's remainder: every attribute\nbeyond what the encoder already derives mechanically from this form\nitself (`allowedRenderFormat`, `dorType`, `formmodel`,\n`hasCustomThumbnail`, `title`) -- `author`, `availableStylings`,\n`availableInMobileApp`, `dorTemplateRef`, `menuOptions`,\n`redactoSummary`, `themeRef`, ... -- plus its sibling `<dictionary>`\nchild, which the real corpus does not always keep in sync with the\nguideContainer's own dictionary directory (see `dam::decode`'s own\ndoc). Real, per-deployment DAM authoring metadata, not mechanical\nboilerplate, so it gets the same lossless treatment\n[`FormMetadata::chrome`] does rather than a dedicated typed field\nper attribute this model would otherwise need to keep inventing."
+        },
+        "data_model": {
+          "$ref": "#/$defs/DataModel",
+          "description": "AEM.md §19.1 `formmodel`. `Unbound` means no field carries a\n`bindRef`; `XmlSchema` means the encoder generates an XSD and\nassigns every `bindRef` in that same walk, which is why `bindRef`\nnever appears anywhere in this model."
+        },
+        "dor": {
+          "$ref": "#/$defs/DorMode"
+        },
+        "folder_path": {
+          "default": [],
+          "description": "Intermediate JCR folder segments between `/content/forms/af/` and\nthis form's own name, e.g. `[\"afforms_germany_all\", \"af_aa\"]` for a\nreal package rooted at\n`/content/forms/af/afforms_germany_all/af_aa/AF_AABF`. Empty\nreproduces this crate's own flat `/content/forms/af/<form_name>`\npath exactly -- every green-field form this system's own Conversion\nAgent produces.",
+          "items": {
+            "pattern": "^[A-Za-z_][A-Za-z0-9_.-]*$",
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "form_name": {
+          "description": "JCR-safe node name for the form's page and DAM asset.",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$",
+          "type": "string"
+        },
+        "languages": {
+          "description": "Every delivered language; must contain `master_language`\n(checked in [`AemForm::validate`]).",
+          "items": {
+            "pattern": "^[a-z]{2}(-[A-Za-z]{2})?$",
+            "type": "string"
+          },
+          "type": "array",
+          "uniqueItems": true
+        },
+        "master_language": {
+          "pattern": "^[a-z]{2}(-[A-Za-z]{2})?$",
+          "type": "string"
+        },
+        "root_panel_layout": {
+          "default": null,
+          "description": "`rootPanel`'s own separate `layout` child (distinct from its\n`items` child, which always carries\n`fd/af/layouts/gridFluidLayout2` -- mechanical, so the mapper still\nowns it unconditionally). A real package's own wizard forms use a\ncustomer-specific layout type here\n(`.../layouts/panel/wizard`, say); `None` means no such child at\nall, this crate's own encoder's behaviour prior to this field's\naddition.",
+          "pattern": "^/?[A-Za-z0-9_][A-Za-z0-9_./-]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/I18nText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Display title (AEM.md §5.2 `jcr:title`). `None` means the encoder\nfalls back to `form_name`."
+        },
+        "toolbar": {
+          "default": [],
+          "description": "AEM.md §6.11 toolbar composition, in order — ordinary generic nodes\nnow, not a closed `ToolbarButton` enum. Earlier drafts of this model\nhardcoded the toolbar's own button set and titles in the mapper,\nwhich could not represent the real corpus's own `guidebutton` at\nall; the Conversion Agent now authors each toolbar action directly\n(guided by rules), the same way it authors everything else\nstructural.",
+          "items": {
+            "$ref": "#/$defs/Node"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "form_name",
+        "master_language",
+        "languages",
+        "dor",
+        "data_model"
+      ],
+      "type": "object"
+    },
+    "HeadingLevel": {
+      "description": "A heading level, for a title's `headingLevel` (AEM.md §6.9).",
+      "enum": [
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6"
+      ],
+      "type": "string"
+    },
+    "I18nRichText": {
+      "additionalProperties": false,
+      "description": "A rich-text value per language. See [`I18nText`] for the map's schema\nshape.",
+      "patternProperties": {
+        "^[a-z]{2}(-[A-Za-z]{2})?$": {
+          "minLength": 1,
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "I18nText": {
+      "additionalProperties": false,
+      "description": "A plain-text value per language. `Language`'s `JsonSchema` carries a\n`pattern`, so schemars' `BTreeMap` impl renders this as\n`patternProperties` with `additionalProperties: false` — a closed map\nkeyed by language code, not a free-form object.",
+      "patternProperties": {
+        "^[a-z]{2}(-[A-Za-z]{2})?$": {
+          "minLength": 1,
+          "pattern": "^[^<>]*$",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "JcrValue": {
+      "description": "A generic node's own property value (`Node::Component::properties`).\n\n`Text`/`RichText` exist so a `Component`'s own translatable content\nround-trips the same way a typed leaf kind's `I18nText`/`I18nRichText`\nfield already does: written as the master language's own value inline,\nwith every other language becoming a Sling i18n dictionary entry keyed\nby that master value (AEM.md §10) -- the same mechanism\n`u2s-mapper-aem::i18n` already used for the seven typed leaf kinds,\nnow shared rather than duplicated. `Single`/`Multi` are for properties\nwith no translation at all (`dorLayoutType`, `messageboxType`, a plain\n`_value`, ...).",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "Written verbatim as the attribute value -- including any\n`{Boolean}`/`{Date}` type-hint prefix AEM's own convention needs for\nthat particular property name. Which properties need one is a\nper-attribute-name platform convention, not inferable from the\nvalue alone, so it is the agent's responsibility (informed by rules\nand real examples), not a table this crate hardcodes.",
+          "properties": {
+            "kind": {
+              "const": "single",
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "A JCR multi-value property. The mapper joins these as `\"[a,b,c]\"`\nwith `\\,`/`\\\\` escaping -- mechanical, error-prone boilerplate the\nagent should not have to hand-escape, unlike the type-hint choice\nabove.",
+          "properties": {
+            "kind": {
+              "const": "multi",
+              "type": "string"
+            },
+            "value": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "text",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/I18nText"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "rich_text",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/I18nRichText"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "LabelCommon": {
+      "additionalProperties": false,
+      "description": "[`FieldCommon`] without `mandatory`, for components AEM has no\nmandatory concept for.",
+      "properties": {
+        "assist": {
+          "$ref": "#/$defs/AssistPriority",
+          "default": "label"
+        },
+        "label": {
+          "$ref": "#/$defs/I18nText"
+        },
+        "placeholder": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/I18nText"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "type": "object"
+    },
+    "NamedDateFormat": {
+      "description": "AEM.md §18.1 named date formats.",
+      "enum": [
+        "short",
+        "medium",
+        "long",
+        "full"
+      ],
+      "type": "string"
+    },
+    "NamedNumberFormat": {
+      "description": "AEM.md §18.2 named number formats.",
+      "enum": [
+        "integer",
+        "decimal",
+        "currency",
+        "percent"
+      ],
+      "type": "string"
+    },
+    "Node": {
+      "description": "One node of the form's content tree.\n\n**Why only these eight variants.** The seven leaf field kinds\n(`TextField` through `Signature`) are real domain types: what a\nConversion Agent's output means by \"this holds a date\" versus \"this\nholds free text\" is content the schema should teach it directly, not\nauthoring convention. Everything structural — a panel, a repeating\ngroup's outer/inner pair, a fragment reference, a customer-specific\ncomponent (`messagebox`, `summary`, a toolbar action, ...) — is a\n`Component`: one generic shape the agent builds explicitly, checked by\nrules rather than by a Rust type that used to bake in a specific\nauthoring pattern (a repeatable's outer+inner+Add/Remove-button\nexpansion, a visibility rule's synthesized script, a closed toolbar\nbutton enum). See `u2s-mapper-aem`'s module doc for the full\nreasoning and which four behaviours moved out of the mapper because of\nit.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "description": "The generic structural node — see this enum's own doc.",
+          "properties": {
+            "children": {
+              "default": [],
+              "items": {
+                "$ref": "#/$defs/Node"
+              },
+              "type": "array"
+            },
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "properties": {
+              "additionalProperties": false,
+              "default": {},
+              "patternProperties": {
+                "^[A-Za-z_][A-Za-z0-9_.:-]*$": {
+                  "$ref": "#/$defs/JcrValue"
+                }
+              },
+              "type": "object"
+            },
+            "type": {
+              "const": "Component",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "common"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "autofill": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/AutofillHint"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "AEM.md §19.3 `autofillFieldKeyword`."
+            },
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "field": {
+              "$ref": "#/$defs/FieldCommon"
+            },
+            "input": {
+              "$ref": "#/$defs/TextInput",
+              "description": "AEM.md §6.3 `multiLine`."
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "max_chars": {
+              "default": null,
+              "format": "uint32",
+              "minimum": 1,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "type": {
+              "const": "TextField",
+              "type": "string"
+            },
+            "validation": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Validation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "field",
+            "layout",
+            "input"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "field": {
+              "$ref": "#/$defs/FieldCommon"
+            },
+            "format": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/NumberFormat"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "AEM.md §6.4 validate/display picture clauses."
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "type": {
+              "const": "NumberField",
+              "type": "string"
+            },
+            "validation": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Validation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "field",
+            "layout"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "default_to_current_date": {
+              "default": false,
+              "description": "AEM.md §6.5 `defaultToCurrentDate`.",
+              "type": "boolean"
+            },
+            "field": {
+              "$ref": "#/$defs/FieldCommon"
+            },
+            "format": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/DateFormat"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "type": {
+              "const": "DatePicker",
+              "type": "string"
+            },
+            "validation": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Validation"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            },
+            "year_range": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/YearRange"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null,
+              "description": "`yearRangeFrom` / `yearRangeTo`."
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "field",
+            "layout"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "field": {
+              "$ref": "#/$defs/FieldCommon"
+            },
+            "filtering_allowed": {
+              "default": false,
+              "description": "AEM.md §6.6 `filteringAllowed`.",
+              "type": "boolean"
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "options": {
+              "$ref": "#/$defs/ChoiceOptions"
+            },
+            "sort": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": {
+              "const": "Dropdown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "field",
+            "layout",
+            "options"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "alignment": {
+              "$ref": "#/$defs/OptionAlignment"
+            },
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "field": {
+              "$ref": "#/$defs/LabelCommon",
+              "description": "[`LabelCommon`], not [`FieldCommon`]: AEM has no `mandatory`\nconcept for a checkbox group (AEM.md §6.7), so that gap is a\nmissing field rather than an unused flag."
+            },
+            "hide_title": {
+              "default": false,
+              "description": "AEM.md §6.7 `hideTitle`.",
+              "type": "boolean"
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "options": {
+              "$ref": "#/$defs/ChoiceOptions"
+            },
+            "rich_text_options": {
+              "default": false,
+              "type": "boolean"
+            },
+            "type": {
+              "const": "Checkbox",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "field",
+            "layout",
+            "options",
+            "alignment"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "alignment": {
+              "$ref": "#/$defs/OptionAlignment"
+            },
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "field": {
+              "$ref": "#/$defs/FieldCommon"
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "options": {
+              "$ref": "#/$defs/ChoiceOptions"
+            },
+            "rich_text_options": {
+              "default": false,
+              "type": "boolean"
+            },
+            "type": {
+              "const": "RadioButton",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "field",
+            "layout",
+            "options",
+            "alignment"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "content": {
+              "$ref": "#/$defs/I18nRichText",
+              "description": "AEM.md §6.9 `_value`, rich text; headings below the page level\nlive here as markup."
+            },
+            "heading_level": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/HeadingLevel"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "type": {
+              "const": "StaticText",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "layout",
+            "content"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "description": "AEM.md §6.10 `guideScribble`: a signature/drawing input.",
+          "properties": {
+            "common": {
+              "$ref": "#/$defs/Common"
+            },
+            "field": {
+              "$ref": "#/$defs/FieldCommon"
+            },
+            "layout": {
+              "$ref": "#/$defs/FieldLayout"
+            },
+            "type": {
+              "const": "Signature",
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "common",
+            "field",
+            "layout"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "NumberFormat": {
+      "description": "AEM.md §18.2: a number display/validation format, either a named preset\nor an explicit symbol pattern.",
+      "oneOf": [
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "named",
+              "type": "string"
+            },
+            "value": {
+              "$ref": "#/$defs/NamedNumberFormat"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        },
+        {
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "const": "pattern",
+              "type": "string"
+            },
+            "value": {
+              "pattern": "^[9ZzE.,$%Ss()CRcr-]+$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "value"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "OptionAlignment": {
+      "description": "AEM.md §6.7/§6.8 `alignment`, for checkbox and radio button groups.",
+      "enum": [
+        "horizontal",
+        "vertical"
+      ],
+      "type": "string"
+    },
+    "Page": {
+      "additionalProperties": false,
+      "description": "A navigable wizard step. Pages may only appear here, as direct children\nof the root, so \"a page nested inside a panel\" has no encoding — it is\nnot a validation rule, because the type has no field for it.\n\n`properties` carries whatever this step's own panel needs beyond its\nname and content -- title, presence flags, layout, `panelSetType` —\nthe same open, agent-authored bag [`Node::Component`] uses. Earlier\ndrafts of this model gave `Page` its own typed `title`/`presence`/\n`layout` fields and had the mapper assume `panelSetType=\"wizard\"` on\nevery one; that assumption is exactly the kind of hardcoded default\nthis redesign moves to the agent (guided by rules), so those fields\ncollapsed into the same generic shape a `Component`'s properties use.",
+      "properties": {
+        "children": {
+          "description": "Non-empty — checked in [`AemForm::validate`].",
+          "items": {
+            "$ref": "#/$defs/Node"
+          },
+          "type": "array"
+        },
+        "name": {
+          "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
+          "type": "string"
+        },
+        "properties": {
+          "additionalProperties": false,
+          "default": {},
+          "patternProperties": {
+            "^[A-Za-z_][A-Za-z0-9_.:-]*$": {
+              "$ref": "#/$defs/JcrValue"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "name",
+        "children"
+      ],
+      "type": "object"
+    },
+    "Passthrough": {
+      "additionalProperties": false,
+      "description": "A node's raw remainder: every JCR attribute and child element decode did\nnot fold into a typed field (on [`Common`] or on the specific\n[`super::Node`] variant), carried verbatim so a round trip through\n`u2s-mapper-aem`'s decoder and encoder loses nothing. Never\ninterpreted by this crate or by `AemForm::validate` -- what a passthrough\nattribute *means* is profile/customer knowledge this model deliberately\ndoes not have (see `u2s-mapper-aem`'s own module doc).\n\n`raw_attributes` is a plain string map (order does not matter for JCR\nattributes, and a map reads naturally as a JSON object); `raw_children`\nis an ordered list (sibling order is semantic — a wizard step's position\namong its siblings, an option's position in its list — so it cannot be\na map).",
+      "properties": {
+        "raw_attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "raw_children": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RawJcrNode"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "Presence": {
+      "additionalProperties": false,
+      "description": "AEM.md §6.1 Document-of-Record and summary exclusion. AEM treats these\nfour flags as independent, so they stay independent here.",
+      "properties": {
+        "dor_exclude_description": {
+          "default": false,
+          "type": "boolean"
+        },
+        "dor_exclude_title": {
+          "default": false,
+          "type": "boolean"
+        },
+        "dor_exclusion": {
+          "default": false,
+          "type": "boolean"
+        },
+        "summary_exclusion": {
+          "default": false,
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "RawJcrNode": {
+      "additionalProperties": false,
+      "description": "One element of a [`Passthrough`]'s `raw_children` — a JCR element this\nmodel has no typed representation for, kept as a small recursive tree\n(not a verbatim XML string) so the Conversion Agent's own JSON tools\n(`u2s-jsondoc`'s `outline`/`get`/`patch`) can address into it the same\nway they address into any other part of the document.",
+      "properties": {
+        "attributes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "default": {},
+          "type": "object"
+        },
+        "children": {
+          "default": [],
+          "items": {
+            "$ref": "#/$defs/RawJcrNode"
+          },
+          "type": "array"
+        },
+        "tag_name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "tag_name"
+      ],
+      "type": "object"
+    },
+    "SortOrder": {
+      "description": "AEM.md §6.6 `sort`.",
+      "enum": [
+        "ascending",
+        "descending"
+      ],
+      "type": "string"
+    },
+    "TextInput": {
+      "description": "AEM.md §6.3 `multiLine`.",
+      "enum": [
+        "single_line",
+        "multi_line"
+      ],
+      "type": "string"
+    },
+    "Validation": {
+      "additionalProperties": false,
+      "description": "A validation constraint plus the message shown when it fails\n(AEM.md §18.3 `validatePictureClause` / `validatePictureClauseMessage`).",
+      "properties": {
+        "message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/I18nText"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "pattern": {
+          "pattern": "^[AXO09 .,-]+$",
+          "type": "string"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "type": "object"
+    },
+    "YearRange": {
+      "additionalProperties": false,
+      "description": "AEM.md §6.5 `yearRangeFrom` / `yearRangeTo`: independent offsets in years\nfrom the current year, not a min/max pair, so no ordering is enforced.",
+      "properties": {
+        "after_today": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        },
+        "before_today": {
+          "format": "uint16",
+          "maximum": 65535,
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "before_today",
+        "after_today"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "The AEM output document. `schema_for!(AemForm)` (see [`crate::schema`])\nIS the format schema published in the format server's manifest — there\nis no hand-maintained schema file for it to drift from.",
+  "properties": {
+    "metadata": {
+      "$ref": "#/$defs/FormMetadata"
+    },
+    "pages": {
+      "description": "Wizard steps, in order. Everything the root carries beyond them —\nthe summary and preview steps, the toolbar's rendering — is\nencoder-emitted and has no representation here.",
+      "items": {
+        "$ref": "#/$defs/Page"
+      },
+      "type": "array"
+    }
+  },
+  "required": [
+    "metadata",
+    "pages"
+  ],
+  "title": "AemForm",
+  "type": "object"
+}

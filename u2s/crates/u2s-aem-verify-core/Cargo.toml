@@ -1,0 +1,37 @@
+[package]
+name = "u2s-aem-verify-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The AEM verification runtime shared by every AEM-verifying MCP server: install a FileVault package on a persistent AEM+Chromium session, walk a (possibly wizard-shaped) Adaptive Form, submit it and capture the result. Format-specific behaviour (how a form's URL is built, how the last panel is recognised, how submit is actually triggered) is a `FormDriver` the binary on top supplies -- library has the logic, binaries are thin, the same split `u2s-mapper-aem` gives the two AEM encoder binaries."
+
+[lib]
+name = "u2s_aem_verify_core"
+path = "src/lib.rs"
+
+[dependencies]
+# Encoding a `verify_screenshot` image inline in a tool result -- the same
+# crate and version every other u2s server already uses for this.
+base64 = "0.22"
+bollard = { workspace = true }
+env_logger = "0.11"
+log = { workspace = true }
+reqwest = { version = "0.13", default-features = false, features = ["rustls", "multipart"] }
+rmcp = { version = "3.1", features = ["server", "transport-io"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["time", "process"] }
+u2s-blob = { path = "../u2s-blob" }
+uuid = { workspace = true }
+# Only the FileVault zip-root parsing (`decode::zip`) is reused from here --
+# the same `filter.xml` reader the decoder uses, so a form's JCR path is
+# derived once, not reimplemented per consumer. This crate never encodes
+# or decodes a document; it only ever reads a package's own manifest.
+u2s-mapper-aem = { path = "../u2s-mapper-aem" }
+u2s-verify-core = { path = "../u2s-verify-core" }
+
+[dev-dependencies]
+http = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "time"] }
+zip = { version = "2", default-features = false, features = ["deflate"] }

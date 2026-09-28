@@ -1887,10 +1887,11 @@ mod tests {
             report["assets"].as_u64().unwrap_or(0) > 5,
             "expected a text-heavy document: {built}"
         );
-        assert!(
-            agent.redacto_dump().is_some(),
-            "the dump must be cached for finalize"
-        );
+        let dump = agent.redacto_dump().expect("the dump must be cached for finalize");
+        let sql = dump.to_sql();
+        if let Err(e) = u2s_mapper_redacto::decode::decode(sql.as_bytes()) {
+            panic!("the u2s Redacto verifier must accept the engine's dump: {e}");
+        }
     }
 
     /// The same tools stay reachable under the AEM target — the guard is about
