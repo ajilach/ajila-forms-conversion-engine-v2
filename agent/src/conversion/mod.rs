@@ -103,15 +103,9 @@ type I18nDict = std::collections::HashMap<String, std::collections::HashMap<Stri
 pub enum ToolReply {
     /// A textual result (JSON, plain text, …).
     Text(String),
-    /// One or more images (base64), all sharing one media type — e.g. the pages
-    /// of a rendered form. Emitted as multiple image blocks in one `tool_result`.
-    Image {
-        media_type: &'static str,
-        images: Vec<String>,
-    },
-    /// Text and images interleaved, in order: what an external MCP tool (the
-    /// browser) returns: a page snapshot next to a screenshot, a download notice
-    /// next to nothing. Emitted as one block per entry in a single `tool_result`.
+    /// Text and images interleaved, in order: what a u2s tool returns, e.g. a
+    /// page render next to its metadata. Emitted as one block per entry in a
+    /// single `tool_result`.
     Blocks(Vec<ReplyBlock>),
     /// The tool failed; the message is surfaced to the model as an error result.
     Error(String),
@@ -1189,12 +1183,65 @@ mod tests {
             Some("UBS Europe SE, Sucursal en España")
         );
 
+        // A key that is not one of the source's languages would never render.
+        match agent
+            .execute(
+                "set_structured",
+                &serde_json::json!({ "nodes": [], "headers": { "EN": "UBS Europe SE" } }),
+            )
+            .await
+        {
+            ToolReply::Error(e) => assert!(e.contains("source's languages"), "{e}"),
+            _ => panic!("an unknown language key must be refused"),
+        }
+
         // Omitting `headers` keeps the ones already set.
         let reply = agent
             .execute("set_structured", &serde_json::json!({ "nodes": [] }))
             .await;
         assert!(reply_text(reply).starts_with("OK"));
         assert_eq!(agent.headers().len(), 2);
+    }
+
+    /// A resumed run restores the page headers the earlier run set, from the
+    /// session's `#headers` sibling.
+    #[tokio::test]
+    async fn page_headers_survive_a_resume() {
+        use blueprint::{InlineText, ParagraphNode, TranslatedText};
+
+        let session = format!("test-headers-resume-{}", uuid::Uuid::new_v4());
+        let mut content = TranslatedText::empty();
+        content.insert("en", InlineText::plain("Body"));
+        let nodes = vec![StructuredNode::Paragraph(ParagraphNode {
+            content,
+            som_path: None,
+            source_name: None,
+        })];
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAEV_019_EN.pdf")],
+            session.clone(),
+            OutputTarget::Redacto,
+        );
+        let reply = agent
+            .execute(
+                "set_structured",
+                &serde_json::json!({
+                    "nodes": serde_json::to_value(&nodes).unwrap(),
+                    "headers": { "en": "UBS Switzerland AG" }
+                }),
+            )
+            .await;
+        assert!(reply_text(reply).starts_with("OK"));
+
+        let restored = crate::session::restore(&session, Some("ubs"));
+        crate::db::delete_session(&session);
+        let restored = restored.map(|r| r.headers).unwrap_or_default();
+        assert_eq!(
+            restored.get("en").map(String::as_str),
+            Some("UBS Switzerland AG"),
+            "{restored:?}"
+        );
     }
 
     #[tokio::test]
@@ -1353,7 +1400,7 @@ mod tests {
         match reply {
             ToolReply::Text(t) => t,
             ToolReply::Error(e) => panic!("unexpected tool error: {e}"),
-            ToolReply::Image { .. } | ToolReply::Blocks(_) => panic!("unexpected image reply"),
+            ToolReply::Blocks(_) => panic!("unexpected image reply"),
         }
     }
 
@@ -1817,7 +1864,6 @@ mod tests {
         match reply {
             ToolReply::Text(t) => format!("text: {t}"),
             ToolReply::Error(e) => format!("error: {e}"),
-            ToolReply::Image { .. } => "image".into(),
             ToolReply::Blocks(b) => format!("{} blocks", b.len()),
         }
     }

@@ -90,10 +90,9 @@ pub fn build(agent: &mut ConversionAgent, profile: Option<&str>) -> Outputs {
 
 /// The language a Redacto document is written in.
 ///
-/// Only the extractor's contexts carry the master-page header the analysis
-/// recovered (`agent.context()` never has it), and each language variant carries
-/// its own — so ask for the master language's rather than taking whichever
-/// variant happened to be uploaded first.
+/// Each language variant carries its own page header and footer variables, so
+/// the output asks for the master language's context rather than taking
+/// whichever variant happened to be uploaded first.
 pub fn redacto_master_language(agent: &ConversionAgent, profile: Option<&str>) -> String {
     profile
         .and_then(blueprint::redacto_master_language)

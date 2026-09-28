@@ -820,11 +820,10 @@ async fn tool_step(shared_agent: &SharedAgent, id: &str, tool: &str, obs: &Share
 /// A reply's content, split into text characters and image (base64) payload
 /// characters. The one place either is actually counted, so
 /// [`reply_size_chars`] and [`text_reply_chars`] cannot drift apart into two
-/// separate opinions about what an `Image` or `Blocks` reply contains.
+/// separate opinions about what a `Blocks` reply contains.
 fn reply_char_breakdown(reply: &ToolReply) -> (usize, usize) {
     match reply {
         ToolReply::Text(text) | ToolReply::Error(text) => (text.len(), 0),
-        ToolReply::Image { images, .. } => (0, images.iter().map(String::len).sum()),
         ToolReply::Blocks(blocks) => blocks.iter().fold((0, 0), |(t, i), b| match b {
             agent::ReplyBlock::Text(text) => (t + text.len(), i),
             agent::ReplyBlock::Image { data, .. } => (t, i + data.len()),
@@ -998,15 +997,25 @@ mod tests {
     /// otherwise a reply that happened to come back as `Blocks` or
     /// `Image` would silently escape the same instrumentation a `Text`
     /// reply gets.
+    /// A reply of page images, as the u2s render tools send one.
+    fn image_reply(images: Vec<String>) -> ToolReply {
+        ToolReply::Blocks(
+            images
+                .into_iter()
+                .map(|data| agent::ReplyBlock::Image {
+                    media_type: "image/jpeg".into(),
+                    data,
+                })
+                .collect(),
+        )
+    }
+
     #[test]
     fn reply_size_counts_every_reply_shape() {
         assert_eq!(reply_size_chars(&ToolReply::Text("hello".into())), 5);
         assert_eq!(reply_size_chars(&ToolReply::Error("boom!!".into())), 6);
         assert_eq!(
-            reply_size_chars(&ToolReply::Image {
-                media_type: "image/jpeg",
-                images: vec!["ab".into(), "cde".into()],
-            }),
+            reply_size_chars(&image_reply(vec!["ab".into(), "cde".into()])),
             5,
             "every image's payload must count, not just the first"
         );
@@ -1043,10 +1052,7 @@ mod tests {
     #[test]
     fn a_large_image_reply_does_not_trip_the_text_warning() {
         let big_page_render = "x".repeat(400_000);
-        let reply = ToolReply::Image {
-            media_type: "image/jpeg",
-            images: vec![big_page_render],
-        };
+        let reply = image_reply(vec![big_page_render]);
 
         assert_eq!(
             text_reply_chars(&reply),
@@ -1067,10 +1073,7 @@ mod tests {
 
         assert!(text_reply_chars(&ToolReply::Text(payload.clone())) > LARGE_TOOL_REPLY_WARN_CHARS);
         assert_eq!(
-            text_reply_chars(&ToolReply::Image {
-                media_type: "image/jpeg",
-                images: vec![payload],
-            }),
+            text_reply_chars(&image_reply(vec![payload])),
             0
         );
     }
@@ -1089,10 +1092,7 @@ mod tests {
         let fits = ToolReply::Text("small".into());
         assert!(oversized_reply_warning("get_source_info", &fits).is_none());
 
-        let big_image = ToolReply::Image {
-            media_type: "image/jpeg",
-            images: vec!["x".repeat(400_000)],
-        };
+        let big_image = image_reply(vec!["x".repeat(400_000)]);
         assert!(oversized_reply_warning("xfa_render_page", &big_image).is_none());
     }
 

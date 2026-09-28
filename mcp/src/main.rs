@@ -136,12 +136,6 @@ fn to_mcp_tool(spec: &serde_json::Value) -> Option<Tool> {
 fn reply_to_result(reply: ToolReply) -> CallToolResult {
     match reply {
         ToolReply::Text(text) => CallToolResult::success(vec![Content::text(text)]),
-        ToolReply::Image { media_type, images } => CallToolResult::success(
-            images
-                .into_iter()
-                .map(|b64| Content::image(b64, media_type.to_string()))
-                .collect(),
-        ),
         ToolReply::Blocks(blocks) => CallToolResult::success(
             blocks
                 .into_iter()
@@ -259,7 +253,10 @@ impl Blueprint {
         // Verification is not optional, so a conversion whose verifier is not
         // ready is refused before anything is recorded. The settings are the
         // desktop app's (the shared history.db).
-        let (aem_verify, redacto_verify) = agent::u2s::stored_verify_settings();
+        let (aem_verify, redacto_verify) = match agent::u2s::stored_verify_settings() {
+            Ok(settings) => settings,
+            Err(e) => return CallToolResult::error(vec![Content::text(e)]),
+        };
         let readiness = match target {
             blueprint::OutputTarget::Aem => agent::u2s::aem_verify_readiness(&aem_verify).await,
             blueprint::OutputTarget::Redacto => {
@@ -307,7 +304,11 @@ impl Blueprint {
         };
         let new_agent = match new_agent {
             Ok(agent) => agent,
-            Err(e) => return CallToolResult::error(vec![Content::text(e)]),
+            Err(e) => {
+                // A conversion that never started leaves no session behind.
+                agent::db::delete_session(&session);
+                return CallToolResult::error(vec![Content::text(e)]);
+            }
         };
         let previous = self.agent.lock().await.replace(new_agent);
         let teardown_note = match previous {

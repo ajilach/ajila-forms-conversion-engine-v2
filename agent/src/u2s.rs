@@ -13,8 +13,9 @@
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::fs::{File, TryLockError};
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 use rmcp3::model::{CallToolResult, ContentBlock};
 use serde::{Deserialize, Serialize};
@@ -214,7 +215,8 @@ pub struct AemVerifySettings {
     /// The port AEM listens on inside the image (8080 for ajila's images).
     #[serde(rename = "aem_verify_container_port")]
     pub container_port: u16,
-    /// The Docker platform to run the AEM image as.
+    /// The Docker platform to run the AEM image and Chromium as. Empty means
+    /// the verifier's own default (`linux/amd64`).
     #[serde(rename = "aem_verify_platform")]
     pub platform: String,
     /// A separately running Redacto renderer to check before submitting.
@@ -234,7 +236,8 @@ impl Default for AemVerifySettings {
             password: "admin".into(),
             data_volume: "u2s-aem-ubs-data".into(),
             container_port: 8080,
-            platform: String::new(),
+            // The only AEM Forms image ajila publishes is an ARM build.
+            platform: "linux/arm64".into(),
             redacto_url: String::new(),
             mandator: String::new(),
         }
@@ -248,6 +251,24 @@ fn optional(value: &str) -> Option<String> {
 }
 
 impl AemVerifySettings {
+    /// What the operator still has to set, by the settings' own names.
+    fn missing(&self) -> Vec<String> {
+        let mut missing: Vec<String> = [
+            (&self.image, "the AEM image"),
+            (&self.user, "the AEM user"),
+            (&self.password, "the AEM password"),
+            (&self.data_volume, "the AEM data volume"),
+        ]
+        .into_iter()
+        .filter(|(value, _)| value.trim().is_empty())
+        .map(|(_, name)| format!("{name} is not set in the verification settings"))
+        .collect();
+        if self.container_port == 0 {
+            missing.push("the AEM container port is not set in the verification settings".into());
+        }
+        missing
+    }
+
     fn profile(&self) -> Result<Profile, String> {
         let port = self.container_port.to_string();
         let platform = optional(&self.platform);
@@ -267,7 +288,7 @@ impl AemVerifySettings {
             };
             value.map(str::to_string)
         })
-        .map_err(|e| format!("the AEM verification settings are incomplete: {e}"))
+        .map_err(|e| format!("the AEM verification settings are invalid: {e}"))
     }
 
     fn server(&self, blobs: u2s_blob::BlobStore) -> Result<AemVerifyServer, String> {
@@ -332,28 +353,34 @@ impl RedactoVerifySettings {
 const APP_SETTINGS_KEY: &str = "app";
 
 /// The verifier settings the desktop app stored, for a host without its own
-/// settings (the MCP server); defaults when nothing is stored.
-pub fn stored_verify_settings() -> (AemVerifySettings, RedactoVerifySettings) {
-    let blob = crate::db::get_setting(APP_SETTINGS_KEY).unwrap_or_default();
-    (
-        serde_json::from_str(&blob).unwrap_or_default(),
-        serde_json::from_str(&blob).unwrap_or_default(),
-    )
+/// settings (the MCP server); defaults when nothing is stored, and an error
+/// when what is stored cannot be read.
+pub fn stored_verify_settings() -> Result<(AemVerifySettings, RedactoVerifySettings), String> {
+    let Some(blob) = crate::db::get_setting(APP_SETTINGS_KEY) else {
+        return Ok(Default::default());
+    };
+    let unreadable = |e: serde_json::Error| format!("the stored app settings cannot be read: {e}");
+    Ok((
+        serde_json::from_str(&blob).map_err(unreadable)?,
+        serde_json::from_str(&blob).map_err(unreadable)?,
+    ))
 }
 
 /// Checks everything the AEM verifier needs before a run spends a token:
 /// complete settings, a reachable Docker, the AEM and Chromium images present
-/// locally, the data volume, and pdfium for reading the submitted PDF. Removes
-/// containers a crashed earlier run left behind. Returns a short report, or
-/// every problem found.
+/// locally, the data volume, and pdfium for reading the submitted PDF. Returns
+/// a short report, or every problem found.
 pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, String> {
-    let mut problems = Vec::new();
-    let profile = settings.profile();
-    if let Err(e) = &profile {
+    let mut problems = settings.missing();
+    let profile = if problems.is_empty() {
+        settings.profile()
+    } else {
+        Err(String::new())
+    };
+    if let Err(e) = &profile
+        && !e.is_empty()
+    {
         problems.push(e.clone());
-    }
-    if settings.data_volume.trim().is_empty() {
-        problems.push("no AEM data volume is configured".into());
     }
     let docker = docker_problems(&mut problems).await;
     if let (Some(docker), Ok(profile)) = (&docker, &profile) {
@@ -361,29 +388,26 @@ pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String
             image_problem(docker, image, &mut problems).await;
         }
         match bollard::Docker::connect_with_local_defaults() {
-            Ok(client) => {
-                if client.inspect_volume(&settings.data_volume).await.is_err() {
+            Ok(client) => match client.inspect_volume(&settings.data_volume).await {
+                Ok(_) => {}
+                Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => {
                     problems.push(format!(
                         "the Docker volume {:?} does not exist; bake it with \
                          docker/aem/bake-ubs-platform.sh (see docker/aem/README.md)",
                         settings.data_volume
                     ));
                 }
-            }
+                Err(e) => problems.push(format!(
+                    "could not inspect the Docker volume {:?}: {e}",
+                    settings.data_volume
+                )),
+            },
             Err(e) => problems.push(format!("could not inspect Docker volumes: {e}")),
         }
     }
     pdf_problem(&mut problems);
     if !problems.is_empty() {
         return Err(problems.join("\n"));
-    }
-    // Once per process, so a crashed earlier process's containers go but a
-    // conversion already running in this one keeps its own.
-    static CLEANED: AtomicBool = AtomicBool::new(false);
-    if let Ok(profile) = &profile
-        && !CLEANED.swap(true, Ordering::SeqCst)
-    {
-        u2s_aem_verify_core::server::remove_leftover_containers(profile).await;
     }
     Ok(format!(
         "AEM image {}, data volume {}, Docker reachable, pdfium loaded.",
@@ -417,20 +441,36 @@ pub async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Resul
     ))
 }
 
-/// Pulls the public images the verifiers run (Chromium, Postgres). The AEM
-/// image lives in a private registry and has to be pulled by hand after
-/// `az acr login`.
-pub async fn pull_public_images(images: &[&str], platform: &str) -> Result<(), String> {
+/// Pulls the public images the verifiers run: the AEM verifier's Chromium and
+/// the Redacto verifier's Postgres. The AEM image lives in a private registry
+/// and has to be pulled by hand after `az acr login`.
+pub async fn pull_verifier_images(
+    aem: &AemVerifySettings,
+    redacto: &RedactoVerifySettings,
+) -> Result<String, String> {
+    // The Chromium image is the verifier's own default; reading it from the
+    // profile keeps the two from drifting apart.
+    let chromium = Profile::from_reader(|key| match key {
+        "U2S_AEM_VERIFY_FORMAT" => Some("aem-ubs".into()),
+        "U2S_AEM_VERIFY_IMAGE" | "U2S_AEM_VERIFY_USER" | "U2S_AEM_VERIFY_PASSWORD" => {
+            Some("unused".into())
+        }
+        _ => None,
+    })
+    .map_err(|e| format!("could not read the verifier's defaults: {e}"))?
+    .chromium_image;
+    let platform = optional(&aem.platform).unwrap_or_else(|| "linux/amd64".into());
     let docker = DockerLifecycle::connect()
         .await
         .map_err(|e| format!("Docker is not reachable: {e}"))?;
-    for image in images {
+    let images = [chromium, redacto.postgres_image.trim().to_string()];
+    for image in &images {
         docker
-            .ensure_image(image, platform)
+            .ensure_image(image, &platform)
             .await
             .map_err(|e| format!("could not pull {image}: {e}"))?;
     }
-    Ok(())
+    Ok(format!("Pulled {} for {platform}.", images.join(" and ")))
 }
 
 async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> {
@@ -465,19 +505,61 @@ fn pdf_problem(problems: &mut Vec<String>) {
 }
 
 /// Every AEM verifier session boots its AEM on the same data volume, so two
-/// conversions must never drive one at the same time: the first to boot one
-/// holds this until its run ends. Only guards this process; a CLI run and a
-/// desktop-app run started at the same moment are not protected.
-static AEM_VERIFIER_LEASE: AtomicBool = AtomicBool::new(false);
+/// conversions must never drive one at the same time, in this process or
+/// another. The exclusive OS lock on this file, next to `history.db`, is what
+/// says one does; the OS drops it with a crashed process.
+const AEM_VERIFIER_LOCK: &str = "aem-verifier.lock";
 
-/// The AEM verifier tools that touch neither Docker nor AEM, and so need no
-/// lease.
-const OFFLINE_AEM_TOOLS: &[&str] = &["verify_status", "verify_package_check"];
+/// Redacto verifier sessions each get their own Postgres, so any number may
+/// run: each holds this file's lock shared. Only a process that can briefly
+/// take it exclusively knows that no Redacto container anywhere is in use.
+const REDACTO_VERIFIER_LOCK: &str = "redacto-verifier.lock";
+
+/// The label upstream puts on every Redacto verifier container.
+const REDACTO_CONTAINER_LABEL: &str = "u2s.redacto-verify-session";
+
+/// How long a verifier may sit unused before its containers are torn down.
+/// Matches upstream's own idle timeout.
+const VERIFIER_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+/// The verifier tools that touch neither Docker nor the platform, and so need
+/// no lock.
+const OFFLINE_VERIFY_TOOLS: &[&str] = &["verify_status", "verify_package_check", "verify_dump_check"];
+
+fn open_lock(name: &str) -> Result<File, String> {
+    let dir = crate::db::state_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("could not create {}: {e}", dir.display()))?;
+    let path = dir.join(name);
+    std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&path)
+        .map_err(|e| format!("could not open the verifier lock {}: {e}", path.display()))
+}
+
+/// What the idle watcher shares with the tools: when the verifier was last
+/// used, and the verifier lock, which it releases when it tears the containers
+/// down. Behind a mutex because the watcher is its own task.
+struct Activity {
+    last_used: Instant,
+    lock: Option<File>,
+}
 
 /// The verifier a run checks its output with.
+#[derive(Clone)]
 enum Verifier {
-    Aem(AemVerifyServer),
+    Aem(AemVerifyServer, Arc<Profile>),
     Redacto(RedactoVerifyServer),
+}
+
+impl Verifier {
+    async fn shutdown(&self) -> Result<(), String> {
+        match self {
+            Verifier::Aem(server, _) => server.shutdown().await,
+            Verifier::Redacto(server) => server.shutdown().await,
+        }
+    }
 }
 
 /// The u2s servers of one conversion agent, plus the documents its calls may
@@ -492,8 +574,10 @@ pub struct U2sTools {
     /// do not need.
     pdf: Option<PdfRenderServer>,
     verifier: Option<Verifier>,
-    /// Whether this agent holds [`AEM_VERIFIER_LEASE`].
-    holds_aem_lease: bool,
+    activity: Arc<Mutex<Activity>>,
+    /// Tears the verifier's containers down once it sits idle; started with
+    /// the first call that needs them.
+    watcher: Option<tokio::task::JoinHandle<()>>,
     /// Canonical paths a `doc_path` argument may name, besides the PDFs in the
     /// blob store (which only a verifier writes).
     documents: HashSet<PathBuf>,
@@ -512,7 +596,11 @@ impl U2sTools {
             render: XfaRenderServer::with_parts(Limits::default(), blobs),
             pdf: None,
             verifier: None,
-            holds_aem_lease: false,
+            activity: Arc::new(Mutex::new(Activity {
+                last_used: Instant::now(),
+                lock: None,
+            })),
+            watcher: None,
             documents: HashSet::new(),
             dir,
         })
@@ -520,7 +608,7 @@ impl U2sTools {
 
     pub fn attach_aem_verify(&mut self, settings: &AemVerifySettings) -> Result<(), String> {
         let server = settings.server(self.verify_blobs())?;
-        self.verifier = Some(Verifier::Aem(server));
+        self.verifier = Some(Verifier::Aem(server, Arc::new(settings.profile()?)));
         Ok(())
     }
 
@@ -537,36 +625,96 @@ impl U2sTools {
         self.verifier.is_some()
     }
 
-    /// Tears down whatever containers the verifier started, and frees the AEM
-    /// verifier for the next conversion.
+    /// Tears down whatever containers the verifier started, and releases its
+    /// lock for the next conversion.
     pub async fn shutdown(&mut self) -> Result<(), String> {
+        if let Some(watcher) = self.watcher.take() {
+            watcher.abort();
+        }
         let result = match self.verifier.take() {
-            Some(Verifier::Aem(server)) => server.shutdown().await,
-            Some(Verifier::Redacto(server)) => server.shutdown().await,
+            Some(verifier) => verifier.shutdown().await,
             None => Ok(()),
         };
-        self.release_aem_lease();
+        self.release_lock();
         result
     }
 
-    /// Takes the process-wide AEM verifier for this agent, or says who has it.
-    fn acquire_aem_lease(&mut self) -> Result<(), String> {
-        if self.holds_aem_lease {
+    /// Takes the verifier's lock, if this agent does not hold it yet, before a
+    /// call that boots containers. Leftovers of a crashed run are removed only
+    /// while no other conversion anywhere can be using the verifier.
+    async fn acquire_lock(&mut self) -> Result<(), String> {
+        let held = self.activity.lock().map_err(poisoned)?.lock.is_some();
+        if held {
             return Ok(());
         }
-        if AEM_VERIFIER_LEASE.swap(true, Ordering::SeqCst) {
-            return Err("The AEM verifier is in use by another conversion running in this app. It \
-                        frees up when that run ends; carry on with other checks and try again later."
-                .into());
-        }
-        self.holds_aem_lease = true;
+        let file = match &self.verifier {
+            Some(Verifier::Aem(_, profile)) => {
+                let file = open_lock(AEM_VERIFIER_LOCK)?;
+                match file.try_lock() {
+                    Ok(()) => {}
+                    Err(TryLockError::WouldBlock) => {
+                        return Err("The AEM verifier is in use by another conversion (in this app, \
+                                    the CLI or the MCP server). It frees up when that run ends; carry \
+                                    on with other checks and try again later."
+                            .into());
+                    }
+                    Err(TryLockError::Error(e)) => {
+                        return Err(format!("could not take the AEM verifier lock: {e}"));
+                    }
+                }
+                u2s_aem_verify_core::server::remove_leftover_containers(profile).await;
+                file
+            }
+            Some(Verifier::Redacto(_)) => {
+                let file = open_lock(REDACTO_VERIFIER_LOCK)?;
+                if file.try_lock().is_ok() {
+                    remove_leftover_redacto_containers().await;
+                    file.unlock()
+                        .map_err(|e| format!("could not release the Redacto verifier lock: {e}"))?;
+                }
+                file.lock_shared()
+                    .map_err(|e| format!("could not take the Redacto verifier lock: {e}"))?;
+                file
+            }
+            None => return Ok(()),
+        };
+        self.activity.lock().map_err(poisoned)?.lock = Some(file);
         Ok(())
     }
 
-    fn release_aem_lease(&mut self) {
-        if std::mem::take(&mut self.holds_aem_lease) {
-            AEM_VERIFIER_LEASE.store(false, Ordering::SeqCst);
+    fn release_lock(&mut self) {
+        if let Ok(mut activity) = self.activity.lock() {
+            activity.lock = None;
         }
+    }
+
+    /// Marks the verifier used now, and starts the idle watcher on first use.
+    fn touch(&mut self) {
+        if let Ok(mut activity) = self.activity.lock() {
+            activity.last_used = Instant::now();
+        }
+        if self.watcher.is_some() {
+            return;
+        }
+        let (Some(verifier), activity) = (self.verifier.clone(), Arc::clone(&self.activity)) else {
+            return;
+        };
+        self.watcher = Some(tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                let idle = activity.lock().is_ok_and(|a| {
+                    a.lock.is_some() && a.last_used.elapsed() >= VERIFIER_IDLE_TIMEOUT
+                });
+                if idle {
+                    if let Err(e) = verifier.shutdown().await {
+                        eprintln!("blueprint: the idle verifier could not be torn down: {e}");
+                    }
+                    if let Ok(mut activity) = activity.lock() {
+                        activity.lock = None;
+                    }
+                }
+            }
+        }));
     }
 
     /// Writes a document the tools may read and returns the path to pass as
@@ -640,15 +788,19 @@ impl U2sTools {
                 blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())).await
             }
             Family::AemVerify | Family::RedactoVerify => {
-                if entry.family == Family::AemVerify
-                    && !OFFLINE_AEM_TOOLS.contains(&server_name.as_str())
-                    && matches!(self.verifier, Some(Verifier::Aem(_)))
-                    && let Err(e) = self.acquire_aem_lease()
-                {
-                    return ToolReply::Error(e);
+                let attached = matches!(
+                    (&self.verifier, entry.family),
+                    (Some(Verifier::Aem(..)), Family::AemVerify)
+                        | (Some(Verifier::Redacto(_)), Family::RedactoVerify)
+                );
+                if attached && !OFFLINE_VERIFY_TOOLS.contains(&server_name.as_str()) {
+                    if let Err(e) = self.acquire_lock().await {
+                        return ToolReply::Error(e);
+                    }
+                    self.touch();
                 }
                 match &self.verifier {
-                Some(Verifier::Aem(server)) if entry.family == Family::AemVerify => {
+                Some(Verifier::Aem(server, _)) if entry.family == Family::AemVerify => {
                     let server = server.clone();
                     spawned(async move { server.dispatch(&server_name, &input).await }).await
                 }
@@ -709,10 +861,33 @@ impl U2sTools {
 
 impl Drop for U2sTools {
     /// A run that ends without [`U2sTools::shutdown`] (a panic, say) must not
-    /// keep the AEM verifier from every later conversion.
+    /// keep the verifier from every later conversion.
     fn drop(&mut self) {
-        self.release_aem_lease();
+        if let Some(watcher) = self.watcher.take() {
+            watcher.abort();
+        }
+        self.release_lock();
     }
+}
+
+/// Removes every Redacto verifier container. Only called while holding the
+/// Redacto lock exclusively, when none of them can be in use.
+async fn remove_leftover_redacto_containers() {
+    let Ok(docker) = DockerLifecycle::connect().await else {
+        return;
+    };
+    let Ok(ids) = docker.find_by_label(REDACTO_CONTAINER_LABEL).await else {
+        return;
+    };
+    for id in ids {
+        if let Err(e) = docker.teardown(&id).await {
+            eprintln!("blueprint: could not remove the leftover Redacto container {id}: {e}");
+        }
+    }
+}
+
+fn poisoned<T>(_: std::sync::PoisonError<T>) -> String {
+    "the verifier state lock was poisoned by a panic".into()
 }
 
 /// The run's latest build, as a verifier receives it.
@@ -870,23 +1045,57 @@ mod tests {
         }
     }
 
-    /// Two conversions never drive the AEM verifier at once, and a run that
-    /// ends, however it ends, frees it for the next.
-    #[tokio::test]
-    async fn only_one_conversion_holds_the_aem_verifier() {
-        let mut first = U2sTools::new().unwrap();
-        let mut second = U2sTools::new().unwrap();
-        first.acquire_aem_lease().expect("a free verifier is taken");
-        first.acquire_aem_lease().expect("taking it again is a no-op");
-        let busy = second.acquire_aem_lease().unwrap_err();
-        assert!(busy.contains("in use by another conversion"), "{busy}");
+    /// The verifier lock is an OS file lock: a second holder, in this process
+    /// or another, is refused until the first lets go, and letting go is
+    /// dropping the file. A test-only name keeps real conversions unaffected.
+    #[test]
+    fn a_verifier_lock_has_one_holder_at_a_time() {
+        let first = open_lock("test-verifier.lock").unwrap();
+        first.try_lock().expect("a free lock is taken");
+        let second = open_lock("test-verifier.lock").unwrap();
+        assert!(matches!(second.try_lock(), Err(TryLockError::WouldBlock)));
+        drop(first);
+        second.try_lock().expect("freed when the first holder is dropped");
+    }
 
-        first.shutdown().await.expect("nothing attached to tear down");
-        second.acquire_aem_lease().expect("freed by the first run's shutdown");
-        drop(second);
-        let mut third = U2sTools::new().unwrap();
-        third.acquire_aem_lease().expect("freed when the holder is dropped");
-        third.release_aem_lease();
+    /// Nothing is tested against Docker here, so every missing setting has to
+    /// be named by the setting itself, all at once.
+    #[tokio::test]
+    async fn incomplete_aem_settings_name_every_missing_setting() {
+        let settings = AemVerifySettings {
+            image: String::new(),
+            data_volume: " ".into(),
+            ..Default::default()
+        };
+        let err = aem_verify_readiness(&settings).await.unwrap_err();
+        assert!(err.contains("the AEM image is not set"), "{err}");
+        assert!(err.contains("the AEM data volume is not set"), "{err}");
+        assert!(!err.contains("U2S_AEM_VERIFY"), "{err}");
+    }
+
+    #[test]
+    fn results_keep_their_order_and_errors_stay_errors() {
+        let mixed = CallToolResult::success(vec![
+            ContentBlock::text("first"),
+            ContentBlock::image("aGVsbG8=", "image/png"),
+            ContentBlock::text("last"),
+        ]);
+        match reply_from_result(mixed) {
+            ToolReply::Blocks(blocks) => {
+                assert!(matches!(&blocks[0], ReplyBlock::Text(t) if t == "first"));
+                assert!(matches!(&blocks[1], ReplyBlock::Image { media_type, .. } if media_type == "image/png"));
+                assert!(matches!(&blocks[2], ReplyBlock::Text(t) if t == "last"));
+            }
+            _ => panic!("text and images must stay blocks, in order"),
+        }
+        assert!(matches!(
+            reply_from_result(CallToolResult::error(vec![ContentBlock::text("no such form")])),
+            ToolReply::Error(e) if e == "no such form"
+        ));
+        assert!(matches!(
+            reply_from_result(CallToolResult::error(vec![])),
+            ToolReply::Error(e) if e == "the tool reported an error"
+        ));
     }
 
     /// The two verifiers share tool names upstream; here each family carries

@@ -7,7 +7,7 @@
 # per-asset SHA-256 pins and Windows support.
 #
 # The release is pinned: pdfium's antialiasing changes between builds, and the
-# ABI must match the pdfium_XXXX feature in u2s/u2s-render-pdf/Cargo.toml.
+# ABI must match the pdfium_XXXX feature in u2s/crates/u2s-render-pdf/Cargo.toml.
 # Bumping it means updating PDFIUM_RELEASE, that feature, and every checksum.
 set -euo pipefail
 

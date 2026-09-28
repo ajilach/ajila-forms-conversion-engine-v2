@@ -55,5 +55,36 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
   - `u2s-aem-verify-core`'s `AemVerifyServer` becomes public, with `with_parts`, `dispatch`
     and `shutdown`, and `remove_leftover_containers` becomes public for the readiness check.
 
+## How the agent offers the vendored tools
+
+`agent/src/u2s.rs` takes each server's own specs, keeps `name`, `description` and
+`input_schema`, and changes only this:
+
+| Upstream | Offered as | Why |
+|---|---|---|
+| `xfa_*` (both XFA servers), `pdf_*` | unchanged | the names do not collide |
+| `verify_*` of `u2s-aem-ubs-verify-mcp` | `aem_verify_*` | both verifiers name tools `verify_status` / `verify_run` |
+| `verify_*` of `u2s-redacto-ubs-verify-mcp` | `redacto_verify_*` | same |
+
+Sibling tool names inside a verifier's descriptions are renamed with it. The verifiers lose
+the arguments the adapter supplies (`package`, `package_path`, `artifact_blob`,
+`artifact_path`, `session_id`): the artifact is always the run's latest build and each agent
+has one session. A sentence saying so is appended to those descriptions.
+
+## Environment the vendored code still reads
+
+The adapter passes every setting it knows as values (`with_parts`, `Profile::from_reader`,
+a constructed `RenderProfile`). The library paths still read these at runtime, all optional
+with sensible defaults; nothing sets them:
+
+- `u2s-render-core` `Limits` overrides: `DEFAULT_DPI`, `MAX_EDGE_PX`, `MAX_IMAGES_PER_CALL`,
+  `MAX_RESPONSE_BYTES`, `MAX_INLINE_BYTES`, `SEARCH_MAX_PAGES` (only via `Limits::from_env`,
+  which the adapter does not call).
+- `u2s-render-xfa`: `RASTER_CACHE_SIZE`, `DOC_CACHE_SIZE`; `u2s-xfa`: `XFA_MAX_CALC_ITERATIONS`.
+- `u2s-render-pdf`: `PDFIUM_LIB_PATH`, overriding the lookup next to the binary and in
+  `vendor/pdfium/lib`.
+- `U2S_FONT_DIR`, `U2S_FONT_FALLBACK`, `U2S_BLOB_DIR`: read only by the stdio binaries and
+  `from_env` constructors, never by the adapter.
+
 Not vendored, so their fixture links are dropped: `u2s-aem-mcp` (`generic_minimal.zip`) and
 `u2s-test-verify-mcp` (`verify_fixture_package.json`).

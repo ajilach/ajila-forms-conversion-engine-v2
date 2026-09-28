@@ -81,13 +81,6 @@ fn reply_to_tool_output(reply: ToolReply) -> Result<ToolOutput, ToolExecutionErr
     match reply {
         ToolReply::Text(text) => Ok(ToolOutput::text(text)),
         ToolReply::Error(msg) => Err(ToolExecutionError::other(format!("Error: {msg}"))),
-        ToolReply::Image { media_type, images } => {
-            let content: Vec<ToolResultContent> = images
-                .iter()
-                .map(|b64| image_content(media_type, b64))
-                .collect();
-            ToolOutput::content(content)
-        }
         ToolReply::Blocks(blocks) => {
             let content: Vec<ToolResultContent> = blocks
                 .into_iter()
@@ -142,10 +135,16 @@ mod tests {
     /// tool call.
     #[tokio::test]
     async fn every_image_in_a_reply_survives() {
-        let output = reply_to_tool_output(ToolReply::Image {
-            media_type: "image/jpeg",
-            images: vec!["aaaa".into(), "bbbb".into()],
-        })
+        let output = reply_to_tool_output(ToolReply::Blocks(vec![
+            ReplyBlock::Image {
+                media_type: "image/jpeg".into(),
+                data: "aaaa".into(),
+            },
+            ReplyBlock::Image {
+                media_type: "image/jpeg".into(),
+                data: "bbbb".into(),
+            },
+        ]))
         .unwrap();
         assert_eq!(output.as_content().len(), 2);
     }

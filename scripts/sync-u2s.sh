@@ -17,8 +17,8 @@ SRC="$(cd "$1" && pwd)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$ROOT/u2s"
 
-if [ -n "$(git -C "$ROOT" status --porcelain -- u2s)" ]; then
-  echo "u2s/ has uncommitted changes; commit or stash them first" >&2
+if [ -n "$(git -C "$ROOT" status --porcelain -- u2s docker/aem)" ]; then
+  echo "u2s/ or docker/aem/ has uncommitted changes; commit or stash them first" >&2
   exit 1
 fi
 

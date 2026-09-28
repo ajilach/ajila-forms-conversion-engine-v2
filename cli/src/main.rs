@@ -140,16 +140,9 @@ fn verify_command(args: VerifyArgs) -> Result<(), Box<dyn std::error::Error>> {
     runtime.block_on(async {
         match args.action {
             VerifyAction::Prepare => {
-                let platform = match settings.aem_verify.platform.trim() {
-                    "" => "linux/amd64",
-                    platform => platform,
-                };
-                agent::u2s::pull_public_images(
-                    &["chromedp/headless-shell:stable", &settings.redacto_verify.postgres_image],
-                    platform,
-                )
-                .await?;
-                println!("The public verifier images are present.");
+                let report =
+                    agent::u2s::pull_verifier_images(&settings.aem_verify, &settings.redacto_verify).await?;
+                println!("{report}");
             }
             VerifyAction::Check => {
                 let report = match args.target {

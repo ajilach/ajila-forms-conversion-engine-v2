@@ -123,11 +123,9 @@ fn build_catalog() -> Vec<ToolSpec> {
 const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
     use scope::*;
     &[
-        // §1 source. The AEM Reviewer is the one stage without
-        // get_source_info: it reviews the built package against the tree, and
-        // the Redacto Reviewer needs it only because languages are the thing it
-        // checks. Preserved as-is rather than quietly widened.
-        ("get_source_info",                   target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_STAGES | MCP | DESCRIBE),
+        // §1 source. Every stage reads the source through the xfa_* tools,
+        // which take the `doc_path` only get_source_info hands out.
+        ("get_source_info",                   target::BOTH,    EVERYWHERE),
 
         // §1b the source form through the vendored u2s servers (crate::u2s):
         // raw XFA reads, and rendering plus live interaction.

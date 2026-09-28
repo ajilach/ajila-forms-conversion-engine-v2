@@ -125,7 +125,23 @@ impl ConversionAgent {
                 let headers = match input.get("headers") {
                     None | Some(serde_json::Value::Null) => None,
                     Some(h) => match serde_json::from_value::<BTreeMap<String, String>>(h.clone()) {
-                        Ok(h) => Some(h),
+                        Ok(h) => {
+                            // A key no source context carries would never be
+                            // rendered, so it is refused rather than dropped.
+                            let known: BTreeSet<String> = self
+                                .source_contexts()
+                                .iter()
+                                .map(|c| c.language().to_string())
+                                .collect();
+                            let unknown: Vec<&String> = h.keys().filter(|k| !known.contains(*k)).collect();
+                            if !unknown.is_empty() {
+                                return ToolReply::Error(format!(
+                                    "headers keys must be the source's languages {known:?} (from \
+                                     get_source_info); not {unknown:?}"
+                                ));
+                            }
+                            Some(h)
+                        }
                         Err(e) => {
                             return ToolReply::Error(format!(
                                 "headers must map a language code to the page header text: {e}"

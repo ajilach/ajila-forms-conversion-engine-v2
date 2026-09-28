@@ -319,7 +319,7 @@ mod tests {
             .err()
             .expect("the run must be refused");
         assert!(err.contains("Verification is not possible"), "{err}");
-        assert!(err.contains("U2S_AEM_VERIFY_IMAGE"), "{err}");
+        assert!(err.contains("the AEM image is not set"), "{err}");
         assert!(err.contains("docker/aem/README.md"), "{err}");
     }
 

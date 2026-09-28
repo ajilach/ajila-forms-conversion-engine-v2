@@ -35,8 +35,9 @@ resolver = "3"
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-# The floor CI pins and the version edition-2024 plus let-chains need.
-rust-version = "1.88"
+# The floor CI pins: edition 2024 and let-chains need 1.88, `File::try_lock`
+# (the verifier's cross-process lock) needs 1.89.
+rust-version = "1.89"
 repository = "https://github.com/ajilach/ajila-forms-conversion-engine"
 
 # Versions for every dependency more than one crate uses, so they cannot drift

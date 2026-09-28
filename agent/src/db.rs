@@ -87,6 +87,15 @@ mod imp {
         base.join("blueprint").join("history.db")
     }
 
+    /// The directory the store lives in, for other per-user state that has to
+    /// be shared between this program's processes (the verifier locks).
+    pub fn state_dir() -> PathBuf {
+        db_path()
+            .parent()
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
     /// Point the store at `path` instead of the user's config directory.
     ///
     /// Only ever takes effect once, and only before the first [`open`] — the
@@ -530,20 +539,21 @@ mod imp {
         let Some(mut conn) = warn_db(open(), "opening the store") else {
             return;
         };
-        let Some(tx) = warn_db(conn.transaction(), "starting a delete") else {
-            return;
-        };
-        // The AEM tree is snapshotted under a sibling id, so it has to go too.
+        warn_db(delete_session_conn(&mut conn, session_id), "deleting a session");
+    }
+
+    fn delete_session_conn(conn: &mut Connection, session_id: &str) -> rusqlite::Result<()> {
+        let tx = conn.transaction()?;
+        // The AEM tree and the page headers are recorded under sibling ids,
+        // so they have to go too.
         let aem_session = format!("{session_id}#aem");
-        let deleted = tx
-            .execute(
-                "DELETE FROM edits WHERE session_id IN (?1, ?2)",
-                [session_id, &aem_session],
-            )
-            .and_then(|_| tx.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id]));
-        if warn_db(deleted, "deleting a session").is_some() {
-            warn_db(tx.commit(), "committing a delete");
-        }
+        let headers_session = format!("{session_id}#headers");
+        tx.execute(
+            "DELETE FROM edits WHERE session_id IN (?1, ?2, ?3)",
+            [session_id, &aem_session, &headers_session],
+        )?;
+        tx.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id])?;
+        tx.commit()
     }
 
     // ── Source documents ────────────────────────────────────────────────────
@@ -1362,14 +1372,15 @@ mod imp {
             assert_eq!(session_spend_json(&b), None, "one session's spend must not leak into another's");
         }
 
-        /// The AEM tree is snapshotted under a sibling id, so deleting a session
-        /// has to take it too — otherwise those rows outlive every reference to
-        /// them.
+        /// The AEM tree and the page headers are recorded under sibling ids, so
+        /// deleting a session has to take them too, otherwise those rows outlive
+        /// every reference to them.
         #[test]
         fn deleting_a_session_leaves_no_orphan_snapshots() {
-            let conn = mem();
+            let mut conn = mem();
             insert_edit_conn(&conn, "s", "structured", "{}");
             insert_edit_conn(&conn, "s#aem", "tree", "{}");
+            insert_edit_conn(&conn, "s#headers", "headers", "{}");
             conn.execute(
                 "INSERT INTO sessions (session_id, doc_hash, profile, label, created_at)
                  VALUES ('s', 'h', NULL, 'l', '2024-01-01T00:00:00Z')",
@@ -1377,15 +1388,16 @@ mod imp {
             )
             .unwrap();
 
-            conn.execute("DELETE FROM edits WHERE session_id IN ('s', 's#aem')", [])
-                .unwrap();
-            conn.execute("DELETE FROM sessions WHERE session_id = 's'", [])
-                .unwrap();
+            delete_session_conn(&mut conn, "s").unwrap();
 
             assert!(list_edits_conn(&conn, "s").is_empty());
             assert!(
                 list_edits_conn(&conn, "s#aem").is_empty(),
                 "the AEM tree outlived the session it belonged to"
+            );
+            assert!(
+                list_edits_conn(&conn, "s#headers").is_empty(),
+                "the page headers outlived the session they belonged to"
             );
         }
     }

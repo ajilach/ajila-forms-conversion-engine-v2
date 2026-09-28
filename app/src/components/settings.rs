@@ -354,9 +354,9 @@ pub fn SettingsPage(
                             }
                             TextRow {
                                 label: "Platform",
-                                desc: "Empty uses the default.",
+                                desc: "The Docker platform the AEM image and Chromium run as. The AEM image is an ARM build. Empty uses the verifier's default, linux/amd64.",
                                 value: s.aem_verify.platform.clone(),
-                                placeholder: "linux/amd64",
+                                placeholder: "linux/arm64",
                                 secret: false,
                                 on_change: move |v: String| {
                                     update.call(Box::new(move |s| s.aem_verify.platform = v.trim().to_string()))
@@ -452,21 +452,16 @@ pub fn SettingsPage(
                                     disabled: verify_busy(),
                                     onclick: move |_| {
                                         let s = settings.read();
-                                        let images = [
-                                            "chromedp/headless-shell:stable".to_string(),
-                                            s.redacto_verify.postgres_image.clone(),
-                                        ];
-                                        let platform = {
-                                            let p = s.aem_verify.platform.trim();
-                                            if p.is_empty() { "linux/amd64".to_string() } else { p.to_string() }
-                                        };
+                                        let aem_verify = s.aem_verify.clone();
+                                        let redacto_verify = s.redacto_verify.clone();
                                         verify_busy.set(true);
                                         verify_status.set(None);
                                         spawn(async move {
-                                            let refs: Vec<&str> = images.iter().map(String::as_str).collect();
-                                            let result = agent::u2s::pull_public_images(&refs, &platform)
-                                                .await
-                                                .map(|()| "Images pulled.".to_string());
+                                            let result = agent::u2s::pull_verifier_images(
+                                                    &aem_verify,
+                                                    &redacto_verify,
+                                                )
+                                                .await;
                                             verify_status.set(Some(result));
                                             verify_busy.set(false);
                                         });
