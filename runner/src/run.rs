@@ -102,7 +102,8 @@ pub async fn run_fresh(
     // any other target, so don't tell the Author it was.
     let template_note = if has_template && opts.target == OutputTarget::Aem {
         "\n\nThe document's form was decoded from an uploaded content package. Inspect it with \
-json_outline and modify it to match the source instead of authoring from scratch."
+json_outline and modify it to match the source instead of authoring from scratch. Its `languages` \
+also lists the template's own: remove those the source does not have, with their texts."
     } else {
         ""
     };

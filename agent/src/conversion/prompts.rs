@@ -35,7 +35,8 @@ checked against the UBS rules, and its reply says which findings it introduced o
 If a content-package ZIP was uploaded as a template, the document ALREADY holds its form, decoded \
 from the package: start with json_outline / json_get to study it, then MODIFY it with json_patch to \
 match the source instead of authoring a new form from scratch; replace `/form` wholesale only if it \
-is unusable.\n\n\
+is unusable. Its `languages` then also lists the template's own languages: remove every one the \
+source does not have, together with its texts, since the form ships only the source's.\n\n\
 Typical workflow (call tools as needed; each step is a separate call):\n\
 1. Inspect the input yourself, from the source PDFs: get_source_info (each PDF's language, its XFA \
 variables and the `doc_path` every xfa_* tool takes; form codes ending 019 are Germany, 033 Italy). \
@@ -68,7 +69,7 @@ which matches it semantically against the reference forms. Use grep_references o
 string (a field name, label, or AEM resource type); also consult grep_reference_docs / \
 list_reference_forms. Different sections often match different references; study how those \
 known-good forms were built with get_reference_package / read_reference_file, and optionally run \
-the engine on a reference's input via source={\"reference\":\"<ref_id>\"}. Match the references' \
+get_source_info on a reference's input via source={\"reference\":\"<ref_id>\"} to read its source form with the xfa_* tools. Match the references' \
 structure and patterns rather than inventing your own — including noticing where they reference a \
 reusable fragment (a `fragRef` to a `_fragmentlib` path) instead of building a section's fields inline.\n\
 3. Author the form DIRECTLY at `/form`: one multilingual AEM node tree in which every \
@@ -92,7 +93,7 @@ half width for two fields sharing a row; reach for other values only when the so
 that split. Nest \
 fields into Panels and use Repeatable for repeating sections — take `min_occur` / `max_occur` from the \
 source where it states them, and where it does not, prefer the small bounds the corpus favours \
-(commonly 1 and 4) over the engine's permissive fallback; where content differs by configurator \
+(commonly 1 and 4); where content differs by configurator \
 selection, include each variant once — keep shared content shared, and NEVER reuse a node `name` \
 (that collides in AEM). \
 REPEATABLES carry a fixed archetype the template writes for you: the Add and Remove buttons, all six \
@@ -133,10 +134,10 @@ leading PREFIX_ is enforced — the rest of the name is free — and the Reviewe
 leading prefix does not match its component type (rule_check's ubs-aem-naming-prefix rule, and the lint \
 on every patch). \
 LABELS: every input (text box, number box, date, dropdown, radio, checkbox group, telephone, email) needs \
-a `label` holding its own question text — the visible caption, not a neighbouring hint. Positional label \
-attachment can leave a field with no label, or bind a fragment that merely sits nearby (a parenthetical \
-aside, a rich-text paragraph), so check each field against the source and move the real question into the \
-label, leaving any hint as its own static text. The ubs-aem-input-labels rule lists the offenders \
+a `label` holding its own question text — the visible caption, not a neighbouring hint. A caption \
+that merely sits near a field in the XFA (a parenthetical aside, a rich-text paragraph) is not its \
+label, so check each field against the source page and put the real question into the label, \
+leaving any hint as its own static text. The ubs-aem-input-labels rule lists the offenders \
 (missing, parenthetical, markup, in any language), and ubs-aem-duplicate-sibling-labels the inputs \
 side by side that read the same. \
 PAGES: the Root is laid out as a wizard, so ONLY its direct-child Panels \
@@ -166,70 +167,44 @@ global). PATH ROOT: the banking-relationship fragment alone lives under `/conten
 other fragment is referenced under `/content/dam/formsanddocuments/<library>/…`. Use the exact \
 fragment the corpus standardised on for these recurring sections: BANKING \
 RELATIONSHIP → EVERY form on this profile carries one, whatever the source shows: emit a single \
-`Preface` node — NOT a hand-built Fragment or Panel. The deterministic converter injects it \
-unconditionally, so a source with no visible banking-relationship block still gets one, and a tree \
-that omits it is missing a mandatory node, not reflecting the source. The engine renders \
-it as the standard `PN_BR` wrapper (carrying both dorExclusion and summaryExclusion) around the UBS \
+`Preface` node on the first page, NOT a hand-built Fragment or Panel. Nothing adds it for you, so a \
+form without one is missing a mandatory node, whatever the source shows. The template renders it \
+as the standard `PN_BR` wrapper (carrying both dorExclusion and summaryExclusion) around the UBS \
 fragment `affrg_BankingRelationship1`, so you supply neither the fragment path nor the exclusion \
-flags, and never a germany/italy/global variant or a dam-path reference. Note `dor_exclude` on a \
-Panel is not what produces those flags here — the `Preface` shape is fixed by the template. The \
-fragment renders the \"UBS Europe SE\" line itself, so \
-NEVER also author a standalone \"UBS Europe SE\" text draw (that duplicates it). It belongs on the \
-FIRST page. PERSON BLOCKS (account holder / client, representative, legal guardian, beneficial owner, power of \
-attorney): these belong to the ACCOUNT-HOLDER CLUSTER, which a form has only when it is \
-addressee-driven — it carries a configurator choice (Formular Adressat / Form addressee / Tipo) \
-that decides who the parties are. In such a form a person's data section is ONE of the four UBS \
-generic PARTNER fragments, chosen by the party's ROLE in the form — the contracting party → `affrg_ContractualPartnerGeneric1` (panel name \
-`PN_CPGRP`); a partner OF that party (representative, guardian, connected party) → \
-`affrg_PartnertoPartnerGeneric1` (`PN_AHGRP`, a second one `PN_AHGRP_AR`); beneficial owner / \
-trustee → `affrg_BeneficialOwnerGeneric1` (`PN_BOGRP`); authorized signer / POA / e-banking user → \
-`affrg_PowerofAttorneyGeneric1` (`PN_PAGRP`). A MINOR who is the account holder is the CONTRACTING \
-PARTY (`PN_CPGRP`), not a partner of one — a minor IS the client, merely underage, even though a \
-legal guardian signs on their behalf. Classify the minor's own data section `PN_CPGRP`; the \
-guardian's own data section, if the form gives it one, is the ordinary PARTNER role (`PN_AHGRP`) as \
-for any other representative. Never reference a germany/italy person fragment. In a form with NO \
-configurator, a name pair that merely identifies the form's subject — a questionnaire's \
-\"Last name / First name(s)\" — is NOT a party data section: leave it as plain TXT_ textboxes, as \
-the deployed AAAC_019, ABFG_033, AAUT_033 and AAUI_033 do; use a small building-block fragment \
-(IndividualBasic1, EntityBasic1) for it only where a reference form of the same kind does. Each generic \
-contains six sub-panels (PN_EntityBasic, PN_FormAddress, PN_IndividualBasic, PN_Address, \
-PN_DOBNationality, PN_DateIncorporation); the fragment node itself is the repeating row \
-(min/maxOccur on it), and the host hides every sub-panel the source does not show via ONE \
-Initialize SCRIPTMODEL of hideAFHideDor(this.PN_X) calls on that panel — an individual-only block \
-keeps PN_IndividualBasic and hides at least PN_EntityBasic and PN_Address. \
-ADDRESS block → a person's address is that person's partner generic with PN_Address kept visible, \
-never a separate fragment; only a loose address that belongs to no person block is its own \
+flags, and never a germany/italy/global variant or a dam-path reference. The fragment renders the \
+\"UBS Europe SE\" line itself, so NEVER also author a standalone \"UBS Europe SE\" text draw (that \
+duplicates it); that line reaches the DoR header from `/header`. \
+PARTIES AND SIGNATURES (account holder / client, representative, legal guardian, and their \
+signatures) form the ACCOUNT-HOLDER CLUSTER, which a form has only when it is addressee-driven: \
+it carries a configurator choice (Formular Adressat / Form addressee in Germany, Tipo in Italy) \
+that decides who the parties are. In such a form the whole cluster is three of the profile's \
+CUSTOM ELEMENTS: author each as a `Custom` node whose `template_key` names the template, never \
+by hand. Germany: `formular_adressat_radio` (the configurator choice, `RB_FormularAdressat`) and \
+`account_holder` (the party data panels) on the form configurator's page, and `signatures` on a \
+last page of its own. Italy: `tipo_radio` (`RB_GroupTipo`) and `account_holder_it`, and \
+`signatures_it` on the last page. The three of a market belong together and never apart: their \
+rules read each other's fields. Each template writes the whole shape the corpus is held to: the \
+UBS partner generics (`affrg_ContractualPartnerGeneric1` as `PN_CPGRP`, \
+`affrg_PartnertoPartnerGeneric1` as `PN_AHGRP` / `PN_AHGRP_AR`), the Initialize `hideAFHideDor` \
+rule hiding the sub-panels a party does not show, `affrg_SignatureGeneric1` per signer paired to \
+its party by name (`PN_SGN_CPGRP`, `PN_Sign_AHGRP`), whose Add button adds both rows, and the \
+hidden calc that fills each signature's name. So do not add partner or signature fragments, hide \
+rules or name calcs beside them. A `Custom` node's `label` carries the translations of its \
+template's own title (\"Signature(s)\" in every language the form ships); its other fields keep \
+their defaults. A party class the templates do not cover (beneficial owner or trustee: \
+`affrg_BeneficialOwnerGeneric1` as `PN_BOGRP`; authorized signer, POA or e-banking user: \
+`affrg_PowerofAttorneyGeneric1` as `PN_PAGRP`) is a `Fragment` node of that generic; say in your \
+summary that its signature pairing and name fill are not generated. Never reference a \
+germany/italy person or signature fragment. In a form with NO configurator, a name pair that \
+merely identifies the form's subject (a questionnaire's \"Last name / First name(s)\") is NOT a \
+party data section: leave it as plain TXT_ textboxes, as the deployed AAAC_019, ABFG_033, \
+AAUT_033 and AAUI_033 do; use a small building-block fragment (IndividualBasic1, EntityBasic1) \
+for it only where a reference form of the same kind does. \
+ADDRESS block → a person's address is part of that person's partner generic, never a separate \
+fragment; only a loose address that belongs to no person block is its own \
 `affrg_AddressGeneric1` / `affrg_Address1` reference. NEVER hand-build Street / No. / PLZ / City / \
 Country fields; the fragment renders Country as a dropdown and may add an \"Additional address \
 details\" (Adresszusatz) line, which is standard — keep it. \
-SIGNATURES → EVERY signature block is `affrg_SignatureGeneric1` (the \"AF Fragments and Common \
-Fields\" catalogue mandates it for every signer role; the role-specific germany/italy signature \
-fragments are retired). The generic is role-neutral: the HOST supplies whose signature it is, \
-twice over. (1) By NAME PAIRING: the contracting party's signature panel is `PN_SGN_CPGRP`, and \
-every other party's is `PN_Sign_` + its data panel's token (`PN_AHGRP` → `PN_Sign_AHGRP`). A \
-hand-built party block (one not using a partner generic) marks its twin the same way but keeps its \
-own prefix, `Sign` before or after the stem: `RCP_LR` → `RCP_Sign_LR`, `RCP_LRP` → `RCP_LRP_Sign`. \
-Get the name into one of those shapes and the engine wires the pair for you: the party's Add and \
-Remove buttons then also add and remove a row of the signature panel and relabel it, and the twin is \
-emitted with NO Add and NO Remove of its own — one there would let the two desync, and the engine's \
-own validator reporting the twin as button-less is correct by design. So do NOT hand-author those \
-addInstance calls, and do NOT give a twin buttons. A name outside those shapes silently leaves the \
-twin undriven: it keeps one row while the party grows. TWO PARTIES OF THE SAME CLASS MAY SHARE THE \
-SAME DATA-PANEL NAME — the generic fragment's own internal script drives its host panel by that \
-exact name (e.g. `removeInstance(this.PN_CPGRP)`), so do NOT invent a distinguishing suffix for a \
-second `PN_CPGRP`/`PN_AHGRP`/… panel just because one already exists (a minor's own `PN_CPGRP` \
-alongside the guardian's `PN_AHGRP` is the ordinary shape, not a collision to resolve); give a \
-hand-built (non-generic) party block its own distinguishing suffix as before. \
-(2) By the NAME-FILL CALC: the generic's own calc ships disabled, so \
-the host carries a hidden textbox `TXT_Donotdelete` (dorExclusion + summaryExclusion, visible \
-false) beside the first signature panel whose fd:calc holds ONE Calculate document per (data panel \
-→ signature panel) pair, looping the data panel's instances and writing \
-PN_GenericSignature.TXT_Name_Generic from PN_IndividualBasic.PN_Name_Individual — without it no \
-signature carries a name. A data panel's name being shared with another party's (see above) is NOT \
-a reason to skip its pair's calc entry — write one Calculate document per pair the form's own \
-Add/Remove wiring states, addressed the same deterministic way that wiring addresses it \
-(`this.PN_CPGRP`, not a bare unqualified name); only leave a pairing out when nothing in the panel \
-names or button wiring says which data panel a given signature belongs to. \
 A fragment is OPAQUE: its internal fields are supplied by AEM at runtime from that path (its \
 `<items>` in the JCR are empty), so never recreate them as children and never try to edit inside it \
 — that duplicates the section. Keep the fragment's `bind_ref`; for a \
@@ -287,11 +262,11 @@ what it is — a table, a list, a multi-column region, a panel, a heading at som
 overall appearance. Tables are the ones most often lost, so look for them explicitly: a grid of \
 aligned rows on the page is a table even when only some rules are drawn, even when it has a single \
 column, and even when one of its columns is empty on every row. Two shapes to watch for: a run of \
-consecutive one-line text draws where the page shows a ruled grid is a table the engine missed, and \
-a table whose header row is drawn without rules arrives with its header cells detached as separate \
-headings. A TABLE IS ONE HtmlDisplayer NODE: AEM now has an HTML component, and the \
-engine emits a source table as a single HtmlDisplayer whose `content` is a real HTML `<table>` per \
-language. So fixing a missed table means REPLACING the loose draws with one HtmlDisplayer node \
+consecutive one-line text draws where the page shows a ruled grid is a table authored as loose \
+text, and a table whose header row is drawn without rules is easily read as separate headings. A \
+TABLE IS ONE HtmlDisplayer NODE: AEM has an HTML component, so a source table is a single \
+HtmlDisplayer whose `content` is a real HTML `<table>` per language. So fixing a missed table means \
+REPLACING the loose draws with one HtmlDisplayer node \
 named `TBL_`, whose markup lays the cells out in rows and columns (and whose `<thead>` carries the \
 detached header cells) — not grouping them into a panel, and not building a grid of draws. The one \
 exception is a table whose cells hold INPUT FIELDS: markup is static, so a field inside it would be \
@@ -443,26 +418,22 @@ recover one this plan is silent about); any conditional or CASCADING behaviour \
 (quote the XFA change-event function and its clearItems/addItem/rawValue branches); the recommended \
 standard fragment with its exact JCR path (banking relationship → \
 affrg_BankingRelationship1 in afforms_ubs_fragmentlib, referenced under /content/forms/af/ while every \
-other fragment is referenced under /content/dam/formsanddocuments/; person blocks, ONLY in an addressee-driven form (one \
-carrying a Formular Adressat / Form addressee / Tipo configurator) → one of the four \
-UBS generic partner fragments in afforms_ubs_fragmentlib, chosen by the party's ROLE: contracting \
-party → affrg_ContractualPartnerGeneric1, partner of that party → affrg_PartnertoPartnerGeneric1, \
-beneficial owner → affrg_BeneficialOwnerGeneric1, POA/authorized signer → \
-affrg_PowerofAttorneyGeneric1 (a minor who is the account holder is the contracting party, not a \
-partner, even though a guardian signs for them) — state the class per person section, which sub-panels stay visible, \
-and which get a hideAFHideDor call; a loose address with no person block → affrg_AddressGeneric1; \
-signatures → always affrg_SignatureGeneric1; and in a form with NO configurator, a bare name pair \
-identifying the form's subject stays plain TXT_ textboxes — state that explicitly rather than \
-reaching for a partner generic). For every party, ALSO state the panel-name PAIR the \
-Author must use — the data panel (PN_CPGRP for the contracting party; PN_AHGRP, then PN_AHGRP_AR, \
-for partners of the party) and its signature panel (PN_SGN_CPGRP for the contracting party, \
-otherwise PN_Sign_ + the data panel token) — since the host authors the signer-name calc from \
-exactly those names. Never recommend a germany/italy person or signature fragment: those libraries \
+other fragment is referenced under /content/dam/formsanddocuments/; whether the form is \
+addressee-driven (it carries a Formular Adressat / Form addressee / Tipo configurator), and if so \
+its market's account-holder cluster, the Custom elements formular_adressat_radio + account_holder \
++ signatures (Germany) or tipo_radio + account_holder_it + signatures_it (Italy), which bring the \
+UBS partner and signature generics with them, and which page each goes on; any party class those \
+do not cover (beneficial owner → affrg_BeneficialOwnerGeneric1, POA/authorized signer → \
+affrg_PowerofAttorneyGeneric1); a loose address with no person block → affrg_AddressGeneric1; and \
+in a form with NO configurator, a bare name pair identifying the form's subject stays plain TXT_ \
+textboxes — state that explicitly rather than reaching for a partner generic). Never recommend a \
+germany/italy person or signature fragment: those libraries \
 are being emptied into the UBS generics, and the reference forms predating the change do not \
 override this. Also record any verbatim script/hook shape to copy (showAFShowDor / hideAFHideDor, \
 cascade visibility scripts) with its source ref_id + file path. Record as well, for the shapes the \
-deployed corpus is held to: the master-page header line (the issuer, e.g. \"UBS Europe SE\", which the \
-engine prints in the DoR header rather than on screen); which heading is the FIRST page's, since that \
+deployed corpus is held to: the master-page header lines, verbatim (the validity line and the issuer, \
+e.g. \"UBS Europe SE\", which the Author sets as `/header` and the template prints in the DoR header \
+rather than on screen); which heading is the FIRST page's, since that \
 one becomes a subtitle rather than a step title; and whether the form carries an Italy infobox, an \
 internal-bank-use block or a FIM signature-verification checkbox, all of which reach the reader through \
 the printed document alone. List the languages (the source's own \
@@ -514,9 +485,7 @@ fails in. The shape to require is ONE HtmlDisplayer node named `TBL_` whose `con
 `<table>` per language — AEM has an HTML component now, so a table is markup, not a panel of draws. \
 The ubs-aem-legacy-table-panels rule names every panel still holding a table the old way, and it \
 must pass; a table whose cells hold input fields is the one legitimate exception and stays a Panel. \
-A structure the engine missed is BOTH kinds of issue: the Author \
-can group it in the tree, so return it as authorable; and the engine will keep making the same \
-mistake on the next form, so ALSO list it under ENGINE DEFECTS. Judge \
+A structure the Author missed is an authorable issue: return it. Judge \
 ANALOGY to the source AND conformance to the CONVERSION PLAN appended below, and confirm every point \
 in any prior REVIEW FEEDBACK is now fixed. Checklist: every rule_check verdict positive (the \
 naming prefixes, the input labels and duplicate sibling labels, the retired market fragments, the \
@@ -529,23 +498,19 @@ checkbox carries richTextOptions, the jump-to-field button sits on the step-titl
 of yours, but a package that breaks one is an ENGINE DEFECT to report; \
 first-level \
 sections are pages and nothing deeper is; each source heading rendered exactly ONCE — a page panel's \
-heading comes from its own `title` (the engine emits the PN_<name>Title wrapper and its TTL_ draw), so \
+heading comes from its own `title` (the template writes the PN_<name>Title wrapper and its TTL_ draw), so \
 a hand-authored TitleDraw on a page is a DUPLICATE, while a sub-heading inside a page does need its own \
 TitleDraw; banking relationship authored as a `Preface` node on the first page, rendering \
 affrg_BankingRelationship1 as the sole child of a PN_BR wrapper that carries BOTH dorExclusion and \
 summaryExclusion (a wrapper missing either flag is a defect, not a pass), and no \
-separately authored \"UBS Europe SE\" draw beside it; in an addressee-driven form every person block is one of the \
-four UBS generic partner fragments chosen by party role (a germany/italy person or signature \
-fragRef is a defect — those libraries are retired), while in a form with no configurator a bare \
-name pair stays plain TXT_ textboxes and a partner generic there is a defect, with the unneeded \
-sub-panels hidden via an Initialize \
-hideAFHideDor rule; count the signature panels in the TREE and compare that number with the \
-signers the source shows — a plan that says \"two signature blocks\" is not evidence the tree has \
-two, and one panel with no minOccur/maxOccur is one signer, not two; every signature is \
-affrg_SignatureGeneric1, its panel name paired to its data \
-panel (PN_CPGRP → PN_SGN_CPGRP, PN_AHGRP → PN_Sign_AHGRP), the Add button adding both instances, \
-and the host carrying the hidden TXT_Donotdelete calc that fills TXT_Name_Generic per pair — a \
-missing calc renders every signature nameless. VERIFY the retirement explicitly: the \
+separately authored \"UBS Europe SE\" draw beside it, and `/header` set from the source's master \
+page; in an addressee-driven form the parties and signatures are its market's three Custom elements \
+(formular_adressat_radio, account_holder and signatures, or tipo_radio, account_holder_it and \
+signatures_it), all three present, never partner or signature fragments authored beside them and \
+never a germany/italy person or signature fragRef, while in a form with no configurator a bare \
+name pair stays plain TXT_ textboxes and a partner generic there is a defect; count the signers \
+the source shows against what the form collects, since a plan that says \"two signature blocks\" \
+is not evidence of two. VERIFY the retirement explicitly: the \
 ubs-aem-retired-market-fragments rule reports every `frag_ref` still pointing into the germany/italy \
 libraries (the deliberately market-specific internal-bank-use, footnote, infobox and \
 banking-relationship families excepted); it must pass, and every violation is an authorable defect \
@@ -565,7 +530,7 @@ repeatable renders only one instance; every fillable source field present. \
 ENGINE-INTRINSIC issues — some defects come from the conversion engine itself (fixed template output, \
 resourceType assignments, lowering behaviour) and CANNOT be changed by the Author with json_patch. \
 An engine-intrinsic issue is one you can point at in the profile templates or the lowering, not one you \
-assume: the engine emits the dedicated email, telephone and multiline components, so an EML_/TEL_/TXTM_ \
+assume: the templates write the dedicated email, telephone and multiline components for a text field of that `kind`, so an EML_/TEL_/TXTM_ \
 name reported as wrong-prefix is a real defect now, not the standing exception it used to be. \
 Do not send such issues back to the Author and do not block approval on them — but do NOT use \
 the label as a catch-all, and do NOT treat it as \"fine\": a repeatable's prefix, for one, is NOT \

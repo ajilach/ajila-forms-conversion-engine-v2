@@ -15,7 +15,7 @@ use crate::OutputTarget;
 
 /// The session id a run's document snapshots are recorded under.
 pub fn document_session(session_id: &str) -> String {
-    format!("{session_id}#document")
+    format!("{session_id}{}", crate::db::DOCUMENT_SUFFIX)
 }
 
 /// What a session's history holds for a resumed run.
@@ -48,17 +48,7 @@ pub fn restore(session_id: &str, target: OutputTarget) -> Result<Restored, Strin
 pub fn parse(json: &str, target: OutputTarget) -> Result<Value, String> {
     let value: Value =
         serde_json::from_str(json).map_err(|e| format!("the recorded document is not JSON: {e}"))?;
-    let valid = match target {
-        OutputTarget::Aem => u2s_aem_ubs_mcp::UbsAemDocument::from_json(&value)
-            .map(|_| ())
-            .map_err(|e| e.to_string()),
-        OutputTarget::Redacto => {
-            serde_json::from_value::<u2s_redacto_ubs_mcp::UbsRedactoDocument>(value.clone())
-                .map(|_| ())
-                .map_err(|e| e.to_string())
-        }
-    };
-    valid
+    crate::conversion::check_document(target, &value)
         .map(|()| value)
         .map_err(|e| format!("the recorded document is not a {} document: {e}", target.label()))
 }

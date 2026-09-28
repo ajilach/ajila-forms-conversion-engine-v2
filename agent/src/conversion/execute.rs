@@ -100,11 +100,9 @@ impl ConversionAgent {
             // §1 source
             "get_source_info" => match self.source_documents(input) {
                 Ok(documents) => {
-                    let mut languages: Vec<&str> = documents
-                        .iter()
-                        .filter_map(|(_, c, _)| c.as_ref().map(|c| c.language.as_str()))
-                        .collect();
-                    languages.dedup();
+                    let contexts: Vec<&SourceContext> =
+                        documents.iter().filter_map(|(_, c, _)| c.as_ref()).collect();
+                    let languages = source_languages(&contexts);
                     let documents: Vec<Value> = documents
                         .iter()
                         .map(|(name, context, path)| match context {
@@ -148,6 +146,11 @@ impl ConversionAgent {
             "rule_autofix" => self.autofix(input).await,
             name if DOCUMENT_TOOLS.iter().any(|t| t.name() == name) => {
                 let tool = *DOCUMENT_TOOLS.iter().find(|t| t.name() == name).expect("matched");
+                if tool == NativeJsonTool::Patch
+                    && let Err(e) = self.lint_baseline().await
+                {
+                    return ToolReply::Error(e);
+                }
                 match u2s_doc_tools::native::dispatch(
                     tool,
                     input,
@@ -322,13 +325,8 @@ impl ConversionAgent {
         }
     }
 
-    /// Check every rule and report the rules whose verdict the last edit
-    /// changed: the findings it introduced, and the ones it resolved. `None`
-    /// for a format without rules.
-    async fn lint(&mut self) -> Result<Option<Value>, String> {
-        if self.rules.is_empty() {
-            return Ok(None);
-        }
+    /// Every rule's verdict on the document as it stands.
+    async fn verdicts(&mut self) -> Result<HashMap<String, (String, Value)>, String> {
         self.runner()?;
         let runner = self.runner.as_ref().expect("started above");
         let outcome = u2s_doc_tools::native::check_rules(
@@ -340,22 +338,51 @@ impl ConversionAgent {
         )
         .await
         .map_err(|e| e.to_string())?;
-        let verdicts = outcome.value["verdicts"].as_array().cloned().unwrap_or_default();
+        Ok(outcome.value["verdicts"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|v| {
+                let id = v["rule_id"].as_str().unwrap_or_default().to_string();
+                let verdict = v["verdict"].as_str().unwrap_or_default().to_string();
+                (id, (verdict, v))
+            })
+            .collect())
+    }
+
+    /// Take the lint baseline from the document before this run's first edit.
+    async fn lint_baseline(&mut self) -> Result<(), String> {
+        if self.rules.is_empty() || self.lint.is_some() {
+            return Ok(());
+        }
+        let verdicts = self.verdicts().await?;
+        self.lint = Some(verdicts.into_iter().map(|(id, (v, _))| (id, v)).collect());
+        Ok(())
+    }
+
+    /// Check every rule and report the rules whose verdict the last edit
+    /// changed against the baseline: the findings it introduced, and the ones
+    /// it resolved. `None` for a format without rules.
+    async fn lint(&mut self) -> Result<Option<Value>, String> {
+        if self.rules.is_empty() {
+            return Ok(None);
+        }
+        let verdicts = self.verdicts().await?;
+        let before = self.lint.take().unwrap_or_default();
         let mut introduced = Vec::new();
         let mut resolved = Vec::new();
         let mut current = HashMap::new();
-        for verdict in &verdicts {
-            let id = verdict["rule_id"].as_str().unwrap_or_default().to_string();
-            let now = verdict["verdict"].as_str().unwrap_or_default().to_string();
-            let before = self.lint.get(&id).map(String::as_str).unwrap_or("positive");
-            if now != "positive" && before == "positive" {
-                introduced.push(verdict.clone());
-            } else if now == "positive" && before != "positive" {
+        for (id, (now, verdict)) in verdicts {
+            let was = before.get(&id).map(String::as_str).unwrap_or("positive");
+            if now != "positive" && was == "positive" {
+                introduced.push(verdict);
+            } else if now == "positive" && was != "positive" {
                 resolved.push(json!({ "rule_id": id, "title": verdict["title"] }));
             }
             current.insert(id, now);
         }
-        self.lint = current;
+        self.lint = Some(current);
         Ok(Some(json!({ "introduced": introduced, "resolved": resolved })))
     }
 
@@ -369,7 +396,7 @@ impl ConversionAgent {
                 self.document.revision().get()
             ));
         }
-        if let Err(e) = self.runner() {
+        if let Err(e) = self.lint_baseline().await.and_then(|()| self.runner().map(|_| ())) {
             return ToolReply::Error(e);
         }
         let runner = self.runner.as_ref().expect("started above");
@@ -423,7 +450,12 @@ impl ConversionAgent {
             Ok(build) => build,
             Err(e) => return ToolReply::Error(format!("Nothing built: {e}")),
         };
-        let validation = validate_package_bytes(&build.package);
+        // A package that fails its own validation is not stored: nothing
+        // invalid is verified or exported.
+        let valid = match validate_package_bytes(&build.package) {
+            Ok(valid) => valid,
+            Err(problems) => return ToolReply::Error(format!("Nothing built: {problems}")),
+        };
         let size = build.package.len();
         let bound = build.bound_package.as_ref().map(Vec::len);
         self.built = Some(Built::Aem {
@@ -435,10 +467,7 @@ impl ConversionAgent {
         if let Some(bound) = bound {
             report.push_str(&format!(" With bindRefs: {bound} bytes."));
         }
-        match validation {
-            Ok(ok) => ToolReply::Text(format!("{report} {ok}")),
-            Err(problems) => ToolReply::Text(format!("{report} {problems}")),
-        }
+        ToolReply::Text(format!("{report} {valid}"))
     }
 
     fn build_redacto_dump(&mut self) -> ToolReply {

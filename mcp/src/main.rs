@@ -686,11 +686,11 @@ mod tests {
     fn the_catalog_never_advertises_a_tool_this_target_would_refuse() {
         let aem = catalog_names(agent::OutputTarget::Aem);
         assert!(!aem.iter().any(|n| n == "build_redacto_dump"), "{aem:?}");
-        assert!(!aem.iter().any(|n| n == "review_redacto_output"), "{aem:?}");
+        assert!(aem.iter().any(|n| n == "rule_check"), "{aem:?}");
 
         let redacto = catalog_names(agent::OutputTarget::Redacto);
         assert!(redacto.iter().any(|n| n == "build_redacto_dump"));
-        assert!(!redacto.iter().any(|n| n == "set_aem_translated"), "{redacto:?}");
+        assert!(!redacto.iter().any(|n| n == "rule_check"), "{redacto:?}");
         assert!(!redacto.iter().any(|n| n == "build_aem_package"), "{redacto:?}");
 
         // The MCP-only bootstrap tools are offered whatever the target.

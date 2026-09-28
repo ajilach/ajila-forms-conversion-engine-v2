@@ -20,10 +20,8 @@ pub mod target {
 
 /// Which callers a tool is *offered* to.
 ///
-/// Distinct from [`target`]: a tool can be executable under both targets while
-/// only ever being offered to one target's stages. The structured-tree editors
-/// are the case in point — an AEM run can execute them (a resumed session seeds
-/// the structured tree), but no AEM stage is given them.
+/// Distinct from [`target`]: which targets may execute a tool, versus which
+/// stages (and the MCP server) are handed it.
 pub mod scope {
     /// A set of pipeline stages, as a bitmask.
     pub type Mask = u8;
@@ -227,7 +225,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
         let source = serde_json::json!({
             "source": {
                 "type": "object",
-                "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} to run the engine on a reference's input.",
+                "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} for a reference's input.",
                 "properties": { "reference": { "type": "string" } }
             }
         });
@@ -260,7 +258,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "build_aem_package",
-                "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS templates, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing) is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
+                "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS templates, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing), or a package that fails the XML checks, is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),
@@ -385,35 +383,30 @@ mod catalog_guards {
         "always_in_pdf",
         "affrg_italy",
         "afforms_ubs_fragmentlib",
-        "asset_containers",
         "bind_ref",
         "dor_exclude",
         "dor_exclude_title",
         "dor_header_slot",
-        "footer_assets",
         "form_code",
         "formrange_afmasterlanguage",
         "formrange_language",
         "frag_ref",
-        "header_assets",
         "is_conditional",
         "is_page",
         "jump_to_field",
         "jcr_root",
-        "dropped_fragments",
-        "extra_fragments",
-        "feedback_violations",
-        "label_issues",
-        "legacy_tables",
         "max_occur",
         "min_occur",
-        "naming_violations",
         "show_if_hidden",
-        "styled_panels",
         "summary_exclude",
         "textbox",
-        // Tool argument and enum values, not tools.
-        "aem_translated",
+        // Custom-element template keys and the field naming them.
+        "account_holder",
+        "account_holder_it",
+        "formular_adressat_radio",
+        "signatures_it",
+        "template_key",
+        "tipo_radio",
         // u2s tool arguments and reply fields.
         "affects_layout",
         "budget_hit",

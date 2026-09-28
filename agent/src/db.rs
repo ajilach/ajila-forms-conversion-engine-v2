@@ -127,6 +127,9 @@ mod imp {
         set_db_path_for_test(dir.join("history.db"));
     }
 
+    /// The suffix of the sibling session a run's document is recorded under.
+    pub const DOCUMENT_SUFFIX: &str = "#document";
+
     /// Report a database error instead of discarding it.
     ///
     /// The store is best-effort by design: a failed settings write must not take
@@ -228,7 +231,7 @@ mod imp {
         }
 
         if version < 2 {
-            // What a run authored — an AEM tree or a structured document — is a
+            // What a run authors (an AEM form or a Redacto document) is a
             // property of the session, not of the view onto it: resuming with
             // the wrong target gives a run that cannot see its own prior work.
             // `profile` is already a column for the same reason.
@@ -562,13 +565,14 @@ mod imp {
 
     fn delete_session_conn(conn: &mut Connection, session_id: &str) -> rusqlite::Result<()> {
         let tx = conn.transaction()?;
-        // The AEM tree and the page headers are recorded under sibling ids,
-        // so they have to go too.
+        // A run's document, and the AEM tree and page headers older sessions
+        // recorded, live under sibling ids, so they have to go too.
+        let document_session = format!("{session_id}{DOCUMENT_SUFFIX}");
         let aem_session = format!("{session_id}#aem");
         let headers_session = format!("{session_id}#headers");
         tx.execute(
-            "DELETE FROM edits WHERE session_id IN (?1, ?2, ?3)",
-            [session_id, &aem_session, &headers_session],
+            "DELETE FROM edits WHERE session_id IN (?1, ?2, ?3, ?4)",
+            [session_id, &document_session, &aem_session, &headers_session],
         )?;
         tx.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id])?;
         tx.commit()
@@ -1373,15 +1377,16 @@ mod imp {
             assert_eq!(session_spend_json(&b), None, "one session's spend must not leak into another's");
         }
 
-        /// The AEM tree and the page headers are recorded under sibling ids, so
-        /// deleting a session has to take them too, otherwise those rows outlive
-        /// every reference to them.
+        /// A run's document, and the AEM tree and page headers older sessions
+        /// recorded, live under sibling ids, so deleting a session has to take
+        /// them too, otherwise those rows outlive every reference to them.
         #[test]
         fn deleting_a_session_leaves_no_orphan_snapshots() {
             let mut conn = mem();
             insert_edit_conn(&conn, "s", "structured", "{}");
             insert_edit_conn(&conn, "s#aem", "tree", "{}");
             insert_edit_conn(&conn, "s#headers", "headers", "{}");
+            insert_edit_conn(&conn, "s#document", "AI: json_patch", "{}");
             conn.execute(
                 "INSERT INTO sessions (session_id, doc_hash, profile, label, created_at)
                  VALUES ('s', 'h', NULL, 'l', '2024-01-01T00:00:00Z')",
@@ -1399,6 +1404,10 @@ mod imp {
             assert!(
                 list_edits_conn(&conn, "s#headers").is_empty(),
                 "the page headers outlived the session they belonged to"
+            );
+            assert!(
+                list_edits_conn(&conn, "s#document").is_empty(),
+                "the document outlived the session it belonged to"
             );
         }
     }

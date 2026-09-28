@@ -77,7 +77,7 @@ pub struct ReviewResult {
 
 /// Validate FileVault package bytes (session-agnostic).
 ///
-/// Runs the same checks as the `validate_aem_package` tool: required FileVault
+/// The checks `build_aem_package` runs on every build: required FileVault
 /// structure, form `.content.xml` (`cq:Page`) validation, and DAM
 /// `.content.xml` (`dam:Asset`) validation. Returns `Ok(success message)` when
 /// the package is valid, or `Err(problem report)` listing every violation.
@@ -204,9 +204,10 @@ pub struct ConversionAgent {
     rules: Vec<RuleForCheck>,
     /// The rule sandbox, started on the first rule call.
     runner: Option<RuleRunner>,
-    /// Each rule's verdict at the last check after an edit, so an edit reports
-    /// what it changed rather than every standing finding.
-    lint: HashMap<String, String>,
+    /// Each rule's verdict at the last check, so an edit reports what it
+    /// changed rather than every standing finding. `None` until the first edit
+    /// of this run takes it from the document as it stood.
+    lint: Option<HashMap<String, String>>,
 
     built: Option<Built>,
     session: String,
@@ -232,7 +233,10 @@ impl ConversionAgent {
     /// template's own. Otherwise the document starts from what the sources
     /// say about themselves: their variables and languages, and nothing else.
     ///
-    /// `session` is the edit-history session the run records into.
+    /// `session` is the edit-history session the run records into. Starting
+    /// records nothing: a revision is recorded by each edit, so a resumed run
+    /// keeps its seeded document as the latest until it changes it, and a run
+    /// that dies before its first edit leaves nothing behind.
     pub fn new(
         profile: Option<String>,
         files: Vec<(String, Vec<u8>)>,
@@ -255,7 +259,7 @@ impl ConversionAgent {
             OutputTarget::Aem => u2s_aem_ubs_mcp::document_schema(),
             OutputTarget::Redacto => u2s_redacto_ubs_mcp::document_schema(),
         };
-        let agent = Self {
+        Ok(Self {
             profile,
             target,
             current_pdfs: pdfs,
@@ -264,19 +268,13 @@ impl ConversionAgent {
             schema,
             rules: crate::rules::rules_for(target)?,
             runner: None,
-            lint: HashMap::new(),
+            lint: None,
             built: None,
             session,
             matcher: None,
             review: None,
             u2s: None,
-        };
-        agent.snapshot(if template.is_some() {
-            "Template (from uploaded package)"
-        } else {
-            "Start (from the source)"
-        });
-        Ok(agent)
+        })
     }
 
     /// The output target this run aims at.
@@ -290,7 +288,7 @@ impl ConversionAgent {
         check_document(self.target, &value)?;
         self.document = Document::new(value);
         self.built = None;
-        self.lint.clear();
+        self.lint = None;
         Ok(())
     }
 
@@ -591,8 +589,9 @@ fn starting_redacto_document(contexts: &[&SourceContext]) -> Value {
     json!({ "sources": sources, "assets": [], "body": [] })
 }
 
-/// Whether `value` is a document of `target`'s format.
-fn check_document(target: OutputTarget, value: &Value) -> Result<(), String> {
+/// Whether `value` is a document of `target`'s format: the one check every
+/// document entering a run passes.
+pub fn check_document(target: OutputTarget, value: &Value) -> Result<(), String> {
     match target {
         OutputTarget::Aem => u2s_aem_ubs_mcp::UbsAemDocument::from_json(value)
             .map(|_| ())
@@ -684,6 +683,19 @@ mod tests {
         assert_eq!(agent.form_code().as_deref(), Some("AAEV"));
     }
 
+    /// A bilingual AEM run is named by its English source, whichever order the
+    /// sources come in.
+    #[test]
+    fn a_bilingual_aem_document_takes_the_english_variables() {
+        let agent = agent_for(
+            OutputTarget::Aem,
+            vec![fixture("AABF_019_DE.pdf"), fixture("AABF_019_EN.pdf")],
+        );
+        let doc = agent.document();
+        assert_eq!(doc["variables"]["formrange_language"], "EN", "{}", doc["variables"]);
+        assert_eq!(doc["languages"], json!(["de", "en"]));
+    }
+
     /// A Redacto run starts with one source entry per language.
     #[test]
     fn a_redacto_document_starts_with_one_source_per_language() {
@@ -732,6 +744,50 @@ mod tests {
         assert!(agent.xsd().is_some() && agent.package_bound().is_some());
     }
 
+    /// The authored header is what the banking-relationship preface prints in
+    /// the DoR header slot, without its validity line.
+    #[tokio::test]
+    async fn the_header_reaches_the_packages_dor_slot() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut first = page("PN_Details");
+        first["children"].as_array_mut().unwrap().insert(
+            0,
+            json!({ "type": "Preface", "uuid": "6a9f2f5e-8c8e-4a8e-9b0e-1f2d3c4b5a63", "name": "PN_BR" }),
+        );
+        patch(
+            &mut agent,
+            json!([
+                { "op": "add", "path": "/form/children/-", "value": first },
+                { "op": "add", "path": "/header", "value": "Valid from 02.01.2018\nUBS Europe SE (Succursale Italia)" }
+            ]),
+        )
+        .await;
+        reply_text(agent.execute("build_aem_package", &json!({})).await);
+        let files = crate::references::unzip_package(&agent.package().unwrap()).unwrap();
+        assert!(
+            files.iter().any(|(_, c)| c.contains("UBS Europe SE") && c.contains("(Succursale Italia)")),
+            "the header is in no file of the package"
+        );
+        assert!(!files.iter().any(|(_, c)| c.contains("Valid from 02.01.2018")));
+    }
+
+    /// A package that fails its own validation is not a build: nothing is
+    /// stored, so nothing invalid is verified or exported.
+    #[tokio::test]
+    async fn a_package_that_fails_validation_builds_nothing() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut broken = page("PN_Details");
+        broken["passthrough"] = json!({ "raw_children": ["<unclosed>"] });
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": broken }])).await;
+        match agent.execute("build_aem_package", &json!({})).await {
+            ToolReply::Error(e) => assert!(e.contains("Nothing built"), "{e}"),
+            other => panic!("an invalid package was built: {}", reply_kind(&other)),
+        }
+        assert!(agent.package().is_none());
+        let outputs = crate::outputs::build(&mut agent);
+        assert!(outputs.package.is_none() && !outputs.warnings.is_empty());
+    }
+
     /// A patch reports what it changed about the rules: here a page named
     /// without its prefix, and then the rename that fixes it.
     #[tokio::test]
@@ -747,6 +803,20 @@ mod tests {
         let renamed = patch(&mut agent, json!([{ "op": "replace", "path": "/form/children/0/name", "value": "PN_Details" }])).await;
         let resolved = renamed["lint"]["resolved"].as_array().unwrap();
         assert!(resolved.iter().any(|v| v["title"].as_str().unwrap().contains("prefix")), "{renamed}");
+    }
+
+    /// An edit reports what it changed, not what the document already had: a
+    /// seeded document with a standing finding does not blame it on the first
+    /// unrelated edit.
+    #[tokio::test]
+    async fn the_first_edit_of_a_seeded_document_reports_only_its_own_findings() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut seeded = agent.document().clone();
+        seeded["form"]["children"] = json!([page("Details")]);
+        agent.seed_document(seeded).unwrap();
+        let reply = patch(&mut agent, json!([{ "op": "add", "path": "/header", "value": "UBS Europe SE" }])).await;
+        assert_eq!(reply["lint"]["introduced"], json!([]), "{reply}");
+        assert_eq!(reply["lint"]["resolved"], json!([]), "{reply}");
     }
 
     /// An edit makes the last build stale: nothing is verified against a
@@ -791,6 +861,35 @@ mod tests {
         assert!(resumed.seed_document(json!({"sources": {}, "assets": [], "body": []})).is_err());
     }
 
+    /// Resuming must not bury the document it resumes: starting an agent
+    /// records nothing, so until the resumed run edits, the latest recorded
+    /// revision is still the one it was seeded with. A run that died before its
+    /// first edit leaves no revision at all.
+    #[tokio::test]
+    async fn starting_or_resuming_records_nothing_until_an_edit() {
+        let mut first = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let session = first.session_id().to_string();
+        assert!(matches!(
+            crate::session::restore(&session, OutputTarget::Aem).unwrap(),
+            crate::session::Restored::Nothing
+        ));
+        patch(&mut first, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
+        let authored = first.document().clone();
+
+        let mut resumed = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAEV_019_EN.pdf")],
+            session.clone(),
+            OutputTarget::Aem,
+        )
+        .unwrap();
+        resumed.seed_document(authored.clone()).unwrap();
+        match crate::session::restore(&session, OutputTarget::Aem).unwrap() {
+            crate::session::Restored::Document(doc) => assert_eq!(doc, authored),
+            other => panic!("{other:?}"),
+        }
+    }
+
     /// The whole Redacto path: an asset and its place in the body, the page
     /// header, the dump, and the verifier's offline check of it.
     #[tokio::test]
@@ -814,6 +913,26 @@ mod tests {
 
         let checked = reply_text(agent.execute("redacto_verify_dump_check", &json!({})).await);
         assert!(checked.contains("\"ok\":true") || checked.contains("\"ok\": true"), "{checked}");
+    }
+
+    /// A Redacto document whose sources do not name the form builds nothing:
+    /// the dump's identity comes from those variables.
+    #[tokio::test]
+    async fn a_redacto_document_without_its_identity_builds_nothing() {
+        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")]);
+        patch(
+            &mut agent,
+            json!([
+                { "op": "replace", "path": "/sources/en/variables", "value": {} },
+                { "op": "add", "path": "/assets/-", "value": { "key": "intro", "kind": "text", "content": { "en": "<p>Text.</p>" } } },
+                { "op": "add", "path": "/body/-", "value": { "type": "assetContainer", "assets": ["intro"] } }
+            ]),
+        )
+        .await;
+        match agent.execute("build_redacto_dump", &json!({})).await {
+            ToolReply::Error(e) => assert!(e.contains("Nothing built"), "{e}"),
+            other => panic!("a dump without its identity was built: {}", reply_kind(&other)),
+        }
     }
 
     /// A document the Redacto model refuses builds nothing and says why.
