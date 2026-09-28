@@ -1,0 +1,10 @@
+id = "ubs-aem-visual-editor-rules"
+title = "Rules are code-editor scripts, not visual-editor rules"
+output_formats = ["aem-ubs"]
+description = """
+UBS writes every rule in AEM's code editor, as a script on `fd:scripts`; `fd:rules` stays empty.
+A node loaded from a package can carry a visual-editor rule (`fd:visible`, `fd:enabled`,
+`fd:click`, `fd:valueCommit`, `fd:init`, `fd:calc`, `fd:validate` or `fd:navigationChange` on
+`fd:rules`) in its `passthrough`. Express it as the node's own condition or script instead, and drop it from the
+passthrough.
+"""

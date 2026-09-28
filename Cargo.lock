@@ -176,7 +176,7 @@ version = "1.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40c48f72fd53cd289104fc64099abca73db4166ad86ea0b4341abe65af83dadc"
 dependencies = [
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -187,7 +187,7 @@ checksum = "291e6a250ff86cd4a820112fb8898808a366d8f9f58ce16d1f538353ad55747d"
 dependencies = [
  "anstyle",
  "once_cell_polyfill",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2371,7 +2371,7 @@ dependencies = [
  "libc",
  "option-ext",
  "redox_users 0.5.2",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -2591,7 +2591,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3898,7 +3898,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -4324,7 +4324,7 @@ checksum = "3640c1c38b8e4e43584d8df18be5fc6b0aa314ce6ebf51b53313d4306cca8e46"
 dependencies = [
  "hermit-abi",
  "libc",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4401,7 +4401,7 @@ dependencies = [
  "portable-atomic",
  "portable-atomic-util",
  "serde_core",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4519,6 +4519,28 @@ checksum = "b49715b7073f385ba4bc528e5747d02e66cb39c6146efb66b781f131f0fb399c"
 dependencies = [
  "once_cell",
  "wasm-bindgen",
+]
+
+[[package]]
+name = "json-patch"
+version = "4.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7421438de105a0827e44fadd05377727847d717c80ce29a229f85fd04c427b72"
+dependencies = [
+ "jsonptr",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "jsonptr"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a5a3cc660ba5d72bce0b3bb295bf20847ccbb40fd423f3f05b61273672e561fe"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -7104,7 +7126,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7161,7 +7183,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7653,7 +7675,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3a766e1110788c36f4fa1c2b71b387a7815aa65f88ce0229841826633d93723e"
 dependencies = [
  "libc",
- "windows-sys 0.60.2",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7967,7 +7989,7 @@ dependencies = [
  "getrandom 0.4.2",
  "once_cell",
  "rustix",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8556,6 +8578,38 @@ dependencies = [
 ]
 
 [[package]]
+name = "u2s-aem-ubs-mcp"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "boa_engine",
+ "env_logger",
+ "include_dir",
+ "log",
+ "quick-xml",
+ "regex-lite",
+ "rmcp 3.1.4",
+ "rust_decimal",
+ "schemars",
+ "semver",
+ "serde",
+ "serde_json",
+ "tera",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "u2s-aem",
+ "u2s-blob",
+ "u2s-doc-tools",
+ "u2s-mapper-aem",
+ "u2s-mcp",
+ "u2s-render-test-harness",
+ "u2s-rules",
+ "uuid",
+ "zip 2.4.2",
+]
+
+[[package]]
 name = "u2s-aem-ubs-verify-mcp"
 version = "0.1.0"
 dependencies = [
@@ -8614,6 +8668,47 @@ dependencies = [
 ]
 
 [[package]]
+name = "u2s-doc-tools"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "toml",
+ "u2s-core",
+ "u2s-facts",
+ "u2s-jsondoc",
+ "u2s-rules",
+ "u2s-rules-host",
+ "u2s-schema",
+ "uuid",
+]
+
+[[package]]
+name = "u2s-facts"
+version = "0.1.0"
+dependencies = [
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "u2s-core",
+]
+
+[[package]]
+name = "u2s-jsondoc"
+version = "0.1.0"
+dependencies = [
+ "json-patch",
+ "jsonptr",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "u2s-core",
+]
+
+[[package]]
 name = "u2s-mapper-aem"
 version = "0.1.0"
 dependencies = [
@@ -8662,6 +8757,27 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "u2s-redacto-ubs-mcp"
+version = "0.1.0"
+dependencies = [
+ "env_logger",
+ "log",
+ "regex",
+ "rmcp 3.1.4",
+ "schemars",
+ "semver",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "u2s-blob",
+ "u2s-mapper-redacto",
+ "u2s-mcp",
+ "u2s-redacto",
+ "u2s-render-test-harness",
 ]
 
 [[package]]
@@ -8777,6 +8893,41 @@ dependencies = [
  "u2s-render-test-harness",
  "u2s-render-xfa",
  "u2s-xfa",
+]
+
+[[package]]
+name = "u2s-rules"
+version = "0.1.0"
+dependencies = [
+ "boa_engine",
+ "json-patch",
+ "jsonptr",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+]
+
+[[package]]
+name = "u2s-rules-host"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "u2s-rules",
+]
+
+[[package]]
+name = "u2s-schema"
+version = "0.1.0"
+dependencies = [
+ "jsonschema",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
@@ -9413,7 +9564,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

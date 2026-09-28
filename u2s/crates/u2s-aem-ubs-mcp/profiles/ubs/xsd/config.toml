@@ -1,0 +1,785 @@
+# XSD Output Profile Configuration
+#
+# The schema is derived from the AEM node tree, and each node's bindRef is
+# assigned during the same walk, so a form and its schema agree by construction.
+# See the "AEM -> XSD walk" section at the end of this file for the shape rules.
+#
+# Element names come from three places, in order of precedence:
+#
+#   1. [[aemElements]]      — an explicit rule (see that section)
+#   2. [elements.<name>]    — a field label equal to one of `synonyms`
+#      [sections.<name>]    — a page-panel title matching one of `patterns`
+#   3. the label or title itself, PascalCased
+#
+# [elements.<name>]       — field → xs:element name + type
+#   synonyms              — the WHOLE label must equal one of these
+#                           (case-insensitive, trimmed)
+#   type                  — XSD type (e.g. "xs:string", "xs:decimal", "xs:date")
+#
+#   Matching is on the whole label deliberately. These forms use sentences as
+#   labels and the table holds two-letter synonyms, so substring matching turned
+#   "UNKNOWN" into StreetNumber (it contains "No") and any label mentioning a
+#   date into xs:date. Whole-label matching keeps the real wins — Straße/Via ->
+#   Street, Cognome -> LastName, Data -> Date/xs:date — and misfires on nothing.
+#   A near-miss such as "Telefon Mobil" is fixed by adding that exact string.
+#
+#   NOTE: compute_bind_refs, which feeds fragment matching, still matches these
+#   synonyms as substrings. Those paths never reach the emitted schema.
+#
+# [sections.<name>]       — page-panel title → xs:element name
+#   patterns              — regexes, matched case-insensitively
+#
+# All *.xsd files in the types/ subdirectory are automatically indexed.
+# An <xs:include> directive is emitted for every indexed file that declares a
+# type actually referenced by the generated schema. Those same files decide
+# `ref=` versus `name=`/`type=`: a name declared as a global element there is
+# referenced, never re-declared.
+#
+# Complex types are also parsed into a registry (resolving xs:extension
+# inheritance and xs:element ref) which fragment matching uses.
+#
+# schemaLocationPrefix — prefix prepended to the relative path of each types/
+#   file when constructing the schemaLocation attribute (default: "../")
+
+schemaLocationPrefix = "../"
+
+# rootElementName — template for the XSD root element name.
+# May contain {{ form_code }} which is replaced with the actual form code.
+rootElementName = "UBSAF_{{ form_code }}"
+
+# fragmentBindRefPrefix — prefix used for fragment bindRef paths.
+# Fragments use a generic prefix so they can be reused across forms.
+# May contain {{ form_code }} for expansion.  When omitted, fragments
+# use the same root element name as the form.
+fragmentBindRefPrefix = "UBSAF_{{ form_code }}"
+
+masterLanguage = "en"
+
+# `maxOccursValue` is emitted for every repeating element in the AEM -> XSD walk,
+# regardless of the AEM node's real `maxOccur`, matching UBS's own schemas.
+maxOccursValue = 50
+
+# The simple-element library is always included, referenced or not.
+alwaysInclude = ["../AFSimpleTypeElements/AFSimpleElements.xsd"]
+
+# Whether a titled page panel (an H2 section) produces its own XSD level.
+#
+# UBS's own rule is that a panel contributes a level only if it repeats or came
+# from a fragment, which makes their schemas flat. Set `false` to follow that
+# exactly. It is `true` here because our generated forms are far denser: on
+# AAGZ_019, flattening pushes 63 of 89 elements onto ordinal suffixes instead of
+# 34 — including AccountHolderSignature2 through AccountHolderSignature21 — and
+# makes every name depend on document order, so inserting a field near the top
+# renames elements far below it.
+#
+# Neither setting avoids suffixes entirely; forms with repeated section titles
+# still collide. The real fix for a specific form is an [[aemElements]] rule
+# giving the section or repeatable a semantic name, which is how UBS's own
+# reference schemas end up with no suffixes at all.
+groupPagePanels = true
+
+# ─── Elements ──────────────────────────────────────────────────────────────────
+
+# --- Name fields ---
+
+[elements.LastName]
+synonyms = ["Last Name", "Nachname", "Cognome", "Apellido(s)",]
+type = "xs:string"
+
+[elements.FirstName]
+synonyms = ["First Name(s)", "Vorname(n)", "Nome(i)", "Nombre(s)", "Vorname"]
+type = "xs:string"
+
+[elements.Name]
+synonyms = ["Name", "Nome", "Nombre", "Nome della società", "Name des Kunden", "Name of client", "Nome del cliente"]
+type = "xs:string"
+
+[elements.Company]
+synonyms = ["Company", "Firma", "Società"]
+type = "xs:string"
+
+# Per-type element aliases. Label resolution is context-free -- one element
+# name per label -- but a word can mean different things in different blocks.
+# `Ort` / `Località` resolve to `Place`, which is right in a signature row
+# (SignatureType.Place) and wrong for the city of an address; `N.` resolves to
+# a bare `N`, which is in no type at all. Without these an Italian address
+# matches no type, so `affrg_AddressGeneric1` can never be selected for it.
+# Consulted only while AddressType itself is being tested, so SignatureType and
+# every other type keep the default resolution.
+[typeAliases.AddressType]
+Place = "City"
+N = "StreetNumber"
+
+# --- Address fields ---
+
+[elements.Street]
+synonyms = ["Street", "Straße", "Strasse/Nr.", "Via", "Calle"]
+type = "xs:string"
+
+[elements.PostalCode]
+synonyms = ["Postal Code", "PLZ", "ZIP", "CAP", "Código postal"]
+type = "xs:string"
+
+[elements.Place]
+synonyms = ["Ort", "Località", "Place", "Lugar"]
+type = "xs:string"
+
+[elements.City]
+synonyms = ["City", "Stadt"]
+type = "xs:string"
+
+[elements.Country]
+synonyms = ["Country", "Land", "Paese", "País"]
+type = "xs:string"
+
+[elements.StreetNumber]
+synonyms = ["Nr.", "Nr", "No.", "No", "Nº", "Adress-Nr.", "Adress-Nummer"]
+type = "xs:string"
+
+# --- Contact fields ---
+
+[elements.Phone]
+synonyms = ["Telephone", "Phone", "Mobile", "Telefon", "Telefax privat", "Telefax beruflich"]
+type = "xs:string"
+
+[elements.Email]
+synonyms = ["E-Mail", "Email"]
+type = "xs:string"
+
+# --- Financial fields ---
+
+[elements.Currency]
+synonyms = ["Currency", "Währung"]
+type = "xs:string"
+
+[elements.IBAN]
+synonyms = ["IBAN"]
+type = "xs:string"
+
+[elements.AccountNumber]
+synonyms = ["Account No", "Konto-Nr", "Konto Nr"]
+type = "xs:string"
+
+# --- Date / time fields ---
+
+[elements.Date]
+synonyms = ["Date", "Datum", "Data", "Fecha"]
+type = "xs:date"
+
+# --- Other common fields ---
+
+[elements.Role]
+synonyms = ["Role", "Rolle", "Funktion"]
+type = "xs:string"
+
+[elements.MaritalStatus]
+synonyms = ["Marital Status", "Zivilstand", "Familienstand", "Estado civil"]
+type = "xs:string"
+
+[elements.DateOfBirth]
+synonyms = ["Date of Birth", "Geburtsdatum", "Fecha de nacimiento"]
+type = "xs:date"
+
+[elements.FormOfAddress]
+synonyms = ["Form of Address", "Anrede", "Anredesprache"]
+type = "xs:string"
+
+[elements.OURef]
+synonyms = ["OU Ref", "OURef", "OU-Ref"]
+type = "xs:string"
+
+[elements.Nationality]
+synonyms = ["Nationality", "Nationalität", "Nazionalità", "Nacionalidad"]
+type = "xs:string"
+
+[elements.Title]
+synonyms = ["Title", "Titel", "Titolo", "Título"]
+type = "xs:string"
+
+[elements.Gender]
+synonyms = ["Gender", "Geschlecht", "Genere", "Género"]
+type = "xs:string"
+
+[elements.Domicile]
+synonyms = ["Domicile", "Domizil", "Domicilio"]
+type = "xs:string"
+
+[elements.FullName]
+synonyms = ["Full Name", "Vollständiger Name"]
+type = "xs:string"
+
+[elements.CorrespondenceLanguage]
+synonyms = ["Correspondence Language", "Korrespondenzsprache"]
+type = "xs:string"
+
+# ─── Sections ──────────────────────────────────────────────────────────────────
+#
+# [sections.<name>]       — section name overrides based on content matching
+#   patterns              — list of regex patterns (case-insensitive) matched
+#                           against the full section text (heading + body).
+#                           Longest match wins when multiple patterns match.
+
+# --- Data sections (role/person types) ---
+# These patterns are matched against the heading first (priority), then body
+# text (only if the heading is generic like "Step 1"). The code handles this
+# priority so no anchoring is needed here.
+
+[sections.AccountHolder]
+patterns = [
+    "account holder|kontoinhaber|titulaire du compte|titolare del conto|titular de la cuenta",
+]
+
+[sections.Lessee]
+patterns = [
+    "lessee|mieter|locataire|locatario|arrendatario",
+]
+
+[sections.ContractingPartner]
+patterns = [
+    "contracting partner|vertragspartner|cocontractant|partner contrattuale|parte contratante|socio contractual",
+]
+
+[sections.BeneficialOwner]
+patterns = [
+    "beneficial owner|wirtschaftlich berechtig|ayant droit économique|avente diritto economico|beneficiario económico|beneficiario efectivo",
+]
+
+[sections.Trustee]
+patterns = [
+    "trustee|treuhänder|fiduciaire|fiduciario",
+]
+
+[sections.AuthorizedSigner]
+patterns = [
+    "authorized signatory|zeichnungsberechtig|signataire autorisé|firmatario autorizzato|firmante autorizado",
+]
+
+[sections.GeneralPOA]
+patterns = [
+    "general power of attorney|generalvollmacht|unbeschränkte vollmacht|procuration générale|procura generale|poder general|unlimited power of attorney",
+]
+
+[sections.LimitedPOA]
+patterns = [
+    "limited power of attorney|spezialvollmacht|beschränkte vollmacht|procuration limitée|procura limitata|poder limitado",
+]
+
+[sections.EBankingUser]
+patterns = [
+    "e-banking user|e-banking.benutzer|utilisateur e-banking|utente e-banking",
+]
+
+[sections.FIM]
+patterns = [
+    "\\bFIM\\b|financial intermediary|finanzintermediär|intermédiaire financier|intermediario finanziario",
+]
+
+[sections.ControllingPerson]
+patterns = [
+    "controlling person|kontrollierende person|personne de contrôle|persona di controllo|persona controladora",
+]
+
+[sections.ConnectedParty]
+patterns = [
+    "connected party|verbundene partei|partie connectée|parte connessa|parte conectada",
+]
+
+[sections.AuthRep]
+patterns = [
+    "authorized representative|bevollmächtigter|représentant autorisé|rappresentante autorizzato|representante autorizado|angaben zum bevollmächtigten|details of attorney|attorney",
+]
+
+[sections.FIMAuthRep]
+patterns = [
+    "FIM.*authorized representative|FIM.*bevollmächtigter",
+]
+
+# --- Signature sections ---
+
+[sections.AccountHolderSignature]
+patterns = [
+    "signature of account holder|unterschrift des kontoinhaber|signature du titulaire|firma del titolare del conto|firma del titular",
+    "signature of client|unterschrift des kunden|signature du client|firma del cliente",
+]
+
+[sections.AuthRepSignature]
+patterns = [
+    "signature of authorized representative|unterschrift des bevollmächtigten|signature du représentant autorisé|firma del rappresentante autorizzato|firma del representante autorizado|firma del apoderado|firma del procuratore",
+]
+
+[sections.LegalRepSignature]
+patterns = [
+    "signature of legal representative|unterschrift des gesetzlichen vertreter|signature du représentant légal|firma del legale rappresentante|firma del representante legal",
+]
+
+[sections.AuthAgentSignature]
+patterns = [
+    "signature of authorized person|unterschrift der berechtigten person",
+]
+
+[sections.CoOwnerSignature]
+patterns = [
+    "signature of co-owner|unterschrift des miteigentümer",
+]
+
+[sections.AttorneySignature]
+patterns = [
+    "signature of the attorney|unterschrift des treuhänder|signature du mandataire",
+]
+
+[sections.CASignature]
+patterns = [
+    "signature of client advisor|unterschrift des kundenberater|signature du conseiller",
+]
+
+[sections.DeskHeadSignature]
+patterns = [
+    "signature of desk head|unterschrift des abteilungsleiter",
+]
+
+[sections.SupervisorSignature]
+patterns = [
+    "signature of supervisor",
+]
+
+[sections.FIMSignature]
+patterns = [
+    "signature of FIM|unterschrift des FIM|signature du FIM|firma del FIM",
+]
+
+[sections.SalesMgrSignature]
+patterns = [
+    "signature of sales manager|unterschrift des verkaufsleiter",
+]
+
+[sections.RelevantPersonSignature]
+patterns = [
+    "signature of relevant person|unterschrift der relevanten person|signature de la personne concernée|firma della persona rilevante|firma de la persona relevante",
+]
+
+[sections.ResponsiblePersonSignature]
+patterns = [
+    "signature of responsible person|unterschrift der verantwortlichen person",
+]
+
+[sections.BorrowerSignature]
+patterns = [
+    "signature of borrower|unterschrift des kreditnehmer|unterschrift des darlehensnehmer",
+]
+
+[sections.BeneficialOwnerSignature]
+patterns = [
+    "signature of beneficial owner|unterschrift des wirtschaftlich berechtig|signature de l'ayant droit|firma dell'avente diritto",
+]
+
+[sections.ContractingPartnerSignature]
+patterns = [
+    "signature of contracting partner|unterschrift des vertragspartner|signature du cocontractant|firma del contraente|firma del parte contratante",
+]
+
+[sections.Signature]
+patterns = [
+    "^.{0,30}(?:signature\\(s\\)|unterschrift\\(en\\)|firma\\(e\\)|firma\\(s\\))",
+]
+
+[sections.CardholderSignature]
+patterns = [
+    "signature of.*cardholder|unterschrift des karteninhaber|signature du titulaire de la carte|firma del titolare della carta",
+]
+
+[sections.BahrainBROSignature]
+patterns = [
+    "signature.*bahrain.*BRO|BRO.*signature.*bahrain",
+]
+
+[sections.BahrainCEOSignature]
+patterns = [
+    "signature.*bahrain.*CEO|CEO.*signature.*bahrain",
+]
+
+[sections.CompanySignature]
+patterns = [
+    "signature of company|unterschrift der firma|signature de la société|firma della società",
+]
+
+[sections.PledgorSignature]
+patterns = [
+    "signature of.*pledgor|unterschrift des pfandgeber|unterschrift des verpfänder|signature du.*gagiste|firma del.*garante",
+]
+
+[sections.CAHSignature1]
+patterns = [
+    "signature.*client.*poa holder|signature.*client.*PoA|unterschrift.*kunde.*vollmacht",
+]
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AEM → XSD walk
+# ═══════════════════════════════════════════════════════════════════════════════
+#
+# The schema is derived from the AEM node tree, and each node's `bindRef` is
+# assigned during the same walk, so the two agree by construction.
+#
+# Two rules below need no configuration and do most of the work:
+#   • A plain layout panel adds no XSD level — its children bubble up. Only a
+#     panel that repeats or that came from a fragment produces an element.
+#   • `ref=` versus `name=`/`type=` is decided by looking the resolved element
+#     name up among the global elements declared under `types/`.
+#
+# `maxOccursValue` is emitted for every repeating element regardless of the AEM
+# node's real `maxOccur`, which is what UBS's own schemas do.
+
+# Default XSD type per AEM component kind, used when neither an [elements]
+# synonym nor an [[aemElements]] rule supplies one.
+[defaultTypes]
+textbox = "xs:string"
+radiobutton = "xs:string"
+checkbox = "xs:string"
+dropdownlist = "xs:string"
+numericbox = "xs:decimal"
+datepicker = "xs:date"
+
+# ─── Rules, in order — first match wins ───────────────────────────────────────
+#
+# Match keys (all optional, ANDed): kind, fragRef (substring), name / names,
+# title / titles (case-insensitive), options (set equality ignoring order, case,
+# numeric prefixes and markup), visible.
+# Actions: ignore, element, type, occurs ("none" | "optional" | "optionalRepeating").
+#
+# `element` is used verbatim, so an already-camel-cased name survives.
+
+# --- Nodes that carry no form data -------------------------------------------
+
+# Form metadata and the internal-bank-use block are presentation only.
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_global_fragmentlib/formmetadata"
+ignore = true
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "affrg_global_InternalBankUse"
+ignore = true
+
+# Hidden bookkeeping text boxes: counters, the form code, the DoR header slots.
+[[aemElements]]
+kind = "textbox"
+visible = false
+ignore = true
+
+# --- Fragments ---------------------------------------------------------------
+
+# BankingRelationship is declared globally, so it is referenced, and it is the
+# one element UBS emits with no occurrence attributes at all.
+[[aemElements]]
+kind = "fragment"
+fragRef = "affrg_BankingRelationship1"
+element = "BankingRelationship"
+occurs = "none"
+
+# Two panels share affrg_SignatureGeneric1 and only the title tells them apart.
+# Neither name is a global element in Signature.xsd, so both are emitted as
+# name=/type=. The titled rules must precede the untitled fallback.
+[[aemElements]]
+kind = "fragment"
+fragRef = "affrg_SignatureGeneric1"
+titles = ["Client", "Kunde", "Cliente", "Titular"]
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "affrg_SignatureGeneric1"
+titles = [
+    "Authorized representative",
+    "Authorised representative",
+    "Bevollmächtigter",
+    "Rappresentante autorizzato",
+]
+element = "AuthRepSignature"
+type = "SignatureType"
+
+
+# --- UBS fragment element table -------------------------------------------
+#
+# Ported from `fragmentElementNames.js` in UBS's af-xsd-automation. A fragment
+# carries only its `fragmentModelRoot` (a *type*), and several global elements
+# can share one type, so which element a fragment becomes is a per-usage
+# decision the type library cannot answer. UBS keeps this table; we keep the
+# same knowledge as rules.
+#
+# `type` is given only where the element is NOT declared globally under
+# types/ — supplying it forces `name=`/`type=`, and a global element must be
+# emitted as `ref=`. Where it is omitted the fragment's own model root
+# supplies the type.
+#
+# Two of UBS's 37 entries are deliberately absent: affrg_cc_IndividualAddress1
+# and affrg_cc_SignatureGeneric1 map to a slash-separated *list* of candidate
+# elements (CardMailingAddress/CardInvoiceAddress/...), i.e. the choice depends
+# on context that the table cannot express. UBS's own generator emits the
+# literal list as one name; add a `title`-qualified rule instead when a form
+# needs them.
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ubs_fragmentlib/affrg_CustodyAccount1"
+element = "CustodyAccount"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_AccountHolder1"
+element = "AccountHolder"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_AccountHolderDepot1"
+element = "AccountHolder"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_Client1"
+element = "AccountHolder"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_AccountHolderBasic1"
+element = "AccountHolderBasic"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_AccountHolderBasic2"
+element = "AccountHolderBasic"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_FIM2"
+element = "FIM"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_CustodyAccountHolderBasic2"
+element = "CustodyAccountHolderBasic2"
+type = "AccountHolderType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ubs_fragmentlib/affrg_SignatureGeneric1"
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_ARSignature1"
+element = "AuthRepSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_AHSignature1"
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_AHSignatureDepot1"
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_ClientSignature1"
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_PensionHSignature1"
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_PrincipalSignature1"
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_EndClientSignature1"
+element = "AccountHolderSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_AttySignature1"
+element = "AttorneySignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_CASignature1"
+element = "CASignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_DeskHeadSignature1"
+element = "DeskHeadSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_SupervisorSignature1"
+element = "SupervisorSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_FIMSignature1"
+element = "FIMSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_RelevantPSignature1"
+element = "RelevantPersonSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_BRSignature1"
+element = "BorrowerSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_BOSignature1"
+element = "BeneficialOwnerSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_ContractingPartnerSignature1"
+element = "ContractingPartnerSignature"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_CAHSignature1"
+element = "CAHSignature1"
+type = "SignatureType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_cc_CardHolder1"
+element = "CardHolder"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_cc_AdditionalServices1"
+element = "CardAdditionalService"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_cc_Employment1"
+element = "CardEmployment"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_cc_Training1"
+element = "CardTraining"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_cc_BankingDetails"
+element = "CardBank"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_cc_LegalRepresentative1"
+element = "CardLegalRep"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_Recipient1"
+element = "InvoiceRecipient"
+type = "RecipientType"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_Payee1"
+element = "Payee"
+
+[[aemElements]]
+kind = "fragment"
+fragRef = "afforms_ch_fragmentlib/affrg_Bank1"
+element = "PayeeBank"
+type = "BankType"
+
+# --- Partner class -----------------------------------------------------------
+
+# The Individual / Company-Entity radio selects which partner shape follows.
+# AccountHolderPartnerClass is global in AFSimpleElements, hence `ref=`.
+# The radio itself does not say which kind of partner it classifies — the
+# fragment that follows it does. Ported from UBS's PARTNER_CLASS_BY_FRAGMENT.
+# Every target is a global element in AFSimpleElements.xsd, so each is emitted
+# as `ref=`. `element` is the fallback when nothing recognisable follows.
+#
+# Longer keys first: `affrg_AccountHolder1` must not shadow
+# `affrg_AccountHolderDepot1`, and `affrg_BeneficialOwnerGeneric1` must be tried
+# before `affrg_BeneficialOwner1`.
+[[aemElements]]
+kind = "radiobutton"
+options = ["Individual", "Company/Entity"]
+element = "AccountHolderPartnerClass"
+nextFragment = [
+    # New data model
+    { fragRef = "affrg_ContractualPartnerGenericBasic1", element = "AccountHolderPartnerClass" },
+    { fragRef = "affrg_ContractualPartnerGeneric1", element = "AccountHolderPartnerClass" },
+    { fragRef = "affrg_BeneficialOwnerGenericBasic1", element = "BOPartnerClass" },
+    { fragRef = "affrg_BeneficialOwnerGeneric1", element = "BOPartnerClass" },
+    { fragRef = "affrg_PowerofAttorneyGenericBasic1", element = "POAPartnerClass" },
+    { fragRef = "affrg_PowerofAttorneyGeneric1", element = "POAPartnerClass" },
+    { fragRef = "affrg_PartnertoPartnerGenericBasic1", element = "PToPPartnerClass" },
+    { fragRef = "affrg_PartnertoPartnerGeneric1", element = "PToPPartnerClass" },
+    # Old model
+    { fragRef = "affrg_AccountHolderDepot1", element = "AccountHolderPartnerClass" },
+    { fragRef = "affrg_AccountHolder1", element = "AccountHolderPartnerClass" },
+    { fragRef = "affrg_Client1", element = "AccountHolderPartnerClass" },
+    { fragRef = "affrg_ContractingPartner1", element = "ContractingPartnerClass" },
+    { fragRef = "affrg_IndividualBasic1", element = "PartnerClass" },
+    { fragRef = "affrg_Recipient1", element = "RecipientPartnerClass" },
+    { fragRef = "affrg_Payee1", element = "PayeePartnerClass" },
+    { fragRef = "affrg_BeneficialOwner2", element = "BOPartnerClass" },
+    { fragRef = "affrg_BeneficialOwner1", element = "BOPartnerClass" },
+    { fragRef = "affrg_Attorney1", element = "POAPartnerClass" },
+    { fragRef = "affrg_FIM2", element = "FIMPartnerClass" },
+]
+
+# --- Repeating panels --------------------------------------------------------
+
+[[aemElements]]
+kind = "repeatable"
+titles = ["Email address instructions"]
+element = "EmailAddressInstruction"
+
+[[aemElements]]
+kind = "repeatable"
+titles = ["Domain name of the Client"]
+element = "DomainInstruction"
+
+# --- Field names that the label does not yield -------------------------------
+
+[[aemElements]]
+kind = "textbox"
+titles = ["Function in the company"]
+element = "Function"
+
+[[aemElements]]
+kind = "textbox"
+titles = ["Domain"]
+element = "DomainName"
+
+[[aemElements]]
+kind = "checkbox"
+titles = ["Communication Preferences"]
+element = "ExcludeAndExchangeInfo"

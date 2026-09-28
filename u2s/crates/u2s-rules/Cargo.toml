@@ -1,0 +1,16 @@
+[package]
+name = "u2s-rules"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Executable rule checks: a boa sandbox running a generated check(output, ctx) over an output-format JSON document"
+
+[dependencies]
+boa_engine = { workspace = true }
+json-patch = "4"
+jsonptr = "0.7"
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]

@@ -1,0 +1,146 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFFragments/Address.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Individual.xsd"/>
+	<xs:include schemaLocation="../AFFragments/LegalEntity.xsd"/>
+	<xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
+	<xs:element name="Bank" type="BankType"/>
+	<xs:element name="ClientAdvisor" type="ClientAdvisorType"/>
+	<xs:element name="ClientAdvisorBasic" type="ClientAdvisorBasicType"/>
+	<xs:element name="ClientAdvisorAssistant" type="ClientAdvisorAssistantType"/>
+	<xs:element name="Recipient" type="RecipientType"/>
+	<xs:element name="Pledgor" type="PledgorType"/>
+	<xs:element name="Beneficiary" type="BeneficiaryType"/>
+	<xs:element name="Payee" type="PayeeType"/>
+	<xs:element name="Payer" type="PayerType"/>
+	<xs:element name="PEP" type="PEPType"/>
+	<xs:element name="FinancialConsultant" type="FinancialConsultantType"/>
+	<xs:element name="RelevantPerson" type="RelevantPersonType"/>
+	<xs:element name="Supervisor" type="SupervisorType"/>
+	<xs:element name="Depositor" type="DepositorType"/>
+	<xs:complexType name="BankType">
+		<xs:complexContent>
+			<xs:extension base="LegalEntityType">
+				<xs:sequence>
+					<xs:element name="BankCode" type="xs:string" minOccurs="0"/>
+					<xs:element name="BIC" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ClientAdvisorType">
+		<xs:complexContent>
+			<xs:extension base="IndividualBasicType">
+				<xs:sequence>
+					<xs:element name="GPN" type="xs:string" minOccurs="0"/>
+					<xs:element name="PseudoGPN" type="xs:string" minOccurs="0"/>
+					<xs:element name="ManagementCenter" type="xs:string" minOccurs="0"/>
+					<xs:element name="DACServiceLocation" type="xs:string" minOccurs="0"/>
+					<xs:element name="CAAssistant" type="ClientAdvisorAssistantType" minOccurs="0"/>
+					<xs:element name="FIMManager" type="xs:string" minOccurs="0"/>
+					<xs:element name="OrganizationUnit" type="xs:string" minOccurs="0"/>
+					<xs:element name="TelephoneNumber" type="xs:string" minOccurs="0"/>
+					<xs:element name="MobileNumber" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ClientAdvisorBasicType">
+		<xs:complexContent>
+			<xs:extension base="IndividualBasicType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ClientAdvisorAssistantType">
+		<xs:complexContent>
+			<xs:extension base="IndividualBasicType">
+				<xs:sequence>
+					<xs:element name="GPN" type="xs:string" minOccurs="0"/>
+					<xs:element name="METSharedMailbox" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="RecipientType">
+		<xs:sequence>
+			<xs:element ref="IndividualBasic" minOccurs="0"/>
+			<xs:element ref="LegalEntityBasic" minOccurs="0"/>
+			<xs:element ref="Address" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PledgorType">
+		<xs:sequence>
+			<xs:element ref="IndividualBasic" minOccurs="0"/>
+			<xs:element ref="LegalEntityBasic" minOccurs="0"/>
+			<xs:element ref="Address" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="BeneficiaryType">
+		<xs:sequence>
+			<xs:element name="PartnerClass" type="xs:string" minOccurs="0"/>
+			<xs:element ref="IndividualBasic" minOccurs="0"/>
+			<xs:element ref="LegalEntityBasic" minOccurs="0"/>
+			<xs:element ref="Address" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PayeeType">
+		<xs:sequence>
+			<xs:element ref="IBAN" minOccurs="0"/>
+			<xs:element name="MessageForPayee" type="xs:string" minOccurs="0"/>
+			<xs:element ref="UBSFisca3ANumber" minOccurs="0"/>
+			<xs:element ref="IndividualBasic" minOccurs="0"/>
+			<xs:element ref="LegalEntityBasic" minOccurs="0"/>
+			<xs:element ref="Address"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PayerType">
+		<xs:complexContent>
+			<xs:extension base="IndividualType">
+				<xs:sequence>
+					<xs:element name="AccountNumber" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="PEPType">
+		<xs:complexContent>
+			<xs:extension base="IndividualType">
+				<xs:sequence>
+					<xs:element name="PublicPosition" type="xs:string" minOccurs="0"/>
+					<xs:element name="PoliticalStanding" type="xs:string" minOccurs="0"/>
+					<xs:element name="Relationship" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="FinancialConsultantType">
+		<xs:complexContent>
+			<xs:extension base="IndividualType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="RelevantPersonType">
+		<xs:complexContent>
+			<xs:extension base="IndividualType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="SupervisorType">
+		<xs:complexContent>
+			<xs:extension base="IndividualBasicType">
+				<xs:sequence>
+					<xs:element name="OrganizationUnit" type="xs:string" minOccurs="0"/>
+					<xs:element name="TelephoneNumber" type="xs:string" minOccurs="0"/>
+					<xs:element name="MobileNumber" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="DepositorType">
+		<xs:complexContent>
+			<xs:extension base="IndividualBasicType">
+				<xs:sequence>
+					<xs:element ref="Address" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+</xs:schema>

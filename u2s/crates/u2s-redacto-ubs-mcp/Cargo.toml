@@ -1,0 +1,43 @@
+[package]
+name = "u2s-redacto-ubs-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The UBS Redacto output format: the MCP stdio server for redacto-ubs, and the library with the UBS document, the UBS metadata and page furniture around it, and its encoder into the platform's INSERT script and decoder back"
+
+[[bin]]
+name = "u2s-redacto-ubs-mcp"
+path = "src/main.rs"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+env_logger = "0.11"
+log = { workspace = true }
+regex = { workspace = true }
+rmcp = { version = "3.1", features = ["server", "transport-io"] }
+schemars = { workspace = true }
+serde = { workspace = true }
+semver = "1"
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+# The ONLY crates that may name a Redacto type, alongside
+# `u2s-mapper-redacto` -- `u2s-server` never links this binary, it
+# registers it at runtime and reads its schema back as JSON, which is
+# exactly what keeps `tests/genericity.rs` green while the core stays
+# format-agnostic.
+u2s-redacto = { path = "../u2s-redacto" }
+# The mechanical encoder/decoder. Kept as a separate library crate rather
+# than inlined here so it stays testable without an MCP harness -- the
+# "library has the logic, binary is thin" split every other u2s server
+# already follows.
+u2s-mapper-redacto = { path = "../u2s-mapper-redacto" }
+u2s-blob = { path = "../u2s-blob" }
+
+[dev-dependencies]
+rmcp = { version = "3.1", features = ["client", "transport-child-process"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "time"] }
+u2s-mcp = { path = "../u2s-mcp" }
+u2s-render-test-harness = { path = "../u2s-render-test-harness" }

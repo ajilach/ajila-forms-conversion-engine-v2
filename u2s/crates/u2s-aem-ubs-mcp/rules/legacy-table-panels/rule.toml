@@ -1,0 +1,9 @@
+id = "ubs-aem-legacy-table-panels"
+title = "Tables are HTML components, not panels of static text"
+output_formats = ["aem-ubs"]
+description = """
+A table belongs in an `HtmlDisplayer` named `TBL_...`, whose content is the table's HTML in each
+language. A panel named `TBL_` holding nothing but static and title draws is the old workaround
+from before AEM had a table component: it loses the table's structure on screen and in the
+Document of Record.
+"""

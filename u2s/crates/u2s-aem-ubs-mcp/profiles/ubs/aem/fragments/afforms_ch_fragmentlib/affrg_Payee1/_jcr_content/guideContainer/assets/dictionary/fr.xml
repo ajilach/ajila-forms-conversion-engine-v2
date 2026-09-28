@@ -1,0 +1,1441 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="fr"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_ch_fragmentlib/affrg_Payee1/jcr:content/guideContainer/assets/dictionary">
+    <_x0037_81cb2da-4d6c-4fcc-958d-f6a871ff41d3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_CH Fragment - Payee 1"
+        sling:message="CH Fragment - Payee 1"/>
+    <fd_IBAN_x0025_2FPost_x0020_755601206
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN/Post account"
+        sling:message="IBAN/Post account"/>
+    <fd_Message_x0020_fo-1094803400
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Message for payee"
+        sling:message="Message for payee"/>
+    <fd__x003c_p_x003e_Standin2062217733
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Standing order&lt;/p>&#xa;"
+        sling:message="&lt;p>Standing order&lt;/p>&#xa;"/>
+    <fd_Thank_x0020_you_x0020_-1692159921
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Thank you for submitting the form."
+        sling:message="Thank you for submitting the form."/>
+    <fd_Root_x0020_Panel
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Root Panel"
+        sling:message="Root Panel"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_IBAN-908717956
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>IBAN (account no.) to be debited&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>IBAN (account no.) to be debited&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_no-1762489862
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account no."
+        sling:message="Account no."/>
+    <fd_Account_x0020_ho-752199718
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account holder(s)¹"
+        sling:message=""/>
+    <fd__x003c_p_x003e_Account-2146874196
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Account holder(s)&lt;sup>1&lt;/sup>&lt;/p>&#xa;"
+        sling:message=""/>
+    <fd_Radio_x0020_Butt-2007853673
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radio Button Client Type 1"
+        sling:message="Radio Button Client Type 1"/>
+    <fd_Individual
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Individual"
+        sling:message="Individual"/>
+    <fd_Company_x0025_2FEn-2088850955
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Company/Entity"
+        sling:message="Company/Entity"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Deta948377118
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Details of account holder&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Details of account holder&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Deta-1422742483
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Details of account holder 1&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Details of account holder 1&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_Ho-1470921079
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Content 1"
+        sling:message="Account Holder Content 1"/>
+    <fd_City
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="City"/>
+    <fd_Canton_x0025_2FSta-100100326
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message="Canton/State/Province"/>
+    <fd_Country
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Country"/>
+    <fd__x003c_p_x003e_Persona1468472165
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Personal note, notifications, costs and enclosures&lt;/p>&#xa;"
+        sling:message="&lt;p>Personal note, notifications, costs and enclosures&lt;/p>&#xa;"/>
+    <fd_Personal_x0020_n-1098698182
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Personal note, notifications, costs and enclosures"
+        sling:message="Personal note, notifications, costs and enclosures"/>
+    <fd_Checkbox_x0020_O-1361763484
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Checkbox Order Confirmation"
+        sling:message="Checkbox Order Confirmation"/>
+    <e33adf11-f751-4686-b92c-c9559efd37ed
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fisca 3a no."
+        sling:message="n° UBS Fisca 3a"/>
+    <fd_Footnote
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Footnote"
+        sling:message=""/>
+    <fd__x003c_p_x003e__x003c_sup_x003e_1_x003c_-1400463088
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;sup>1&lt;/sup>&amp;nbsp;The singular form also includes the plural, and all masculine terms referring to persons refer to persons of both genders.&lt;/p>&#xa;"
+        sling:message=""/>
+    <fd__x003c_p_x003e_Payee_x0027_s1735866967
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Payee's bank&lt;/p>&#xa;"
+        sling:message="&lt;p>Payee's bank&lt;/p>&#xa;"/>
+    <fd_Payee_x0027_s_x0020_ba-1728467832
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Payee's bank"
+        sling:message="Payee's bank"/>
+    <fd_Name_x0020_of_x0020_ba-519723408
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of bank"
+        sling:message="Name of bank"/>
+    <fd_BIC_x0020__x0028_SWIFT-625660708
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_BIC (SWIFT)/Bank code"
+        sling:message="BIC (SWIFT)/Bank code"/>
+    <fd_Payee_x00b9_
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Payee¹"
+        sling:message=""/>
+    <fd__x003c_p_x003e_Payee_x003c_s-233650077
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Payee&lt;sup>1&lt;/sup>&lt;/p>&#xa;"
+        sling:message=""/>
+    <fd_Order_x0020_Type-960897584
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Order Type Panel"
+        sling:message="Order Type Panel"/>
+    <fd_Add_x0020_accoun-538090370
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Add account holder"
+        sling:message="Add account holder"/>
+    <fd_Accounts_x0020_C737684035
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Accounts Company"
+        sling:message="Accounts Company"/>
+    <fd_Account_x0020_Ho1726429075
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder 4"
+        sling:message="Account Holder 4"/>
+    <fd_Account_x0020_Ho97348418
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Header 4"
+        sling:message="Account Holder Header 4"/>
+    <fd_Account_x0020_Ho1726429074
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder 3"
+        sling:message="Account Holder 3"/>
+    <fd_Account_x0020_Ho97348417
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Header 3"
+        sling:message="Account Holder Header 3"/>
+    <fd_Account_x0020_Ho1726429073
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder 2"
+        sling:message="Account Holder 2"/>
+    <fd_Account_x0020_Ho97348416
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Header 2"
+        sling:message="Account Holder Header 2"/>
+    <fd_Order_x0020_type
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Order type"
+        sling:message="Order type"/>
+    <fd__x003c_p_x003e_Order_x0020_t1971480051
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Order type&lt;/p>&#xa;"
+        sling:message="&lt;p>Order type&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x0026_nbsp_x003b__x0020_1955010839
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp;&lt;/p>&#xa;"
+        sling:message="&lt;p>&amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp;&lt;/p>&#xa;"/>
+    <fd_Company_x0020_Ac-315320990
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Company Account Holder"
+        sling:message="Company Account Holder"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Deta-2012282998
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Details of account holder 4&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Details of account holder 4&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_Ho-1470921076
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Content 4"
+        sling:message="Account Holder Content 4"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Deta-1815769493
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Details of account holder 3&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Details of account holder 3&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_Ho-1470921077
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Content 3"
+        sling:message="Account Holder Content 3"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Deta-1619255988
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Details of account holder 2&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Details of account holder 2&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_Ho-1470921078
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Content 2"
+        sling:message="Account Holder Content 2"/>
+    <fd_Radio_x0020_Butt581665411
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radio Button Standing Order"
+        sling:message="Radio Button Standing Order"/>
+    <fd_Cancellati-956572381
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Cancellation"
+        sling:message="Cancellation"/>
+    <fd_New_x0020_Order
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_New Order"
+        sling:message="New Order"/>
+    <fd_Salary_x0020_Pay1370395056
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Salary Payment"
+        sling:message="Salary Payment"/>
+    <fd_Currency
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Currency"
+        sling:message="Currency"/>
+    <fd_Previous_x0020_a41795969
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Previous amount"
+        sling:message="Previous amount"/>
+    <fd_Amount
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Amount"
+        sling:message="Amount"/>
+    <fd_Section_x0020_Ch-1442975604
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Section Checkbox Fisca"
+        sling:message="Section Checkbox Fisca"/>
+    <fd_Checkbox_x0020_S-133737962
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Checkbox Standing Order Fisca 1"
+        sling:message="Checkbox Standing Order Fisca 1"/>
+    <b303a873-3f27-434c-a5d1-2a73b66a950f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fisca with max. amount"
+        sling:message="UBS Fisca avec montant maximal"/>
+    <fd_Section_x0020_In1135441112
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Section Indent 1"
+        sling:message="Section Indent 1"/>
+    <fd_Radio_x0020_Butt-1950267601
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radio Button Fisca Max Amt Options"
+        sling:message="Radio Button Fisca Max Amt Options"/>
+    <fd_UBS_x0020_Fisca_x0025_2F1454717573
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fisca/Fiscalife with max. amount"
+        sling:message="UBS Fisca/Fiscalife with max. amount"/>
+    <fd_With_x0020_BVG_x0020_p777747678
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With BVG pension fund"
+        sling:message="With BVG pension fund"/>
+    <fd_Without_x0020_BV2118632796
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Without BVG pension fund"
+        sling:message="Without BVG pension fund"/>
+    <fd_Checkbox_x0020_S-133737961
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Checkbox Standing Order Fisca 2"
+        sling:message="Checkbox Standing Order Fisca 2"/>
+    <f6153aca-7d3f-47dc-b2ea-b6ce282b7c53
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fisca with individual amount"
+        sling:message="UBS Fisca avec montant individuel"/>
+    <fd_Section_x0020_In1135441113
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Section Indent 2"
+        sling:message="Section Indent 2"/>
+    <fd_Amount_x0020_in_x0020_673462190
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Amount in CHF"
+        sling:message="Amount in CHF"/>
+    <fd_Panel_x0020_Fisc-1771458130
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Panel Fisca Frequency"
+        sling:message="Panel Fisca Frequency"/>
+    <fd_UBS_x0020_Fisca_x0025_2F1628179222
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fisca/Fiscalife with individual amount"
+        sling:message="UBS Fisca/Fiscalife with individual amount"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Fisc-419874434
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Fisca frequency&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Fisca frequency&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Radiobutto1947295895
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radiobutton Fisca Frequency"
+        sling:message="Radiobutton Fisca Frequency"/>
+    <fd_Monthly
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Monthly"
+        sling:message="Monthly"/>
+    <fd_Every_x0020_3_x0020_mo911347205
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 3 months"
+        sling:message="Every 3 months"/>
+    <fd_Every_x0020_6_x0020_mo1844810914
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 6 months"
+        sling:message="Every 6 months"/>
+    <fd_Anually
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Anually"
+        sling:message="Anually"/>
+    <fd__x003c_p_x003e_Executi-983936709
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Execution&lt;/p>&#xa;"
+        sling:message="&lt;p>Execution&lt;/p>&#xa;"/>
+    <fd_Execution
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Execution"
+        sling:message="Execution"/>
+    <fd_Frequency
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Frequency"
+        sling:message="Frequency"/>
+    <fd_Weekly
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Weekly"
+        sling:message="Weekly"/>
+    <fd_Every_x0020_2_x0020_we-17893012
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 2 weeks"
+        sling:message="Every 2 weeks"/>
+    <fd_Every_x0020_2_x0020_mo-831463130
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 2 months"
+        sling:message="Every 2 months"/>
+    <fd_Every_x0020_4_x0020_mo-1640809756
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 4 months"
+        sling:message="Every 4 months"/>
+    <fd_Annually
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Annually"
+        sling:message="Annually"/>
+    <fd_Execution_x0020_1719467636
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Execution day"
+        sling:message="Execution day"/>
+    <fd_Panel_x0020_1st_x0020_108051127
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Panel 1st Time"
+        sling:message="Panel 1st Time"/>
+    <fd_Check_x0020_Box_x0020_822984424
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Check Box 1st time"
+        sling:message="Check Box 1st time"/>
+    <fd_Starting
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Starting"
+        sling:message="Starting"/>
+    <fd_Month
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Month"
+        sling:message="Month"/>
+    <fd_January
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_January"
+        sling:message="January"/>
+    <fd_February
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_February"
+        sling:message="February"/>
+    <fd_March
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_March"
+        sling:message="March"/>
+    <fd_April
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_April"
+        sling:message="April"/>
+    <fd_May
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_May"
+        sling:message="May"/>
+    <fd_June
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_June"
+        sling:message="June"/>
+    <fd_July
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_July"
+        sling:message="July"/>
+    <fd_August
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_August"
+        sling:message="August"/>
+    <fd_September
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_September"
+        sling:message="September"/>
+    <fd_October
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_October"
+        sling:message="October"/>
+    <fd_November
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_November"
+        sling:message="November"/>
+    <fd_December
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_December"
+        sling:message="December"/>
+    <fd_Year
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Year"
+        sling:message="Year"/>
+    <fd_Radiobutto2033192942
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radiobutton 1st Time"
+        sling:message="Radiobutton 1st Time"/>
+    <fd_Valid_x0020_unti-1542398438
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Valid until"
+        sling:message="Valid until"/>
+    <fd_Until_x0020_Canc199657167
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Until Cancelled"
+        sling:message="Until Cancelled"/>
+    <fd_Block_x0020_orde963661519
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Block order from"
+        sling:message="Block order from"/>
+    <fd_To_x0025_3A
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_To:"
+        sling:message="To:"/>
+    <fd_Execute_x0020_be1709514410
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Execute before"
+        sling:message="Execute before"/>
+    <fd_Execute_x0020_af192812369
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Execute after"
+        sling:message="Execute after"/>
+    <fd_Invoice_x0020_re-1677773804
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Invoice recipient¹ (optional and only for QR-bill &quot;Payable by&quot;)"
+        sling:message="Invoice recipient¹ (optional and only for QR-bill &quot;Payable by&quot;)"/>
+    <fd__x003c_p_x003e_Invoice1607530753
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Invoice recipient¹ (optional and only for QR-bill &amp;quot;Payable by&amp;quot;)&lt;/p>&#xa;"
+        sling:message="&lt;p>Invoice recipient¹ (optional and only for QR-bill &amp;quot;Payable by&amp;quot;)&lt;/p>&#xa;"/>
+    <fd_Order_x0020_Conf811770798
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Order Confirm"
+        sling:message="Order Confirm"/>
+    <fd_Order_x0020_conf1327197672
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Order confirmation not requested"
+        sling:message="Order confirmation not requested"/>
+    <fd_Personal_x0020_n1321832882
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Personal note"
+        sling:message="Note personnelle"/>
+    <_x0037_6e44b93-75d1-4283-a47d-61414c141cb7
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Notification"
+        sling:message="Notification"/>
+    <fd_Single_x0020_Pos453474154
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Single Posting"
+        sling:message="Single Posting"/>
+    <fd_NotIficati-1531446037
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_NotIfication"
+        sling:message="NotIfication"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Noti-1553736639
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Notification&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Notification&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Single_x0020_-393071165
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Single posting:&lt;/p>&#xa;"
+        sling:message="&lt;p>Single posting:&lt;/p>&#xa;"/>
+    <fd_Radiobutto-2041656037
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radiobutton Single"
+        sling:message="Radiobutton Single"/>
+    <fd_Without_x0020_ad-1733181584
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Without advice"
+        sling:message="Without advice"/>
+    <fd_With_x0020_advic1985646962
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With advice"
+        sling:message="With advice"/>
+    <fd_Collective-967897968
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Collective Posting"
+        sling:message="Collective Posting"/>
+    <fd__x003c_p_x003e_Collect-1814249111
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Collective posting:&lt;/p>&#xa;"
+        sling:message="&lt;p>Collective posting:&lt;/p>&#xa;"/>
+    <fd_Radiobutto1535465153
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radiobutton Collective"
+        sling:message="Radiobutton Collective"/>
+    <fd_With_x0020_colle-2120820432
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With collective advice"
+        sling:message="With collective advice"/>
+    <fd_With_x0020_total1045947982
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With total advice"
+        sling:message="With total advice"/>
+    <fd_Checkbox_x0020_C-652479725
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Checkbox Credit advise not requested"
+        sling:message="Checkbox Credit advise not requested"/>
+    <fd_If_x0020_transfe-2107161442
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_If transfer in the same customer relation: credit advice not requested"
+        sling:message="If transfer in the same customer relation: credit advice not requested"/>
+    <fd_Costs_x0020_abro1891043835
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Costs abroad"
+        sling:message="Costs abroad"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Cost1398685009
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Costs abroad&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Costs abroad&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Radiobutto1582547086
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radiobutton Costs Abroad"
+        sling:message="Radiobutton Costs Abroad"/>
+    <fd_Shared_x0020_cos1943453419
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Shared costs"
+        sling:message="Shared costs"/>
+    <fd_All_x0020_costs_x0020_119597387
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_All costs borne by ordering client"
+        sling:message="All costs borne by ordering client"/>
+    <fd_All_x0020_costs_x0020_-60936708
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_All costs borne by payee"
+        sling:message="All costs borne by payee"/>
+    <fd_Enclosures
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Enclosures"
+        sling:message="Enclosures"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Encl-1096756949
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Enclosures&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Enclosures&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Checkbox_x0020_E1240605734
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Checkbox Enclosure 1"
+        sling:message="Checkbox Enclosure 1"/>
+    <fd_Enclosures254952397
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Enclosures (Payment part QR-bill must be enclosed.)"
+        sling:message=""/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Impo-1370936763
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Important:&amp;nbsp;&lt;/b>Please note that all information printed or allowed to be added in writing on the payment part will always be provided along with the payment for QR-bill, regardless of whether this information is necessary for executing the payment. Handwritten additions (but not deletions) are only permitted if the amount and/or the bill recipient &amp;quot;Payable by&amp;quot; is missing.&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Important:&amp;nbsp;&lt;/b>Please note that all information printed or allowed to be added in writing on the payment part will always be provided along with the payment for QR-bill, regardless of whether this information is necessary for executing the payment. Handwritten additions (but not deletions) are only permitted if the amount and/or the bill recipient &amp;quot;Payable by&amp;quot; is missing.&lt;/p>&#xa;"/>
+    <fd_Signature_x0028_-1306852186
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature(s)"
+        sling:message="Signature(s)"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Clie-1453806375
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Client&lt;br>&#xa; New entries&lt;/b>&amp;nbsp;and &lt;b>requests for changes&lt;/b> must reach UBS Switzerland AG &lt;b>at least 5 business days&lt;/b> before execution, otherwise timely execution can no longer be guaranteed.&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Client&lt;br>&#xa; New entries&lt;/b>&amp;nbsp;and &lt;b>requests for changes&lt;/b> must reach UBS Switzerland AG &lt;b>at least 5 business days&lt;/b> before execution, otherwise timely execution can no longer be guaranteed.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Signatu949896441
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Signature(s)&lt;/p>&#xa;"
+        sling:message="&lt;p>Signature(s)&lt;/p>&#xa;"/>
+    <fd_Signatory
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory"
+        sling:message="Signatory"/>
+    <fd_Signatory_x0020_-131464268
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company 1"
+        sling:message="Signatory Company 1"/>
+    <fd_Signatory_x0020_-239636837
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Header 1"
+        sling:message="Signatory Company Header 1"/>
+    <fd_Signatory_x0020_967437997
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Content 1"
+        sling:message="Signatory Company Content 1"/>
+    <fd_Signature_x0020_-1017094996
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client"
+        sling:message="Signature of client"/>
+    <fd_Signature_x0020_1824253373
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client 1"
+        sling:message="Signature of client 1"/>
+    <fd_Signature_x0020_1824253374
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client 2"
+        sling:message="Signature of client 2"/>
+    <fd_Signature_x0020_1824253375
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client 3"
+        sling:message="Signature of client 3"/>
+    <fd_Signature_x0020_1824253376
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client 4"
+        sling:message="Signature of client 4"/>
+    <cf49ef86-d892-482c-be3d-228e89cc2b1e
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_63138"
+        sling:message="63138"/>
+    <_x0030_29baaf3-e297-4a81-bd9e-6eb1ac283687
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EN"
+        sling:message="EN"/>
+    <fd__x003c_p_x003e_By_x0020_clic-2118826380
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p>&lt;p>After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p>"
+        sling:message="&lt;p>By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p>&lt;p>After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p>"/>
+    <fd_Preview_x0020_Ca-1895840008
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Preview Carousel"
+        sling:message="Preview Carousel"/>
+    <fd_Message
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Message"
+        sling:message="Message"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Erro-1986159268
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Error while generating the preview&lt;/b>&lt;/p>&#xa;&lt;p>Please try again later.&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Error while generating the preview&lt;/b>&lt;/p>&#xa;&lt;p>Please try again later.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Subm-214020947
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Submission failed&lt;/b>&lt;/p>&#xa;&lt;p>The form could not be sent. Please try again later.&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Submission failed&lt;/b>&lt;/p>&#xa;&lt;p>The form could not be sent. Please try again later.&lt;/p>&#xa;"/>
+    <fd_Further_x0020_co-2070867998
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Further configurations for the document of record"
+        sling:message="Further configurations for the document of record"/>
+    <fd_Metadata
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Metadata"
+        sling:message="Metadata"/>
+    <fd_Toolbar
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Toolbar"
+        sling:message="Toolbar"/>
+    <fd_Next
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Next"
+        sling:message="Next"/>
+    <fd_Submit
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Submit"
+        sling:message="Submit"/>
+    <fd_Back
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Back"
+        sling:message="Back"/>
+    <_x0032_6a05a10-cdc3-48c7-9e45-c3f9603c82b3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Previous"
+        sling:message="Retour"/>
+    <fd_Preview
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Preview"
+        sling:message="Preview"/>
+    <f75102a4-8775-4e17-804a-eebe1ade1b45
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_1"
+        sling:message="1"/>
+    <fd_Logo_x0020_Image188226314
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Logo Image (width: 28.955mm, height: 10.475mm) "
+        sling:message="Logo Image (width: 28.955mm, height: 10.475mm) "/>
+    <_x0036_aa615e7-0a18-49a7-8df7-47462102ecda
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_logoImage"
+        sling:message="logoImage"/>
+    <fd_FormType
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_FormType"
+        sling:message="FormType"/>
+    <fd_Header_x0020_Tex-1502085408
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Header Text"
+        sling:message="Header Text"/>
+    <_x0039_e524e6d-c372-49a8-922a-002070519e07
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_headerText"
+        sling:message="headerText"/>
+    <fd_Form_x0020_Title
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Form Title"
+        sling:message="Form Title"/>
+    <ccb927fa-5b97-4350-8776-8d61bcc51bc0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_formTitle"
+        sling:message="formTitle"/>
+    <fd_senderAddr-1833585255
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_senderAddressTitle"
+        sling:message="senderAddressTitle"/>
+    <b12961b9-a05b-4434-bb7a-f7432fdc2118
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_true"
+        sling:message="true"/>
+    <e121a1aa-872d-4b17-983a-9ff9116d32c0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_granite/ui/components/coral/foundation/form/textarea"
+        sling:message="granite/ui/components/coral/foundation/form/textarea"/>
+    <fd_formId
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_formId"
+        sling:message="formId"/>
+    <fd_displayLan1486237242
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_displayLanguage"
+        sling:message="displayLanguage"/>
+    <fd_language
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_language"
+        sling:message="language"/>
+    <fd_footerVers-669021507
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerVersion"
+        sling:message="footerVersion"/>
+    <fd_mandator
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_mandator"
+        sling:message="mandator"/>
+    <fd_footerForm-1101562996
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerFormCode"
+        sling:message="footerFormCode"/>
+    <fd_footerForm-2085829081
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerFormVersionDate"
+        sling:message="footerFormVersionDate"/>
+    <fd_APPCode
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_APPCode"
+        sling:message="APPCode"/>
+    <_x0038_ca72bf2-4909-4adc-94b9-e7016cc8ba97
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_AFC"
+        sling:message="AFC"/>
+    <fd_footerFree1181878388
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerFreeText"
+        sling:message="footerFreeText"/>
+    <fd__x0025_20
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_ "
+        sling:message=" "/>
+    <fd_IBAN_x0020__x0028_acco98762096
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (account no.) to be debited"
+        sling:message="IBAN (account no.) to be debited"/>
+    <_x0039_46a992e-5703-4d69-95c1-9b8cd4214931
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_001"
+        sling:message="001"/>
+    <fd_Container_x0020_1990100165
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Container for branding components"
+        sling:message="Container for branding components"/>
+    <fd_Master_x0020_Pag-1407007290
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Master Page Properties"
+        sling:message="Master Page Properties"/>
+    <fd_txtBanking486303982
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_txtBankingRelationship"
+        sling:message="txtBankingRelationship"/>
+    <fd_ShowBankin575748897
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_ShowBankingRelationship"
+        sling:message="ShowBankingRelationship"/>
+    <fd_Upload
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Upload"
+        sling:message="Upload"/>
+    <fd_Account_x0020_ho-24264513
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account holder(s)"
+        sling:message="Account holder(s)"/>
+    <fd__x003c_p_x003e_Account828380628
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Account holder(s)&lt;/p>&#xa;"
+        sling:message="&lt;p>Account holder(s)&lt;/p>&#xa;"/>
+    <fd_Company_x0025_2FEntity
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Company/Entity"
+        sling:message="Company/Entity"/>
+    <fd_Last_x0020_name
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Last name"
+        sling:message="Last name"/>
+    <fd_First_x0020_name-61863869
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_First name(s)"
+        sling:message="First name(s)"/>
+    <fd_Company_x0025_2FEn38580694
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Company/Entity name"
+        sling:message="Company/Entity name"/>
+    <fd_Street
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Street"/>
+    <fd_No.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="No."/>
+    <fd_Additional-353888195
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Additional address details"/>
+    <fd_Postal_x0020_cod-443576318
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="Postal code"/>
+    <fd_Account_x0020_ho1998630464
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account holder(s) Container"
+        sling:message="Account holder(s) Container"/>
+    <fd_Account_x0020_Ho1726429072
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder 1"
+        sling:message="Account Holder 1"/>
+    <fd_Account_x0020_Ho97348415
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account Holder Header 1"
+        sling:message="Account Holder Header 1"/>
+    <fd_Canton_x0025_2Fsta837248730
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/state/province"
+        sling:message="Canton/state/province"/>
+    <fd_Change
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Change"
+        sling:message="Change"/>
+    <fd_New_x0020_amount
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_New amount"
+        sling:message="New amount"/>
+    <fd_Cancellation
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Cancellation"
+        sling:message="Cancellation"/>
+    <fd_Order_x0020_no.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Order no."
+        sling:message="Order no."/>
+    <fd_Standing_x0020_o1757435720
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Standing order Fisca"
+        sling:message="Standing order Fisca"/>
+    <fd__x003c_p_x003e_Standin-97078889
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Standing order Fisca&lt;/p>&#xa;"
+        sling:message="&lt;p>Standing order Fisca&lt;/p>&#xa;"/>
+    <fd_UBS_x0020_Fisca_x0025_2FFiscalife_x0020_with_x0020_max._x0020_amount
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fisca/Fiscalife with max. amount"
+        sling:message="UBS Fisca/Fiscalife with max. amount"/>
+    <fd_With_x0020_BVG_x0020_pension_x0020_fund
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With BVG pension fund"
+        sling:message="With BVG pension fund"/>
+    <fd_Without_x0020_BVG_x0020_pension_x0020_fund
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Without BVG pension fund"
+        sling:message="Without BVG pension fund"/>
+    <fd_UBS_x0020_Fisca_x0025_2FFiscalife_x0020_with_x0020_individual_x0020_amount
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fisca/Fiscalife with individual amount"
+        sling:message="UBS Fisca/Fiscalife with individual amount"/>
+    <fd_Every_x0020_3_x0020_months
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 3 months"
+        sling:message="Every 3 months"/>
+    <fd_Every_x0020_6_x0020_months
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 6 months"
+        sling:message="Every 6 months"/>
+    <fd_Every_x0020_2_x0020_weeks
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 2 weeks"
+        sling:message="Every 2 weeks"/>
+    <fd_Every_x0020_2_x0020_months
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 2 months"
+        sling:message="Every 2 months"/>
+    <fd_Every_x0020_4_x0020_months
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Every 4 months"
+        sling:message="Every 4 months"/>
+    <fd_Valid_x0020_until
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Valid until"
+        sling:message="Valid until"/>
+    <fd_Until_x0020_Cancelled
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Until Cancelled"
+        sling:message="Until Cancelled"/>
+    <fd_Date_x0020__x0028_dd.m235768755
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date (dd.mm.yyyy)"
+        sling:message="Date (dd.mm.yyyy)"/>
+    <fd_Please_x0020_ent1338578760
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+        sling:message="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"/>
+    <fd_Name_x0020_of_x0020_au-1709104222
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of authorized representative 4"
+        sling:message="Name of authorized representative 4"/>
+    <fd_Add_x0020_signat-2094346279
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Add signature"
+        sling:message="Add signature"/>
+    <fd_Name_x0020_of_x0020_au-1709104223
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of authorized representative 3"
+        sling:message="Name of authorized representative 3"/>
+    <fd_Comp_x0020_Sign_x0020_-1480887102
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Comp Sign 4"
+        sling:message="Comp Sign 4"/>
+    <fd_Name_x0020_of_x0020_au-1709104224
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of authorized representative 2"
+        sling:message="Name of authorized representative 2"/>
+    <fd_Comp_x0020_Sign_x0020_-1480887103
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Comp Sign 3"
+        sling:message="Comp Sign 3"/>
+    <fd_Name_x0020_of_x0020_au-211834098
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of authorized representative"
+        sling:message="Name of authorized representative"/>
+    <fd_Name_x0020_of_x0020_au-1709104225
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of authorized representative 1"
+        sling:message="Name of authorized representative 1"/>
+    <fd_Name_x0020_of_x0020_cl-1526098093
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client 4"
+        sling:message="Name of client 4"/>
+    <fd_Signatory_x0020_-1059353501
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company"
+        sling:message="Signatory Company"/>
+    <fd_Name_x0020_of_x0020_cl-1526098094
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client 3"
+        sling:message="Name of client 3"/>
+    <fd_Signatory_x0020_-131464265
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company 4"
+        sling:message="Signatory Company 4"/>
+    <fd_Name_x0020_of_x0020_cl-1526098095
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client 2"
+        sling:message="Name of client 2"/>
+    <fd_Signatory_x0020_-131464266
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company 3"
+        sling:message="Signatory Company 3"/>
+    <fd_Name_x0020_of_x0020_cl-1526098096
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client 1"
+        sling:message="Name of client 1"/>
+    <fd_Signatory_x0020_-131464267
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company 2"
+        sling:message="Signatory Company 2"/>
+    <fd_Name_x0020_of_x0020_cl-1199352065
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client"
+        sling:message="Name of client"/>
+    <fd_Signatory_x0020_-1783106970
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company 1_1"
+        sling:message="Signatory Company 1_1"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Week1157941374
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Weekend / Public holiday&lt;/b>&lt;/p>&#xa;&lt;p>If execution day&amp;nbsp;falls on a weekend or public holiday&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Weekend / Public holiday&lt;/b>&lt;/p>&#xa;&lt;p>If execution day&amp;nbsp;falls on a weekend or public holiday&lt;/p>&#xa;"/>
+    <fd_If_x0020_executi1605480793
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_If execution day overlaps weekend or holiday"
+        sling:message="If execution day overlaps weekend or holiday"/>
+    <fd_Panel_x0020_Bloc984926591
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Panel Block Order"
+        sling:message="Panel Block Order"/>
+    <fd_Checkbox_x0020_B-1951848194
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Checkbox Block Order"
+        sling:message="Checkbox Block Order"/>
+    <fd_One_x0020_copy_x0020_f1870967535
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_One copy for each party"
+        sling:message="One copy for each party"/>
+    <b1077cce-961c-4ed2-a286-58be7b08db33
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_The text will appear here"
+        sling:message="The text will appear here"/>
+    <fd_Signature_x0020_1885887509
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of authorized representative 4"
+        sling:message="Signature of authorized representative 4"/>
+    <fd_Signature_x0020_1885887508
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of authorized representative 3"
+        sling:message="Signature of authorized representative 3"/>
+    <fd_Place
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Place"
+        sling:message="Place"/>
+    <fd_Comp_x0020_Sign_x0020_-1480887104
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Comp Sign 2"
+        sling:message="Comp Sign 2"/>
+    <fd_Signature_x0020_1885887507
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of authorized representative 2"
+        sling:message="Signature of authorized representative 2"/>
+    <fd_Comp_x0020_Sign_x0020_-1480887105
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Comp Sign 1"
+        sling:message="Comp Sign 1"/>
+    <fd_Signature_x0020_1794139201
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of authorized representative"
+        sling:message="Signature of authorized representative"/>
+    <fd_Signatory_x0020_-239636834
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Header 4"
+        sling:message="Signatory Company Header 4"/>
+    <fd_Signatory_x0020_967438000
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Content 4"
+        sling:message="Signatory Company Content 4"/>
+    <fd_Signatory_x0020_-239636835
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Header 3"
+        sling:message="Signatory Company Header 3"/>
+    <fd_Signatory_x0020_967437999
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Content 3"
+        sling:message="Signatory Company Content 3"/>
+    <fd_Signatory_x0020_-239636836
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Header 2"
+        sling:message="Signatory Company Header 2"/>
+    <fd_Signatory_x0020_967437998
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Content 2"
+        sling:message="Signatory Company Content 2"/>
+    <fd_Signatory_x0020_1637236621
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Header 1_1"
+        sling:message="Signatory Company Header 1_1"/>
+    <fd_Signatory_x0020_1994982175
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signatory Company Content 1_1"
+        sling:message="Signatory Company Content 1_1"/>
+    <fd_Block_x0020_order_x0020_from
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Block order from"
+        sling:message="Block order from"/>
+    <fd_Radiobutto-2108533528
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radiobutton Block Order"
+        sling:message="Radiobutton Block Order"/>
+    <fd_Execute_x0020_before
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Execute before"
+        sling:message="Execute before"/>
+    <fd_Execute_x0020_after
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Execute after"
+        sling:message="Execute after"/>
+    <fd_Payee
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Payee"
+        sling:message="Payee"/>
+    <fd__x003c_p_x003e_Payee_x003c__x0025_2F-2135675893
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Payee&lt;/p>&#xa;"
+        sling:message="&lt;p>Payee&lt;/p>&#xa;"/>
+    <fd_Order_x0020_confirmation_x0020_not_x0020_requested
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Order confirmation not requested"
+        sling:message="Order confirmation not requested"/>
+    <fd_Without_x0020_advice
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Without advice"
+        sling:message="Without advice"/>
+    <fd_With_x0020_advice
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With advice"
+        sling:message="With advice"/>
+    <fd_With_x0020_collective_x0020_advice
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With collective advice"
+        sling:message="With collective advice"/>
+    <fd_With_x0020_total_x0020_advice
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_With total advice"
+        sling:message="With total advice"/>
+    <fd_If_x0020_transfer_x0020_in_x0020_the_x0020_same_x0020_customer_x0020_relation_x0025_3A_x0020_credit_x0020_advice_x0020_not_x0020_requested
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_If transfer in the same customer relation: credit advice not requested"
+        sling:message="If transfer in the same customer relation: credit advice not requested"/>
+    <fd_Shared_x0020_costs
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Shared costs"
+        sling:message="Shared costs"/>
+    <fd_All_x0020_costs_x0020_borne_x0020_by_x0020_ordering_x0020_client
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_All costs borne by ordering client"
+        sling:message="All costs borne by ordering client"/>
+    <fd_All_x0020_costs_x0020_borne_x0020_by_x0020_payee
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_All costs borne by payee"
+        sling:message="All costs borne by payee"/>
+    <fd_Enclosures_x0020__x0028_Orange_x0025_2FRed_x0020_payment_x0020_slips_x0020_or_x0020_payment_x0020_part_x0020_QR-bill_x0020_must_x0020_be_x0020_enclosed._x0029_
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Enclosures (Orange/Red payment slips or payment part QR-bill must be enclosed.)"
+        sling:message="Enclosures (Orange/Red payment slips or payment part QR-bill must be enclosed.)"/>
+    <fd__x003c_p_x003e_The_x0020_red924908788
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>The red and orange payment slips will be discontinued as of 30 September 2022. Old payment slips will no longer be processed after this date, and existing standing orders will no longer be executed.&amp;nbsp;&lt;br>&#xa;&lt;/p>&#xa;"
+        sling:message="&lt;p>The red and orange payment slips will be discontinued as of 30 September 2022. Old payment slips will no longer be processed after this date, and existing standing orders will no longer be executed.&amp;nbsp;&lt;br>&#xa;&lt;/p>&#xa;"/>
+    <fd_Personal_x0020_note_
+        jcr:primaryType="sling:MessageEntry"
+        sling:key="fd_Personal note:"
+        sling:message="Note personnelle"/>
+</jcr:root>

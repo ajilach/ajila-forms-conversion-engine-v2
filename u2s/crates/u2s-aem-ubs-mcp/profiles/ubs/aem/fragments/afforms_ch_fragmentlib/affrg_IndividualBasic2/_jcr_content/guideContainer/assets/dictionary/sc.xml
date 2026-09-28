@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="sc"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_ch_fragmentlib/affrg_IndividualBasic2/jcr:content/guideContainer/assets/dictionary">
+    <dc4cfb87-3e01-4515-bfd8-b7bfba3229b7
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_CH Fragment - Individual Basic 2"
+        sling:message="CH Fragment - Individual Basic 2"/>
+    <_x0031_5807df7-8c7d-41e2-aee8-131f57465894
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Form of address"
+        sling:message="Form of address"/>
+    <fd321d3c-9a99-4c97-8388-20af6f1cbbff
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Mr"
+        sling:message="Mr"/>
+    <_x0039_05b96ae-cde5-4673-b7d6-3fa805e8c3a2
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Ms"
+        sling:message="Ms"/>
+    <b8957fc9-21b7-4594-b10b-b23d2444be39
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Title"
+        sling:message="Title"/>
+    <af4ac505-1ef2-4a4b-b2aa-d2e9c0012cea
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Last name"
+        sling:message="Last name"/>
+    <e98f8735-5094-487a-affe-b2b36e94bd83
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Dr"
+        sling:message="Dr"/>
+    <f953fa05-23e8-4f0b-9920-4a1ac8a4280d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Prof"
+        sling:message="Prof"/>
+    <ac559444-706b-41e8-ada9-9dc624505e99
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Other Title"
+        sling:message="Other Title"/>
+    <f21b0150-24ea-49b5-a5e4-3bae105efc1c
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+        sling:message="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"/>
+    <ffe1793d-7882-4ddb-b2a5-b60cc3f440b7
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Nationality"
+        sling:message="Nationality"/>
+    <f1762f9b-5adf-4183-a73f-0ec659848a6c
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-9276 Personal Details (Last Name, First Name)"
+        sling:message="EFORMS-9276 Personal Details (Last Name, First Name)"/>
+    <bbad6fd9-6f5c-4a8b-b2d5-2f0e6118c89b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_First name(s)"
+        sling:message="First name(s)"/>
+    <_x0034_0c7103a-4bf9-4a3c-923a-7480f38e0ed2
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date of birth (dd.mm.yyyy)"
+        sling:message="Date of birth (dd.mm.yyyy)"/>
+</jcr:root>

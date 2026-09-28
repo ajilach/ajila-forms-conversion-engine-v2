@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2026-05-03T15:51:23.874+02:00"
+        cq:lastModifiedBy="t647287"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="UBS Fragment - Banking Relationship 1"
+        sling:resourceType="fd/af/components/page/basePageForFragment">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            fragmentModelRoot="/BankingRelationshipType"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1"
+            schemaType="xmlschema"
+            xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFFragments/BankingRelationship.xsd">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <panel_copy
+                        jcr:lastModified="{Date}2024-12-12T07:18:49.229+01:00"
+                        jcr:lastModifiedBy="t653607"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        guideNodeClass="guidePanel"
+                        name="PN_BankingRelationship"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false"
+                        visible="{Boolean}true">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            dorNumCols="1"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                            <textdraw
+                                jcr:lastModified="{Date}2024-12-12T07:21:18.206+01:00"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_BankingRelationship"
+                                textIsRich="true"/>
+                            <textbox
+                                jcr:lastModified="{Date}2026-02-18T15:15:50.343+01:00"
+                                jcr:lastModifiedBy="t647287"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Clearing no."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/BankingRelationshipType/BranchCode"
+                                css="widget_ajila-forms-ubs-textbox"
+                                custom="Clearing number"
+                                displayIsSameAsValidate="true"
+                                guideNodeClass="guideTextBox"
+                                maxChars="4"
+                                name="TXT_BankingRelationship1"
+                                placeholderText="XXXX"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="3"/>
+                                </cq:responsive>
+                                <fd:rules
+                                    fd:valueCommit="[{&quot;nodeName&quot;:&quot;ROOT&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;EVENT_CONDITION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship1&quot;\,&quot;type&quot;:&quot;TEXT FIELD|FIELD|AFCOMPONENT|STRING&quot;\,&quot;name&quot;:&quot;TXT_BankingRelationship1&quot;}}\,{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON_OPERATOR&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;is changed&quot;\,&quot;value&quot;:null}}\,{&quot;nodeName&quot;:&quot;PRIMITIVE_EXPRESSION&quot;\,&quot;choice&quot;:null}]}\,&quot;nested&quot;:false}\,{&quot;nodeName&quot;:&quot;Then&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;BLOCK_STATEMENTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;BLOCK_STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;SET_VALUE_STATEMENT&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;VALUE_FIELD&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.txtBankingRelationship1&quot;\,&quot;displayName&quot;:&quot;Banking relationship for Bound Data XSD&quot;\,&quot;type&quot;:&quot;STRING&quot;\,&quot;displayPath&quot;:&quot;FORM/guideRootPanel/Banking relationship for Bound Data XSD/&quot;\,&quot;name&quot;:&quot;txtBankingRelationship1&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel&quot;}}\,{&quot;nodeName&quot;:&quot;to&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;EXPRESSION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;BINARY_EXPRESSION&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;EXPRESSION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship1&quot;\,&quot;displayName&quot;:&quot;TXT_BankingRelationship1&quot;\,&quot;type&quot;:&quot;STRING&quot;\,&quot;displayPath&quot;:&quot;FORM/guideRootPanel/PN_BankingRelationship/TXT_BankingRelationship1/&quot;\,&quot;name&quot;:&quot;TXT_BankingRelationship1&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship&quot;}}}\,{&quot;nodeName&quot;:&quot;OPERATOR&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;PLUS&quot;\,&quot;value&quot;:null}}\,{&quot;nodeName&quot;:&quot;EXPRESSION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship2&quot;\,&quot;displayName&quot;:&quot;TXT_BankingRelationship2&quot;\,&quot;type&quot;:&quot;STRING&quot;\,&quot;displayPath&quot;:&quot;FORM/guideRootPanel/PN_BankingRelationship/TXT_BankingRelationship2/&quot;\,&quot;name&quot;:&quot;TXT_BankingRelationship2&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship&quot;}}}]}}]}}]}]}}]\,&quot;isValid&quot;:true\,&quot;enabled&quot;:true\,&quot;version&quot;:1\,&quot;script&quot;:&quot;/**\\n\\n * This is a machine-generated code for the rule.\\n * If you modify it in the code editor\, you will not be able to view and edit the rule in the visual editor.\\n */\\n\\ntxtBankingRelationship1.value = guidelib.util.GuideUtil._addValues(this.value\, TXT_BankingRelationship2.value ) ;\\n\\n&quot;\,&quot;eventName&quot;:&quot;Value Commit&quot;\,&quot;ruleType&quot;:&quot;&quot;\,&quot;description&quot;:&quot;&quot;}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship1&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.forms.ubs.components.setMandatory(this\, true);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship1&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var numSize = 4;\\nif(this.value.length &lt;numSize ) {\\n  var val = \\&quot;000\\&quot; + this.value;\\n  this.value = val.substr(-numSize);\\n} else {\\n  this.value = this.value;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship1&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if([true\, false].indexOf(window.forms.ubs.printpartial.isPrintPartialActive()) != -1){\\n  if(!window.forms.ubs.printpartial.isPrintPartialActive() ||(this.value &amp;&amp; this.value!== \\&quot;\\&quot;) || (TXT_BankingRelationship2.value &amp;&amp; TXT_BankingRelationship2.value!==\\&quot;\\&quot;)){\\n    window.forms.ubs.printpartial.setControlElement(this);\\n    window.forms.ubs.printpartial.setControlElement(TXT_BankingRelationship2); \\n  } else{\\n  window.forms.ubs.printpartial.removeControlElement(this);\\n  window.forms.ubs.printpartial.removeControlElement(TXT_BankingRelationship2);\\n  }\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox>
+                            <textbox_966647679
+                                jcr:lastModified="{Date}2026-02-18T15:16:05.947+01:00"
+                                jcr:lastModifiedBy="t647287"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Account no."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/BankingRelationshipType/MasterNumber"
+                                css="widget_ajila-forms-ubs-textbox"
+                                custom="Account number"
+                                guideNodeClass="guideTextBox"
+                                maxChars="8"
+                                name="TXT_BankingRelationship2"
+                                placeholderText="XXXXXXXX"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                                <fd:rules
+                                    fd:valueCommit="[{&quot;nodeName&quot;:&quot;ROOT&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;EVENT_CONDITION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship2&quot;\,&quot;type&quot;:&quot;TEXT FIELD|FIELD|AFCOMPONENT|STRING&quot;\,&quot;name&quot;:&quot;TXT_BankingRelationship2&quot;}}\,{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON_OPERATOR&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;is changed&quot;\,&quot;value&quot;:null}}\,{&quot;nodeName&quot;:&quot;PRIMITIVE_EXPRESSION&quot;\,&quot;choice&quot;:null}]}\,&quot;nested&quot;:false}\,{&quot;nodeName&quot;:&quot;Then&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;BLOCK_STATEMENTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;BLOCK_STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;SET_VALUE_STATEMENT&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;VALUE_FIELD&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.txtBankingRelationship1&quot;\,&quot;displayName&quot;:&quot;Banking relationship for Bound Data XSD&quot;\,&quot;type&quot;:&quot;STRING&quot;\,&quot;displayPath&quot;:&quot;FORM/guideRootPanel/Banking relationship for Bound Data XSD/&quot;\,&quot;name&quot;:&quot;txtBankingRelationship1&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel&quot;}}\,{&quot;nodeName&quot;:&quot;to&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;EXPRESSION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;BINARY_EXPRESSION&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;EXPRESSION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship1&quot;\,&quot;displayName&quot;:&quot;TXT_BankingRelationship1&quot;\,&quot;type&quot;:&quot;STRING&quot;\,&quot;displayPath&quot;:&quot;FORM/guideRootPanel/PN_BankingRelationship/TXT_BankingRelationship1/&quot;\,&quot;name&quot;:&quot;TXT_BankingRelationship1&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship&quot;}}}\,{&quot;nodeName&quot;:&quot;OPERATOR&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;PLUS&quot;\,&quot;value&quot;:null}}\,{&quot;nodeName&quot;:&quot;EXPRESSION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship2&quot;\,&quot;displayName&quot;:&quot;TXT_BankingRelationship2&quot;\,&quot;type&quot;:&quot;STRING&quot;\,&quot;displayPath&quot;:&quot;FORM/guideRootPanel/PN_BankingRelationship/TXT_BankingRelationship2/&quot;\,&quot;name&quot;:&quot;TXT_BankingRelationship2&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship&quot;}}}]}}]}}]}]}}]\,&quot;isValid&quot;:true\,&quot;enabled&quot;:true\,&quot;version&quot;:1\,&quot;script&quot;:&quot;/**\\n\\n * This is a machine-generated code for the rule.\\n * If you modify it in the code editor\, you will not be able to view and edit the rule in the visual editor.\\n */\\n\\ntxtBankingRelationship1.value = guidelib.util.GuideUtil._addValues(TXT_BankingRelationship1.value\, this.value ) ;\\n\\n&quot;\,&quot;eventName&quot;:&quot;Value Commit&quot;\,&quot;ruleType&quot;:&quot;&quot;\,&quot;description&quot;:&quot;&quot;}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;window.forms.ubs.components.setMandatory(this\, true);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship2&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var numSize = 8;\\nif(this.value.length &lt;numSize ) {\\n  var val = \\&quot;0000000\\&quot; + this.value;\\n  this.value = val.substr(-numSize);\\n} else {\\n  this.value = this.value;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;if( [true\, false].indexOf(window.forms.ubs.printpartial.isPrintPartialActive()) != -1){\\n  if( !window.forms.ubs.printpartial.isPrintPartialActive() || (this.value &amp;&amp; this.value!== \\&quot;\\&quot;) || (TXT_BankingRelationship1.value &amp;&amp; TXT_BankingRelationship1.value!==\\&quot;\\&quot;)  ){\\n    window.forms.ubs.printpartial.setControlElement(this);\\n    window.forms.ubs.printpartial.setControlElement(TXT_BankingRelationship1);\\n  }else{\\n    window.forms.ubs.printpartial.removeControlElement(this);\\n    window.forms.ubs.printpartial.removeControlElement(TXT_BankingRelationship1);\\n  }\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_BankingRelationship.TXT_BankingRelationship2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_966647679>
+                        </items>
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="8"/>
+                        </cq:responsive>
+                    </panel_copy>
+                    <textbox
+                        jcr:lastModified="{Date}2025-03-06T09:30:31.613+01:00"
+                        jcr:lastModifiedBy="t518977"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Banking relationship for Bound Data XSD"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        autofillFieldKeyword="name"
+                        bindRef="/BankingRelationshipType/BankingRelationshipNumber"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorExclusion="true"
+                        guideNodeClass="guideTextBox"
+                        maxChars="13"
+                        name="txtBankingRelationship1"
+                        textIsRich="[true,true,true,true]"
+                        visible="{Boolean}false">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="6"/>
+                        </cq:responsive>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:valueCommit="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.txtBankingRelationship&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var column1Size = 4;\\nvar column2Size = 8;\\nvar val1\, val2;\\n\\nif((TXT_BankingRelationship1.value!==\\&quot;\\&quot; || TXT_BankingRelationship1.value) &amp;&amp; (TXT_BankingRelationship2.value!==\\&quot;\\&quot; &amp;&amp; TXT_BankingRelationship2.value)) {\\n  if(TXT_BankingRelationship1.length &lt; column1Size &amp;&amp; TXT_BankingRelationship2.length &lt; column2Size) {\\n    val1 = \\&quot;000\\&quot; + TXT_BankingRelationship1.value;\\n    val2 = \\&quot;0000000\\&quot; + TXT_BankingRelationship2.value;\\n    \\n    this.value = val1.substr(-column1Size) + \\&quot; \\&quot; +  val2.substr(-column2Size);\\n  }\\n} else {\\n  this.value = this.value;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textbox>
+                </items>
+            </rootPanel>
+            <assets jcr:primaryType="nt:unstructured">
+                <dictionary jcr:primaryType="nt:unstructured">
+                    <de/>
+                    <it/>
+                    <fr/>
+                    <es/>
+                    <de-ch/>
+                    <es-es/>
+                    <fr-ch/>
+                    <it-ch/>
+                    <en-us/>
+                    <de-de/>
+                    <zh-tw/>
+                    <zh-hk/>
+                    <ko-kr/>
+                    <pt/>
+                    <tc/>
+                    <sc/>
+                    <en-gb/>
+                </dictionary>
+            </assets>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

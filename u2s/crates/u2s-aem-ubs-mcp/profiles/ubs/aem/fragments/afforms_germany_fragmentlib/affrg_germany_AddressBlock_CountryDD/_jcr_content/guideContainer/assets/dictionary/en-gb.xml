@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="en-gb"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_germany_fragmentlib/affrg_germany_AddressBlock_CountryDD/jcr:content/guideContainer/assets/dictionary">
+    <_x0037_78e13e8-1e5a-4975-b028-1d4cafbfc210
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-48686 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="EFORMS-48686 Address Block (Street, Postal code, City, State, Country dropdown)"/>
+    <_x0034_19244bc-5d71-41df-9521-cc6544c3f802
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Street"/>
+    <_x0036_79f0970-fe59-4810-8041-a1b664117c99
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="No."/>
+    <_x0030_52c722e-3ca0-47c5-875d-bc0d64bdcb3e
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Additional address details"/>
+    <_x0032_00573d7-097e-474c-828d-8032a9152c10
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="Postal code"/>
+    <_x0037_42895d4-2ca5-4e90-a8b0-7447c2d17a14
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="City"/>
+    <_x0038_2aa9518-dd04-4996-841d-e138e12cea10
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Country"/>
+</jcr:root>

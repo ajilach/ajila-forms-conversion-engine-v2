@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFFragments/BankingRelationship.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Partner.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Address.xsd"/>
+	<xs:element name="AuthorizedSignerBasic" type="AuthorizedSignerBasicType"/>
+	<xs:element name="AuthorizedSigner" type="AuthorizedSignerType"/>
+	<xs:element name="GeneralPOABasic" type="GeneralPOABasicType"/>
+	<xs:element name="GeneralPOA" type="GeneralPOAType"/>
+	<xs:element name="LimitedPOABasic" type="LimitedPOABasicType"/>
+	<xs:element name="LimitedPOA" type="LimitedPOAType"/>
+	<xs:element name="EBankingUserBasic" type="EBankingUserBasicType"/>
+	<xs:element name="EBankingUser" type="EBankingUserType"/>
+	<xs:complexType name="POAType">
+		<xs:complexContent>
+			<xs:extension base="PartnerType">
+				<xs:sequence>
+					<xs:element name="Applicability" type="xs:string" minOccurs="0"/>
+					<xs:element ref="BankingRelationship" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="EBankingUserBasicType">
+		<xs:complexContent>
+			<xs:extension base="POAType">
+				<xs:sequence>
+					<xs:element name="ContractNumber" type="xs:string" minOccurs="0"/>
+					<xs:element name="WorkCountry" type="xs:string" minOccurs="0"/>
+					<xs:element ref="Phone" minOccurs="0"/>
+					<xs:element ref="Email" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="EBankingUserType">
+		<xs:complexContent>
+			<xs:extension base="EBankingUserBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="AuthorizedSignerBasicType">
+		<xs:complexContent>
+			<xs:extension base="POAType">
+				<xs:sequence>
+					<xs:element name="AuthorizedTypeOfSigning" type="xs:string" minOccurs="0"/>
+					<xs:element name="JointSigner" type="IndividualBasicType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="AuthorizedSignerType">
+		<xs:complexContent>
+			<xs:extension base="AuthorizedSignerBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="GeneralPOABasicType">
+		<xs:complexContent>
+			<xs:extension base="POAType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="GeneralPOAType">
+		<xs:complexContent>
+			<xs:extension base="GeneralPOABasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="LimitedPOABasicType">
+		<xs:complexContent>
+			<xs:extension base="POAType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="LimitedPOAType">
+		<xs:complexContent>
+			<xs:extension base="LimitedPOABasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+</xs:schema>

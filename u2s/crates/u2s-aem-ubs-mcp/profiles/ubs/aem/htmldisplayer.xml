@@ -1,0 +1,44 @@
+{#- The UBS HTML component: a table, a chart or an image, rendered from markup.
+
+     Unlike every other draw its text does NOT go through the Sling i18n
+     dictionary. The component reads its own `localeContent` children, so the
+     markup arrives here already rendered once per locale (see `locale_content`
+     in `xml_writer.rs`) and each item is emitted verbatim.
+
+     `initScript` and `css` are the component's own contract, taken from the
+     hand-authored reference node in AAOV_033: the initialiser is what turns the
+     stored markup into rendered HTML, so a node without it displays nothing.
+-#}
+<{{ element_name }}
+    jcr:created="{Date}2025-01-01T00:00:00.000Z"
+    jcr:createdBy="{{ author }}"
+    jcr:lastModified="{Date}2025-01-01T00:00:00.000Z"
+    jcr:lastModifiedBy="{{ author }}"
+    jcr:primaryType="nt:unstructured"
+    sling:resourceType="{{ variables.custom_resource_type_base }}/controls/htmlDisplayer"
+    {% if always_in_pdf %}alwaysInPdf="true"{% endif %}
+    autofillFieldKeyword="name"
+    css="{% if css %}{{ css }}{% else %}{{ variables.css_htmldisplayer }}{% endif %}"
+    {% if dor_colspan %}dorColspan="{{ dor_colspan }}"{% endif %}
+    {% if dor_exclude %}dorExclusion="true"{% endif %}
+    dorFieldStyling="{{ variables.dor_field_styling }}"
+    guideNodeClass="guideTextBox"
+    initScript="window.forms.ubs.control.htmlviewer.initialize(this)"
+    name="{{ name }}"
+    {% if show_if_hidden %}showIfHidden="true"{% endif %}
+    {% if dor_exclude or summary_exclude %}summaryExclusion="true"{% endif %}
+    textIsRich="[true,true,true,true]"
+    {% if not visible %}visible="{Boolean}false"{% endif %}{{ extra_attributes }}>
+    <localeContent jcr:primaryType="nt:unstructured">
+        {%- for item in locale_content %}
+        <item{{ loop.index0 }}
+            jcr:primaryType="nt:unstructured"
+            html="{{ item.html }}"
+            locale="{{ item.locale }}"/>
+        {%- endfor %}
+    </localeContent>
+    <cq:responsive jcr:primaryType="nt:unstructured">
+        <default jcr:primaryType="nt:unstructured" offset="0" width="{{ colspan }}"/>
+    </cq:responsive>
+    {{ raw_children }}
+</{{ element_name }}>

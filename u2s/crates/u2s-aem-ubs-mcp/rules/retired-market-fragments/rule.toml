@@ -1,0 +1,14 @@
+id = "ubs-aem-retired-market-fragments"
+title = "No retired Germany or Italy person and signature fragments"
+output_formats = ["aem-ubs"]
+description = """
+UBS retired the market-specific person and signature fragments of `afforms_germany_fragmentlib`
+and `afforms_italy_fragmentlib` in favour of the UBS generics (directive "AF Fragments and Common
+Fields with XSD List", 2026-08-20). A person block uses `affrg_ContractualPartnerGeneric1`,
+`affrg_PartnertoPartnerGeneric1`, `affrg_BeneficialOwnerGeneric1` or
+`affrg_PowerofAttorneyGeneric1` from `afforms_ubs_fragmentlib`; a signature block uses
+`affrg_SignatureGeneric1`.
+
+The market families that stay are internal bank use, footnote, infobox, banking relationship and
+the form configurator.
+"""

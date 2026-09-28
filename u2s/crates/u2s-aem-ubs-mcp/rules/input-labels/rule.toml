@@ -1,0 +1,13 @@
+id = "ubs-aem-input-labels"
+title = "Every input has a usable label in every language"
+output_formats = ["aem-ubs"]
+description = """
+Each text, number and date field, dropdown, checkbox and radio button presents a label, in each
+of the form's languages. A label is not usable when it is empty, when it is only a parenthetical
+hint such as `(optional)`, or when it carries markup: labels are plain text.
+
+A checkbox whose options carry the text may leave its own label empty.
+
+Use the question the source asks next to the field. A hint in brackets belongs to the question,
+not in its place.
+"""

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="de-ch"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_ubs_fragmentlib/affrg_AddressGeneric1/jcr:content/guideContainer/assets/dictionary">
+    <_x0034_ac5d599-5a7d-4106-9457-8eb836271044
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_CH Fragment - Address 1"
+        sling:message="CH Fragment - Address 1"/>
+    <_x0035_eee0539-2d6c-4424-96d9-efb57bd5d6a4
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code, city"
+        sling:message="PLZ, Ort"/>
+    <_x0038_6a352e5-5f0f-4afb-ac49-16b72d987940
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment#5 Address"
+        sling:message="Fragment#5 Address"/>
+    <c8818384-3921-4dde-bee0-5f9ecea684f9
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment#3 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="Fragment#3 Address Block (Street, Postal code, City, State, Country dropdown)"/>
+    <d03fb32d-12e4-4308-95f5-ccce24693b12
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Province/State/District/Region"
+        sling:message="Province/State/District/Region"/>
+    <e7ac0ec8-834e-48e4-827b-36ca0340f480
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street, no."
+        sling:message="Strasse, Nr."/>
+    <f46a12b0-0fd1-4680-8b19-43cfe555c1d1
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Address Generic 1"
+        sling:message="UBS Fragment - Address Generic 1"/>
+    <fd_Additional-353888195
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Adresszusatz"/>
+    <fd_Canton_x0025_2FSta-100100326
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message="Kanton/Staat/Provinz"/>
+    <fd_Canton_x0025_2Fsta837248730
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/state/province"
+        sling:message="Kanton/Staat/Provinz"/>
+    <fd_City
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="Ort"/>
+    <fd_Country
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Land"/>
+    <fd_EFORMS-2211198933138
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"/>
+    <fd_No.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="Nr."/>
+    <fd_Postal_x0020_cod-443576318
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="PLZ"/>
+    <fd_Street
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Strasse"/>
+    <ff7a79f4-ffe6-4e4e-a52c-3dba6b58f9ee
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment - Address 1"
+        sling:message="Fragment - Address 1"/>
+</jcr:root>

@@ -1,0 +1,315 @@
+<panel_3bce6c33db5c40
+    jcr:created="{Date}2025-01-01T00:00:00.000Z"
+    jcr:createdBy="blueprint"
+    jcr:lastModified="{Date}2026-04-27T12:55:37.069+02:00"
+    jcr:lastModifiedBy="admin"
+    jcr:primaryType="nt:unstructured"
+    sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+    dorExcludeDescription="true"
+    dorExcludeTitle="true"
+    dorFieldStyling="Default"
+    guideNodeClass="guidePanel"
+    name="PN_DatiDelIClienteIDiSeguitoIl_5156bd48"
+    textIsRich="true"
+    validateOnStepCompletion="{Boolean}false">
+    <items
+        jcr:primaryType="nt:unstructured"
+        sling:resourceType="fd/af/layouts/gridFluidLayout2">
+        <panel1774024125972_c
+            jcr:lastModified="{Date}2026-04-22T14:01:28.726+02:00"
+            jcr:lastModifiedBy="admin"
+            jcr:primaryType="nt:unstructured"
+            jcr:title="Dati del/i cliente/i (di seguito il «Cliente»)"
+            sling:resourceType="{{ variables.custom_resource_type_base }}/controls/panel"
+            dorExcludeDescription="true"
+            dorFieldStyling="Default"
+            guideNodeClass="guidePanel"
+            name="PN_TitolareTitle"
+            textIsRich="true"
+            validateOnStepCompletion="{Boolean}false">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                columns="1"
+                dorLayoutType="columnar"
+                dorNumCols="1"
+                nonNavigable="{Boolean}true"
+                toolbarPosition="Bottom"/>
+            <items jcr:primaryType="nt:unstructured">
+                <titledraw
+                    jcr:created="{Date}2026-02-02T10:25:02.649+01:00"
+                    jcr:createdBy="t831640"
+                    jcr:lastModified="{Date}2026-04-21T15:41:43.995+02:00"
+                    jcr:lastModifiedBy="admin"
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
+                    _value="&lt;p>Dati del/i cliente/i (di seguito il «Cliente»)&lt;/p>&#xa;"
+                    dorExclusion="true"
+                    dorFieldStyling="Default"
+                    guideNodeClass="guideTextDraw"
+                    headingLevel="3"
+                    name="TTL_Titolare"
+                    summaryExclusion="true"
+                    textIsRich="true"/>
+            </items>
+        </panel1774024125972_c>
+        <panel
+            jcr:created="{Date}2026-04-22T10:49:33.795+02:00"
+            jcr:createdBy="admin"
+            jcr:lastModified="{Date}2026-04-22T10:50:02.887+02:00"
+            jcr:lastModifiedBy="admin"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+            dorExcludeDescription="true"
+            dorExcludeTitle="true"
+            guideNodeClass="guidePanel"
+            hideTitle="true"
+            name="PN_IndividualContainer"
+            textIsRich="true"
+            validateOnStepCompletion="{Boolean}false">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                columns="1"
+                dorLayoutType="columnar"
+                dorNumCols="1"
+                nonNavigable="{Boolean}true"
+                toolbarPosition="Bottom"/>
+            <items
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                <repeatable_fd881019b
+                    jcr:created="{Date}2025-01-01T00:00:00.000Z"
+                    jcr:createdBy="blueprint"
+                    jcr:lastModified="{Date}2025-01-01T00:00:00.000Z"
+                    jcr:lastModifiedBy="blueprint"
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="{{ variables.custom_resource_type_base }}/controls/panel"
+                    dorExcludeDescription="true"
+                    dorExcludeTitle="true"
+                    guideNodeClass="guidePanel"
+                    name="RCP_d9cda7db"
+                    textIsRich="true"
+                    validateOnStepCompletion="{Boolean}false">
+                    <layout
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                        columns="1"
+                        dorLayoutType="columnar"
+                        dorNumCols="1"
+                        nonNavigable="{Boolean}true"
+                        toolbarPosition="Bottom"/>
+                    <items
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                        <panel_cpgrp
+                            jcr:created="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:createdBy="blueprint"
+                            jcr:lastModified="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:lastModifiedBy="blueprint"
+                            jcr:primaryType="nt:unstructured"
+                            jcr:title="Account holder"
+                            sling:resourceType="{{ variables.custom_resource_type_base }}/controls/panel"
+                            accessibilityLabel="Account holder"
+                            addButton="BT_AddCPG"
+                            dorExcludeDescription="true"
+                            dorFieldStyling="Repeating Panel Numbering"
+                            fragRef="/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_ContractualPartnerGeneric1"
+                            guideNodeClass="guidePanel"
+                            headingLevel="3"
+                            maxOccur="4"
+                            minOccur="1"
+                            name="PN_CPGRP"
+                            textIsRich="true"
+                            validateOnStepCompletion="{Boolean}false">
+                            <layout
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                                columns="1"
+                                dorLayoutType="columnar"
+                                dorNumCols="1"
+                                nonNavigable="{Boolean}true"
+                                toolbarPosition="Bottom"/>
+                            <items
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="fd/af/layouts/gridFluidLayout2"/>
+                            <fd:rules jcr:primaryType="nt:unstructured"/>
+                            <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer.RCP_d9cda7db.PN_CPGRP&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.forms.ubs.hideAFHideDor(this.PN_EntityBasic);\\nwindow.forms.ubs.hideAFHideDor(this.PN_Address);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]" jcr:primaryType="nt:unstructured"/>
+                        </panel_cpgrp>
+                        <tertiarybutton
+                            jcr:created="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:createdBy="blueprint"
+                            jcr:lastModified="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:lastModifiedBy="blueprint"
+                            jcr:primaryType="nt:unstructured"
+                            jcr:title="Add account holder"
+                            sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/tertiarybutton"
+                            dorExclusion="true"
+                            summaryExclusion="true"
+                            dorFieldStyling="Default"
+                            guideNodeClass="guideButton"
+                            name="BT_AddCPG"
+                            textIsRich="[true,true]"
+                            type="Button">
+                            <fd:rules jcr:primaryType="nt:unstructured"/>
+                            <fd:scripts
+                                fd:click="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer.RCP_d9cda7db.BT_AddCPG&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.forms.ubs.addInstance(PN_CPGRP);\\nwindow.forms.ubs.addInstance(PN_SGN_CPGRP);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer.RCP_d9cda7db.BT_AddCPG&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var len = PN_CPGRP.instanceManager.instances.length;\\nfor (var i = 0; i &lt; len; i++) {\\n  PN_CPGRP.instanceManager.instances[i].BT_RemoveCPG.visible = (i === (len - 1) &amp;&amp; len > 1) ? true : false;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer.RCP_d9cda7db.BT_AddCPG&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var nPanel = PN_CPGRP.instanceManager.instances.length - 1;\\nwindow.forms.ubs.accessibility.setRepeatPanelAccessibilityLabels(PN_CPGRP\, 'Account holder'\, PN_CPGRP.instanceManager.instances[nPanel].PN_IndividualBasic.PN_Name_Individual.TXT_LastName);\\nwindow.forms.ubs.accessibility.setRepeatPanelAccessibilityLabelsForButtons(PN_CPGRP\, 'Account holder'\, this\, PN_CPGRP.instanceManager.instances[nPanel].BT_RemoveCPG);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer.RCP_d9cda7db.BT_AddCPG&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var len = PN_CPGRP.instanceManager.instances.length;\\nthis.visible = (len &lt; PN_CPGRP.instanceManager.maxOccur);\\nfor (var i = 0; i &lt; len; i++) {\\n  PN_CPGRP.instanceManager.instances[i].BT_RemoveCPG.visible = (i === (len - 1) &amp;&amp; len > 1) ? true : false;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                fd:visible="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer.RCP_d9cda7db.BT_AddCPG&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var len = PN_CPGRP.instanceManager.instances.length;\\nthis.visible = (len &lt; PN_CPGRP.instanceManager.maxOccur);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                jcr:primaryType="nt:unstructured"/>
+                        </tertiarybutton>
+                    </items>
+                </repeatable_fd881019b>
+            </items>
+            <fd:rules jcr:primaryType="nt:unstructured"/>
+            <fd:scripts fd:visible="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if (RB_GroupTipo.value == \\&quot;1\\&quot;) {\\n  window.forms.ubs.showAFShowDor(this);\\n  true;\\n} else {\\n  window.forms.ubs.hideAFHideDor(this);\\n  false;\\n}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]" jcr:primaryType="nt:unstructured" fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_IndividualContainer&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if (RB_GroupTipo.value == \\&quot;1\\&quot;) {\\n  window.forms.ubs.showAFShowDor(this);\\n  this.visible = true;\\n} else {\\n  window.forms.ubs.hideAFHideDor(this);\\n  this.visible = false;\\n}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"/>
+        </panel>
+        <panel_1794356301
+            jcr:created="{Date}2026-04-22T10:49:36.622+02:00"
+            jcr:createdBy="admin"
+            jcr:lastModified="{Date}2026-04-22T10:50:42.250+02:00"
+            jcr:lastModifiedBy="admin"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+            dorExcludeDescription="true"
+            dorExcludeTitle="true"
+            guideNodeClass="guidePanel"
+            name="PN_LegalEntityContainer"
+            textIsRich="true"
+            validateOnStepCompletion="{Boolean}false">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                columns="1"
+                dorLayoutType="columnar"
+                dorNumCols="1"
+                nonNavigable="{Boolean}true"
+                toolbarPosition="Bottom"/>
+            <items
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                <textbox_4b95372b426d
+                    jcr:created="{Date}2025-01-01T00:00:00.000Z"
+                    jcr:createdBy="blueprint"
+                    jcr:lastModified="{Date}2026-04-16T08:58:18.437+02:00"
+                    jcr:lastModifiedBy="t406261"
+                    jcr:primaryType="nt:unstructured"
+                    jcr:title="Nome della società"
+                    sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                    assistPriority="label"
+                    autofillFieldKeyword="name"
+                    css="widget_ajila-forms-ubs-textbox ubs-margin-20"
+                    dorFieldStyling="Default"
+                    guideNodeClass="guideTextBox"
+                    name="TXT_NomeDellaSocieta"
+                    textIsRich="[true,true,true,true]">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                        <default
+                            jcr:primaryType="nt:unstructured"
+                            offset="0"
+                            width="12"/>
+                    </cq:responsive>
+                </textbox_4b95372b426d>
+                <repeatable_cd38707fc
+                    jcr:created="{Date}2025-01-01T00:00:00.000Z"
+                    jcr:createdBy="blueprint"
+                    jcr:lastModified="{Date}2026-04-15T09:14:16.994+02:00"
+                    jcr:lastModifiedBy="t406261"
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="{{ variables.custom_resource_type_base }}/controls/panel"
+                    dorExcludeDescription="true"
+                    dorExcludeTitle="true"
+                    dorFieldStyling="Default"
+                    guideNodeClass="guidePanel"
+                    name="RCP_legalRepresentative"
+                    textIsRich="true"
+                    validateOnStepCompletion="{Boolean}false">
+                    <layout
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                        columns="1"
+                        dorLayoutType="columnar"
+                        dorNumCols="1"
+                        nonNavigable="{Boolean}true"
+                        toolbarPosition="Bottom"/>
+                    <items
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                        <panel_lr
+                            jcr:created="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:createdBy="blueprint"
+                            jcr:lastModified="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:lastModifiedBy="blueprint"
+                            jcr:primaryType="nt:unstructured"
+                            jcr:title="Legal representative"
+                            sling:resourceType="{{ variables.custom_resource_type_base }}/controls/panel"
+                            accessibilityLabel="Legal representative"
+                            addButton="BT_AddAHG"
+                            dorExcludeDescription="true"
+                            dorFieldStyling="Repeating Panel Numbering"
+                            fragRef="/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_PartnertoPartnerGeneric1"
+                            guideNodeClass="guidePanel"
+                            headingLevel="3"
+                            maxOccur="4"
+                            minOccur="1"
+                            name="PN_AHGRP"
+                            textIsRich="true"
+                            validateOnStepCompletion="{Boolean}false">
+                            <layout
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                                columns="1"
+                                dorLayoutType="columnar"
+                                dorNumCols="1"
+                                nonNavigable="{Boolean}true"
+                                toolbarPosition="Bottom"/>
+                            <items
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="fd/af/layouts/gridFluidLayout2"/>
+                            <fd:rules jcr:primaryType="nt:unstructured"/>
+                            <fd:scripts jcr:primaryType="nt:unstructured"/>
+                        </panel_lr>
+                        <tertiarybutton
+                            jcr:created="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:createdBy="blueprint"
+                            jcr:lastModified="{Date}2025-01-01T00:00:00.000Z"
+                            jcr:lastModifiedBy="blueprint"
+                            jcr:primaryType="nt:unstructured"
+                            jcr:title="Add legal representative"
+                            sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/tertiarybutton"
+                            dorExclusion="true"
+                            summaryExclusion="true"
+                            dorFieldStyling="Default"
+                            guideNodeClass="guideButton"
+                            name="BT_AddAHG"
+                            textIsRich="[true,true]"
+                            type="Button">
+                            <fd:rules jcr:primaryType="nt:unstructured"/>
+                            <fd:scripts
+                                fd:click="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_LegalEntityContainer.RCP_legalRepresentative.BT_AddAHG&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.forms.ubs.addInstance(PN_AHGRP);\\nwindow.forms.ubs.addInstance(PN_Sign_AHGRP);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_LegalEntityContainer.RCP_legalRepresentative.BT_AddAHG&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var len = PN_AHGRP.instanceManager.instances.length;\\nfor (var i = 0; i &lt; len; i++) {\\n  PN_AHGRP.instanceManager.instances[i].BT_RemoveAHG.visible = (i === (len - 1) &amp;&amp; len > 1) ? true : false;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_LegalEntityContainer.RCP_legalRepresentative.BT_AddAHG&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var nPanel = PN_AHGRP.instanceManager.instances.length - 1;\\nwindow.forms.ubs.accessibility.setRepeatPanelAccessibilityLabels(PN_AHGRP\, 'Legal representative'\, PN_AHGRP.instanceManager.instances[nPanel].PN_IndividualBasic.PN_Name_Individual.TXT_LastName);\\nwindow.forms.ubs.accessibility.setRepeatPanelAccessibilityLabelsForButtons(PN_AHGRP\, 'Legal representative'\, this\, PN_AHGRP.instanceManager.instances[nPanel].BT_RemoveAHG);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_LegalEntityContainer.RCP_legalRepresentative.BT_AddAHG&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var len = PN_AHGRP.instanceManager.instances.length;\\nthis.visible = (len &lt; PN_AHGRP.instanceManager.maxOccur);\\nfor (var i = 0; i &lt; len; i++) {\\n  PN_AHGRP.instanceManager.instances[i].BT_RemoveAHG.visible = (i === (len - 1) &amp;&amp; len > 1) ? true : false;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                fd:visible="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_LegalEntityContainer.RCP_legalRepresentative.BT_AddAHG&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var len = PN_AHGRP.instanceManager.instances.length;\\nthis.visible = (len &lt; PN_AHGRP.instanceManager.maxOccur);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                jcr:primaryType="nt:unstructured"/>
+                        </tertiarybutton>
+                    </items>
+                </repeatable_cd38707fc>
+            </items>
+            <fd:rules jcr:primaryType="nt:unstructured"/>
+            <fd:scripts fd:visible="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_LegalEntityContainer&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if (RB_GroupTipo.value == \\&quot;2\\&quot;) {\\n  window.forms.ubs.showAFShowDor(this);\\n  true;\\n} else {\\n  window.forms.ubs.hideAFHideDor(this);\\n  false;\\n}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]" jcr:primaryType="nt:unstructured" fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.PN_DatiDelIClienteIDiSeguitoIl_5156bd48.PN_LegalEntityContainer&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if (RB_GroupTipo.value == \\&quot;2\\&quot;) {\\n  window.forms.ubs.showAFShowDor(this);\\n  this.visible = true;\\n} else {\\n  window.forms.ubs.hideAFHideDor(this);\\n  this.visible = false;\\n}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"/>
+        </panel_1794356301>
+    </items>
+    <layout
+        jcr:primaryType="nt:unstructured"
+        sling:resourceType="fd/af/layouts/gridFluidLayout2"
+        columns="1"
+        dorLayoutType="columnar"
+        nonNavigable="{Boolean}true"
+        toolbarPosition="Bottom"/>
+    <cq:responsive jcr:primaryType="nt:unstructured">
+        <default
+            jcr:primaryType="nt:unstructured"
+            offset="0"
+            width="12"/>
+    </cq:responsive>
+</panel_3bce6c33db5c40>

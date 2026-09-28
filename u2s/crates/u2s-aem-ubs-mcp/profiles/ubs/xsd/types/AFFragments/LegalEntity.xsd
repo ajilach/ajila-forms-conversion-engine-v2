@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFFragments/Address.xsd"/>
+	<xs:element name="LegalEntity" type="LegalEntityType"/>
+	<xs:element name="LegalEntityBasic" type="LegalEntityBasicType"/>
+	<xs:element name="Company" type="LegalEntityType"/>
+	<xs:element name="CompanyBasic" type="LegalEntityBasicType"/>
+	<xs:complexType name="LegalEntityType">
+		<xs:complexContent>
+			<xs:extension base="LegalEntityBasicType">
+				<xs:sequence>
+					<xs:element ref="Address" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="CompanyType">
+		<xs:complexContent>
+			<xs:extension base="LegalEntityType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="LegalEntityBasicType">
+		<xs:sequence>
+			<xs:element name="Name" type="xs:string" minOccurs="0"/>
+			<xs:element name="ChineseName" type="xs:string" minOccurs="0"/>
+			<xs:element name="FormerName" type="xs:string" minOccurs="0"/>
+			<xs:element name="Sector" type="xs:string" minOccurs="0"/>
+			<xs:element name="Domicile" type="xs:string" minOccurs="0"/>
+			<xs:element name="LegalForm" type="xs:string" minOccurs="0"/>
+			<xs:element name="DateOfIncorporation" type="xs:date" minOccurs="0"/>
+			<xs:element name="CountryOfIncorporation" type="xs:string" minOccurs="0"/>
+			<xs:element name="IncorporationNumber" type="xs:string" minOccurs="0"/>
+			<xs:element name="CorrespondenceLanguage" type="xs:string" minOccurs="0"/>
+			<xs:element name="NatureOfBusiness" type="xs:string" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="CompanyBasicType">
+		<xs:complexContent>
+			<xs:extension base="LegalEntityBasicType"/>
+		</xs:complexContent>
+	</xs:complexType>
+</xs:schema>

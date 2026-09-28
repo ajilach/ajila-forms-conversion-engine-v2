@@ -1,0 +1,18 @@
+id = "ubs-aem-naming-prefix"
+title = "Component names carry their type's UBS prefix"
+output_formats = ["aem-ubs"]
+description = """
+Every component a form author names starts its `name` with the prefix UBS assigns to its type,
+followed by `_`: `PN_` for a panel, `RCP_` for a repeatable, `TXT_` for a text field (`TXTM_`
+multiline, `EML_` email, `TEL_` telephone), `NB_` number, `DATE_` date, `DD_` dropdown, `CB_`
+checkbox, `RB_` radio button, `TTL_` title, `ST_` (or `ITXT_`, `ETXT_`) static text, and `TBL_`,
+`CRT_` or `IMG_` for an HTML component showing a table, chart or image. A panel inside a
+repeatable may also use the repeatable family (`RCP_`, `RCHP_`, `RCBP_`, `RCHT_`).
+
+Fragments, custom elements, the preface, appendix and footnote placeholders, message boxes and
+the profile's own fixed panels are named by the profile and are not checked. Only the prefix
+is checked; the rest of the name is free.
+
+Rename the node. A panel's name is also what conditions target (`target_panel_name`), so rename
+those references with it.
+"""

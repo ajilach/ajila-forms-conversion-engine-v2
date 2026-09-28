@@ -36,7 +36,8 @@ pub use format::{
     FormatId, FormatIdError, FormatScope, matches as format_matches, scopes_could_overlap,
 };
 pub use ids::{
-    DatasetId, InputFileId, InputId, JobId, McpServerId, McpToolId, RuleId, RuleRevisionId, RunId,
+    DatasetId, FactId, FactRevisionId, InputFileId, InputId, JobId, McpServerId, McpToolId, RuleId,
+    RuleRevisionId, RunId,
 };
 pub use slug::{DatasetSlug, SlugError};
 pub use text::{Windowed, window_chars};

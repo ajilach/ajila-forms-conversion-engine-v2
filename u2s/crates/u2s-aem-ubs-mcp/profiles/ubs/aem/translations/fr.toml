@@ -1,0 +1,30 @@
+# French translations
+# Key = master text (English), Value = French translation
+
+[translations]
+"Back" = "Retour"
+"Next" = "Suivant"
+"Submit" = "Soumettre"
+"Preview" = "Aperçu"
+"Save Progress" = "Enregistrer la progression"
+"Add" = "Ajouter"
+"Submission failed" = "Échec de l'envoi"
+"<p>The form could not be sent. Please try again later.</p>" = "<p>Le formulaire n'a pas pu être envoyé. Veuillez réessayer plus tard.</p>"
+"Thank you for submitting the form." = "Merci d'avoir soumis le formulaire."
+"<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>En cliquant sur \"Aperçu\", vous pouvez consulter votre document avant l'envoi.</p><p>Après avoir cliqué sur \"Soumettre\", vous ne pourrez plus modifier le document et le PDF sera créé pour signature.</p>"
+"Summary of form information" = "Résumé des informations du formulaire"
+"Summary" = "Résumé"
+
+# Custom elements
+"For internal bank use only" = "Réservé à l'usage interne de la banque"
+"Signature(s) verified / Signed in my presence" = "Signature(s) verifiée(s) / Signé en ma présence"
+"Company" = "Société"
+
+# Email / telephone validation messages (feedback #117). The key is the English
+# master the `email`/`telephone` templates write into
+# `validatePictureClauseMessage`; AEM resolves it through this dictionary, so the
+# reader sees the message in their own language. Wordings are the ones already
+# deployed in the corpus, adopted verbatim so the same sentence does not ship in
+# two variants.
+"Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Veuillez saisir une adresse e-mail valide (p. ex. max.muster@beispiel.ch)."
+"Please enter a valid phone number incl. country code (e.g., +41)." = "Veuillez saisir un numéro de téléphone valide avec l'indicatif du pays (p. ex. +41)."

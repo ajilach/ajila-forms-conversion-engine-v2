@@ -1,0 +1,29 @@
+<radiobutton_copy
+    jcr:created="{Date}2026-04-15T08:28:03.931+02:00"
+    jcr:createdBy="t406261"
+    jcr:lastModified="{Date}2026-04-22T10:47:20.607+02:00"
+    jcr:lastModifiedBy="admin"
+    jcr:primaryType="nt:unstructured"
+    jcr:title="Tipo"
+    sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/radiobutton"
+    _value="1"
+    alignment="guideFieldHorizontalAlignment"
+    css="widget_ajila_forms_radiobutton"
+    dorFieldStyling="Default"
+    guideNodeClass="guideRadioButton"
+    name="RB_GroupTipo"
+    options="[1=Individual,2=Legal Entity]"
+    textIsRich="[true,true,true,true,true]">
+    <!-- The configurator decides which client-data and signature panels are
+         shown. The visibility rules on those panels only show and hide, so
+         without this a filled-in option's panel comes back populated when the
+         reader switches away and back, and the submission carries one option's
+         data under another (feedback #107).
+
+         The panel names are fixed here rather than derived, because the panels
+         live in the `account_holder` / `signatures` custom templates this
+         element declares as `depends_on` — they are always present with these
+         names whenever this radio is. Repeatables drop their rows first
+         (`resetAllPanelInstances`), then the container clears its fields. -->
+    <fd:scripts fd:valueCommit="[{&quot;script&quot;:{&quot;field&quot;:&quot;RB_GroupTipo&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;// [configurator-reset-on-change] Generated automatically. Do not edit: will be overwritten. Create your own different script.\\nwindow.forms.ubs.resetAllPanelInstances(PN_CPGRP);\\nPN_IndividualContainer.resetData();\\nwindow.forms.ubs.resetAllPanelInstances(PN_AHGRP);\\nPN_LegalEntityContainer.resetData();\\nwindow.forms.ubs.resetAllPanelInstances(PN_SGN_CPGRP);\\nPN_165356b3.resetData();\\nwindow.forms.ubs.resetAllPanelInstances(PN_Sign_AHGRP);\\nPN_204491df.resetData();&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true\,&quot;_archetype&quot;:&quot;configurator-reset-on-change&quot;}]" jcr:primaryType="nt:unstructured"/>
+</radiobutton_copy>

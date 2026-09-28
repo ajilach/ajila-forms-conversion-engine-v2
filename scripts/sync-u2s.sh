@@ -31,11 +31,13 @@ fi
 
 # Keep in step with the table in u2s/VENDORED.md and the workspace members.
 CRATES=(
-  u2s-aem u2s-aem-ubs-verify-mcp u2s-aem-verify-core u2s-blob u2s-core
-  u2s-mapper-aem u2s-mapper-redacto u2s-mcp u2s-redacto
+  u2s-aem u2s-aem-ubs-mcp u2s-aem-ubs-verify-mcp u2s-aem-verify-core u2s-blob
+  u2s-core u2s-doc-tools u2s-facts u2s-jsondoc u2s-mapper-aem
+  u2s-mapper-redacto u2s-mcp u2s-redacto u2s-redacto-ubs-mcp
   u2s-redacto-ubs-verify-mcp u2s-redacto-verify-core u2s-render-core
   u2s-render-pdf u2s-render-pdf-mcp u2s-render-test-harness u2s-render-xfa
-  u2s-render-xfa-mcp u2s-verify-core u2s-xfa u2s-xfa-mcp
+  u2s-render-xfa-mcp u2s-rules u2s-rules-host u2s-schema u2s-verify-core
+  u2s-xfa u2s-xfa-mcp
 )
 
 for c in "${CRATES[@]}"; do

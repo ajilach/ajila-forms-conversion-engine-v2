@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="en"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_germany_fragmentlib/affrg_addressclientid/jcr:content/guideContainer/assets/dictionary">
+    <bf443176-c194-4dc5-9dba-12bb09658273
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_DE Fragment - Address Client Id 1"
+        sling:message="DE Fragment - Address Client Id 1"/>
+    <d15ca435-8e71-4402-99df-174df7dd4f1f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Street"/>
+    <e8d0606f-dee2-49bc-8b21-7479b55d438d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="No."/>
+    <c2768765-3a3c-4c7d-abd4-492fb04b713b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Additional address details"/>
+    <_x0039_b8eeead-b70a-4730-b80e-79f0bd675905
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="Postal code"/>
+    <_x0033_a6b7c5b-1a86-4e09-83c7-2c278be4ff50
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="City"/>
+    <c7952581-13de-43d6-b7c1-cc33bb541d62
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message="Canton/State/Province"/>
+    <f291c756-3d25-45d2-b98d-102b95f41fac
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Province/State/District/Region"
+        sling:message="Province/State/District/Region"/>
+    <_x0031_574f086-07b5-4908-8b16-44c74b0faf86
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Country"/>
+    <_x0039_50bfc3e-2b54-4fb6-a201-fea05b57565e
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Client ID (to be completed by UBS)"
+        sling:message="Client ID (to be completed by UBS)"/>
+</jcr:root>

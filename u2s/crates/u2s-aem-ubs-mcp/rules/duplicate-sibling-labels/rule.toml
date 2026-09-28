@@ -1,0 +1,11 @@
+id = "ubs-aem-duplicate-sibling-labels"
+title = "Inputs side by side read differently"
+output_formats = ["aem-ubs"]
+description = """
+Two inputs directly under the same parent must not carry the same label in the same language.
+Nobody can tell them apart: not on screen, not in the summary, not in the Document of Record.
+It happens when a group of uncaptioned source fields each gets the same stand-in (seven date
+pickers all labelled "Date").
+
+Give each input what it actually asks for, from the source's column headings or surrounding text.
+"""

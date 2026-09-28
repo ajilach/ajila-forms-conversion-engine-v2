@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="en-us"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_ch_fragmentlib/affrg_RelevantPSignature1/jcr:content/guideContainer/assets/dictionary">
+    <_x0038_fcf5efd-d6f0-412a-8ee4-b5f4c0b518f3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_CH Fragment - Signature (Relevant Person) 1"
+        sling:message="CH Fragment - Signature (Relevant Person) 1"/>
+    <_x0032_59acee8-d40b-4a90-bd54-e0d20522a5ba
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of relevant person"
+        sling:message="Signature of relevant person"/>
+    <_x0035_4b5783e-a722-467f-9d38-dfc9dff726f4
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Place"
+        sling:message="Place"/>
+    <_x0032_813677c-7c8d-4bbf-a79a-c36bd11e2f1f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date (dd.mm.yyyy)"
+        sling:message="Date (dd.mm.yyyy)"/>
+    <fb995251-1b1e-43f1-91b2-b2628f3372b0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+        sling:message="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"/>
+    <_x0032_8a1063c-67dc-4fd5-982e-3a37bef1b50a
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of relevant person"
+        sling:message="Name of relevant person"/>
+</jcr:root>

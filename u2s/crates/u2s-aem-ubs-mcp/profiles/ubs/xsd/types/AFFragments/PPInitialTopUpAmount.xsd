@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:complexType name="PPInitialTopUpAmountType">
+		<xs:sequence>
+			<xs:element name="CB_PPInitialTopUpAmount" type="xs:string"/>
+			<xs:element name="DesiredPPInitialTopUpAmount" type="xs:string" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:element name="PPInitialTopUpAmount" type="PPInitialTopUpAmountType"/>
+</xs:schema>

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" version="01.01.01" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
+	<xs:include schemaLocation="../AFFragments/BankingRelationship.xsd"/>
+	<xs:include schemaLocation="../AFFragments/ContractualPartner.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Signature.xsd"/>
+	<xs:element name="UBSAF">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element ref="BankingRelationship"/>
+				<xs:element ref="AccountHolderPartnerClass"/>
+				<xs:element ref="AccountHolder" maxOccurs="50"/>
+				<xs:element name="AccountHolderSignature" type="SignatureType" maxOccurs="50"/>
+				<xs:element name="AuthRepSignature" type="SignatureType" maxOccurs="50"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

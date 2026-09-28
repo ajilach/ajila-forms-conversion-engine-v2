@@ -1,0 +1,41 @@
+converting AAOS_033 (IT) ...
+   note: 4 entries are still enrolled by the old `Status: swept` test and carry no
+   `Runs automatically:` field — PROBLEM-dor-exclusion-implies-summary, PROBLEM-fragment-title-duplicate, PROBLEM-infobox-dor-copy, PROBLEM-summary-step-redacto. Harmless, but the list should only shrink.
+── sweep regression check (full corpus), Skip lines ignored
+  PROBLEM-banking-relationship-fragment    ✅ clean
+  PROBLEM-dor-exclude-hidden               ✅ clean
+  PROBLEM-dor-custom-template              ✅ clean
+  PROBLEM-step-title-panel                 ✅ clean
+  PROBLEM-panel-type-ubs                   ✅ clean
+  PROBLEM-nav-button-order                 ✅ clean
+  PROBLEM-footnote-modernize               ✅ clean
+  PROBLEM-infobox-dor-copy                 ✅ clean
+  PROBLEM-metadata-name                    ✅ clean
+  PROBLEM-formcode-page-title              ✅ clean
+  PROBLEM-default-translations             ✅ clean
+  PROBLEM-formconfig-private-person-default ✅ clean
+  PROBLEM-save-as-draft-menu               ✅ clean
+  PROBLEM-formmetadata-step                ✅ clean
+  PROBLEM-step-title-single                ✅ clean
+  PROBLEM-signature-panel-ref              ✅ clean
+  PROBLEM-banking-relationship-margin      ✅ clean
+  PROBLEM-toolbar-nav-handler              ✅ clean
+  PROBLEM-datepicker-current-date-default  ✅ clean
+  PROBLEM-visible-on-init                  ✅ clean
+  PROBLEM-address-city-country-mandatory   ✅ clean
+  PROBLEM-configurator-reset-on-change     ✅ clean
+  PROBLEM-repeatable-add-label             ✅ clean
+  PROBLEM-banking-relationship-default-de  ✅ clean
+  PROBLEM-email-phone-component            ✅ clean
+  PROBLEM-signature-name-fill              ✅ clean
+  PROBLEM-fragment-library-consolidation   ✅ clean
+  PROBLEM-signature-hardcoded-family       ✅ clean
+  PROBLEM-visual-editor-rules              ✅ clean
+  PROBLEM-nav-save-progress-required       ✅ clean
+  PROBLEM-fragment-title-duplicate         ✅ clean
+  PROBLEM-static-text-orphan-step          ✅ clean
+  PROBLEM-dor-exclusion-implies-summary    ✅ clean
+  PROBLEM-summary-step-redacto             ✅ clean
+  PROBLEM-internal-bank-use-pdf-only       ✅ clean
+
+no violations: 41 enrolled rules clean on AAOS_033

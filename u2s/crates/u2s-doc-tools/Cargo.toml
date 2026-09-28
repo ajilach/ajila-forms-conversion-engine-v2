@@ -1,0 +1,22 @@
+[package]
+name = "u2s-doc-tools"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The native JSON-document and rule tools (json_outline/get/search/patch/validate, rule_list/check/autofix/propose/try) and a file-based rule loader, with no rig, no u2s-engine, no u2s-agent"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+toml = "0.8"
+u2s-core = { path = "../u2s-core" }
+u2s-facts = { path = "../u2s-facts" }
+u2s-jsondoc = { path = "../u2s-jsondoc" }
+u2s-rules = { path = "../u2s-rules" }
+u2s-rules-host = { path = "../u2s-rules-host" }
+u2s-schema = { path = "../u2s-schema" }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

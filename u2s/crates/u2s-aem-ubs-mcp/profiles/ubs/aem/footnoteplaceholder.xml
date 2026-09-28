@@ -1,0 +1,16 @@
+<{{ element_name }}
+    jcr:created="{Date}2025-01-01T00:00:00.000Z"
+    jcr:createdBy="{{ author }}"
+    jcr:lastModified="{Date}2025-01-01T00:00:00.000Z"
+    jcr:lastModifiedBy="{{ author }}"
+    jcr:primaryType="nt:unstructured"
+    jcr:title="Footnote Placeholder"
+    sling:resourceType="{{ variables.custom_resource_type_base }}/controls/guidefootnoteplaceholder"
+    _value="&lt;p>The footnotes will appear here&lt;/p>"
+    guideNodeClass="guideFootnotePlaceHolder"
+    name="{{ name }}"{{ extra_attributes }}>
+    <cq:responsive jcr:primaryType="nt:unstructured">
+        <default jcr:primaryType="nt:unstructured" offset="0" width="{{ colspan }}"/>
+    </cq:responsive>
+    {{ raw_children }}
+</{{ element_name }}>

@@ -3,7 +3,7 @@
 Source: `ajilach/ajila-forms-conversion-engine-v3` (local checkout usually at
 `../unstructured-to-structured`).
 
-Upstream commit: `a31de57`
+Upstream commit: `cb639a3`
 
 Re-sync with `scripts/sync-u2s.sh <checkout>`. It copies the crates and plain-file assets, then
 re-applies every file in `u2s/patches/` in order. Do not edit vendored code directly: make the
@@ -30,6 +30,10 @@ Assets that originate in this repo are symlinks rather than copies:
 | `u2s-render-pdf`, `u2s-render-pdf-mcp` | Viewing the PDFs the verifiers produce (`pdf_*`); needs pdfium, see `scripts/fetch-pdfium.sh` |
 | `u2s-aem-ubs-verify-mcp`, `u2s-aem-verify-core`, `u2s-mapper-aem`, `u2s-aem` | AEM verification against a Docker AEM + Chromium |
 | `u2s-redacto-ubs-verify-mcp`, `u2s-redacto-verify-core`, `u2s-mapper-redacto`, `u2s-redacto` | Redacto dump verification against a throwaway Postgres |
+| `u2s-aem-ubs-mcp` | The UBS AEM format: the authored `UbsAemDocument`, `encode` into a FileVault package through the UBS templates, `decode` back, and the UBS check rules in `rules/` |
+| `u2s-redacto-ubs-mcp` | The UBS Redacto format: the authored `UbsRedactoDocument`, `encode` into the platform's dump with the UBS metadata and page furniture, `decode` back |
+| `u2s-doc-tools`, `u2s-jsondoc`, `u2s-schema` | The `json_*` document tools and `rule_*` rule tools over one revisioned JSON document, schema validation, and the loader for rules checked in as files |
+| `u2s-rules`, `u2s-rules-host`, `u2s-facts` | The rule sandbox and the `u2s-rules-worker` process each rule runs in, with its memory and time ceiling |
 | `u2s-verify-core`, `u2s-render-core`, `u2s-blob`, `u2s-core` | Shared runtime |
 | `u2s-mcp`, `u2s-render-test-harness` | Test-only: upstream's stdio conformance battery for the server binaries |
 

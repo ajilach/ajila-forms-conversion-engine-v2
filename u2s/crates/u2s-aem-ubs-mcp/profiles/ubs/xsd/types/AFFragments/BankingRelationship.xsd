@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:element name="BankingRelationship" type="BankingRelationshipType">
+		<xs:annotation>
+			<xs:documentation>banking relationship</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:complexType name="BankingRelationshipType">
+		<xs:sequence>
+			<xs:element name="BranchCode" type="xs:string" minOccurs="0"/>
+			<xs:element name="MasterNumber" type="xs:string" minOccurs="0"/>
+			<xs:element name="BankingRelationshipNumber" type="xs:string" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:complexType name="PartnerIDType">
+		<xs:complexContent>
+			<xs:extension base="BankingRelationshipType">
+				<xs:sequence>
+					<xs:element name="Mandator" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:element name="PartnerID" type="PartnerIDType"/>
+</xs:schema>

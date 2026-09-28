@@ -135,6 +135,21 @@ uuid_id!(
     RuleRevisionId
 );
 
+uuid_id!(
+    /// A fact's identity -- `facts.id`. A fact is a named question about an
+    /// input that extrinsic rules read through `ctx.facts`; its question and
+    /// answer schema live on its revisions.
+    FactId
+);
+
+uuid_id!(
+    /// One version of a fact's question, answer schema and source --
+    /// `fact_revisions.id`. Rule revisions pin this identity, never a bare
+    /// [`FactId`], so a later revision of a fact cannot change the verdicts
+    /// of a rule revision that was saved against an earlier one.
+    FactRevisionId
+);
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,29 @@
+[package]
+name = "u2s-rules-host"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Runs generated rule scripts in isolated worker processes: the JSONL protocol, the worker pool, and the u2s-rules-worker binary"
+
+[[bin]]
+name = "u2s-rules-worker"
+path = "src/bin/u2s-rules-worker.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+# `process` and `io-util` for the child workers, `time` for the per-job
+# deadline that is the whole point of running them out of process.
+tokio = { workspace = true, features = ["process", "io-util", "io-std", "time", "macros"] }
+u2s-rules = { path = "../u2s-rules" }
+
+# The memory and CPU caps the worker puts on itself. `libc` rather than a
+# wrapper crate: two `setrlimit` calls do not justify a dependency, and it
+# is already in the workspace lock.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "time"] }

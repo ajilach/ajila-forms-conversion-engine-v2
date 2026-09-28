@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="it"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_germany_fragmentlib/affrg_germany_AddressBlock_CountryDD/jcr:content/guideContainer/assets/dictionary">
+    <_x0037_9a115af-f1dd-4b95-a40c-2a36d32db292
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-48686 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="EFORMS-48686 Address Block (Street, Postal code, City, State, Country dropdown)"/>
+    <c2dcf9b2-93b5-4297-a719-c77e25dc2660
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Street"/>
+    <_x0037_03bb9bb-1961-4d38-aaa9-f73b1fb5e57c
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="No."/>
+    <_x0035_15c6b57-4292-4ff4-a33b-5871f4a83fdf
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Additional address details"/>
+    <b95d2940-b018-4ba8-af23-5245aec2e21d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="Postal code"/>
+    <_x0039_8b88b75-d1d1-43d7-9344-214270a1cbb3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="City"/>
+    <_x0030_730c0d0-bd5a-4fab-bacb-ceb3e2eeb112
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Country"/>
+</jcr:root>
