@@ -1,16 +1,19 @@
-diff -ruN a/u2s/crates/u2s-aem/Cargo.toml b/u2s/crates/u2s-aem/Cargo.toml
---- a/u2s/crates/u2s-aem/Cargo.toml	2026-09-28 08:22:45
-+++ b/u2s/crates/u2s-aem/Cargo.toml	2026-09-28 08:22:45
-@@ -14,6 +14,3 @@
+diff --git a/u2s/crates/u2s-aem/Cargo.toml b/u2s/crates/u2s-aem/Cargo.toml
+index 89c13c9..b8f8c1f 100644
+--- a/u2s/crates/u2s-aem/Cargo.toml
++++ b/u2s/crates/u2s-aem/Cargo.toml
+@@ -14,6 +14,3 @@ thiserror = { workspace = true }
  
  [dev-dependencies]
  jsonschema = { workspace = true }
 -# Dev-only, and deliberately this direction: the format crate proves its own
 -# schema survives strict-mode adaptation, so `u2s-engine` never names AEM.
 -u2s-engine = { path = "../u2s-engine" }
-diff -ruN a/u2s/crates/u2s-aem/tests/skeleton.rs b/u2s/crates/u2s-aem/tests/skeleton.rs
---- a/u2s/crates/u2s-aem/tests/skeleton.rs	2026-09-28 08:22:45
-+++ b/u2s/crates/u2s-aem/tests/skeleton.rs	1970-01-01 01:00:00
+diff --git a/u2s/crates/u2s-aem/tests/skeleton.rs a/u2s/crates/u2s-aem/tests/skeleton.rs
+deleted file mode 100644
+index 97ddf77..0000000
+--- a/u2s/crates/u2s-aem/tests/skeleton.rs
++++ /dev/null
 @@ -1,43 +0,0 @@
 -//! The AEM schema must produce a usable skeleton — the cold-start seed the
 -//! Conversion Agent starts from when no reference run is close enough.
@@ -55,9 +58,11 @@ diff -ruN a/u2s/crates/u2s-aem/tests/skeleton.rs b/u2s/crates/u2s-aem/tests/skel
 -        );
 -    }
 -}
-diff -ruN a/u2s/crates/u2s-aem/tests/strict_adaptation.rs b/u2s/crates/u2s-aem/tests/strict_adaptation.rs
---- a/u2s/crates/u2s-aem/tests/strict_adaptation.rs	2026-09-28 08:22:45
-+++ b/u2s/crates/u2s-aem/tests/strict_adaptation.rs	1970-01-01 01:00:00
+diff --git a/u2s/crates/u2s-aem/tests/strict_adaptation.rs a/u2s/crates/u2s-aem/tests/strict_adaptation.rs
+deleted file mode 100644
+index ed50235..0000000
+--- a/u2s/crates/u2s-aem/tests/strict_adaptation.rs
++++ /dev/null
 @@ -1,90 +0,0 @@
 -//! The AEM schema must survive strict-mode adaptation, because that is what a
 -//! provider sees whenever the Conversion Agent generates rather than edits.
@@ -149,19 +154,22 @@ diff -ruN a/u2s/crates/u2s-aem/tests/strict_adaptation.rs b/u2s/crates/u2s-aem/t
 -}
 -
 -mod support;
-diff -ruN a/u2s/crates/u2s-redacto/Cargo.toml b/u2s/crates/u2s-redacto/Cargo.toml
---- a/u2s/crates/u2s-redacto/Cargo.toml	2026-09-28 08:22:45
-+++ b/u2s/crates/u2s-redacto/Cargo.toml	2026-09-28 08:22:45
-@@ -14,6 +14,3 @@
+diff --git a/u2s/crates/u2s-redacto/Cargo.toml b/u2s/crates/u2s-redacto/Cargo.toml
+index 00fab13..233394e 100644
+--- a/u2s/crates/u2s-redacto/Cargo.toml
++++ b/u2s/crates/u2s-redacto/Cargo.toml
+@@ -14,6 +14,3 @@ thiserror = { workspace = true }
  
  [dev-dependencies]
  jsonschema = { workspace = true }
 -# Dev-only, and deliberately this direction: the format crate proves its own
 -# schema survives strict-mode adaptation, so `u2s-engine` never names Redacto.
 -u2s-engine = { path = "../u2s-engine" }
-diff -ruN a/u2s/crates/u2s-redacto/tests/strict_adaptation.rs b/u2s/crates/u2s-redacto/tests/strict_adaptation.rs
---- a/u2s/crates/u2s-redacto/tests/strict_adaptation.rs	2026-09-28 08:22:45
-+++ b/u2s/crates/u2s-redacto/tests/strict_adaptation.rs	1970-01-01 01:00:00
+diff --git a/u2s/crates/u2s-redacto/tests/strict_adaptation.rs a/u2s/crates/u2s-redacto/tests/strict_adaptation.rs
+deleted file mode 100644
+index 7d0af50..0000000
+--- a/u2s/crates/u2s-redacto/tests/strict_adaptation.rs
++++ /dev/null
 @@ -1,80 +0,0 @@
 -//! The Redacto schema must survive strict-mode adaptation, because that is
 -//! what a provider sees whenever the Conversion Agent generates rather than

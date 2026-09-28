@@ -23,8 +23,10 @@ if [ -n "$(git -C "$ROOT" status --porcelain -- u2s)" ]; then
 fi
 
 COMMIT="$(git -C "$SRC" rev-parse --short HEAD)"
-if [ -n "$(git -C "$SRC" status --porcelain -- crates)" ]; then
-  echo "warning: $SRC has uncommitted changes under crates/; recording $COMMIT anyway" >&2
+# The recorded commit must describe exactly what was copied.
+if [ -n "$(git -C "$SRC" status --porcelain -- crates specs vendor/fonts corpus fixtures docker/aem)" ]; then
+  echo "$SRC has uncommitted changes; commit them upstream first so $COMMIT matches what is copied" >&2
+  exit 1
 fi
 
 # Keep in step with the table in u2s/VENDORED.md and the workspace members.
