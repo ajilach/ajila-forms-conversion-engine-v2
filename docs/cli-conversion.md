@@ -78,43 +78,47 @@ omitted — the CLI picks it automatically when exactly one profile exists. It
 errors rather than guessing if several are installed, and a resumed session
 inherits the profile it was created with.
 
-### 1.5 Optional: AEM and the browser
+### 1.5 Verification setup (required)
 
-Only needed with `--upload`. Without that flag the run touches nothing outside
-the machine: no upload, and the agent gets no AEM fetch or verify tools at all.
+Both AEM and Redacto targets require verification during the conversion. Verification
+uses vendored u2s verifiers linked into the binaries (source in `u2s/`; see
+`u2s/VENDORED.md`). Every run checks whether verification is set up before it
+starts and refuses to run if it is not. There is no switch to skip it.
 
-With `--upload` you need:
+**For an AEM target:** The verifier boots its own AEM Forms instance plus a headless
+Chromium, both in Docker, installs the built package, and lets the Author and
+Reviewer drive the form interactively using `aem_verify_*` tools (open, control
+interaction, set values, advance pages, submit, screenshot). The submitted form's
+PDF is read with `pdf_*` tools. The source PDF is read with `xfa_*` tools.
 
-- An AEM author instance the configured user can log in to.
-- Node.js 18+ with `npx` on `PATH` (or pass `--npx /path/to/npx`).
-- Google Chrome installed at a standard location.
+You need:
+- Docker running
+- The AEM Forms image from ajila's private Azure registry pulled locally: `az login`, `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`, then `docker pull ajila.azurecr.io/aemforms-arm:6.5.17.0`
+- The Docker data volume with the UBS platform baked in (one-time setup: run `docker/aem/bake-ubs-platform.sh`; see `docker/aem/README.md` for details)
+- Apple Silicon host (only an ARM image exists today)
 
-Node and Chrome are for the browser verification the Author and Reviewer use.
-The run spawns the pinned Playwright MCP server (`PLAYWRIGHT_MCP_VERSION` in
-`agent/src/browser.rs`, currently 0.0.79) as a child process, logs it in to AEM,
-and the two stages open the deployed form's preview, walk every wizard page,
-fill fields, submit, and read the PDF the submission downloads. Chrome runs
-headless and isolated; nothing has to be started beforehand and nothing survives
-the run.
+**For a Redacto target:** The verifier imports the built dump into a throwaway Postgres
+container using `redacto_verify_*` tools; if a rendering endpoint is configured it
+also returns rendered PDFs.
 
-Warm the npm cache once, with a network connection:
+You need:
+- Docker running
+- The public Postgres image pulled (`verify prepare` does that)
+
+**For both targets:**
+- `pdfium`: Run `./scripts/fetch-pdfium.sh` to download the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
+- Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM image (default none, must be pulled manually), data volume (default `u2s-aem-ubs-data`), AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: Postgres image (default `postgres:16-alpine`), optional rendering endpoint URL.
+- CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
+- Prepare: Run `blueprint verify prepare` to pull the public verifier images (headless Chromium `chromedp/headless-shell:stable` and Postgres). The AEM image must be pulled by hand (see above).
+- Check: Run `blueprint verify check [--target aem|redacto]` to run the readiness check a conversion performs: settings complete, Docker reachable, images present locally, the AEM data volume exists, pdfium loads.
 
 ```sh
-# Node, Chrome and the npm cache. Needs no AEM.
-cargo run --release -p blueprint-cli -- browser prepare
-
-# The full preflight a run performs, including the AEM login.
-cargo run --release -p blueprint-cli -- browser check
+cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images
+cargo run --release -p blueprint-cli -- verify check      # Full readiness check
 ```
 
-`browser check` reads the AEM host and credentials from the desktop app's
-settings; it has no flags for them. On a CLI-only machine use `browser prepare`
-for the machine-side checks and let the run itself do the AEM half.
-
-Every run with the browser enabled repeats the preflight before it starts and
-refuses to run when it fails, naming the reason and the fix. It never degrades
-silently. Turn it off for a run with `--no-browser`; the agent's
-`fetch_aem_dor_pdf` fallback stays available.
+A failed check produces an error starting with "Verification is not possible, so
+the run cannot start:" and lists every missing item.
 
 ### 1.6 Where state lives
 
@@ -153,22 +157,19 @@ by file extension, so the `.pdf` suffix matters.
 
 ### 2.2 What the run does
 
-1. **Preflight.** Resolve the profile and settings, then — for an AEM target with
-   the browser on — run the browser preflight. A refused preflight leaves no
-   session behind and spends no tokens.
-2. **Claim the form.** An AEM run takes a process-wide lease on
-   `(host, jcr_path)`. Two runs of the same form against the same instance would
-   overwrite each other, and the Reviewer would verify the wrong one, so the
-   second is refused. The lease covers runs inside one process (the app, the
-   CLI), not two separate processes pointed at one instance.
-3. **Open the session.** Sources are hashed and stored content-addressed, a
+1. **Preflight.** Resolve the profile and settings, then run the verification
+   readiness check: settings complete, Docker reachable, images present locally,
+   the AEM data volume exists (for AEM targets), pdfium loads. A refused preflight
+   leaves no session behind and spends no tokens.
+2. **Open the session.** Sources are hashed and stored content-addressed, a
    session row is created and an empty initial edit is recorded.
-4. **Analyst → Author → (Reviewer → Author fix)\*.** The review rounds are capped
-   by `--max-review-rounds` (default 3).
-5. **Finalize.** `build_aem_package` runs as a visible step; with an AEM
-   connection and nothing uploaded yet, `upload_to_aem` follows. Then the
-   envelope, packages, XSD and Redacto SQL are assembled and recorded back into
-   the history.
+3. **Analyst → Author → (Reviewer → Author fix)\*.** The review rounds are capped
+   by `--max-review-rounds` (default 3). The Author and Reviewer drive the built
+   form using the `aem_verify_*` (or `redacto_verify_*`) verification tools to
+   interact with it, submit it, and verify the output.
+4. **Finalize.** The envelope, packages, XSD and Redacto SQL are assembled and
+   recorded back into the history. There is no upload: the built package is the
+   final artefact.
 
 ### 2.3 Reading the console
 
@@ -185,7 +186,6 @@ Spend: … in (… cached, … written) · … out · USD 1.23
 Session total: …            # only when the session has earlier runs folded in
 Elapsed: 412s
 Form code: AAOS
-Uploaded to AEM: /content/forms/af/…
 Wrote: ./forms-package-AAOS.zip
 …
 ```
@@ -277,18 +277,10 @@ nothing.
 | `--instructions <TEXT>` | the app's setting | Appended to every role's system prompt |
 | `--instructions-file <PATH>` | — | Conflicts with `--instructions` |
 | `--retries <N>` | 2 | Operator-level retries after the controller's own |
-| `--upload` | off | Enables the AEM fetch/verify tools **and** the upload |
-| `--aem-host <URL>` | the app's setting | Requires `--upload` |
-| `--aem-user <NAME>` | the app's setting | Requires `--upload` |
-| `--aem-password <PW>` | the app's setting | Requires `--upload` |
-| `--no-browser` | off | Requires `--upload` |
-| `--npx <PATH>` | the app's setting, then auto-detect | Requires `--upload` |
+| `--aem-image <IMAGE>` | the app's setting | AEM Forms image (e.g. `ajila.azurecr.io/aemforms-arm:6.5.17.0`); AEM target only |
+| `--aem-volume <VOLUME>` | the app's setting (default `u2s-aem-ubs-data`) | Docker data volume with the UBS platform; AEM target only |
 | `--session <ID>` | — | Resume; skips the Analyst |
 | `--feedback <TEXT>` | — | Requires `--session` |
-
-`--upload` is what carries the AEM connection into the run. Without it the host
-is blanked regardless of what the app has saved, so the four AEM flags are
-rejected on their own rather than quietly ignored.
 
 ---
 
@@ -316,12 +308,12 @@ OPENAI_API_KEY=sk-or-… cargo run --release -p blueprint-cli -- convert form.pd
 cargo run --release -p blueprint-cli -- convert form.pdf \
   --instructions "Keep every footnote." --max-review-rounds 5
 
-# Upload to a local author instance, with browser verification
-cargo run --release -p blueprint-cli -- convert form.pdf --upload \
-  --aem-host http://localhost:4502 --aem-user admin --aem-password admin
+# Override the AEM image and data volume for this run
+cargo run --release -p blueprint-cli -- convert form.pdf \
+  --aem-image ajila.azurecr.io/aemforms-arm:6.5.17.0 --aem-volume my-data-volume
 
-# Upload, but skip the browser click-through
-cargo run --release -p blueprint-cli -- convert form.pdf --upload --no-browser
+# Redacto target (no AEM setup required, just Docker and Postgres)
+cargo run --release -p blueprint-cli -- convert form.pdf --target redacto
 ```
 
 ---
@@ -333,9 +325,7 @@ cargo run --release -p blueprint-cli -- convert form.pdf --upload --no-browser
 | Build fails in `core/src/semantic/` on `include_bytes!` | `core/models/` holds LFS pointers | `git lfs install && git lfs pull` |
 | `No API key for the anthropic provider` | Nothing in `--api-key`, `$ANTHROPIC_API_KEY` or the app's settings | Set one of the three |
 | `Several profiles are installed (…) — pick one with --profile.` | More than one profile present | Name it explicitly |
-| `--upload needs an AEM host and user` | No host/user from flags or the app | Pass `--aem-host` and `--aem-user` |
-| `Browser verification is not possible: …` | Preflight failed (Node, Chrome, npm cache or AEM login) | Run `browser prepare`, then `browser check`; or `--no-browser` |
-| `npx (Node.js 18+) was not found` | A Finder-launched process sees a minimal `PATH` | `--npx /opt/homebrew/bin/npx` |
+| `Verification is not possible, so the run cannot start:` | Preflight failed (Docker, images, pdfium, settings) | Run `blueprint verify check` to see what is missing; `blueprint verify prepare` pulls public images; see `docker/aem/README.md` for AEM image setup |
 | `… is already being converted by another run` | Another run in the same process holds the lease on `(host, jcr_path)` | Wait for it, or target another instance |
 | `The run stopped before producing a result.` | Aborted, or the retry budget ran out | Resume with `--session <ID>` |
 | `Session … holds no saved form` | Continuing a session with nothing recorded | Start fresh from the sources |

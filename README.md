@@ -141,9 +141,6 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --instructions 
 # Modify an existing AEM package instead of authoring from scratch
 cargo run --release -p blueprint-cli -- convert form_DE.pdf template-package.zip
 
-# Upload the finished package to AEM (off unless asked for)
-cargo run --release -p blueprint-cli -- convert path/to/form.pdf --upload --aem-host http://localhost:4502 --aem-user admin --aem-password admin
-
 # Carry an earlier run on: list the sessions, then continue one as it stands
 cargo run --release -p blueprint-cli -- sessions
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
@@ -152,57 +149,53 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> --feedback "The IBAN field must be mandatory."
 ```
 
-### Browser verification
+### Verification setup
 
-With `--upload` (or the app's AEM connection) the Author and Reviewer also get a
-real browser: the run spawns the Playwright MCP server as a child process, logs it
-in to AEM, and the two stages open the deployed form's preview, walk every wizard
-page, fill the fields, submit, and read the PDF the submission downloads
-(`aem_form_urls`, `browser_*`, `inspect_pdf`). The Reviewer reports a page that will
-not advance, a field that cannot be filled or a PDF missing entered data as a
-defect.
+Both AEM and Redacto targets require verification during the conversion: the Author
+and Reviewer drive the built form with verification tools, not with a browser.
+Verification uses vendored u2s verifiers linked into the binaries (source in `u2s/`,
+see `u2s/VENDORED.md`). Every run checks whether verification is set up before it
+starts and refuses to run if it is not.
 
-Prerequisites on the machine running the conversion: Node.js 18+ (with `npx`),
-Google Chrome, and an AEM author instance the configured user can log in to.
-Chrome is launched headless and isolated by the run itself; nothing has to be
-started beforehand, and nothing survives the run.
+For an **AEM target**, the verifier boots its own AEM Forms instance plus a headless
+Chromium, both in Docker, installs the built package there, and lets the Author and
+Reviewer drive the form with the `aem_verify_*` tools (open, interact with controls,
+set values, advance pages, submit, close, screenshot). The PDF a submission produces
+is read with the `pdf_*` tools. The source form is read with the `xfa_*` tools.
 
-The server version is pinned in `agent/src/browser.rs` (`PLAYWRIGHT_MCP_VERSION`);
-`latest` is never used. `npx` runs with the npm cache preferred, so once the
-package is cached a run never touches the registry. Warm the cache once, with a
-connection:
+Prerequisites on the machine running an AEM conversion:
+- Docker running
+- The AEM Forms image from ajila's private Azure registry pulled locally: `az login`, `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`, then `docker pull ajila.azurecr.io/aemforms-arm:6.5.17.0`
+- The Docker data volume with the UBS platform baked in (one-time setup: `docker/aem/bake-ubs-platform.sh`, see `docker/aem/README.md`)
+- Only an ARM image exists today, so AEM conversions currently run only on Apple Silicon hosts
+
+For a **Redacto target**, the verifier imports the built dump into a throwaway Postgres
+container; if a rendering endpoint is configured it also returns rendered PDFs.
+
+Prerequisites for Redacto: Docker running and the public Postgres image pulled (`verify prepare` does that).
+
+**For both targets:**
+- `pdfium`: `./scripts/fetch-pdfium.sh` downloads the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
+- Settings: verifier settings live in the desktop app's settings (tab "Verification"): AEM image, data volume (default `u2s-aem-ubs-data`), container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL; for Redacto: Postgres image (default `postgres:16-alpine`), optional rendering URL. The CLI reads the same stored settings.
+- CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
+- `blueprint verify prepare` pulls the public verifier images (headless Chromium `chromedp/headless-shell:stable` and Postgres); the AEM image must be pulled by hand (see above).
+- `blueprint verify check [--target aem|redacto]` runs the readiness check a run performs: settings complete, Docker reachable, images present locally, the AEM data volume exists, pdfium loads.
 
 ```sh
-cargo run --release -p blueprint-cli -- browser prepare   # Node, Chrome, npm cache; needs no AEM
-cargo run --release -p blueprint-cli -- browser check     # the full preflight a run performs, against the configured AEM
+cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images
+cargo run --release -p blueprint-cli -- verify check      # Full readiness check
 ```
 
-Every run with the browser enabled repeats that preflight before it starts and
-refuses to run when it fails, with the reason and the fix (or the switch to turn
-the browser off). It never degrades silently. Switches:
-
-```sh
-# No browser for this run (the fetch_aem_dor_pdf fallback remains available to the agent)
-cargo run --release -p blueprint-cli -- convert path/to/form.pdf --upload --no-browser
-
-# npx lives somewhere unusual (a Finder-launched app sees a minimal PATH; the app has the same setting)
-cargo run --release -p blueprint-cli -- convert path/to/form.pdf --upload --npx /opt/homebrew/bin/npx
-```
-
-The tool surface the model sees is the checked-in snapshot
-`agent/tests/playwright_mcp_tools.json`, verified against the live server at every
-start. To move to a new Playwright MCP version: bump `PLAYWRIGHT_MCP_VERSION`,
-regenerate the snapshot with
-`UPDATE_SNAPSHOTS=1 cargo test -p agent -- --ignored playwright_mcp_tool_surface_matches_snapshot`,
-review the diff (tool descriptions are prompt surface), and re-read the prompts
-that name the tools.
+A failed readiness check produces an error starting with "Verification is not
+possible, so the run cannot start:" and lists every missing item. There is no switch
+to run without verification.
 
 Artefacts are named as in the app: `forms-package-<code>.zip`,
 `forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd`, `redacto-<code>.sql`,
-plus `agent-log-<code>.md` — the run transcript. Ctrl-C stops the run at its next
-checkpoint: no artefacts are written, but the session id is printed and the edit
-history holds what the agent had built, so the run can be resumed with
-`--session`.
+plus `agent-log-<code>.md` — the run transcript. The finalize step only builds the
+package; there is no upload or AEM path in the output. Ctrl-C stops the run at its
+next checkpoint: no artefacts are written, but the session id is printed and the edit
+history holds what the agent had built, so the run can be resumed with `--session`.
 
 ## App
 
