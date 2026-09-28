@@ -525,6 +525,10 @@ pub struct ConversionAgent {
     /// The browser the preflight started, when browser verification is on.
     /// Offers its tools to the Author and Reviewer (see `catalog::BROWSER_SCOPES`).
     browser: Option<crate::browser::BrowserSession>,
+
+    /// The vendored u2s tool servers, created on the first u2s call or
+    /// `get_source_info` (see [`Self::u2s_tools`]).
+    u2s: Option<crate::u2s::U2sTools>,
 }
 
 impl ConversionAgent {
@@ -584,6 +588,7 @@ impl ConversionAgent {
             render_scale: RENDER_SCALE,
             review: None,
             browser: None,
+            u2s: None,
         };
         // Record the pre-loaded template as the initial AEM edit so it shows in
         // the AEM edit history (no-op when no template was uploaded).
@@ -868,17 +873,52 @@ impl ConversionAgent {
         }
     }
 
+    /// The PDFs of the requested source: the uploaded form, or a reference's
+    /// input.
+    fn source_pdfs(&self, input: &serde_json::Value) -> Result<Vec<(String, Vec<u8>)>, String> {
+        match input["source"]["reference"].as_str() {
+            Some(id) => {
+                let bytes = crate::references::get_reference_pdf_bytes(id, 0)?;
+                Ok(vec![(format!("{id}.pdf"), bytes)])
+            }
+            None => Ok(self.current_pdfs.clone()),
+        }
+    }
+
+    /// The u2s tool servers, created on first use.
+    fn u2s_tools(&mut self) -> Result<&mut crate::u2s::U2sTools, String> {
+        let tools = match self.u2s.take() {
+            Some(tools) => tools,
+            None => crate::u2s::U2sTools::new()?,
+        };
+        Ok(self.u2s.insert(tools))
+    }
+
+    /// The requested source's PDFs, written where the u2s tools may read them:
+    /// (file name, language, `doc_path`).
+    fn source_documents(
+        &mut self,
+        input: &serde_json::Value,
+    ) -> Result<Vec<(String, String, std::path::PathBuf)>, String> {
+        let pdfs = self.source_pdfs(input)?;
+        let group = Self::source_key(input).replace(':', "-");
+        let tools = self.u2s_tools()?;
+        pdfs.iter()
+            .map(|(name, bytes)| {
+                let language = blueprint::Blueprint::from_pdf_bytes(bytes)
+                    .map(|bp| bp.context().language().to_string())
+                    .unwrap_or_else(|_| "unknown".to_string());
+                let path = tools.add_document(&group, name, bytes)?;
+                Ok((name.clone(), language, path))
+            })
+            .collect()
+    }
+
     /// Get (building+caching if needed) the extractor for the requested source.
     fn extractor(&mut self, input: &serde_json::Value) -> Result<&Extractor, String> {
         let key = Self::source_key(input);
         if !self.extractors.contains_key(&key) {
-            let pdfs = match input["source"]["reference"].as_str() {
-                Some(id) => {
-                    let bytes = crate::references::get_reference_pdf_bytes(id, 0)?;
-                    vec![(format!("{id}.pdf"), bytes)]
-                }
-                None => self.current_pdfs.clone(),
-            };
+            let pdfs = self.source_pdfs(input)?;
             // A multi-language source must be merged with the semantic matcher
             // (see Extractor::build). Load it best-effort; if it can't load we
             // fall back to None and the structural merge. Single-PDF sources
@@ -2289,6 +2329,109 @@ mod tests {
             "/content/forms/af/ubs/AF_FORM"
         );
     }
+
+    /// The source documents `get_source_info` lists, parsed.
+    async fn source_documents_of(agent: &mut ConversionAgent) -> Vec<serde_json::Value> {
+        let info = reply_text(agent.execute("get_source_info", &serde_json::json!({})).await);
+        let info: serde_json::Value = serde_json::from_str(&info).unwrap();
+        info["documents"].as_array().cloned().unwrap_or_default()
+    }
+
+    #[tokio::test]
+    async fn get_source_info_hands_out_the_doc_path_the_xfa_tools_read() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAOS_033_IT.pdf")],
+            None,
+            "test-u2s-read".into(),
+            OutputTarget::Aem,
+        );
+        let documents = source_documents_of(&mut agent).await;
+        assert_eq!(documents.len(), 1, "{documents:?}");
+        assert_eq!(documents[0]["language"], "it");
+        let doc_path = documents[0]["doc_path"].as_str().unwrap().to_string();
+
+        let packets = reply_text(
+            agent
+                .execute("xfa_packets", &serde_json::json!({ "doc_path": doc_path }))
+                .await,
+        );
+        assert!(packets.contains("\"template\""), "{packets}");
+
+        let read = reply_text(
+            agent
+                .execute(
+                    "xfa_read",
+                    &serde_json::json!({ "doc_path": doc_path, "packet": "template", "limit": 200 }),
+                )
+                .await,
+        );
+        assert!(read.contains("<template"), "{read}");
+    }
+
+    #[tokio::test]
+    async fn a_doc_path_outside_the_runs_documents_is_refused() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAOS_033_IT.pdf")],
+            None,
+            "test-u2s-refuse".into(),
+            OutputTarget::Aem,
+        );
+        let outside = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../core/input/AAEV_019_EN.pdf")
+            .display()
+            .to_string();
+        for tool in ["xfa_packets", "xfa_info", "pdf_info"] {
+            match agent
+                .execute(tool, &serde_json::json!({ "doc_path": outside }))
+                .await
+            {
+                ToolReply::Error(e) => assert!(e.contains("not one of this run's documents"), "{e}"),
+                other => panic!("{tool} read a file outside the run: {:?}", reply_kind(&other)),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn xfa_render_page_replies_with_the_page_image() {
+        let mut agent = ConversionAgent::new(
+            Some("ubs".into()),
+            vec![fixture("AAOS_033_IT.pdf")],
+            None,
+            "test-u2s-render".into(),
+            OutputTarget::Redacto,
+        );
+        let doc_path = source_documents_of(&mut agent).await[0]["doc_path"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let reply = agent
+            .execute(
+                "xfa_render_page",
+                &serde_json::json!({ "doc_path": doc_path, "page": 1, "dpi": 72 }),
+            )
+            .await;
+        match reply {
+            ToolReply::Blocks(blocks) => assert!(
+                blocks
+                    .iter()
+                    .any(|b| matches!(b, ReplyBlock::Image { media_type, .. } if media_type.starts_with("image/"))),
+                "no image block in the render reply"
+            ),
+            other => panic!("expected image blocks, got {:?}", reply_kind(&other)),
+        }
+    }
+
+    fn reply_kind(reply: &ToolReply) -> String {
+        match reply {
+            ToolReply::Text(t) => format!("text: {t}"),
+            ToolReply::Error(e) => format!("error: {e}"),
+            ToolReply::Image { .. } => "image".into(),
+            ToolReply::Blocks(b) => format!("{} blocks", b.len()),
+        }
+    }
+
 }
 
 mod catalog;

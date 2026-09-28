@@ -408,13 +408,7 @@ pub fn load_aem_fragments(
 /// registers each as a loaded font variant. The first font found is also set
 /// as the fallback font.
 pub fn load_profile_fonts(name: &str) -> Result<(), crate::Error> {
-    let fonts_dir = PROFILES_DIR
-        .get_dir(format!("{name}/parser/fonts"))
-        .ok_or_else(|| {
-            crate::Error::Profile(format!(
-                "Profile '{name}' has no parser/fonts/ subdirectory"
-            ))
-        })?;
+    let fonts = profile_font_files(name)?;
 
     use crate::xfa::font_manager::{get_font_manager, register_profile_font_data};
 
@@ -423,31 +417,48 @@ pub fn load_profile_fonts(name: &str) -> Result<(), crate::Error> {
         .lock()
         .map_err(|e| crate::Error::Profile(format!("Font manager lock error: {e}")))?;
 
-    let mut first_font: Option<&'static [u8]> = None;
-
-    for file in fonts_dir.files() {
-        let path = file.path();
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .map(|e| e.to_ascii_lowercase());
-        if ext.as_deref() != Some("ttf") && ext.as_deref() != Some("otf") {
-            continue;
-        }
-
-        let data: &'static [u8] = file.contents();
+    for (_, data) in &fonts {
         register_profile_font_data(&mut manager, data);
-
-        if first_font.is_none() {
-            first_font = Some(data);
-        }
     }
 
-    if let Some(data) = first_font {
+    if let Some((_, data)) = fonts.first() {
         manager.set_fallback(data);
     }
 
     Ok(())
+}
+
+/// The `.ttf` / `.otf` files in `{profile}/parser/fonts/`, as (file stem,
+/// bytes), in the embedded directory's order.
+pub fn profile_font_files(name: &str) -> Result<Vec<(String, &'static [u8])>, crate::Error> {
+    let fonts_dir = PROFILES_DIR
+        .get_dir(format!("{name}/parser/fonts"))
+        .ok_or_else(|| {
+            crate::Error::Profile(format!(
+                "Profile '{name}' has no parser/fonts/ subdirectory"
+            ))
+        })?;
+
+    Ok(fonts_dir
+        .files()
+        .filter(|file| {
+            let ext = file
+                .path()
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase());
+            matches!(ext.as_deref(), Some("ttf") | Some("otf"))
+        })
+        .map(|file| {
+            let stem = file
+                .path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or_default()
+                .to_string();
+            (stem, file.contents())
+        })
+        .collect())
 }
 
 /// Load UBS profile fonts directly into a FontManager instance.

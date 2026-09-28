@@ -17,7 +17,7 @@
 //! call, not a second binary -- there being only one profile today is not
 //! a reason to build the seam early.
 
-mod specs;
+pub mod specs;
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -42,7 +42,7 @@ const MANIFEST_URI: &str = "u2s://manifest";
 const ENV_PREFIX: &str = "U2S_REDACTO_VERIFY_UBS";
 
 #[derive(Clone)]
-struct RedactoVerifyServer {
+pub struct RedactoVerifyServer {
     blobs: Arc<BlobStore>,
     pool: Arc<SessionPool>,
     profile: Arc<RenderProfile>,
@@ -55,12 +55,28 @@ impl RedactoVerifyServer {
         // difference this crate's own module doc says a Redacto profile
         // can carry.
         let profile = RenderProfile::from_env("redacto-ubs", ENV_PREFIX, "pdf-ua");
+        Self::with_parts(profile, BlobStore::from_env())
+    }
+
+    /// [`Self::new`] for in-process hosts: the profile and blob store come
+    /// from the caller instead of the environment.
+    pub fn with_parts(profile: RenderProfile, blobs: BlobStore) -> Self {
         let pool = SessionPool::new(profile.postgres_image.clone());
         Self {
-            blobs: Arc::new(BlobStore::from_env()),
+            blobs: Arc::new(blobs),
             pool: Arc::new(pool),
             profile: Arc::new(profile),
         }
+    }
+
+    /// Tears down the default session's container. In-process hosts never
+    /// pass a `session_id`, so this is every container they caused.
+    pub async fn shutdown(&self) -> Result<(), String> {
+        let docker = DockerLifecycle::connect()
+            .await
+            .map_err(|err| format!("could not reach Docker to tear down the session: {err}"))?;
+        self.pool.teardown(session::DEFAULT_SESSION_KEY, &docker).await;
+        Ok(())
     }
 
     fn resolve_bytes(&self, args: &Value) -> Result<Vec<u8>, String> {
@@ -80,7 +96,7 @@ impl RedactoVerifyServer {
         }
     }
 
-    async fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, String> {
+    pub async fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, String> {
         match name {
             "verify_status" => self.verify_status(args).await,
             "verify_dump_check" => self.verify_dump_check(args),

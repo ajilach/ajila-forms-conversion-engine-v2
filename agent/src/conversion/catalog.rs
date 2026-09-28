@@ -98,6 +98,7 @@ pub fn tools_for(target: OutputTarget, scopes: scope::Mask) -> Vec<serde_json::V
 fn build_catalog() -> Vec<ToolSpec> {
     tool_specs()
         .into_iter()
+        .chain(crate::u2s::tool_specs())
         .map(|spec| {
             let name = spec["name"].as_str().unwrap_or_default();
             let (_, targets, scopes) = SCOPING
@@ -133,6 +134,33 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
         ("get_plain_state_image",             target::BOTH,    EVERYWHERE),
         ("get_annotated_state_image",         target::BOTH,    EVERYWHERE),
         ("get_flattened_structure_for_state", target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP | DESCRIBE),
+
+        // §1b the source form through the vendored u2s servers (crate::u2s):
+        // raw XFA reads, and rendering plus live interaction.
+        ("xfa_packets",                       target::BOTH,    EVERYWHERE),
+        ("xfa_read",                          target::BOTH,    EVERYWHERE),
+        ("xfa_search",                        target::BOTH,    EVERYWHERE),
+        ("xfa_outline",                       target::BOTH,    EVERYWHERE),
+        ("xfa_node",                          target::BOTH,    EVERYWHERE),
+        ("xfa_info",                          target::BOTH,    EVERYWHERE),
+        ("xfa_open",                          target::BOTH,    EVERYWHERE),
+        ("xfa_set",                           target::BOTH,    EVERYWHERE),
+        ("xfa_reset",                         target::BOTH,    EVERYWHERE),
+        ("xfa_close",                         target::BOTH,    EVERYWHERE),
+        ("xfa_controls",                      target::BOTH,    EVERYWHERE),
+        ("xfa_render_page",                   target::BOTH,    EVERYWHERE),
+        ("xfa_render_pages",                  target::BOTH,    EVERYWHERE),
+        ("xfa_render_region",                 target::BOTH,    EVERYWHERE),
+        ("xfa_page_text",                     target::BOTH,    EVERYWHERE),
+        ("xfa_search_text",                   target::BOTH,    EVERYWHERE),
+
+        // §1c PDFs the verifiers produce, through the vendored u2s PDF renderer.
+        ("pdf_info",                          target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("pdf_render_page",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("pdf_render_pages",                  target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("pdf_render_region",                 target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("pdf_page_text",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("pdf_search_text",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
 
         // §2a structured tree — executable under both targets (a resumed AEM
         // session seeds it), but only ever offered to the Redacto stages.
@@ -232,7 +260,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             // §1 extraction (source-parameterized)
             t(
                 "get_source_info",
-                "Info about the source PDFs (name, language, state count).",
+                "The source PDFs: each one's file name, language and the `doc_path` every xfa_* tool takes. Call this first.",
                 with_source(serde_json::json!({})),
                 serde_json::json!([]),
             ),
@@ -619,6 +647,23 @@ mod catalog_guards {
         "textbox",
         // Tool argument and enum values, not tools.
         "aem_translated",
+        // u2s tool arguments and reply fields.
+        "affects_layout",
+        "budget_hit",
+        "doc_path",
+        "expected_revision",
+        "form_type",
+        "max_depth",
+        "max_edge_px",
+        "next_from",
+        "not_xfa",
+        "rect_pt",
+        "total_chars",
+        "total_matches",
+        "xfa_foreground",
+        "xfa_full",
+        // Tool family prefixes (`xfa_*`), not tools.
+        "xfa",
         "parent_path",
         "ref_id",
         "top_k",

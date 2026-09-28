@@ -9,7 +9,7 @@
 //! * **Large payloads never enter the context.** An image over the inline
 //!   threshold is written to the blob directory and referenced by handle.
 
-mod specs;
+pub mod specs;
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -28,7 +28,7 @@ use u2s_render_pdf::{
 const MANIFEST_URI: &str = "u2s://manifest";
 
 #[derive(Clone)]
-struct PdfRenderServer {
+pub struct PdfRenderServer {
     renderer: Renderer,
     blobs: Arc<BlobStore>,
     max_inline_bytes: usize,
@@ -36,11 +36,16 @@ struct PdfRenderServer {
 
 impl PdfRenderServer {
     fn new() -> Result<Self, RenderError> {
-        let limits = Limits::from_env();
+        Self::with_parts(Limits::from_env(), BlobStore::from_env())
+    }
+
+    /// [`Self::new`] for in-process hosts: limits and blob store come from the
+    /// caller.
+    pub fn with_parts(limits: Limits, blobs: BlobStore) -> Result<Self, RenderError> {
         let max_inline_bytes = limits.max_inline_bytes;
         Ok(PdfRenderServer {
             renderer: Renderer::start(limits)?,
-            blobs: Arc::new(BlobStore::from_env()),
+            blobs: Arc::new(blobs),
             max_inline_bytes,
         })
     }
@@ -84,7 +89,7 @@ impl PdfRenderServer {
         }
     }
 
-    fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
+    pub fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
         let path = arg_str(args, "doc_path")?;
         match name {
             "pdf_info" => {

@@ -15,7 +15,7 @@
 //! whole document — every read is windowed, bounded, and honest about what it
 //! left out.
 
-mod specs;
+pub mod specs;
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -36,7 +36,7 @@ const MANIFEST_URI: &str = "u2s://manifest";
 const CONTEXT_RADIUS: usize = 80;
 
 #[derive(Clone)]
-struct XfaDataServer;
+pub struct XfaDataServer;
 
 impl XfaDataServer {
     fn packets_of(&self, doc_path: &str) -> Result<Vec<XfaPacket>, RenderError> {
@@ -82,7 +82,7 @@ impl XfaDataServer {
             .map_err(|e| RenderError::backend("xfa", format!("XFA parse: {e}")))
     }
 
-    fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
+    pub fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
         let path = arg_str(args, "doc_path")?;
         match name {
             "xfa_packets" => {

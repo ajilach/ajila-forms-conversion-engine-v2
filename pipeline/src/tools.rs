@@ -220,7 +220,13 @@ mod tests {
         let mut ctx = rig_agent::tool::ToolContext::new();
         let result = set.execute("get_source_info", "{}", &mut ctx).await;
         assert!(result.is_success(), "{result:?}");
-        assert!(result.output().as_text().unwrap().contains("states: 0"));
+        assert!(
+            result
+                .output()
+                .as_text()
+                .unwrap()
+                .contains(r#""documents":[]"#)
+        );
     }
 
     /// A spec missing a name is dropped, not panicked on — the catalog's own

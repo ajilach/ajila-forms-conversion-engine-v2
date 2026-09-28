@@ -120,22 +120,23 @@ impl ConversionAgent {
 
         match name {
             // §1 extraction
-            "get_source_info" => match self.extractor(input) {
-                Ok(ex) => {
-                    let langs: Vec<&str> = ex.states.iter().map(|s| s.context.language()).collect();
-                    // Report the cross-language merge outcome: when it fails the
-                    // engine's merged tree is empty, and any output derived from
-                    // it would silently be empty too.
-                    let merge = match &ex.merge_error {
-                        Some(e) => format!("FAILED - {e}"),
-                        None => "ok".to_string(),
-                    };
-                    ToolReply::Text(format!(
-                        "states: {}, languages: {:?}, xfa_pdfs: {}, merge: {merge}",
-                        ex.states.len(),
-                        dedup(langs),
-                        ex.xfa.len()
-                    ))
+            "get_source_info" => match self.source_documents(input) {
+                Ok(documents) => {
+                    let languages = dedup(documents.iter().map(|(_, l, _)| l.as_str()).collect());
+                    let documents: Vec<_> = documents
+                        .iter()
+                        .map(|(name, language, path)| {
+                            serde_json::json!({
+                                "name": name,
+                                "language": language,
+                                "doc_path": path.display().to_string(),
+                            })
+                        })
+                        .collect();
+                    ToolReply::Text(
+                        serde_json::json!({ "languages": languages, "documents": documents })
+                            .to_string(),
+                    )
                 }
                 Err(e) => ToolReply::Error(e),
             },
@@ -919,6 +920,11 @@ impl ConversionAgent {
                     "Review recorded: changes requested — returning to the author.".into()
                 })
             }
+
+            other if crate::u2s::is_u2s_tool(other) => match self.u2s_tools() {
+                Ok(tools) => tools.call(other, input).await,
+                Err(e) => ToolReply::Error(e),
+            },
 
             // Browser tools are not catalog entries: their specs come from the
             // attached session, and so do their results.

@@ -1,6 +1,6 @@
 [
   {
-    "description": "Info about the source PDFs (name, language, state count).",
+    "description": "The source PDFs: each one's file name, language and the `doc_path` every xfa_* tool takes. Call this first.",
     "input_schema": {
       "properties": {
         "source": {
@@ -783,5 +783,883 @@
       "type": "object"
     },
     "name": "submit_review"
+  },
+  {
+    "description": "List the raw /XFA packets a PDF carries — their declared names and byte lengths, in declaration order. Call this FIRST: it costs nothing (no parse, no layout) and names what `xfa_read` and `xfa_search` can address. A PDF with no XFA form returns an empty list — use pdf_info to confirm form_type.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_path"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_packets"
+  },
+  {
+    "description": "Raw text of one XFA packet, windowed by character offset — for reading the literal XML, not its structure (use `xfa_outline`/`xfa_node` for that). Always reports total_chars and truncated, so a caller can tell a partial read from a whole one. limit defaults to 4000 characters.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Characters to return; default 4000.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Character offset; default 0.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "packet": {
+          "description": "A packet name from `xfa_packets` (e.g. \"template\", \"datasets\", \"xdp\" for a single-stream /XFA). Omit to use the first packet.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_path"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_read"
+  },
+  {
+    "description": "Search XFA packet text for a literal substring (case-insensitive) or a regex, over a sliding window rather than by line — line-based matching is meaningless on minified XFA, where a whole packet can be one line. Searches every packet by default, tagging each match with its packet; pass `packet` to restrict to one. Each match reports offset and length as character offsets into that packet, so passing them straight to `xfa_read` returns the match itself — search to locate, read to see the surrounding XML. Reports total_matches and truncated honestly rather than silently capping — narrow with `packet` or a more specific query rather than raising limit. A query that could match the empty string is refused, since it would report one hit per character.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max matches returned; default 50.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "packet": {
+          "description": "A packet name from `xfa_packets` (e.g. \"template\", \"datasets\", \"xdp\" for a single-stream /XFA). Omit to use the first packet.",
+          "type": "string"
+        },
+        "query": {
+          "description": "Substring or regex pattern.",
+          "type": "string"
+        },
+        "regex": {
+          "description": "Treat query as a regex; default false.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "doc_path",
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_search"
+  },
+  {
+    "description": "Depth- and count-capped structural summary of the parsed XFA — every node's path, kind, a short content excerpt, and how many children it has, without showing the children. Each packet parses to its own root, addressed as template[0], datasets[0], etc. Walk into a path with `xfa_node` rather than raising max_depth or limit.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Max entries returned; default 200.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "max_depth": {
+          "description": "Depth from each packet root; default 10. A leaf value is itself nested 2-3 levels under its field (value/text/character-data), so shallower defaults cut off real content.",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "doc_path"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_outline"
+  },
+  {
+    "description": "One node's own info — kind, attributes, a content excerpt — plus the list of its immediate children (never a subtree). `path` is a dot-joined address as returned by `xfa_outline`, e.g. \"template[0].subform2.Field1\".",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "path": {
+          "description": "A path from xfa_outline.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_path",
+        "path"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_node"
+  },
+  {
+    "description": "Open a form for interaction and get a session to work in. Everything after this addresses `session` plus a `revision` instead of `doc_path`: the form is live, and each interaction produces a new revision. Returns the same shape as xfa_info, plus `session` and `revision` (always 0 on open). Call xfa_controls next to see what can be set.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_path"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_open"
+  },
+  {
+    "description": "Set one control the way a person would: focus into it, change it, focus out. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the new page count, and the fidelity this interaction was reached at. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one, so an agent can never act on a view that has moved.",
+    "input_schema": {
+      "properties": {
+        "expected_revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "field": {
+          "description": "A control's field path, from xfa_controls.",
+          "type": "string"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "value": {
+          "description": "What to set it to — one of the control's options, or its own on-value for a radio button.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "expected_revision",
+        "field",
+        "value"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_set"
+  },
+  {
+    "description": "Put a session's form back the way it opened, keeping the session and its handle. Cheaper than closing and opening again. Returns the same shape as xfa_set, with the new revision and what changed relative to how the session stood just before the reset.",
+    "input_schema": {
+      "properties": {
+        "expected_revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "expected_revision"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_reset"
+  },
+  {
+    "description": "Release a session. Optional: an unused session is reclaimed on its own after going idle for a while. Worth calling when done with a large form and the memory should be freed sooner.",
+    "input_schema": {
+      "properties": {
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_close"
+  },
+  {
+    "description": "Page count, per-page dimensions in points, detected language, and the XFA packets present. Call this FIRST when addressing by doc_path: if it reports kind 'not_xfa' the document is an ordinary PDF and this server cannot render it — use pdf_info and pdf_render_page instead.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "xfa_info"
+  },
+  {
+    "description": "Render one page of the form to an image. Returns the image inline when it is small enough, otherwise a blob handle the caller dereferences out of band. dpi defaults to 144 and is clamped to 36..600; the long edge is clamped to max_edge_px (default 2576) and the effective dpi is reported back.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "dpi": {
+          "description": "Target resolution; default 144.",
+          "type": "number"
+        },
+        "format": {
+          "description": "Default jpeg.",
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "type": "string"
+        },
+        "max_edge_px": {
+          "description": "Long-edge clamp; default 2576.",
+          "type": "integer"
+        },
+        "page": {
+          "description": "1-based page number.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "page"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_render_page"
+  },
+  {
+    "description": "Render several pages with an explicit cursor. Give either `pages` (an exact list) or `from` plus `limit` (a window). The response stops at whichever cap binds first — an image count and a total byte budget — and reports which in `budget_hit`, with `next_from` naming where to continue. Walk `next_from` until it is null rather than asking for a whole document at once.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "dpi": {
+          "type": "number"
+        },
+        "format": {
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "type": "string"
+        },
+        "from": {
+          "description": "Window start; default 1.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limit": {
+          "description": "Max images this call.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pages": {
+          "description": "Exact pages, in the order you want them.",
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": "array"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "xfa_render_pages"
+  },
+  {
+    "description": "Render a rectangular region of one page at high resolution — the tool for reading small print. The rect is in points with the origin at the page's TOP-LEFT. dpi defaults to 300.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "dpi": {
+          "type": "number"
+        },
+        "format": {
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "type": "string"
+        },
+        "page": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "rect_pt": {
+          "description": "Region in points, origin top-left of the page.",
+          "properties": {
+            "height": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "page",
+        "rect_pt"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_render_region"
+  },
+  {
+    "description": "Text of one page, windowed by character offset. Always reports total_chars and truncated, so a caller can tell a partial read from a whole one. Note the text is logical, not visual: line breaks happen at render time, so this is what the page says rather than how it wraps.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Characters to return; default 4000.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Character offset; default 0.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "page": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "page"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_page_text"
+  },
+  {
+    "description": "Find where something is said, across pages, without reading each one. Greps the form's page text for a literal substring (case-insensitive) or a regex, and tags every match with its page plus the offset and length of the match in that page's text — pass those three straight to xfa_page_text to read the hit in context. Scans from `from` onwards and stops at whichever cap binds first, a match count and a page count, reporting which in `budget_hit` with `next_from` naming where to continue; walk `next_from` until it is null. A page is always scanned whole, so a walk never repeats a match. total_matches counts the pages THIS call scanned, and truncated says the match limit dropped entries — narrow the query rather than raising limit. A query that could match the empty string is refused, since it would report one hit per character. This runs the full layout path, so it is not free; the first call on a document pays for it and later ones reuse it. To grep the raw XFA XML instead of the laid-out text, use the xfa_search tool of the XFA data server.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "from": {
+          "description": "First page to scan; default 1.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limit": {
+          "description": "Max matches returned; default 50.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "description": "Substring, or regex pattern when regex is true.",
+          "type": "string"
+        },
+        "regex": {
+          "description": "Treat query as a regex; default false. A literal is case-insensitive; a regex is not, so write (?i) if you want that.",
+          "type": "boolean"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_search_text"
+  },
+  {
+    "description": "Every control on the form: every radio group, checkbox and dropdown, with its options, what it is set to, whether it is currently visible, and whether the form's own scripts react to it (`affects_layout`) — a form with many controls is worth triaging by that flag first. Addressed by `session` and `revision`, this answers for the form AS IT STANDS after those interactions, which is how a control a script only reveals mid-fill is found: it is invisible before the interaction that reveals it and listed after. Cheap: it reads the form, it does not explore it.\n\nEach control also reports `positions`: where it is drawn, as `{page, x, y, width, height}` in points with the origin at the page's top-left — the exact shape xfa_render_region's rect_pt takes, so an entry here can be passed straight to that tool to zoom in on it. An empty list means the form is not currently showing this control; more than one entry means it lives inside a repeated section and is drawn more than once. Positions come from the laid-out form, which is why this tool — not the raw XFA data server's xfa_node — is where to find them.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "xfa_controls"
+  },
+  {
+    "description": "Page count, per-page dimensions in points, rotation, and form type. Call this FIRST: when form_type is xfa_full or xfa_foreground the document is an XFA form, and this server can only render its static 'please update your reader' shim page — route those to the XFA renderer instead.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_path"
+      ],
+      "type": "object"
+    },
+    "name": "pdf_info"
+  },
+  {
+    "description": "Render one page to an image. Returns the image inline when it is small enough, otherwise a blob handle the caller dereferences out of band. dpi defaults to 144 and is clamped to 36..600; the long edge is clamped to max_edge_px (default 2576) and the effective dpi is reported back.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "dpi": {
+          "description": "Target resolution; default 144.",
+          "type": "number"
+        },
+        "format": {
+          "description": "Default jpeg.",
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "type": "string"
+        },
+        "max_edge_px": {
+          "description": "Long-edge clamp; default 2576.",
+          "type": "integer"
+        },
+        "page": {
+          "description": "1-based page number.",
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "doc_path",
+        "page"
+      ],
+      "type": "object"
+    },
+    "name": "pdf_render_page"
+  },
+  {
+    "description": "Render several pages with an explicit cursor. Give either `pages` (an exact list) or `from` plus `limit` (a window). The response stops at whichever cap binds first — an image count and a total byte budget — and reports which in `budget_hit`, with `next_from` naming where to continue. Walk `next_from` until it is null rather than asking for a whole document at once.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "dpi": {
+          "type": "number"
+        },
+        "format": {
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "type": "string"
+        },
+        "from": {
+          "description": "Window start; default 1.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limit": {
+          "description": "Max images this call.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "pages": {
+          "description": "Exact pages, in the order you want them.",
+          "items": {
+            "minimum": 1,
+            "type": "integer"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "doc_path"
+      ],
+      "type": "object"
+    },
+    "name": "pdf_render_pages"
+  },
+  {
+    "description": "Render a rectangular region of one page at high resolution — the tool for reading small print. The rect is in PDF points with the origin at the page's TOP-LEFT. dpi defaults to 300.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "dpi": {
+          "type": "number"
+        },
+        "format": {
+          "enum": [
+            "jpeg",
+            "png"
+          ],
+          "type": "string"
+        },
+        "page": {
+          "minimum": 1,
+          "type": "integer"
+        },
+        "rect_pt": {
+          "description": "Region in points, origin top-left of the page.",
+          "properties": {
+            "height": {
+              "type": "number"
+            },
+            "width": {
+              "type": "number"
+            },
+            "x": {
+              "type": "number"
+            },
+            "y": {
+              "type": "number"
+            }
+          },
+          "required": [
+            "x",
+            "y",
+            "width",
+            "height"
+          ],
+          "type": "object"
+        }
+      },
+      "required": [
+        "doc_path",
+        "page",
+        "rect_pt"
+      ],
+      "type": "object"
+    },
+    "name": "pdf_render_region"
+  },
+  {
+    "description": "Extracted text of one page, windowed by character offset. Always reports total_chars and truncated, so a caller can tell a partial read from a whole one. Use this to quote exactly; use the render tools to see layout.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "limit": {
+          "description": "Characters to return; default 4000.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Character offset; default 0.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "page": {
+          "minimum": 1,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "doc_path",
+        "page"
+      ],
+      "type": "object"
+    },
+    "name": "pdf_page_text"
+  },
+  {
+    "description": "Find where something is said, across pages, without reading each one. Greps extracted page text for a literal substring (case-insensitive) or a regex, and tags every match with its page plus the offset and length of the match in that page's text — pass those three straight to pdf_page_text to read the hit in context. Scans from `from` onwards and stops at whichever cap binds first, a match count and a page count, reporting which in `budget_hit` with `next_from` naming where to continue; walk `next_from` until it is null. A page is always scanned whole, so a walk never repeats a match. total_matches counts the pages THIS call scanned, and truncated says the match limit dropped entries — narrow the query rather than raising limit. A query that could match the empty string is refused, since it would report one hit per character.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR.",
+          "type": "string"
+        },
+        "from": {
+          "description": "First page to scan; default 1.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "limit": {
+          "description": "Max matches returned; default 50.",
+          "minimum": 1,
+          "type": "integer"
+        },
+        "query": {
+          "description": "Substring, or regex pattern when regex is true.",
+          "type": "string"
+        },
+        "regex": {
+          "description": "Treat query as a regex; default false. A literal is case-insensitive; a regex is not, so write (?i) if you want that.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "doc_path",
+        "query"
+      ],
+      "type": "object"
+    },
+    "name": "pdf_search_text"
   }
 ]

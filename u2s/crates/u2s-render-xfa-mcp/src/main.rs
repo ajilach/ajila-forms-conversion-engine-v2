@@ -19,7 +19,7 @@
 //! `u2s-render-xfa` for why the two are additive rather than one replacing
 //! the other.
 
-mod specs;
+pub mod specs;
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -41,7 +41,7 @@ use u2s_render_xfa::{
 const MANIFEST_URI: &str = "u2s://manifest";
 
 #[derive(Clone)]
-struct XfaRenderServer {
+pub struct XfaRenderServer {
     renderer: Renderer,
     blobs: Arc<BlobStore>,
     max_inline_bytes: usize,
@@ -57,13 +57,18 @@ impl XfaRenderServer {
             searched: vec![e.to_string()],
         })?;
 
-        let limits = Limits::from_env();
+        Ok(Self::with_parts(Limits::from_env(), BlobStore::from_env()))
+    }
+
+    /// [`Self::new`] for in-process hosts: limits and blob store come from the
+    /// caller, and the fonts must already be registered.
+    pub fn with_parts(limits: Limits, blobs: BlobStore) -> Self {
         let max_inline_bytes = limits.max_inline_bytes;
-        Ok(XfaRenderServer {
+        XfaRenderServer {
             renderer: Renderer::new(limits),
-            blobs: Arc::new(BlobStore::from_env()),
+            blobs: Arc::new(blobs),
             max_inline_bytes,
-        })
+        }
     }
 
     /// The image itself when it is small enough to be worth putting in front of
@@ -184,7 +189,7 @@ impl XfaRenderServer {
         }
     }
 
-    fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
+    pub fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
         match name {
             "xfa_open" => {
                 let path = arg_str(args, "doc_path")?;

@@ -25,6 +25,15 @@ rmcp = { version = "1.7.0", default-features = false, features = ["client", "tra
 # closing it takes the node process npx forks and its Chrome along.
 process-wrap = { version = "9.1", default-features = false, features = ["tokio1", "process-group", "job-object"] }
 tokio = { version = "1", features = ["process", "io-util", "rt", "time"] }
+# The vendored u2s tool servers, linked in-process (see u2s/VENDORED.md).
+# rmcp3 names their result types; it is not a transport here.
+rmcp3 = { package = "rmcp", version = "3.1", default-features = false }
+tempfile = "3"
+u2s-render-core = { path = "../u2s/crates/u2s-render-core" }
+u2s-render-pdf-mcp = { path = "../u2s/crates/u2s-render-pdf-mcp" }
+u2s-render-xfa-mcp = { path = "../u2s/crates/u2s-render-xfa-mcp" }
+u2s-xfa = { path = "../u2s/crates/u2s-xfa" }
+u2s-xfa-mcp = { path = "../u2s/crates/u2s-xfa-mcp" }
 
 [features]
 # Un-gates `db::set_db_path_for_test` for another crate's own tests (this

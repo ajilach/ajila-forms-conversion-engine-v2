@@ -55,7 +55,7 @@ pub struct ServerConfig {
 }
 
 #[derive(Clone)]
-struct AemVerifyServer {
+pub struct AemVerifyServer {
     profile: Arc<Profile>,
     blobs: Arc<BlobStore>,
     session: Arc<SessionPool>,
@@ -69,6 +69,16 @@ impl AemVerifyServer {
     /// reported, not fatal.
     fn new(config: Arc<ServerConfig>) -> Result<Self, String> {
         let profile = Profile::from_env().map_err(|err| format!("cannot start: {err}"))?;
+        Self::with_parts(config, profile, BlobStore::from_env())
+    }
+
+    /// [`Self::new`] with the profile and blob store supplied by the caller
+    /// instead of read from the environment, for in-process hosts.
+    pub fn with_parts(
+        config: Arc<ServerConfig>,
+        profile: Profile,
+        blobs: BlobStore,
+    ) -> Result<Self, String> {
         if let Some(expected) = config.expected_format
             && profile.format != expected
         {
@@ -80,13 +90,33 @@ impl AemVerifyServer {
         }
         Ok(Self {
             profile: Arc::new(profile),
-            blobs: Arc::new(BlobStore::from_env()),
+            blobs: Arc::new(blobs),
             session: Arc::new(SessionPool::new()),
             config,
         })
     }
 
-    async fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, String> {
+    /// Starts the background sweep that tears down sessions idle longer than
+    /// the profile's idle timeout, as `run_main` does for the stdio binary.
+    pub fn spawn_idle_sweep(&self) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(idle_sweep_loop(
+            Arc::clone(&self.profile),
+            Arc::clone(&self.session),
+        ))
+    }
+
+    /// Tears down every session that is not in use right now.
+    pub async fn shutdown(&self) -> Result<(), String> {
+        let docker = DockerLifecycle::connect()
+            .await
+            .map_err(|err| format!("could not reach Docker to tear down sessions: {err}"))?;
+        self.session
+            .sweep_idle(&docker, std::time::Duration::ZERO)
+            .await;
+        Ok(())
+    }
+
+    pub async fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, String> {
         match name {
             "verify_status" => self.verify_status(args).await,
             "verify_package_check" => self.verify_package_check(args),
@@ -600,7 +630,7 @@ impl ServerHandler for AemVerifyServer {
 /// else in this process remembers it existed. Best-effort: Docker being
 /// unreachable here is not a startup failure, only something logged, since
 /// the server must still start and serve `verify_status` either way.
-async fn remove_leftover_containers(profile: &Profile) {
+pub async fn remove_leftover_containers(profile: &Profile) {
     let docker = match DockerLifecycle::connect().await {
         Ok(docker) => docker,
         Err(err) => {
@@ -645,7 +675,7 @@ async fn remove_leftover_containers(profile: &Profile) {
 /// lifetime, since `DockerLifecycle::connect` is cheap and this way a
 /// Docker daemon that restarted mid-session is not a reason for the sweep
 /// itself to die.
-async fn idle_sweep_loop(profile: Arc<Profile>, session: Arc<SessionPool>) {
+pub async fn idle_sweep_loop(profile: Arc<Profile>, session: Arc<SessionPool>) {
     loop {
         tokio::time::sleep(std::time::Duration::from_secs(60)).await;
         match DockerLifecycle::connect().await {

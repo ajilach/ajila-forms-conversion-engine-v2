@@ -42,6 +42,18 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
   `u2s-aem` and `u2s-redacto`, together with the three schema tests that used it
   (`skeleton.rs`, and `strict_adaptation.rs` in both crates). `u2s-engine` is v3's LLM engine;
   it is not vendored here.
+- `0002-library-targets-for-in-process-hosts.patch`: gives the five server crates a library
+  target, which `agent/src/u2s.rs` links in-process.
+  - `u2s-xfa-mcp`, `u2s-render-xfa-mcp`, `u2s-render-pdf-mcp` and `u2s-redacto-ubs-verify-mcp`
+    get a `lib.rs` that compiles their unchanged `main.rs` as a module (`#[path]`). Inside
+    `main.rs`, the patch only makes the server type, its `dispatch` and the `specs` module
+    `pub`.
+  - Each constructor that reads the environment gets a `with_parts(...)` twin, which takes
+    limits, blob store and profile as values; `new()` delegates to it. The Redacto verifier
+    also gets `shutdown()`, which tears down its default session.
+  - `u2s-aem-ubs-verify-mcp` gets a `lib.rs` exposing its driver and specs.
+  - `u2s-aem-verify-core`'s `AemVerifyServer` becomes public, with `with_parts`, `dispatch`,
+    `spawn_idle_sweep` and `shutdown`.
 
 Not vendored, so their fixture links are dropped: `u2s-aem-mcp` (`generic_minimal.zip`) and
 `u2s-test-verify-mcp` (`verify_fixture_package.json`).

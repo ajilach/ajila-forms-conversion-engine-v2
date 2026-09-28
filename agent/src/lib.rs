@@ -23,6 +23,7 @@ pub mod references;
 pub mod session;
 pub mod structured_edit;
 pub mod tree_edit;
+pub mod u2s;
 
 pub use conversion::{
     ANALYST_ADDENDUM, AUTHOR_ADDENDUM, ConversionAgent, MCP_ADDENDUM, NO_PACKAGE,
