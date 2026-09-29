@@ -18,9 +18,10 @@ use std::sync::Arc;
 use agent::ToolReply;
 use agent::OutputTarget;
 use rig_agent::agent::model::ModelHandle;
-use rig_agent::agent::{Agent, AgentBuilder, StreamingError};
+use rig_agent::agent::{Agent, AgentBuilder, MultiTurnStreamItem, StreamingError};
 use rig_agent::completion::PromptError;
 use rig_core::completion::CompletionError;
+use rig_core::memory::ConversationMemory;
 use rig_core::message::{AssistantContent, Message};
 use rig_memory::{CompactingMemory, MemoryPolicy, TemplateCompactor};
 
@@ -518,21 +519,66 @@ pub(crate) async fn run_stage(
     // stage's own spend across retries.
     total_spend: &mut Spend,
 ) -> Option<String> {
-    use futures_util::StreamExt;
 
     let (specs, session_id) = {
         let agent = shared_agent.lock().await;
         (agent.tools_for_stage(role.scope), agent.session_id().to_string())
     };
-    let agent = build_stage_agent(
-        model,
-        max_tokens,
-        shared_agent,
-        &specs,
-        &session_id,
-        role.name,
-        context_budget.policy(),
-    );
+    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs);
+
+    let memory = stage_memory(&session_id, role.name, context_budget.policy());
+    let loaded: Vec<Message> = match &memory {
+        Some((memory, id)) => match memory.load(id).await {
+            Ok(loaded) => loaded,
+            Err(e) => {
+                obs.emit(RunEvent::Warning(format!(
+                    "{}: the stage's earlier conversation could not be loaded ({e}); \
+                     starting without it.",
+                    role.name
+                )));
+                Vec::new()
+            }
+        },
+        None => Vec::new(),
+    };
+    // The stage's whole history as far as it got, stored on the way out.
+    let mut history: Vec<Message> = loaded.clone();
+    let outcome = run_stage_attempts(
+        &agent,
+        role,
+        system,
+        seed_user_msg,
+        abort,
+        &price,
+        &context_budget,
+        obs,
+        total_spend,
+        &loaded,
+        &mut history,
+    )
+    .await;
+    store_stage(memory.as_ref(), &loaded, &history, role, obs).await;
+    outcome
+}
+
+/// [`run_stage`]'s attempts: the first from the loaded conversation, and each
+/// restart from where the failed one left off. Leaves in `history` the
+/// stage's whole history as far as it got.
+#[allow(clippy::too_many_arguments)]
+async fn run_stage_attempts(
+    agent: &Agent,
+    role: &'static Role,
+    system: &str,
+    seed_user_msg: &str,
+    abort: &AbortFlag,
+    price: &PriceFn,
+    context_budget: &Arc<dyn ContextBudget>,
+    obs: &SharedObserver,
+    total_spend: &mut Spend,
+    loaded: &[Message],
+    history: &mut Vec<Message>,
+) -> Option<String> {
+    use futures_util::StreamExt;
 
     let mut restart_from: Option<Vec<Message>> = None;
     let mut total_completed_turns = 0usize;
@@ -562,8 +608,13 @@ pub(crate) async fn run_stage(
             context_budget.clone(),
         ));
 
-        let runner = match restart_from.take() {
-            None => agent.runner(seed_user_msg.to_string()),
+        // The history this attempt starts from, which its own messages
+        // follow; explicit either way, so rig neither loads nor saves.
+        let (runner, attempt_history) = match restart_from.take() {
+            None => (
+                agent.runner(seed_user_msg.to_string()).history(loaded.to_vec()),
+                loaded.to_vec(),
+            ),
             Some(mut attempt) => {
                 // `last_attempt` always captured history plus the prompt about
                 // to be sent, so a restart's own prompt is that last message
@@ -571,7 +622,7 @@ pub(crate) async fn run_stage(
                 let prompt = attempt
                     .pop()
                     .expect("a restart always captured at least one message");
-                agent.runner(prompt).history(attempt)
+                (agent.runner(prompt).history(attempt.clone()), attempt)
             }
         };
         let mut stream = runner
@@ -582,13 +633,29 @@ pub(crate) async fn run_stage(
             .await;
 
         let mut stream_error: Option<StreamingError> = None;
+        let mut finished: Option<Vec<Message>> = None;
         while let Some(item) = stream.next().await {
-            if let Err(e) = item {
-                stream_error = Some(e);
-                break;
+            match item {
+                Ok(MultiTurnStreamItem::FinalResponse(response)) => {
+                    finished = Some(response.messages.unwrap_or_default());
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    stream_error = Some(e);
+                    break;
+                }
             }
         }
         drop(stream);
+        // As far as this attempt got: its own messages after the history it
+        // started from when it finished, otherwise the last request it sent.
+        *history = match &finished {
+            Some(messages) => [attempt_history, messages.clone()].concat(),
+            None => {
+                let attempted = hook.last_attempt();
+                if attempted.is_empty() { attempt_history } else { attempted }
+            }
+        };
 
         total_completed_turns += hook.completed_turns();
         *total_spend = hook.spend();
@@ -603,6 +670,7 @@ pub(crate) async fn run_stage(
         match error {
             StreamingError::Prompt(boxed) => match *boxed {
                 PromptError::PromptCancelled { chat_history, reason } => {
+                    *history = chat_history.to_vec();
                     if abort.is_aborted() {
                         obs.emit(RunEvent::Aborted);
                         return None;
@@ -620,6 +688,7 @@ pub(crate) async fn run_stage(
                     return Some(final_text);
                 }
                 PromptError::MaxTurnsError { chat_history, max_turns, .. } => {
+                    *history = chat_history.to_vec();
                     let text = last_assistant_text(&chat_history);
                     if !text.is_empty() {
                         final_text = text;
@@ -689,32 +758,9 @@ fn build_stage_agent(
     max_tokens: u32,
     shared_agent: &SharedAgent,
     specs: &[serde_json::Value],
-    session_id: &str,
-    role_name: &str,
-    memory_policy: Arc<dyn MemoryPolicy>,
 ) -> Agent {
     let dynamic_tools = tools::dynamic_tools_for(shared_agent, specs);
-    let mut builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
-
-    // A throwaway agent with no session of its own (`describe_reference`'s
-    // one-shot pass) has nothing to key a conversation by, and nothing to
-    // gain from persisting one: it never runs again under the same id.
-    if !session_id.is_empty() {
-        // Capped rather than left to grow monotonically (`TemplateCompactor`'s
-        // default): rig-memory's own docs warn that pairing `CompactingMemory`
-        // with a token-budgeted policy needs a compactor that bounds its own
-        // artifact, or the loaded prompt can exceed the policy's budget by the
-        // summary's size. The bound is generous — this is a standing rollup
-        // note, not per-turn content — since the per-turn `ContextBudget`
-        // shaping downstream would otherwise be the only thing standing
-        // between an unbounded summary and the request.
-        const MAX_COMPACTED_SUMMARY_BYTES: usize = 8 * 1024;
-        let compactor = TemplateCompactor::new().with_max_bytes(MAX_COMPACTED_SUMMARY_BYTES);
-        let memory = CompactingMemory::new(SqliteConversationMemory, memory_policy, compactor);
-        builder = builder
-            .memory(memory)
-            .conversation(memory::conversation_id(session_id, role_name));
-    }
+    let builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
 
     let mut iter = dynamic_tools.into_iter();
     match iter.next() {
@@ -726,6 +772,69 @@ fn build_stage_agent(
             }
             builder.build()
         }
+    }
+}
+
+/// A stage's conversation memory: the backend and the id it is stored under.
+type StageMemory = (Arc<dyn ConversationMemory>, String);
+
+/// The memory `session_id`'s run of the stage `role_name` loads from and
+/// appends to, or `None` for a throwaway agent with no session of its own
+/// (`describe_reference`'s one-shot pass): it has nothing to key a
+/// conversation by, and never runs again under the same id.
+///
+/// Not attached to the rig `Agent`: rig saves a conversation only when a run
+/// reaches a natural end, and bypasses memory entirely for a run given
+/// explicit history. A stage ends through a hook stop (`submit_review`, the
+/// stuck watch, an abort) or its turn budget as often as naturally, and a
+/// restart after a transient failure resumes from explicit history, so
+/// [`run_stage`] loads and appends itself, on every exit.
+fn stage_memory(session_id: &str, role_name: &str, policy: Arc<dyn MemoryPolicy>) -> Option<StageMemory> {
+    if session_id.is_empty() {
+        return None;
+    }
+    // Capped rather than left to grow monotonically (`TemplateCompactor`'s
+    // default): rig-memory's own docs warn that pairing `CompactingMemory`
+    // with a token-budgeted policy needs a compactor that bounds its own
+    // artifact, or the loaded prompt can exceed the policy's budget by the
+    // summary's size. The bound is generous — this is a standing rollup
+    // note, not per-turn content — since the per-turn `ContextBudget`
+    // shaping downstream would otherwise be the only thing standing
+    // between an unbounded summary and the request.
+    const MAX_COMPACTED_SUMMARY_BYTES: usize = 8 * 1024;
+    let compactor = TemplateCompactor::new().with_max_bytes(MAX_COMPACTED_SUMMARY_BYTES);
+    let memory: Arc<dyn ConversationMemory> =
+        Arc::new(CompactingMemory::new(SqliteConversationMemory, policy, compactor));
+    Some((memory, memory::conversation_id(session_id, role_name)))
+}
+
+/// Append what a stage added to what it loaded: `full` is the stage's whole
+/// history, which starts with the `loaded` messages it was resumed from.
+async fn store_stage(
+    memory: Option<&StageMemory>,
+    loaded: &[Message],
+    full: &[Message],
+    role: &Role,
+    obs: &SharedObserver,
+) {
+    let Some((memory, id)) = memory else { return };
+    if !full.starts_with(loaded) {
+        obs.emit(RunEvent::Warning(format!(
+            "{}: the stage's history no longer starts with the conversation it resumed, \
+             so it was not stored.",
+            role.name
+        )));
+        return;
+    }
+    let added = &full[loaded.len()..];
+    if added.is_empty() {
+        return;
+    }
+    if let Err(e) = memory.append(id, added.to_vec()).await {
+        obs.emit(RunEvent::Warning(format!(
+            "{}: the stage's conversation could not be stored: {e}",
+            role.name
+        )));
     }
 }
 
@@ -1800,6 +1909,117 @@ mod controller {
             last_spend.input_tokens, 400,
             "the turn billed before the failure must still count toward the total"
         );
+    }
+
+    /// A stage run under a real session id against the scratch database, and
+    /// what memory holds for it afterwards.
+    async fn stored_after(
+        role: &'static Role,
+        turns: Vec<Vec<MockStreamEvent>>,
+    ) -> (Vec<Message>, MockCompletionModel) {
+        use rig_core::memory::ConversationMemory;
+        let session_id = format!("persist-test-{}", uuid::Uuid::new_v4());
+        let agent = Arc::new(tokio::sync::Mutex::new(
+            ConversionAgent::new(None, Vec::new(), session_id.clone(), OutputTarget::Redacto)
+                .expect("an agent without sources starts"),
+        ));
+        let model = MockCompletionModel::from_stream_turns(turns);
+        let (obs, _) = recorder();
+        run_stage(
+            &agent,
+            role,
+            "system",
+            "the seed",
+            &AbortFlag::default(),
+            ModelHandle::new(model.clone()),
+            no_price(),
+            4096,
+            no_budget(),
+            &obs,
+            &mut Spend::default(),
+        )
+        .await;
+        let stored = crate::memory::SqliteConversationMemory
+            .load(&crate::memory::conversation_id(&session_id, role.name))
+            .await
+            .expect("memory loads");
+        (stored, model)
+    }
+
+    fn seeds(messages: &[Message]) -> usize {
+        messages.iter().filter(|m| user_text(m).contains("the seed")).count()
+    }
+
+    fn calls_tool(messages: &[Message], tool: &str) -> bool {
+        messages.iter().any(|m| match m {
+            Message::Assistant { content, .. } => content
+                .iter()
+                .any(|c| matches!(c, AssistantContent::ToolCall(t) if t.function.name == tool)),
+            _ => false,
+        })
+    }
+
+    /// The Reviewer always ends through `submit_review`, a hook stop rather
+    /// than a natural end, and rig saves a conversation only on a natural end:
+    /// its conversation, and the tool results a diagnosis needs, were never
+    /// stored.
+    #[tokio::test]
+    async fn a_review_ended_by_submit_review_is_stored() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
+        let (stored, _) = stored_after(role, vec![review_turn(true, "fine")]).await;
+        assert_eq!(seeds(&stored), 1, "{stored:?}");
+        assert!(calls_tool(&stored, "submit_review"), "{stored:?}");
+    }
+
+    /// A stage cut off by its turn budget keeps what it did.
+    #[tokio::test]
+    async fn a_stage_that_runs_out_of_turns_is_stored() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let role = &roles::roles_for(OutputTarget::Redacto).analyst;
+        let turns = std::iter::repeat_with(|| {
+            vec![
+                MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::final_response(Usage::new()),
+            ]
+        })
+        .take(role.max_iterations)
+        .collect();
+        let (stored, _) = stored_after(role, turns).await;
+        assert_eq!(seeds(&stored), 1);
+        assert!(calls_tool(&stored, "get_source_info"), "{stored:?}");
+    }
+
+    /// A restart after a transient failure resumes from explicit history, and
+    /// explicit history bypasses rig's memory altogether: a stage that ever
+    /// retried was not stored at all, even when it then finished. It is stored
+    /// whole, and once.
+    #[tokio::test]
+    async fn a_stage_restarted_after_a_transient_failure_is_stored_once() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let role = &roles::roles_for(OutputTarget::Redacto).author;
+        let (stored, model) = stored_after(
+            role,
+            vec![
+                vec![
+                    MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                    MockStreamEvent::final_response(Usage::new()),
+                ],
+                error_turn("overloaded_error: 529"),
+                text_turn("built after the retry"),
+            ],
+        )
+        .await;
+        assert_eq!(model.request_count(), 3);
+        assert_eq!(seeds(&stored), 1, "{stored:?}");
+        assert!(calls_tool(&stored, "get_source_info"), "{stored:?}");
+        let finished = stored.iter().any(|m| match m {
+            Message::Assistant { content, .. } => content.iter().any(|c| {
+                matches!(c, AssistantContent::Text(t) if t.text.contains("built after the retry"))
+            }),
+            _ => false,
+        });
+        assert!(finished, "{stored:?}");
     }
 
     /// The whole point of wiring `SqliteConversationMemory` in
