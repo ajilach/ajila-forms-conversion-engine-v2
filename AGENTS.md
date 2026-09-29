@@ -22,7 +22,7 @@
 - The AEM output is judged by the feedback repo's CI guard, because a converted form joins the
   corpus that guard polices. Run it on a package a conversion wrote with
   `python3 scripts/check_feedback_rules.py <package.zip> forms/AAOS_033_IT.pdf` (it needs
-  `../ajila-forms-conversion-feedback`); every enrolled rule must be clean. The rules themselves are
+  `../ajila-forms-conversion-feedback`); every enrolled rule must be clean, bar the two exceptions below. The rules themselves are
   in `specs/feedback/consistent-problems.md`, and the shapes a person still applies by hand in
   `specs/feedback/manual-changes-italy-033.md`. The ones a document can break are also checked on
   every edit, as the UBS rules in `u2s-aem-ubs-mcp/rules/` (`rule_check`); the rest the templates
@@ -33,7 +33,8 @@
 - Where a node shows up is `AemAttrs` on the node, not a template guess: `summary_exclude` is what
   keeps content out of the UBS DoR (Redacto renders it from the summary), `dor_exclude` is Adobe's
   own switch, and `always_in_pdf` is how a hidden node still reaches the printed document.
-- Partner and signature blocks follow the UBS general-fragments directive (specs/"AF Fragments and Common Fields with XSD List.md", 2026-08-20): the custom templates and the role prompts reference only the four `afforms_ubs_fragmentlib` partner generics plus `affrg_SignatureGeneric1`, hide unneeded sub-panels via one Initialize `hideAFHideDor` rule, pair each data panel with its signature panel by name (`PN_CPGRP`/`PN_SGN_CPGRP`, `PN_AHGRP`/`PN_Sign_AHGRP`), and let the host author the signer-name fill (`TXT_Donotdelete` calc). `test_custom_templates_reference_only_ubs_generic_fragments` (upstream, in `u2s-aem-ubs-mcp`) pins it, and the `ubs-aem-retired-market-fragments` rule checks every document; do not reintroduce germany/italy person or signature fragments.
+- Partner and signature blocks follow the UBS general-fragments directive (specs/"AF Fragments and Common Fields with XSD List.md", 2026-08-20), and the document authors them from ordinary nodes: there are no custom elements. A party is a `Repeatable` wrapping one of the four `afforms_ubs_fragmentlib` partner generics, whose `init_hide` lists the sub-panels its one Initialize `hideAFHideDor` rule hides (only a partner generic takes it); its signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, both named after the party (`RCP_SGN_CPGRP`/`PN_SGN_CPGRP` for `PN_CPGRP`, `RCP_Sign_AHGRP`/`PN_Sign_AHGRP` for `PN_AHGRP`, `PN_SGN_BOGRP` and `PN_SGN_PAGRP` for the beneficial owner and the POA), and the UBS layer pairs the two by that name, so the party's Add and Remove drive both. The `ubs-aem-retired-market-fragments` and `ubs-aem-global-internal-bank-use` rules check every document; do not reintroduce germany/italy person or signature fragments.
+- Two feedback-guard rules are accepted exceptions, by decision (2026-09-29): the signer-name fill (`PROBLEM-signature-name-fill`) is left to a person in AEM, and a party repeatable's Add label (`PROBLEM-repeatable-add-label`) may fail only on a form that ships no English: elsewhere the Author titles the repeatable in English with its translations, as the prompts explain, and a failure is a defect. Every other enrolled rule must be clean.
 - The XSD is generated from the **AemNode** tree (the UBS layer's `xsd/from_aem.rs`), and each node's `bindRef` is assigned during that same walk, so a form's bindRefs are by construction exact element paths in its schema. Do not add a second XSD source. Customer-specific element names, ignore rules and occurrence overrides belong in the UBS layer's `profiles/ubs/xsd/config.toml` under `[[aemElements]]`, never in Rust.
 
 ## Layout

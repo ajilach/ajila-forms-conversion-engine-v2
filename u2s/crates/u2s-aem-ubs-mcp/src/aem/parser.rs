@@ -81,6 +81,10 @@ pub struct ParsedAemPackage {
     /// `AemNodeTranslated` node's `passthrough`, so a load→save round-trip keeps
     /// every attribute the typed model doesn't represent. See [`Passthrough`].
     pub raw_by_uuid: HashMap<Uuid, Passthrough>,
+    /// The sub-panels each fragment's Initialize rule hides
+    /// (`hideAFHideDor(this.X)`), keyed by the fragment's uuid. The writer
+    /// regenerates a fragment's scripts, so this is what of them a document keeps.
+    pub fragment_init_hide: HashMap<Uuid, Vec<super::ComponentName>>,
 }
 
 // ============================================================================
@@ -191,6 +195,7 @@ pub fn parse_aem_zip(bytes: &[u8]) -> Result<ParsedAemPackage, String> {
         metadata,
         visibility_conditions: parse_ctx.visibility_conditions,
         raw_by_uuid: parse_ctx.raw_by_uuid,
+        fragment_init_hide: parse_ctx.fragment_init_hide,
     })
 }
 
@@ -283,6 +288,8 @@ struct ParseContext<'a> {
     /// The conditional panels `conditional.xml` wrote, in document order, each
     /// with the (trigger field, value) pairs its show rule tests.
     show_triggers: Vec<(String, Vec<(String, String)>)>,
+    /// See [`ParsedAemPackage::fragment_init_hide`].
+    fragment_init_hide: HashMap<Uuid, Vec<super::ComponentName>>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -299,6 +306,7 @@ impl<'a> ParseContext<'a> {
             raw_by_uuid: HashMap::new(),
             issued: std::collections::HashSet::new(),
             show_triggers: Vec::new(),
+            fragment_init_hide: HashMap::new(),
         }
     }
 
@@ -1424,6 +1432,10 @@ fn convert_fragment(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<Aem
         // than kept: an authored fragment script gives way to the profile's.
         &[REGENERATED_CHILD_TAGS, &["fd:scripts"]].concat(),
     );
+    let hidden = hidden_on_init(node);
+    if !hidden.is_empty() {
+        ctx.fragment_init_hide.insert(uuid, hidden);
+    }
 
     // Cycle detection
     if ctx.fragment_stack.contains(&frag_ref) {
@@ -1519,6 +1531,7 @@ fn convert_fragment(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<Aem
         title: node.attr("jcr:title").unwrap_or_default().to_string(),
         frag_ref,
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
+        init_hide: Vec::new(),
     }))
 }
 
@@ -1586,6 +1599,24 @@ fn find_fragment_content(tree: &JcrNode) -> Option<&JcrNode> {
 // ============================================================================
 // Script extraction
 // ============================================================================
+
+/// The sub-panels `node`'s Initialize rule hides: each `hideAFHideDor(this.X)`
+/// in its `fd:init`, in order.
+fn hidden_on_init(node: &JcrNode) -> Vec<super::ComponentName> {
+    use regex_lite::Regex;
+    let Some(init) = node
+        .children
+        .iter()
+        .find(|c| c.tag_name == "fd:scripts")
+        .and_then(|scripts| scripts.attr("fd:init"))
+    else {
+        return Vec::new();
+    };
+    let call = Regex::new(r"hideAFHideDor\(this\.([A-Za-z_][A-Za-z0-9_]*)\)").unwrap();
+    call.captures_iter(init)
+        .filter_map(|c| super::ComponentName::try_from(c[1].to_string()).ok())
+        .collect()
+}
 
 /// Extract scripts from `fd:scripts` and `fd:rules` child nodes.
 fn extract_scripts_from_node(node: &JcrNode, comp_name: &str, ctx: &mut ParseContext) {

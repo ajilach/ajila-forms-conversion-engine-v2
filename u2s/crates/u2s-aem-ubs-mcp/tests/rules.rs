@@ -189,6 +189,32 @@ fn a_retired_market_fragment_is_reported_and_a_kept_family_is_not() {
     );
 }
 
+/// The internal-bank-use block is the global fragment in every market; a
+/// market one is the shape the corpus migrated away from.
+#[test]
+fn a_market_internal_bank_use_fragment_is_reported_and_the_global_one_is_not() {
+    let fragment = |frag_ref: &str| {
+        json!({
+            "type": "Fragment", "uuid": "00000000-0000-0000-0000-000000000001",
+            "name": "PN_FRG_InternalBankUseOnly", "title": {"en": ""}, "frag_ref": frag_ref,
+            "visible": false, "bind_ref": null
+        })
+    };
+    let base = golden("AAEV_019_EN");
+    let page = first_panel(&base);
+    let market =
+        "/content/dam/formsanddocuments/afforms_italy_fragmentlib/affrg_italy_internalbankuse_ouref";
+    let global = "/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature";
+    let doc = aaev_with(
+        &format!("{page}/children"),
+        json!([fragment(market), fragment(global)]),
+    );
+    assert_eq!(
+        violations("global-internal-bank-use", &doc),
+        vec![format!("{page}/children/0/frag_ref")]
+    );
+}
+
 #[test]
 fn a_panel_of_static_text_named_as_a_table_is_a_legacy_table() {
     let draw = json!({

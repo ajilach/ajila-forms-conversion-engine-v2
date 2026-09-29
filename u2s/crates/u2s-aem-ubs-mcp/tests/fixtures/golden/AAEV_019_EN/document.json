@@ -147,11 +147,6 @@
             "type": "Panel",
             "uuid": "cd1367ad-2e77-45c0-b3d6-6c8c3ee35f75",
             "visible": true
-          },
-          {
-            "name": "PN_Appendix_e2860ea5",
-            "type": "Appendix",
-            "uuid": "3d06c67a-7ac7-4342-b877-6bce655144e0"
           }
         ],
         "colspan": 12,

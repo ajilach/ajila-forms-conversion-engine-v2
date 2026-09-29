@@ -18,6 +18,7 @@ use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 use super::{
+    ComponentName,
     AemAttrs, AemNode, AemOption, ConditionRule, OptionAlignment, Passthrough, TextFieldKind,
 };
 
@@ -359,15 +360,13 @@ pub enum AemNodeTranslated {
         #[serde(default = "super::default_true")]
         visible: bool,
         bind_ref: Option<String>,
+        /// Sub-panels of the fragment hidden, on screen and in the DoR, when the
+        /// form starts: one `hideAFHideDor` call each, in the fragment's
+        /// Initialize rule. Only a partner generic takes them.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        init_hide: Vec<ComponentName>,
     },
     Preface {
-        uuid: Uuid,
-        /// Fidelity passthrough captured on load (empty for engine-built nodes).
-        #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
-        passthrough: Passthrough,
-        name: String,
-    },
-    Appendix {
         uuid: Uuid,
         /// Fidelity passthrough captured on load (empty for engine-built nodes).
         #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
@@ -381,24 +380,6 @@ pub enum AemNodeTranslated {
         passthrough: Passthrough,
         name: String,
         colspan: u32,
-    },
-    Custom {
-        uuid: Uuid,
-        /// Fidelity passthrough captured on load (empty for engine-built nodes).
-        #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
-        passthrough: Passthrough,
-        name: String,
-        template_key: String,
-        label: AemI18nText,
-        options: Vec<AemOptionTranslated>,
-        mandatory: bool,
-        visible: bool,
-        /// Where this node shows up: screen, summary, DoR, PDF. See [`AemAttrs`].
-        #[serde(default, flatten)]
-        attrs: AemAttrs,
-        colspan: u32,
-        dor_colspan: Option<u32>,
-        bind_ref: Option<String>,
     },
 }
 
@@ -514,6 +495,28 @@ impl AemNodeTranslated {
         (node, dict, conflicts)
     }
 
+    /// Call `f` with every node of the tree, parents before their children.
+    pub fn visit(&self, f: &mut impl FnMut(&AemNodeTranslated)) {
+        f(self);
+        if let AemNodeTranslated::Root { children, .. }
+        | AemNodeTranslated::Panel { children, .. }
+        | AemNodeTranslated::Repeatable { children, .. } = self
+        {
+            children.iter().for_each(|c| c.visit(f));
+        }
+    }
+
+    /// [`visit`](Self::visit), with each node mutable.
+    pub fn visit_mut(&mut self, f: &mut impl FnMut(&mut AemNodeTranslated)) {
+        f(self);
+        if let AemNodeTranslated::Root { children, .. }
+        | AemNodeTranslated::Panel { children, .. }
+        | AemNodeTranslated::Repeatable { children, .. } = self
+        {
+            children.iter_mut().for_each(|c| c.visit_mut(f));
+        }
+    }
+
     /// Every language any text in the tree is written in.
     pub fn text_languages(&self) -> std::collections::BTreeSet<String> {
         let mut out = std::collections::BTreeSet::new();
@@ -550,9 +553,6 @@ impl AemNodeTranslated {
             }
             | AemNodeTranslated::RadioButton {
                 label, options: o, ..
-            }
-            | AemNodeTranslated::Custom {
-                label, options: o, ..
             } => {
                 f(label);
                 options(o, f);
@@ -562,7 +562,6 @@ impl AemNodeTranslated {
             | AemNodeTranslated::TitleDraw { content, .. }
             | AemNodeTranslated::HtmlDisplayer { content, .. } => f(content),
             AemNodeTranslated::Preface { .. }
-            | AemNodeTranslated::Appendix { .. }
             | AemNodeTranslated::FootnotePlaceholder { .. } => {}
         }
     }
@@ -642,13 +641,7 @@ impl AemNodeTranslated {
             | AemNodeTranslated::Preface {
                 uuid, passthrough, ..
             }
-            | AemNodeTranslated::Appendix {
-                uuid, passthrough, ..
-            }
             | AemNodeTranslated::FootnotePlaceholder {
-                uuid, passthrough, ..
-            }
-            | AemNodeTranslated::Custom {
                 uuid, passthrough, ..
             } => {
                 record(m, uuid, passthrough);
@@ -981,8 +974,10 @@ impl AemNodeTranslated {
                 bind_ref,
                 attrs,
                 visible,
+                init_hide,
                 ..
             } => AemNode::Fragment {
+                init_hide: init_hide.clone(),
                 attrs: attrs.clone(),
                 visible: *visible,
                 uuid: *uuid,
@@ -995,10 +990,6 @@ impl AemNodeTranslated {
                 uuid: *uuid,
                 name: name.clone(),
             },
-            AemNodeTranslated::Appendix { uuid, name, .. } => AemNode::Appendix {
-                uuid: *uuid,
-                name: name.clone(),
-            },
             AemNodeTranslated::FootnotePlaceholder {
                 uuid,
                 name,
@@ -1008,32 +999,6 @@ impl AemNodeTranslated {
                 uuid: *uuid,
                 name: name.clone(),
                 colspan: *colspan,
-            },
-            AemNodeTranslated::Custom {
-                uuid,
-                name,
-                template_key,
-                label,
-                options,
-                mandatory,
-                visible,
-                colspan,
-                dor_colspan,
-                bind_ref,
-                attrs,
-                ..
-            } => AemNode::Custom {
-                attrs: attrs.clone(),
-                uuid: *uuid,
-                name: name.clone(),
-                template_key: template_key.clone(),
-                label: text!(label),
-                options: lower_options(options, master_lang, languages, dict, conflicts),
-                mandatory: *mandatory,
-                visible: *visible,
-                colspan: *colspan,
-                dor_colspan: *dor_colspan,
-                bind_ref: bind_ref.clone(),
             },
         }
     }

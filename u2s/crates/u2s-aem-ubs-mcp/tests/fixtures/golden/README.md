@@ -19,7 +19,23 @@ For each form, one run of that engine's pipeline wrote all three:
   `it`, not under the profile's fixed master `en`.
 
 Writing them in one run keeps the old converter's random node uuids consistent between the
-document and the package, so `tests/golden_parity.rs` compares them exactly. These packages are
+document and the package, so `tests/golden_parity.rs` compares them exactly.
+
+Since then two things in the documents changed, and nothing else:
+
+- the retired engine's `Custom` nodes (the configurator choice, the account-holder cluster and the
+  signature block, which were whole profile templates) are authored as ordinary nodes: a
+  `RadioButton` whose conditions drive conditional panels, `Repeatable`s wrapping the UBS partner
+  generics (with `init_hide`), and signature `Repeatable`s `RCP_SGN_CPGRP` / `RCP_Sign_AHGRP`
+  wrapping `affrg_SignatureGeneric1` fragments of the same names. Those subtrees render differently
+  from the templates, so `golden_parity.rs` leaves them (`REAUTHORED`) out of the package
+  comparison on both sides, and compares the schema for the document without them;
+- the `Appendix` nodes are gone: the profile's appendix template was empty.
+
+The golden packages and schemas are unchanged. The re-authored clusters pass the feedback guard
+except for `PROBLEM-signature-name-fill` (the signer-name fill is left to the AEM author) and, on
+`AAOS_033_IT`, `PROBLEM-repeatable-add-label` (the guard wants the known wording `Cliente` as an
+English master). These packages are
 structurally identical (uuids renumbered, timestamps masked) to the ones the `blueprint` CLI
 wrote at the same commit, and `feedback.txt` is the verdict of the
 `ajila-forms-conversion-feedback` CI guard on those: every enrolled rule clean.

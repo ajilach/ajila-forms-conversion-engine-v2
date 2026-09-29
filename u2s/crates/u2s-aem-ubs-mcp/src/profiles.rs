@@ -13,9 +13,9 @@ use std::collections::HashMap;
 
 static PROFILES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/profiles");
 
-/// Result of loading an AEM profile: the parsed profile, its component
-/// templates, and its translations.
-pub type AemProfileLoad = (AemProfile, HashMap<String, String>, HashMap<String, String>);
+/// Result of loading an AEM profile: the parsed profile and its component
+/// templates.
+pub type AemProfileLoad = (AemProfile, HashMap<String, String>);
 
 /// Return all embedded profile names (top-level profile directories).
 pub fn list_profiles() -> Vec<String> {
@@ -71,21 +71,7 @@ pub fn load_aem_profile(name: &str) -> Result<AemProfileLoad, String> {
         }
     }
 
-    // Load custom element templates from the `custom/` subdirectory.
-    let mut custom_templates = HashMap::new();
-    if let Some(custom_dir) = aem_dir.get_dir(format!("{name}/aem/custom")) {
-        for entry in custom_dir.files() {
-            let path = entry.path();
-            if path.extension().and_then(|e| e.to_str()) == Some("xml")
-                && let Some(stem) = path.file_stem().and_then(|s| s.to_str())
-                && let Some(content) = entry.contents_utf8()
-            {
-                custom_templates.insert(stem.to_string(), content.to_string());
-            }
-        }
-    }
-
-    Ok((profile, templates, custom_templates))
+    Ok((profile, templates))
 }
 
 /// Build a full `AemConfig` for an embedded profile.
@@ -95,9 +81,9 @@ pub fn load_aem_profile(name: &str) -> Result<AemProfileLoad, String> {
 /// - optional XSD binding (requires embedded xsd config when bind_to_xsd=true)
 /// - optional embedded fragment scan
 pub fn load_aem_config(name: &str, ctx: &Context) -> Result<AemConfig, String> {
-    let (profile, templates, custom_templates) = load_aem_profile(name)?;
+    let (profile, templates) = load_aem_profile(name)?;
 
-    let mut config = AemConfig::from_profile(&profile, templates, custom_templates, ctx)
+    let mut config = AemConfig::from_profile(&profile, templates, ctx)
         .map_err(|e| format!("Failed to build AEM config: {e}"))?;
 
     if config.bind_to_xsd || config.use_fragments {
@@ -152,7 +138,7 @@ pub fn load_xsd_config(name: &str) -> Result<XsdConfig, String> {
     // would silently omit that element.
     let prefix = load_aem_profile(name)
         .ok()
-        .and_then(|(p, _, _)| p.fragment_ref_prefix.clone())
+        .and_then(|(p, _)| p.fragment_ref_prefix.clone())
         .unwrap_or_else(|| "/content/dam/formsanddocuments/".to_string());
     if let Ok(fragments) = load_aem_fragments(name, &prefix, &[]) {
         config.fragment_types = fragments

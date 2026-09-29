@@ -342,7 +342,7 @@ fn assemble_package(
         }
 
         for lang in &languages {
-            let entries: Vec<(String, String)> = translations
+            let mut entries: Vec<(String, String)> = translations
                 .iter()
                 .filter_map(|(master_text, lang_map)| {
                     lang_map
@@ -350,6 +350,8 @@ fn assemble_package(
                         .map(|translated| (master_text.clone(), translated.clone()))
                 })
                 .collect();
+            // In a fixed order, so the same document builds the same package.
+            entries.sort();
 
             if !entries.is_empty() {
                 let dict_xml = generate_dictionary_xml(lang, &entries, &basename);
@@ -620,7 +622,7 @@ fn generate_filter_xml(roots: &[String]) -> String {
 }
 
 fn generate_properties_xml(package_name: &str, author: &str) -> String {
-    let now = crate::util::iso_now();
+    let now = crate::util::PACKAGE_TIMESTAMP;
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE properties SYSTEM "http://java.sun.com/dtd/properties.dtd">
@@ -645,7 +647,7 @@ fn generate_properties_xml(package_name: &str, author: &str) -> String {
 }
 
 fn generate_definition_xml(package_name: &str, author: &str, roots: &[String]) -> String {
-    let now = crate::util::iso_now();
+    let now = crate::util::PACKAGE_TIMESTAMP;
     let mut buf = Cursor::new(Vec::new());
     {
         let mut w = Writer::new_with_indent(&mut buf, b' ', 4);

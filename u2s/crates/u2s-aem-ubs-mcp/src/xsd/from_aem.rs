@@ -176,14 +176,12 @@ fn visit_bind_ref_slots(node: &mut AemNode, f: &mut impl FnMut(Uuid, &mut Option
         | AemNode::Dropdown { uuid, bind_ref, .. }
         | AemNode::Checkbox { uuid, bind_ref, .. }
         | AemNode::RadioButton { uuid, bind_ref, .. }
-        | AemNode::Fragment { uuid, bind_ref, .. }
-        | AemNode::Custom { uuid, bind_ref, .. } => slot!(uuid, bind_ref),
+        | AemNode::Fragment { uuid, bind_ref, .. } => slot!(uuid, bind_ref),
         AemNode::TextDraw { .. }
         | AemNode::TitleDraw { .. }
         | AemNode::HtmlDisplayer { .. }
         | AemNode::MessageBox { .. }
         | AemNode::Preface { .. }
-        | AemNode::Appendix { .. }
         | AemNode::FootnotePlaceholder { .. } => {}
     }
 }
@@ -458,7 +456,6 @@ fn is_presentational(node: &AemNode) -> bool {
             | AemNode::HtmlDisplayer { .. }
             | AemNode::MessageBox { .. }
             | AemNode::Preface { .. }
-            | AemNode::Appendix { .. }
             | AemNode::FootnotePlaceholder { .. }
     )
 }
@@ -495,13 +492,11 @@ fn node_kind(node: &AemNode) -> &'static str {
         AemNode::Dropdown { .. } => "dropdownlist",
         AemNode::Checkbox { .. } => "checkbox",
         AemNode::RadioButton { .. } => "radiobutton",
-        AemNode::Custom { .. } => "custom",
         AemNode::TextDraw { .. } => "textdraw",
         AemNode::TitleDraw { .. } => "titledraw",
         AemNode::MessageBox { .. } => "messagebox",
         AemNode::HtmlDisplayer { .. } => "htmldisplayer",
         AemNode::Preface { .. } => "preface",
-        AemNode::Appendix { .. } => "appendix",
         AemNode::FootnotePlaceholder { .. } => "footnoteplaceholder",
     }
 }
@@ -518,8 +513,7 @@ fn node_title(node: &AemNode) -> &str {
         | AemNode::DatePicker { label, .. }
         | AemNode::Dropdown { label, .. }
         | AemNode::Checkbox { label, .. }
-        | AemNode::RadioButton { label, .. }
-        | AemNode::Custom { label, .. } => label,
+        | AemNode::RadioButton { label, .. } => label,
         _ => "",
     }
 }
@@ -534,8 +528,7 @@ fn node_visible(node: &AemNode) -> bool {
         | AemNode::DatePicker { visible, .. }
         | AemNode::Dropdown { visible, .. }
         | AemNode::Checkbox { visible, .. }
-        | AemNode::RadioButton { visible, .. }
-        | AemNode::Custom { visible, .. } => *visible,
+        | AemNode::RadioButton { visible, .. } => *visible,
         _ => true,
     }
 }
@@ -545,8 +538,7 @@ fn node_options(node: &AemNode) -> Option<Vec<&str>> {
     match node {
         AemNode::Dropdown { options, .. }
         | AemNode::Checkbox { options, .. }
-        | AemNode::RadioButton { options, .. }
-        | AemNode::Custom { options, .. } => {
+        | AemNode::RadioButton { options, .. } => {
             Some(options.iter().map(|o| o.label.as_str()).collect())
         }
         _ => None,
@@ -616,20 +608,8 @@ fn classify(node: &AemNode, next: Option<&AemNode>, ctx: &Ctx) -> Emit {
         // A notice is prose shown on screen; it holds no data.
         | AemNode::MessageBox { .. }
         | AemNode::Preface { .. }
-        | AemNode::Appendix { .. }
         | AemNode::FootnotePlaceholder { .. } => return Emit::Skip,
 
-        // A Custom node stands in for a whole hand-written profile template —
-        // `apply_custom_elements` replaces a panel's entire contents with one of
-        // them, keeping only the panel title as its label. The fields it renders
-        // live in the template, not in the model, so there is nothing here to
-        // describe. Treating it as a data leaf would emit one `xs:string` named
-        // after the section and silently drop every field the section holds.
-        //
-        // A rule naming an `element` opts a specific custom template back in.
-        AemNode::Custom { .. } if rule.and_then(|r| r.element.as_ref()).is_none() => {
-            return Emit::Skip;
-        }
         _ => {}
     }
 

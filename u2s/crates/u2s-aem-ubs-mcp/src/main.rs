@@ -13,9 +13,9 @@
 //!   seeding a reference run from a real, delivered package (rather than
 //!   hand-typed JSON) is what this tool exists for.
 //! - `encode` -- the format's `encode`-role tool: `output_json` in, a
-//!   FileVault package blob out. All the actual work lives in
-//!   `u2s-mapper-aem`, which is a mechanical mapper with no business
-//!   logic of its own (see that crate's module doc for why).
+//!   FileVault package blob out. The work is this crate's library: the UBS
+//!   document (`UbsAemDocument`) lowered through the UBS templates, the
+//!   writer the forms conversion engine refined against the deployed corpus.
 //! - `fragment_search` -- a `query`-role tool letting the Conversion Agent
 //!   browse the fragment library itself. This is deliberately **not**
 //!   part of `encode`: matching a fragment to a panel is a judgment call,
@@ -83,10 +83,9 @@ impl AemUbsServer {
     /// `artifact_blob`/`artifact_path`, a blob handle back on success
     /// (never the document inline -- a decoded real-world form is easily
     /// 300-500 KB of JSON), a tool error naming what could not be
-    /// represented on failure. `u2s_mapper_aem::decode::decode` is
-    /// already lossless-or-error by construction (see its own module doc),
-    /// so this function adds no judgment of its own -- it only moves bytes
-    /// in and out of the blob store around that call.
+    /// represented on failure. [`u2s_aem_ubs_mcp::decode`] does the work;
+    /// this function adds no judgment of its own -- it only moves bytes in
+    /// and out of the blob store around that call.
     fn decode(&self, args: &Value) -> Result<CallToolResult, String> {
         let blob_handle = args.get("artifact_blob").and_then(Value::as_str);
         let path = args.get("artifact_path").and_then(Value::as_str);
@@ -106,10 +105,10 @@ impl AemUbsServer {
             }
         };
 
-        let form = u2s_mapper_aem::decode::decode(&bytes)
+        let document = u2s_aem_ubs_mcp::decode(&bytes)
             .map_err(|err| format!("could not decode the package: {err}"))?;
 
-        let output_json = serde_json::to_vec(form.form())
+        let output_json = serde_json::to_vec(&document)
             .map_err(|err| format!("could not serialize the decoded document: {err}"))?;
 
         let blob = self
@@ -138,32 +137,40 @@ impl AemUbsServer {
             .get("output_json")
             .ok_or_else(|| "missing required argument output_json".to_owned())?;
 
-        let form = u2s_aem::model::AemForm::from_json(output_json)
-            .map_err(|err| format!("output_json does not match the aem-ubs schema: {err}"))?;
-        let valid = form.validate().map_err(|violations| {
-            let detail = violations
-                .iter()
-                .map(|v| format!("{}: {}", v.pointer, v.message))
-                .collect::<Vec<_>>()
-                .join("; ");
-            format!("the document fails aem-ubs semantic validation: {detail}")
-        })?;
-
-        let package = u2s_mapper_aem::encode(&valid)
+        let document = u2s_aem_ubs_mcp::UbsAemDocument::from_json(output_json)
+            .map_err(|err| format!("output_json is not an aem-ubs document: {err}"))?;
+        let build = u2s_aem_ubs_mcp::encode(&document)
             .map_err(|err| format!("could not encode the package: {err}"))?;
 
         let blob = self
             .blobs
-            .put(&package.bytes, package.media_type, "zip")
+            .put(&build.package, "application/zip", "zip")
             .map_err(|err| format!("could not store the package: {err}"))?;
-
-        let meta = json!({
-            "blob": {
+        // The same form bound to its schema, and the schema: what a host needs
+        // to ship a data-bound form.
+        let bound = build
+            .bound_package
+            .map(|bytes| self.blobs.put(&bytes, "application/zip", "zip"))
+            .transpose()
+            .map_err(|err| format!("could not store the bound package: {err}"))?;
+        let xsd = build
+            .xsd
+            .map(|text| self.blobs.put(text.as_bytes(), "application/xml", "xsd"))
+            .transpose()
+            .map_err(|err| format!("could not store the schema: {err}"))?;
+        let reference = |blob: &u2s_blob::BlobRef| {
+            json!({
                 "handle": blob.handle,
                 "media_type": blob.media_type,
                 "byte_len": blob.byte_len,
                 "digest": blob.digest,
-            }
+            })
+        };
+
+        let meta = json!({
+            "blob": reference(&blob),
+            "bound_package": bound.as_ref().map(reference),
+            "xsd": xsd.as_ref().map(reference),
         });
         let text = format!(
             "encoded to blob {} ({} bytes, {})",
@@ -227,8 +234,8 @@ impl ServerHandler for AemUbsServer {
         info.instructions = Some(
             "Defines the `aem-ubs` output format. Its JSON Schema and description live in \
              the `u2s://manifest` resource, under `format`; read that to learn the shape a \
-             conversion must produce. `encode` lowers a finished, valid document into a \
-             FileVault package; `decode` is its exact inverse, for seeding a reference run \
+             conversion must produce. `encode` lowers a finished, valid document through the \
+             UBS templates into a FileVault package; `decode` is its inverse, for seeding a reference run \
              from a real, delivered package instead of hand-typed JSON; `fragment_search` \
              lets you browse the fragment library yourself before referencing one in a \
              Fragment node -- neither this server nor any rule script judges which fragment \

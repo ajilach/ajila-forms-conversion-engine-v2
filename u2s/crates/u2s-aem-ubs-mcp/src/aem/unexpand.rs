@@ -4,9 +4,8 @@
 //! The parser reads a package as the writer wrote it, so every node the
 //! templates expand comes back expanded: a page's step title as a child panel,
 //! a repeatable as three nested panels, the preface as its banking-relationship
-//! fragment, each fragment with its library content inlined, each custom
-//! element as the whole template it stands for, and the root's fixed form
-//! metadata and summary as content. Encoding such a tree expands all of it a
+//! fragment, each fragment with its library content inlined, and the root's
+//! fixed form metadata and summary as content. Encoding such a tree expands all of it a
 //! second time. These passes fold each expansion back into the node it came
 //! from, recognising it by the constants the templates write (fixed names,
 //! fragment paths, the repeat panels' derived names), never by uuid: the parser
@@ -14,10 +13,8 @@
 //!
 //! Each pass is the counterpart of one template; see `profiles/ubs/aem/`.
 
-use std::collections::HashMap;
-
 use super::xml_writer::{repeat_panel_name, repeat_row_name};
-use super::{AemAttrs, AemConfig, AemNode};
+use super::{AemAttrs, AemNode};
 
 /// The form metadata fragment `root.xml` writes into every form.
 const FORM_METADATA: &str = "FormMetadata";
@@ -31,34 +28,18 @@ const STEP_TITLE_CSS: &str = "stepTitle";
 const SUBTITLE_CSS: &str = "subtitle-after-form-title";
 
 /// Fold the profile's expansions in `root` back into the nodes they came from.
-pub fn unexpand(root: AemNode, config: &AemConfig) -> AemNode {
-    let custom = custom_template_roots(config);
+pub fn unexpand(root: AemNode) -> AemNode {
     match root {
         AemNode::Root { title, children } => AemNode::Root {
             title,
             children: children
                 .into_iter()
                 .filter(|c| !matches!(c.name(), Some(FORM_METADATA | SUMMARY_PANEL)))
-                .map(|c| page(fold(c, &custom)))
+                .map(|c| page(fold(c)))
                 .collect(),
         },
-        other => fold(other, &custom),
+        other => fold(other),
     }
-}
-
-/// Each custom template's root `name`, mapped to its template key. A custom
-/// element's template is literal XML, so its root name is a constant only that
-/// template writes.
-fn custom_template_roots(config: &AemConfig) -> HashMap<String, String> {
-    config
-        .custom_templates
-        .iter()
-        .filter_map(|(key, template)| {
-            let start = template.find(" name=\"")? + " name=\"".len();
-            let name = &template[start..start + template[start..].find('"')?];
-            (!name.contains("{{")).then(|| (name.to_string(), key.clone()))
-        })
-        .collect()
 }
 
 /// A panel directly under the root is a wizard step: undo `panel.xml`'s step
@@ -142,10 +123,7 @@ fn has_class(attrs: &AemAttrs, class: &str) -> bool {
 
 /// Fold one subtree, outermost expansion first: a recognised node is replaced
 /// whole, so nothing inside it is folded twice.
-fn fold(node: AemNode, custom: &HashMap<String, String>) -> AemNode {
-    if let Some(key) = node.name().and_then(|n| custom.get(n)) {
-        return custom_element(node, key.clone());
-    }
+fn fold(node: AemNode) -> AemNode {
     match node {
         AemNode::Panel {
             uuid,
@@ -174,12 +152,14 @@ fn fold(node: AemNode, custom: &HashMap<String, String>) -> AemNode {
             attrs,
             visible,
             bind_ref,
+            // Read back from the package's Initialize rule after decoding.
+            init_hide: Vec::new(),
         },
         AemNode::Panel { .. } => match repeatable(&node) {
-            Some(repeatable) => fold_children(repeatable, custom),
-            None => fold_children(node, custom),
+            Some(repeatable) => fold_children(repeatable),
+            None => fold_children(node),
         },
-        other => fold_children(other, custom),
+        other => fold_children(other),
     }
 }
 
@@ -196,8 +176,8 @@ fn is_banking_relationship(node: &AemNode) -> bool {
     frag_ref.ends_with(BANKING_RELATIONSHIP_FRAGMENT)
 }
 
-fn fold_children(node: AemNode, custom: &HashMap<String, String>) -> AemNode {
-    let fold_all = |children: Vec<AemNode>| children.into_iter().map(|c| fold(c, custom)).collect();
+fn fold_children(node: AemNode) -> AemNode {
+    let fold_all = |children: Vec<AemNode>| children.into_iter().map(fold).collect();
     match node {
         AemNode::Panel {
             uuid,
@@ -310,113 +290,4 @@ fn repeatable(panel: &AemNode) -> Option<AemNode> {
         bind_ref: bind_ref.clone(),
         frag_ref: None,
     })
-}
-
-/// A custom element in place of its template's expansion. The template is
-/// literal XML, so of the node only its label (the root's title), its
-/// visibility and its attributes are the element's own.
-fn custom_element(node: AemNode, template_key: String) -> AemNode {
-    let (uuid, name, label, visible, attrs) = match node {
-        AemNode::Panel {
-            uuid,
-            name,
-            title,
-            visible,
-            attrs,
-            ..
-        }
-        | AemNode::Repeatable {
-            uuid,
-            name,
-            title,
-            visible,
-            attrs,
-            ..
-        } => (uuid, name, title, visible, attrs),
-        AemNode::RadioButton {
-            uuid,
-            name,
-            label,
-            visible,
-            attrs,
-            ..
-        }
-        | AemNode::Checkbox {
-            uuid,
-            name,
-            label,
-            visible,
-            attrs,
-            ..
-        }
-        | AemNode::Dropdown {
-            uuid,
-            name,
-            label,
-            visible,
-            attrs,
-            ..
-        }
-        | AemNode::TextField {
-            uuid,
-            name,
-            label,
-            visible,
-            attrs,
-            ..
-        } => (uuid, name, label, visible, attrs),
-        other => {
-            let name = other.name().unwrap_or_default().to_string();
-            (
-                other.uuid().unwrap_or_default(),
-                name,
-                String::new(),
-                true,
-                AemAttrs::default(),
-            )
-        }
-    };
-    AemNode::Custom {
-        uuid,
-        name,
-        template_key,
-        label,
-        options: Vec::new(),
-        mandatory: false,
-        visible,
-        attrs,
-        colspan: 12,
-        dor_colspan: None,
-        bind_ref: None,
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The six UBS custom elements, each recognised by its template's root
-    /// name (`profiles/ubs/aem/custom/`).
-    #[test]
-    fn every_custom_template_has_a_recognisable_root_name() {
-        let ctx = crate::context::Context::new(
-            "en".into(),
-            HashMap::from([
-                ("formrange_code".to_string(), "AAEV".to_string()),
-                ("formrange_entity".to_string(), "019".to_string()),
-            ]),
-        );
-        let config = crate::profiles::load_aem_config("ubs", &ctx).unwrap();
-        let roots = custom_template_roots(&config);
-        let mut keys: Vec<&String> = roots.values().collect();
-        keys.sort();
-        let mut expected: Vec<&String> = config.custom_templates.keys().collect();
-        expected.sort();
-        assert_eq!(
-            keys, expected,
-            "every custom template needs a unique, literal root name"
-        );
-        assert_eq!(roots["RB_GroupTipo"], "tipo_radio");
-        assert_eq!(roots["PN_AccountHolder"], "account_holder");
-    }
 }

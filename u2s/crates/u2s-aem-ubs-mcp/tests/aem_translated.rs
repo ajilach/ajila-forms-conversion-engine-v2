@@ -99,10 +99,8 @@ fn node_name_of(node: &AemNode) -> Option<&str> {
         | N::Repeatable { name, .. }
         | N::Fragment { name, .. }
         | N::Preface { name, .. }
-        | N::Appendix { name, .. }
         | N::FootnotePlaceholder { name, .. }
-        | N::MessageBox { name, .. }
-        | N::Custom { name, .. } => Some(name),
+        | N::MessageBox { name, .. } => Some(name),
     }
 }
 
@@ -120,8 +118,7 @@ fn node_visible_of(node: &AemNode) -> Option<bool> {
         | N::TextDraw { visible, .. }
         | N::TitleDraw { visible, .. }
         | N::Repeatable { visible, .. }
-        | N::Fragment { visible, .. }
-        | N::Custom { visible, .. } => Some(*visible),
+        | N::Fragment { visible, .. } => Some(*visible),
         _ => None,
     }
 }
@@ -306,8 +303,7 @@ fn to_translated_lift_preserves_multiple_languages() {
             | AemNodeTranslated::DatePicker { label, .. } => count(label),
             AemNodeTranslated::Dropdown { label, options, .. }
             | AemNodeTranslated::Checkbox { label, options, .. }
-            | AemNodeTranslated::RadioButton { label, options, .. }
-            | AemNodeTranslated::Custom { label, options, .. } => count(label).max(opts(options)),
+            | AemNodeTranslated::RadioButton { label, options, .. } => count(label).max(opts(options)),
             AemNodeTranslated::TextDraw { content, .. }
             | AemNodeTranslated::TitleDraw { content, .. } => count(content),
             _ => 0,

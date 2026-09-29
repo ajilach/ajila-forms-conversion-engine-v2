@@ -311,6 +311,7 @@ pub fn copy_infobox_into_the_dor(root: &mut AemNode) {
         attrs: AemAttrs::pdf_only(),
         visible: false,
         bind_ref: None,
+        init_hide: Vec::new(),
     };
     // `last_page` was checked above, so this is the page the copy belongs on.
     if let Some(AemNode::Panel { children, .. }) = last_page(root) {
@@ -481,6 +482,7 @@ mod tests {
             attrs: AemAttrs::default(),
             visible,
             bind_ref: None,
+            init_hide: Vec::new(),
         }
     }
 

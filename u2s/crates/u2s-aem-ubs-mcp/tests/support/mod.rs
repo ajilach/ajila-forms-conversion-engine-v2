@@ -18,7 +18,7 @@ use u2s_aem_ubs_mcp::xsd::XsdConfig;
 
 /// Load the UBS AEM profile (config.toml + component templates), embedded in
 /// the crate, the same way production does.
-pub fn ubs_profile() -> (AemProfile, HashMap<String, String>, HashMap<String, String>) {
+pub fn ubs_profile() -> (AemProfile, HashMap<String, String>) {
     u2s_aem_ubs_mcp::profiles::load_aem_profile("ubs").expect("load the embedded UBS AEM profile")
 }
 
@@ -31,7 +31,7 @@ pub fn ubs_xsd_config() -> XsdConfig {
 /// Load the UBS profile's parsed fragment library, the way `load_aem_config`
 /// does for a config with `use_fragments = true`.
 pub fn ubs_fragments() -> Vec<ParsedFragment> {
-    let (profile, _, _) = ubs_profile();
+    let (profile, _) = ubs_profile();
     let prefix = profile
         .fragment_ref_prefix
         .as_deref()
@@ -51,12 +51,12 @@ pub fn ubs_fragments() -> Vec<ParsedFragment> {
 /// Build an `AemConfig` from the real UBS profile, for a form with the given
 /// master language and XFA variables (`formrange_code`, `formrange_entity`).
 pub fn ubs_config(master_language: &str, form_code: &str, entity: &str) -> AemConfig {
-    let (profile, templates, custom_templates) = ubs_profile();
+    let (profile, templates) = ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".to_string(), form_code.to_string());
     vars.insert("formrange_entity".to_string(), entity.to_string());
     let ctx = Context::new(master_language.to_string(), vars);
-    AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+    AemConfig::from_profile(&profile, templates, &ctx)
         .expect("build AemConfig from the UBS profile")
 }
 
@@ -190,8 +190,7 @@ pub fn node_bind_ref(node: &AemNode) -> Option<&str> {
         | AemNode::Dropdown { bind_ref, .. }
         | AemNode::Checkbox { bind_ref, .. }
         | AemNode::RadioButton { bind_ref, .. }
-        | AemNode::Fragment { bind_ref, .. }
-        | AemNode::Custom { bind_ref, .. } => bind_ref.as_deref(),
+        | AemNode::Fragment { bind_ref, .. } => bind_ref.as_deref(),
         _ => None,
     }
 }

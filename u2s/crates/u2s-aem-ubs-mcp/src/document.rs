@@ -191,14 +191,27 @@ pub fn decode(package: &[u8]) -> Result<UbsAemDocument, Error> {
     let config = config_for(&variables, None, &languages)?;
     // The package's own strings are in the language the profile masters the
     // form in, which is its fixed master only when the form ships that one.
-    let root = crate::aem::unexpand(parsed.root, &config);
-    let form = aem_to_translated(
+    let root = crate::aem::unexpand(parsed.root);
+    let mut form = aem_to_translated(
         &root,
         &parsed.translations,
         &languages,
         &config.base_language(),
         &parsed.raw_by_uuid,
     );
+    form.visit_mut(&mut |node| {
+        if let AemNodeTranslated::Fragment {
+            uuid,
+            frag_ref,
+            init_hide,
+            ..
+        } = node
+            && is_partner_generic(frag_ref)
+            && let Some(hidden) = parsed.fragment_init_hide.get(uuid)
+        {
+            *init_hide = hidden.clone();
+        }
+    });
     Ok(UbsAemDocument {
         variables,
         header,
@@ -289,7 +302,7 @@ fn form_languages(metadata: &BTreeMap<String, String>) -> Result<Vec<String>, Er
         .ok_or_else(|| {
             Error::Package("the form metadata names no languages (`formrange_language`)".into())
         })?;
-    let (profile, _, _) = crate::profiles::load_aem_profile(PROFILE).map_err(Error::Profile)?;
+    let (profile, _) = crate::profiles::load_aem_profile(PROFILE).map_err(Error::Profile)?;
     let mut languages: Vec<String> = Vec::new();
     for code in listed.split(',').map(|c| c.trim().to_lowercase()) {
         let iso = profile
@@ -328,7 +341,43 @@ fn validate(doc: &UbsAemDocument) -> Result<(), Error> {
             doc.languages
         )));
     }
+    let mut misplaced = Vec::new();
+    doc.form.visit(&mut |node| {
+        if let AemNodeTranslated::Fragment {
+            name,
+            frag_ref,
+            init_hide,
+            ..
+        } = node
+            && !init_hide.is_empty()
+            && !is_partner_generic(frag_ref)
+        {
+            misplaced.push(format!("{name} ({frag_ref})"));
+        }
+    });
+    if !misplaced.is_empty() {
+        return Err(Error::InvalidDocument(format!(
+            "`init_hide` hides sub-panels of a UBS partner generic ({}), and these fragments \
+             are none: {}",
+            PARTNER_GENERICS.join(", "),
+            misplaced.join(", ")
+        )));
+    }
     Ok(())
+}
+
+/// The UBS partner generics (`afforms_ubs_fragmentlib`), the fragments whose
+/// sub-panels a form hides with `init_hide`. Their `Basic` variants count too.
+const PARTNER_GENERICS: &[&str] = &[
+    "affrg_ContractualPartnerGeneric",
+    "affrg_PartnertoPartnerGeneric",
+    "affrg_BeneficialOwnerGeneric",
+    "affrg_PowerofAttorneyGeneric",
+];
+
+fn is_partner_generic(frag_ref: &str) -> bool {
+    let fragment = frag_ref.rsplit('/').next().unwrap_or(frag_ref);
+    PARTNER_GENERICS.iter().any(|stem| fragment.starts_with(stem))
 }
 
 /// The profile's configuration, resolved against a document's variables,
@@ -406,6 +455,104 @@ mod tests {
         node["dor_exclude"] = json!(false);
         node["passthrough"] = json!({});
         UbsAemDocument::from_json(&document(json!([node]))).expect("defaults change nothing");
+    }
+
+    /// One page holding one fragment, with the sub-panels it hides.
+    fn fragment_page(frag_ref: &str, init_hide: serde_json::Value) -> serde_json::Value {
+        document(json!([{
+            "type": "Panel", "uuid": "00000000-0000-0000-0000-000000000010", "name": "PN_Client",
+            "title": {"en": "Client"}, "is_page": true, "visible": true, "is_conditional": false,
+            "dor_num_cols": null, "colspan": 12, "dor_colspan": null, "bind_ref": null,
+            "frag_ref": null,
+            "children": [{
+                "type": "Fragment", "uuid": "00000000-0000-0000-0000-000000000011",
+                "name": "PN_CPGRP", "frag_ref": frag_ref, "visible": true, "bind_ref": null,
+                "init_hide": init_hide
+            }]
+        }]))
+    }
+
+    const CONTRACTUAL_PARTNER: &str =
+        "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_ContractualPartnerGeneric1";
+
+    fn form_xml(package: &[u8]) -> String {
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(package)).unwrap();
+        (0..archive.len())
+            .map(|i| {
+                let mut xml = String::new();
+                archive.by_index(i).unwrap().read_to_string(&mut xml).unwrap();
+                xml
+            })
+            .find(|xml| xml.contains("guideContainer"))
+            .expect("the package holds the form")
+    }
+
+    /// A partner generic's unneeded sub-panels are hidden by one Initialize
+    /// rule on the fragment, and a decode reads them back.
+    #[test]
+    fn init_hide_is_one_initialize_rule_on_the_fragment_and_decodes_back() {
+        let doc = UbsAemDocument::from_json(&fragment_page(
+            CONTRACTUAL_PARTNER,
+            json!(["PN_EntityBasic", "PN_Address"]),
+        ))
+        .unwrap();
+        let build = encode(&doc).unwrap();
+        let xml = form_xml(&build.package);
+        assert!(
+            xml.contains(concat!(
+                r"window.forms.ubs.hideAFHideDor(this.PN_EntityBasic);\\n",
+                "window.forms.ubs.hideAFHideDor(this.PN_Address);"
+            )),
+            "{xml}"
+        );
+        assert_eq!(xml.matches("&quot;event&quot;:&quot;Initialize&quot;").count(), 1);
+
+        let decoded = decode(&build.package).unwrap();
+        let mut hidden = Vec::new();
+        decoded.form.visit(&mut |node| {
+            if let AemNodeTranslated::Fragment { init_hide, .. } = node {
+                hidden.extend(init_hide.iter().map(|n| n.as_str().to_string()));
+            }
+        });
+        assert_eq!(hidden, ["PN_EntityBasic", "PN_Address"]);
+    }
+
+    /// The same document builds the same package: nothing in it depends on
+    /// when it was built.
+    #[test]
+    fn encoding_is_a_function_of_the_document() {
+        let doc = UbsAemDocument::from_json(&fragment_page(CONTRACTUAL_PARTNER, json!([]))).unwrap();
+        let (first, second) = (encode(&doc).unwrap(), encode(&doc).unwrap());
+        assert!(first.package == second.package, "two encodes differ");
+        assert!(first.bound_package == second.bound_package);
+    }
+
+    /// Only a partner generic has sub-panels a form hides this way.
+    #[test]
+    fn init_hide_on_another_fragment_is_refused() {
+        let doc = UbsAemDocument::from_json(&fragment_page(
+            "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1",
+            json!(["PN_Date"]),
+        ))
+        .unwrap();
+        let Err(Error::InvalidDocument(message)) = encode(&doc) else {
+            panic!("init_hide on a signature fragment must be refused");
+        };
+        assert!(message.contains("PN_CPGRP"), "{message}");
+    }
+
+    /// The names are written into a script as they are, so only identifiers
+    /// get in.
+    #[test]
+    fn an_init_hide_entry_that_is_not_a_component_name_is_refused() {
+        let Err(Error::InvalidDocument(message)) = UbsAemDocument::from_json(&fragment_page(
+            CONTRACTUAL_PARTNER,
+            json!(["PN_Address); alert(1"]),
+        )) else {
+            panic!("a script fragment must not pass as a component name");
+        };
+        assert!(message.contains("not a component name"), "{message}");
     }
 
     /// The dictionary holds one translation per master text, so a text

@@ -15,66 +15,6 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 
-/// A rule for replacing matched form elements with custom templates.
-///
-/// Each rule matches elements by label (for fields) or title (for panels)
-/// using a regex pattern, and replaces them with the specified custom template.
-#[derive(Debug, Clone, Deserialize)]
-pub struct CustomElementRule {
-    /// Regex pattern matched against the element's label (for fields) or
-    /// title (for panels). Uses Rust regex syntax.
-    pub field_name: String,
-
-    /// Name of the custom template (without `.xml` extension).
-    /// Loaded from the `custom/` subdirectory of the profile.
-    pub template: String,
-
-    /// Optional target page index. When set, the custom element is moved
-    /// to the specified page. 0 = first page, 1 = second page, -1 = last page,
-    /// -2 = second-to-last, etc.
-    pub page: Option<i32>,
-
-    /// Names of other custom element templates this rule depends on.
-    ///
-    /// A custom element is only applied when every template listed here is
-    /// also matched somewhere in the form. This prevents scripts/visibility
-    /// rules in one template from referencing element names that another,
-    /// missing template would have produced.
-    ///
-    /// Dependencies may be circular. A cycle is treated as all-or-nothing:
-    /// every member of the cycle is applied only when all of them match the
-    /// form, otherwise none of them are applied.
-    #[serde(default)]
-    pub depends_on: Vec<String>,
-
-    /// How to place this template when its own pattern matches nothing but
-    /// every `depends_on` template does.
-    ///
-    /// Without this, a rule that finds no node is dropped, and — because the
-    /// UBS clusters are circular — takes the rest of its cycle with it. That
-    /// is right for a template that only ever rewrites an existing section,
-    /// and wrong for one whose block a form is entitled to by virtue of what
-    /// else it carries: an addressee-driven form has an account holder and
-    /// signatures whether or not it spells those sections out as headings.
-    ///
-    /// `None` keeps the old behaviour (match or be dropped).
-    #[serde(default)]
-    pub inject: Option<InjectMode>,
-}
-
-/// Where an injected custom element goes, when [`CustomElementRule::inject`]
-/// is set and the rule's pattern matched nothing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum InjectMode {
-    /// Append the block to the existing page named by `page` (the account
-    /// holder belongs on the configurator's own step, not a step of its own).
-    Append,
-    /// Insert the block as a new wizard step at `page` (signatures are their
-    /// own step).
-    Step,
-}
-
 /// An AEM output profile loaded from a TOML file.
 ///
 /// All template-typed fields accept Tera syntax. Non-template fields are
@@ -194,9 +134,4 @@ pub struct AemProfile {
     /// time. Form-content translations take precedence over defaults.
     #[serde(default)]
     pub default_translations: HashMap<String, HashMap<String, String>>,
-
-    /// Custom element replacement rules. Each rule matches form elements by
-    /// label/title regex and replaces them with a custom template.
-    #[serde(default)]
-    pub custom_elements: Vec<CustomElementRule>,
 }

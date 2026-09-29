@@ -34,7 +34,7 @@ pub use parser::{
     AemScript, ParsedAemPackage, TranslationData, VisibilityCondition, detect_aem_zip,
     parse_aem_zip,
 };
-pub use profile::{AemProfile, InjectMode};
+pub use profile::AemProfile;
 pub use script_engine::AemScriptEngine;
 pub use to_translated::aem_to_translated;
 pub use translated::{
@@ -48,7 +48,6 @@ pub use xml_validation::{
 };
 pub use xml_writer::{generate_aem_xml, generate_aem_xml_with_passthrough};
 
-use regex_lite::Regex;
 use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
@@ -59,25 +58,6 @@ use crate::xsd::XsdConfig;
 // Configuration
 // ============================================================================
 
-/// A compiled custom element rule ready for matching.
-#[derive(Debug, Clone)]
-pub struct ResolvedCustomElement {
-    /// Compiled regex pattern for matching element labels/titles.
-    pub pattern: Regex,
-    /// Name of the custom template to use.
-    pub template: String,
-    /// Optional target page index for moving the element.
-    pub page: Option<i32>,
-    /// Templates this rule depends on; the rule is skipped unless every
-    /// listed template is also matched somewhere in the form. Dependencies
-    /// may be circular — in that case the whole cycle is added only when all
-    /// of its members match, otherwise none of them are added.
-    pub depends_on: Vec<String>,
-    /// How to place this template when its pattern matched nothing but every
-    /// dependency did. `None` means match or be dropped. See
-    /// [`profile::InjectMode`].
-    pub inject: Option<InjectMode>,
-}
 
 /// Configuration for AEM Forms XML generation.
 ///
@@ -214,14 +194,6 @@ pub struct AemConfig {
     /// Merged into the Sling i18n dictionaries at package generation time.
     /// Form-content translations take precedence over defaults.
     pub default_translations: HashMap<String, HashMap<String, String>>,
-
-    // -- Custom elements -----------------------------------------------------
-    /// Compiled custom element replacement rules.
-    pub custom_elements: Vec<ResolvedCustomElement>,
-
-    /// Custom element templates loaded from the `custom/` subdirectory.
-    /// Key = template name (file stem), Value = Tera template string.
-    pub custom_templates: HashMap<String, String>,
 }
 
 impl AemConfig {
@@ -235,7 +207,6 @@ impl AemConfig {
     pub fn from_profile(
         profile: &AemProfile,
         templates: HashMap<String, String>,
-        custom_templates: HashMap<String, String>,
         ctx: &crate::context::Context,
     ) -> Result<Self, crate::Error> {
         let xfa_vars = ctx.variables.clone();
@@ -325,27 +296,6 @@ impl AemConfig {
             fragments: Vec::new(),
 
             default_translations: profile.default_translations.clone(),
-
-            custom_elements: profile
-                .custom_elements
-                .iter()
-                .map(|rule| {
-                    let pattern = Regex::new(&rule.field_name).map_err(|e| {
-                        crate::Error::AemConfig(format!(
-                            "Invalid regex in custom_elements.field_name '{}': {}",
-                            rule.field_name, e
-                        ))
-                    })?;
-                    Ok(ResolvedCustomElement {
-                        pattern,
-                        template: rule.template.clone(),
-                        page: rule.page,
-                        depends_on: rule.depends_on.clone(),
-                        inject: rule.inject,
-                    })
-                })
-                .collect::<Result<Vec<_>, crate::Error>>()?,
-            custom_templates,
         })
     }
 
@@ -532,9 +482,6 @@ impl AemConfig {
             fragments: Vec::new(),
 
             default_translations: HashMap::new(),
-
-            custom_elements: Vec::new(),
-            custom_templates: HashMap::new(),
         }
     }
 }
@@ -818,6 +765,42 @@ pub fn header_slot_text(header: &str) -> Option<String> {
         value.push_str(&crate::util::escape_html(&tail));
     }
     Some(value)
+}
+
+/// The AEM `name` of a component, as a script names it: a letter or `_`, then
+/// letters, digits and `_`. Anything else is refused on the way in, so a name
+/// can be written into a generated rule as it is.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(try_from = "String", into = "String")]
+pub struct ComponentName(String);
+
+impl ComponentName {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl TryFrom<String> for ComponentName {
+    type Error = String;
+
+    fn try_from(name: String) -> Result<Self, String> {
+        let mut chars = name.chars();
+        let valid = chars
+            .next()
+            .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if valid {
+            Ok(Self(name))
+        } else {
+            Err(format!("{name:?} is not a component name (letters, digits and `_`)"))
+        }
+    }
+}
+
+impl From<ComponentName> for String {
+    fn from(name: ComponentName) -> String {
+        name.0
+    }
 }
 
 /// The intermediate AEM node tree.
@@ -1122,15 +1105,16 @@ pub enum AemNode {
         visible: bool,
         /// XSD path for `bindRef` attribute.
         bind_ref: Option<String>,
+        /// Sub-panels of the fragment hidden, on screen and in the DoR, when the
+        /// form starts: one `hideAFHideDor` call each, in the fragment's
+        /// Initialize rule. Only a partner generic takes them.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        init_hide: Vec<ComponentName>,
     },
 
     /// Optional profile-driven snippet inserted as the first item in the
     /// first page panel when the `preface` template exists.
     Preface { uuid: Uuid, name: String },
-
-    /// Optional profile-driven snippet inserted as the last item in the
-    /// last page panel when the `appendix` template exists.
-    Appendix { uuid: Uuid, name: String },
 
     /// Footnote placeholder component, placed at the end of a page panel
     /// that contains inline footnote references. AEM renders collected
@@ -1139,33 +1123,6 @@ pub enum AemNode {
         uuid: Uuid,
         name: String,
         colspan: u32,
-    },
-
-    /// Custom element — replaces a matched field/panel with a custom template.
-    /// Created by the `apply_custom_elements()` pass when a node's label/title
-    /// matches a `[[custom_elements]]` rule.
-    Custom {
-        uuid: Uuid,
-        name: String,
-        /// The custom template key (file stem from `custom/` directory).
-        template_key: String,
-        /// The label or title of the matched element.
-        label: String,
-        /// Options from the original element (if it was a Dropdown/RadioButton/Checkbox).
-        options: Vec<AemOption>,
-        /// Whether the original element was mandatory.
-        mandatory: bool,
-        /// Whether the original element was visible.
-        visible: bool,
-        /// Where this node shows up: screen, summary, DoR, PDF. See [`AemAttrs`].
-        #[serde(default, flatten)]
-        attrs: AemAttrs,
-        /// Column span of the original element.
-        colspan: u32,
-        /// DOR column span from the original element.
-        dor_colspan: Option<u32>,
-        /// Bind ref from the original element.
-        bind_ref: Option<String>,
     },
 }
 
@@ -1198,9 +1155,7 @@ impl AemNode {
             | AemNode::Repeatable { name, .. }
             | AemNode::Fragment { name, .. }
             | AemNode::Preface { name, .. }
-            | AemNode::Appendix { name, .. }
-            | AemNode::FootnotePlaceholder { name, .. }
-            | AemNode::Custom { name, .. } => Some(name),
+            | AemNode::FootnotePlaceholder { name, .. } => Some(name),
         }
     }
 
@@ -1222,16 +1177,14 @@ impl AemNode {
             | AemNode::Repeatable { uuid, .. }
             | AemNode::Fragment { uuid, .. }
             | AemNode::Preface { uuid, .. }
-            | AemNode::Appendix { uuid, .. }
-            | AemNode::FootnotePlaceholder { uuid, .. }
-            | AemNode::Custom { uuid, .. } => Some(*uuid),
+            | AemNode::FootnotePlaceholder { uuid, .. } => Some(*uuid),
         }
     }
 
     /// The node's presentation attributes ([`AemAttrs`]), or `None` for the
-    /// three variants that have none: `Root` and the profile-driven `Preface` /
-    /// `Appendix` / `FootnotePlaceholder` snippets, whose whole tag is fixed by
-    /// their template.
+    /// variants that have none: `Root` and the profile-driven `Preface` /
+    /// `FootnotePlaceholder` snippets, whose whole tag is fixed by their
+    /// template.
     pub fn attrs(&self) -> Option<&AemAttrs> {
         match self {
             AemNode::Panel { attrs, .. }
@@ -1246,11 +1199,9 @@ impl AemNode {
             | AemNode::HtmlDisplayer { attrs, .. }
             | AemNode::MessageBox { attrs, .. }
             | AemNode::Repeatable { attrs, .. }
-            | AemNode::Fragment { attrs, .. }
-            | AemNode::Custom { attrs, .. } => Some(attrs),
+            | AemNode::Fragment { attrs, .. } => Some(attrs),
             AemNode::Root { .. }
             | AemNode::Preface { .. }
-            | AemNode::Appendix { .. }
             | AemNode::FootnotePlaceholder { .. } => None,
         }
     }
@@ -1271,11 +1222,9 @@ impl AemNode {
             | AemNode::HtmlDisplayer { attrs, .. }
             | AemNode::MessageBox { attrs, .. }
             | AemNode::Repeatable { attrs, .. }
-            | AemNode::Fragment { attrs, .. }
-            | AemNode::Custom { attrs, .. } => Some(attrs),
+            | AemNode::Fragment { attrs, .. } => Some(attrs),
             AemNode::Root { .. }
             | AemNode::Preface { .. }
-            | AemNode::Appendix { .. }
             | AemNode::FootnotePlaceholder { .. } => None,
         }
     }
@@ -1302,16 +1251,8 @@ impl AemNode {
             AemNode::Repeatable { uuid, .. } => format!("repeatable_{}", uuid.as_simple()),
             AemNode::Fragment { uuid, .. } => format!("fragment_{}", uuid.as_simple()),
             AemNode::Preface { uuid, .. } => format!("preface_{}", uuid.as_simple()),
-            AemNode::Appendix { uuid, .. } => format!("appendix_{}", uuid.as_simple()),
             AemNode::FootnotePlaceholder { uuid, .. } => {
                 format!("guidefootnoteplaceho_{}", uuid.as_simple())
-            }
-            AemNode::Custom { uuid, name, .. } => {
-                if name.is_empty() {
-                    format!("custom_{}", uuid.as_simple())
-                } else {
-                    name.clone()
-                }
             }
         }
     }

@@ -54,6 +54,11 @@
     <fd:scripts fd:init="{{ variables.address_init | default(value="") | replace(from='&quot;field&quot;:&quot;this&quot;', to=addr_field) }}" jcr:primaryType="nt:unstructured"/>
     {% elif frag_base is ending_with("affrg_bankingrelationship1") and xfa.formrange_entity | default(value="") == "019" %}
     <fd:scripts fd:init="{{ variables.banking_default_de_init | default(value="") }}" jcr:primaryType="nt:unstructured"/>
+    {% elif init_hide %}
+    {#  A partner generic's sub-panels the form does not need, hidden on screen
+        and in the DoR by one Initialize rule (UBS general-fragments directive,
+        2026-08-20). The names are checked identifiers (`ComponentName`). #}
+    <fd:scripts fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;{{ guide_path }}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;{% for sub in init_hide %}window.forms.ubs.hideAFHideDor(this.{{ sub }});{% if not loop.last %}\\n{% endif %}{% endfor %}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]" jcr:primaryType="nt:unstructured"/>
     {% else %}
     <fd:scripts jcr:primaryType="nt:unstructured"/>
     {% endif %}

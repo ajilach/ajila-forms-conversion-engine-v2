@@ -10,6 +10,7 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use super::{
+    ComponentName,
     AemAttrs, AemConfig, AemI18nText, AemNode, AemOption, ConditionRule, OptionAlignment,
     Passthrough, TextFieldKind,
 };
@@ -315,10 +316,10 @@ fn node_children(node: &AemNode) -> &[AemNode] {
 /// form really holds that panel: an `addInstance` naming a panel that is not there
 /// throws and takes the rest of the click with it.
 fn collect_signature_twins(root: &AemNode) -> (HashMap<String, String>, HashMap<String, String>) {
-    // Every name in the tree, and the AEM name of the panel that actually
-    // repeats under it: a repeatable's rows live in the inner panel the template
-    // emits, not in the node the tree names.
-    let mut repeating_names: HashMap<String, String> = HashMap::new();
+    // Every name in the tree, and the node that repeats under it: a
+    // repeatable's rows live in the inner panel the template emits, not in the
+    // node the tree names.
+    let mut repeating_names: HashMap<String, Repeats> = HashMap::new();
     collect_repeating_names(root, &mut repeating_names);
 
     let mut twins = HashMap::new();
@@ -327,14 +328,36 @@ fn collect_signature_twins(root: &AemNode) -> (HashMap<String, String>, HashMap<
     (twins, data_panels)
 }
 
-fn collect_repeating_names(node: &AemNode, out: &mut HashMap<String, String>) {
+/// What repeats under a name: the tree node that owns the rows, and the AEM
+/// name of the panel an `addInstance` has to be given.
+struct Repeats {
+    node: String,
+    panel: String,
+}
+
+fn collect_repeating_names(node: &AemNode, out: &mut HashMap<String, Repeats>) {
     match node {
-        AemNode::Repeatable { name, .. } => {
-            out.insert(name.clone(), repeat_panel_name(name));
+        AemNode::Repeatable { name, children, .. } => {
+            let repeats = || Repeats {
+                node: name.clone(),
+                panel: repeat_panel_name(name),
+            };
+            out.insert(name.clone(), repeats());
+            // A fragment the repeatable wraps goes by the name the fragment
+            // catalogue gives the block (`RCP_SGN_CPGRP` wraps `PN_SGN_CPGRP`),
+            // and it is the repeatable's rows that repeat under it.
+            for fragment in children.iter().filter(|c| matches!(c, AemNode::Fragment { .. })) {
+                if let Some(fragment_name) = fragment.name() {
+                    out.insert(fragment_name.to_string(), repeats());
+                }
+            }
         }
         _ => {
             if let Some(name) = node.name() {
-                out.insert(name.to_string(), name.to_string());
+                out.entry(name.to_string()).or_insert_with(|| Repeats {
+                    node: name.to_string(),
+                    panel: name.to_string(),
+                });
             }
         }
     }
@@ -345,7 +368,7 @@ fn collect_repeating_names(node: &AemNode, out: &mut HashMap<String, String>) {
 
 fn collect_signature_twins_rec(
     node: &AemNode,
-    names: &HashMap<String, String>,
+    names: &HashMap<String, Repeats>,
     twins: &mut HashMap<String, String>,
     data_panels: &mut HashMap<String, String>,
 ) {
@@ -363,8 +386,8 @@ fn collect_signature_twins_rec(
             .flat_map(|source| signature_twin_candidates(source).into_iter())
             .find(|candidate| names.contains_key(candidate))
         {
-            twins.insert(name.clone(), names[&twin].clone());
-            data_panels.insert(twin, name.clone());
+            twins.insert(name.clone(), names[&twin].panel.clone());
+            data_panels.insert(names[&twin].node.clone(), name.clone());
         }
     }
     for child in node_children(node) {
@@ -618,11 +641,9 @@ fn collect_panel_visibility_rec(node: &AemNode, map: &mut PanelVisibilityMap) {
 ///
 /// A fragment counts as input even though its children are not in this package:
 /// the fields live in the fragment's own package, and in this corpus these are
-/// signature, banking and address fragments, all fillable. A custom element
-/// counts for the same reason — its body is opaque profile XML that the engine
-/// cannot see into, and every custom element in the profile carries fields.
+/// signature, banking and address fragments, all fillable.
 ///
-/// Draws, footnotes, prefaces and appendices are static text and count for
+/// Draws, footnotes and prefaces are static text and count for
 /// nothing, which is exactly the case this exists to detect.
 fn holds_input(node: &AemNode) -> bool {
     match node {
@@ -632,8 +653,7 @@ fn holds_input(node: &AemNode) -> bool {
         | AemNode::Dropdown { .. }
         | AemNode::Checkbox { .. }
         | AemNode::RadioButton { .. }
-        | AemNode::Fragment { .. }
-        | AemNode::Custom { .. } => true,
+        | AemNode::Fragment { .. } => true,
 
         AemNode::Root { children, .. }
         | AemNode::Panel { children, .. }
@@ -644,7 +664,6 @@ fn holds_input(node: &AemNode) -> bool {
         | AemNode::HtmlDisplayer { .. }
         | AemNode::MessageBox { .. }
         | AemNode::Preface { .. }
-        | AemNode::Appendix { .. }
         | AemNode::FootnotePlaceholder { .. } => false,
     }
 }
@@ -850,29 +869,6 @@ fn render_node(
     index: &RenderIndex,
     pass: &HashMap<Uuid, Passthrough>,
 ) -> String {
-    // Custom nodes use a separate template lookup.
-    if let AemNode::Custom { template_key, .. } = node {
-        let template = match config.custom_templates.get(template_key) {
-            Some(tmpl) => tmpl,
-            None => {
-                log::error!(
-                    "Custom template '{}' not found in custom_templates",
-                    template_key
-                );
-                return String::new();
-            }
-        };
-        let mut ctx = build_node_context(node, config, index, pass);
-        insert_passthrough(&mut ctx, node, pass, template);
-        return match template::render_string(template, &ctx) {
-            Ok(rendered) => rendered,
-            Err(e) => {
-                log::error!("Failed to render custom template '{}': {}", template_key, e);
-                String::new()
-            }
-        };
-    }
-
     let template_key = match node {
         AemNode::Root { .. } => "root",
         AemNode::Panel {
@@ -893,9 +889,7 @@ fn render_node(
         AemNode::Repeatable { .. } => "repeatable",
         AemNode::Fragment { .. } => "fragment",
         AemNode::Preface { .. } => "preface",
-        AemNode::Appendix { .. } => "appendix",
         AemNode::FootnotePlaceholder { .. } => "footnoteplaceholder",
-        AemNode::Custom { .. } => unreachable!(),
     };
 
     let template = match config.component_templates.get(template_key) {
@@ -1564,16 +1558,21 @@ fn build_node_context(
             bind_ref,
             attrs: _,
             visible,
+            init_hide,
         } => {
             ctx.insert("uuid", &uuid.as_simple().to_string());
             ctx.insert("name", name);
             ctx.insert("title", title);
             ctx.insert("frag_ref", frag_ref);
+            ctx.insert(
+                "init_hide",
+                &init_hide.iter().map(ComponentName::as_str).collect::<Vec<_>>(),
+            );
             ctx.insert("visible", visible);
             ctx.insert("bind_ref", bind_ref);
         }
 
-        AemNode::Preface { uuid, name } | AemNode::Appendix { uuid, name } => {
+        AemNode::Preface { uuid, name } => {
             ctx.insert("uuid", &uuid.as_simple().to_string());
             ctx.insert("name", name);
         }
@@ -1588,29 +1587,6 @@ fn build_node_context(
             ctx.insert("colspan", colspan);
         }
 
-        AemNode::Custom {
-            uuid,
-            name,
-            template_key: _,
-            label,
-            options,
-            mandatory,
-            visible,
-            colspan,
-            dor_colspan,
-            bind_ref,
-            attrs: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("label", &xml_escape(label));
-            ctx.insert("mandatory", mandatory);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-            insert_options_context(&mut ctx, options);
-        }
     }
 
     // A form-configurator choice must empty every panel it decides, so switching
@@ -3953,6 +3929,7 @@ mod tests {
             title: String::new(),
             frag_ref: frag_ref.into(),
             bind_ref: None,
+            init_hide: Vec::new(),
             attrs: AemAttrs::default(),
             visible: true,
         };
@@ -4011,6 +3988,57 @@ mod tests {
             !alone.contains("PN_SGN_CPGRP") && !alone.contains("RCP_SGN_CPGRP"),
             "a form without the twin must not name it. Got:\n{}",
             alone
+        );
+    }
+
+    /// The naming convention wants a repeatable prefixed `RCP_` and the fragment
+    /// catalogue names the signature panel `PN_SGN_CPGRP`, so a twin is a
+    /// repeatable `RCP_SGN_CPGRP` wrapping the signature fragment `PN_SGN_CPGRP`.
+    /// The fragment's name is the one the convention looks up, and it has to
+    /// lead to the panel that repeats, and mark the repeatable as the twin.
+    #[test]
+    fn a_signature_fragment_names_the_repeatable_that_wraps_it() {
+        let fragment = |name: &str, frag_ref: &str| AemNode::Fragment {
+            uuid: fixed_uuid(),
+            name: name.into(),
+            title: String::new(),
+            frag_ref: frag_ref.into(),
+            bind_ref: None,
+            init_hide: Vec::new(),
+            attrs: AemAttrs::default(),
+            visible: true,
+        };
+        let repeatable = |name: &str, child: AemNode| AemNode::Repeatable {
+            attrs: AemAttrs::default(),
+            visible: true,
+            uuid: fixed_uuid(),
+            name: name.into(),
+            title: "Account holder".into(),
+            children: vec![child],
+            min_occur: 1,
+            max_occur: 4,
+            bind_ref: None,
+            frag_ref: None,
+        };
+        let xml = render_tree(vec![
+            repeatable(
+                "RCP_CPGRP",
+                fragment("PN_CPGRP", "affrg_ContractualPartnerGeneric1"),
+            ),
+            repeatable(
+                "RCP_SGN_CPGRP",
+                fragment("PN_SGN_CPGRP", "affrg_SignatureGeneric1"),
+            ),
+        ]);
+        assert!(
+            xml.contains("window.forms.ubs.addInstance(RCP_SGN_CPGRP_repeat);")
+                && !xml.contains("addInstance(PN_SGN_CPGRP)"),
+            "the Add button must add a row to the repeating panel. Got:\n{xml}"
+        );
+        assert_eq!(
+            xml.matches("name=\"BT_Add\"").count(),
+            1,
+            "the twin must have no buttons of its own. Got:\n{xml}"
         );
     }
 

@@ -163,7 +163,10 @@ its JCR path (`frag_ref`), exactly as the reference forms do. Find the matching 
 path in the fragment-library documentation (read_reference_doc / grep_reference_docs for \"AF \
 Fragments and Common Fields\") and confirm it against the reference packages (grep_references for \
 `fragRef`); pick the `_fragmentlib` matching the form's entity (e.g. germany / italy / ch / ubs / \
-global). PATH ROOT: the banking-relationship fragment alone lives under `/content/forms/af/…`; every \
+global); the internal-bank-use block is the exception, the global \
+`afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature` in every market (the \
+ubs-aem-global-internal-bank-use rule checks it). PATH ROOT: the banking-relationship fragment \
+alone lives under `/content/forms/af/…`; every \
 other fragment is referenced under `/content/dam/formsanddocuments/<library>/…`. Use the exact \
 fragment the corpus standardised on for these recurring sections: BANKING \
 RELATIONSHIP → EVERY form on this profile carries one, whatever the source shows: emit a single \
@@ -174,27 +177,40 @@ fragment `affrg_BankingRelationship1`, so you supply neither the fragment path n
 flags, and never a germany/italy/global variant or a dam-path reference. The fragment renders the \
 \"UBS Europe SE\" line itself, so NEVER also author a standalone \"UBS Europe SE\" text draw (that \
 duplicates it); that line reaches the DoR header from `/header`. \
-PARTIES AND SIGNATURES (account holder / client, representative, legal guardian, and their \
-signatures) form the ACCOUNT-HOLDER CLUSTER, which a form has only when it is addressee-driven: \
-it carries a configurator choice (Formular Adressat / Form addressee in Germany, Tipo in Italy) \
-that decides who the parties are. In such a form the whole cluster is three of the profile's \
-CUSTOM ELEMENTS: author each as a `Custom` node whose `template_key` names the template, never \
-by hand. Germany: `formular_adressat_radio` (the configurator choice, `RB_FormularAdressat`) and \
-`account_holder` (the party data panels) on the form configurator's page, and `signatures` on a \
-last page of its own. Italy: `tipo_radio` (`RB_GroupTipo`) and `account_holder_it`, and \
-`signatures_it` on the last page. The three of a market belong together and never apart: their \
-rules read each other's fields. Each template writes the whole shape the corpus is held to: the \
-UBS partner generics (`affrg_ContractualPartnerGeneric1` as `PN_CPGRP`, \
-`affrg_PartnertoPartnerGeneric1` as `PN_AHGRP` / `PN_AHGRP_AR`), the Initialize `hideAFHideDor` \
-rule hiding the sub-panels a party does not show, `affrg_SignatureGeneric1` per signer paired to \
-its party by name (`PN_SGN_CPGRP`, `PN_Sign_AHGRP`), whose Add button adds both rows, and the \
-hidden calc that fills each signature's name. So do not add partner or signature fragments, hide \
-rules or name calcs beside them. A `Custom` node's `label` carries the translations of its \
-template's own title (\"Signature(s)\" in every language the form ships); its other fields keep \
-their defaults. A party class the templates do not cover (beneficial owner or trustee: \
-`affrg_BeneficialOwnerGeneric1` as `PN_BOGRP`; authorized signer, POA or e-banking user: \
-`affrg_PowerofAttorneyGeneric1` as `PN_PAGRP`) is a `Fragment` node of that generic; say in your \
-summary that its signature pairing and name fill are not generated. Never reference a \
+PARTIES AND SIGNATURES (account holder / client, representative, legal guardian, beneficial owner, \
+power of attorney, and their signatures) form the ACCOUNT-HOLDER CLUSTER, which a form has only when \
+it is addressee-driven: it carries a configurator choice (Formular Adressat / Form addressee in \
+Germany, Tipo in Italy) that decides who the parties are. Author the cluster from ordinary nodes, in \
+the shape the deployed corpus is held to. THE CHOICE: a `RadioButton` on the form configurator's page \
+(`RB_FormularAdressat` in Germany, `RB_GroupTipo` in Italy) with the source's options in every \
+language, the individual option (Private Person / Individual) first with the key `1`; the template \
+preselects it and empties the panels a choice decides when it changes. Its `conditions` show one \
+conditional Panel (`is_conditional: true`, `visible: false`) per option among the parties, and one \
+among the signatures. THE PARTIES, on the configurator's page: in each option's panel, per party a \
+`Repeatable` (`RCP_<stem>`, titled with the party's noun in every language) wrapping ONE `Fragment` \
+of the party's UBS partner generic, named by its role: the contracting party → \
+`affrg_ContractualPartnerGeneric1` as `PN_CPGRP` (a minor who holds the account is the contracting \
+party, not a partner, even though a guardian signs); a partner of that party (representative, \
+guardian, connected party) → `affrg_PartnertoPartnerGeneric1` as `PN_AHGRP` (a second one \
+`PN_AHGRP_AR`); a beneficial owner or trustee → `affrg_BeneficialOwnerGeneric1` as `PN_BOGRP`; an \
+authorized signer, POA or e-banking user → `affrg_PowerofAttorneyGeneric1` as `PN_PAGRP`. Set the \
+fragment's `init_hide` to the sub-panels the party does not show (a private person's \
+`[\"PN_EntityBasic\", \"PN_Address\"]`): that is its one Initialize hideAFHideDor rule, and there is no \
+other way to author it. THE SIGNATURES, on a last page of their own: in each option's panel, per \
+party that signs a `Repeatable` wrapping ONE `affrg_SignatureGeneric1` `Fragment`, both named after \
+the party's panel: `RCP_SGN_CPGRP` wrapping `PN_SGN_CPGRP` for `PN_CPGRP`, `RCP_Sign_AHGRP` wrapping \
+`PN_Sign_AHGRP` for `PN_AHGRP` (`RCP_Sign_AHGRP_AR` / `PN_Sign_AHGRP_AR` for `PN_AHGRP_AR`), \
+`RCP_SGN_BOGRP` / `PN_SGN_BOGRP` for `PN_BOGRP`, and `RCP_SGN_PAGRP` / `PN_SGN_PAGRP` for `PN_PAGRP`. \
+The name IS the pairing: the template makes the party's Add and Remove buttons add and remove the \
+signature row too, and gives the signature repeatable no buttons of its own, so spell the names \
+exactly and author no add or remove rules. The signer-name fill (copying each party's name into its \
+signature row) is NOT generated: a person adds it in AEM, and the feedback guard reports \
+PROBLEM-signature-name-fill until then, so list the pairs that need it in your summary. A party \
+repeatable's `title` also becomes its Add button (`Add <title>`): the feedback guard's \
+PROBLEM-repeatable-add-label wants a title whose wording it knows (client, account holder, beneficial \
+owner, ...) as its English master with the translations beside it, so on a form that ships English \
+title it in English and translate it; on one that does not, say in your summary which party titles \
+the guard may relabel. Never reference a \
 germany/italy person or signature fragment. In a form with NO configurator, a name pair that \
 merely identifies the form's subject (a questionnaire's \"Last name / First name(s)\") is NOT a \
 party data section: leave it as plain TXT_ textboxes, as the deployed AAAC_019, ABFG_033, \
@@ -420,11 +436,12 @@ standard fragment with its exact JCR path (banking relationship → \
 affrg_BankingRelationship1 in afforms_ubs_fragmentlib, referenced under /content/forms/af/ while every \
 other fragment is referenced under /content/dam/formsanddocuments/; whether the form is \
 addressee-driven (it carries a Formular Adressat / Form addressee / Tipo configurator), and if so \
-its market's account-holder cluster, the Custom elements formular_adressat_radio + account_holder \
-+ signatures (Germany) or tipo_radio + account_holder_it + signatures_it (Italy), which bring the \
-UBS partner and signature generics with them, and which page each goes on; any party class those \
-do not cover (beneficial owner → affrg_BeneficialOwnerGeneric1, POA/authorized signer → \
-affrg_PowerofAttorneyGeneric1); a loose address with no person block → affrg_AddressGeneric1; and \
+its account-holder cluster: the choice and its options in every language, per option the parties \
+by role and the UBS partner generic each takes (contracting party → affrg_ContractualPartnerGeneric1 \
+as PN_CPGRP, partner of that party → affrg_PartnertoPartnerGeneric1 as PN_AHGRP, beneficial owner → \
+affrg_BeneficialOwnerGeneric1 as PN_BOGRP, POA/authorized signer → affrg_PowerofAttorneyGeneric1 as \
+PN_PAGRP), the sub-panels each party does not show, which parties sign, and which page each part \
+goes on; a loose address with no person block → affrg_AddressGeneric1; and \
 in a form with NO configurator, a bare name pair identifying the form's subject stays plain TXT_ \
 textboxes — state that explicitly rather than reaching for a partner generic). Never recommend a \
 germany/italy person or signature fragment: those libraries \
@@ -504,10 +521,12 @@ TitleDraw; banking relationship authored as a `Preface` node on the first page, 
 affrg_BankingRelationship1 as the sole child of a PN_BR wrapper that carries BOTH dorExclusion and \
 summaryExclusion (a wrapper missing either flag is a defect, not a pass), and no \
 separately authored \"UBS Europe SE\" draw beside it, and `/header` set from the source's master \
-page; in an addressee-driven form the parties and signatures are its market's three Custom elements \
-(formular_adressat_radio, account_holder and signatures, or tipo_radio, account_holder_it and \
-signatures_it), all three present, never partner or signature fragments authored beside them and \
-never a germany/italy person or signature fragRef, while in a form with no configurator a bare \
+page; in an addressee-driven form the cluster is complete and wired by name: the configurator \
+RadioButton's conditions show one party panel and one signature panel per option, each party is a \
+Repeatable wrapping one partner generic Fragment with `init_hide` for the sub-panels it does not \
+show, and each party that signs has its signature Repeatable named after it (RCP_SGN_CPGRP wrapping \
+PN_SGN_CPGRP for PN_CPGRP, RCP_Sign_AHGRP wrapping PN_Sign_AHGRP for PN_AHGRP, and so on), since a \
+misspelled name silently unpairs the Add button; never a germany/italy person or signature fragRef, while in a form with no configurator a bare \
 name pair stays plain TXT_ textboxes and a partner generic there is a defect; count the signers \
 the source shows against what the form collects, since a plan that says \"two signature blocks\" \
 is not evidence of two. VERIFY the retirement explicitly: the \

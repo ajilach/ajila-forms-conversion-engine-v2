@@ -10,31 +10,24 @@ use u2s_render_test_harness::ServerUnderTest;
 
 fn a_valid_form() -> serde_json::Value {
     serde_json::json!({
-        "metadata": {
-            "form_name": "TestForm",
-            "master_language": "en",
-            "languages": ["en"],
-            "dor": "none",
-            "data_model": { "kind": "unbound" }
-        },
-        "pages": [
-            {
-                "name": "Page1",
-                "properties": {},
-                "children": [
-                    {
-                        "type": "TextField",
-                        "common": {
-                            "name": "Name",
-                            "resource_type": "fd/af/components/controls/textbox"
-                        },
-                        "field": { "label": { "en": "Name" } },
-                        "layout": { "width": 12 },
-                        "input": "single_line"
-                    }
-                ]
-            }
-        ]
+        "variables": { "formrange_code": "AAEV", "formrange_entity": "019" },
+        "languages": ["en"],
+        "form": {
+            "type": "Root",
+            "title": { "en": "Test form" },
+            "children": [{
+                "type": "Panel", "uuid": "00000000-0000-4000-8000-000000000001",
+                "name": "PN_Details", "title": { "en": "Details" }, "is_page": true,
+                "visible": true, "is_conditional": false, "dor_num_cols": null,
+                "colspan": 12, "dor_colspan": null, "bind_ref": null, "frag_ref": null,
+                "children": [{
+                    "type": "TextField", "uuid": "00000000-0000-4000-8000-000000000002",
+                    "name": "TXT_Name", "label": { "en": "Name" }, "mandatory": false,
+                    "visible": true, "max_chars": null, "colspan": 12, "dor_colspan": null,
+                    "bind_ref": null, "kind": "Plain"
+                }]
+            }]
+        }
     })
 }
 
@@ -124,7 +117,10 @@ async fn encode_produces_a_real_package_blob() {
         .map(|i| archive.by_index(i).unwrap().name().to_owned())
         .collect();
     assert!(names.iter().any(|n| n == "META-INF/MANIFEST.MF"));
-    assert!(names.iter().any(|n| n.contains("TestForm/.content.xml")));
+    assert!(names.iter().any(|n| n.contains("AF_AAEV/.content.xml")));
+    // The schema and the bound package come with it.
+    assert_eq!(structured["xsd"]["media_type"], "application/xml");
+    assert_eq!(structured["bound_package"]["media_type"], "application/zip");
 
     let _ = std::fs::remove_dir_all(&blob_dir);
     client.cancel().await.ok();
@@ -135,8 +131,9 @@ async fn encode_refuses_an_invalid_document_by_naming_the_violation() {
     let server = ServerUnderTest::locate("u2s-aem-ubs-mcp", "aem");
     let client = server.connect().await;
 
+    // A German label on a form that lists only English.
     let mut invalid = a_valid_form();
-    invalid["pages"][0]["children"] = serde_json::json!([]);
+    invalid["form"]["children"][0]["children"][0]["label"]["de"] = serde_json::json!("Name");
 
     let result = client
         .call_tool(
@@ -153,12 +150,12 @@ async fn encode_refuses_an_invalid_document_by_naming_the_violation() {
     assert_eq!(
         result.is_error,
         Some(true),
-        "a document with no children on its only page must be refused"
+        "a text in a language the document does not list must be refused"
     );
     let text = format!("{:?}", result.content);
     assert!(
-        text.contains("/pages/0/children"),
-        "the refusal must name the offending pointer: {text}"
+        text.contains("which `languages`"),
+        "the refusal must name the language: {text}"
     );
 
     client.cancel().await.ok();
@@ -330,7 +327,7 @@ async fn decode_then_encode_reproduces_the_real_fixture() {
         std::fs::read(blob_dir.join(handle)).expect("the decoded document blob must exist on disk");
     let output_json: serde_json::Value =
         serde_json::from_slice(&output_json_bytes).expect("the decoded document is valid JSON");
-    assert_eq!(output_json["metadata"]["form_name"], "AF_AABF");
+    assert_eq!(output_json["variables"]["formrange_code"], "AABF");
 
     let encode_result = client
         .call_tool(
@@ -368,5 +365,5 @@ async fn decode_then_encode_reproduces_the_real_fixture() {
 /// `manifest()`'s own key/version fields are asserted by literal value
 /// elsewhere in this suite.
 fn u2s_aem_ubs_mcp_specs_format_version() -> &'static str {
-    "0.2.0"
+    "0.3.0"
 }

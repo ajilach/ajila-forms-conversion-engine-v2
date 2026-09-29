@@ -93,8 +93,8 @@ fn test_aaab_aem_config_form_path_title_code() {
     variables.insert("formrange_entity".to_string(), "019".to_string());
     let ctx = Context::new("de".to_string(), variables);
 
-    let (profile, templates, custom_templates) = support::ubs_profile();
-    let config = AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+    let (profile, templates) = support::ubs_profile();
+    let config = AemConfig::from_profile(&profile, templates, &ctx)
         .expect("Failed to create AemConfig");
 
     assert_eq!(config.form_code, "AAAB", "form_code should be 'AAAB'");
@@ -134,12 +134,12 @@ fn test_aaab_aem_config_form_path_title_code() {
 #[test]
 fn the_metadata_control_masters_the_issuing_regions_language() {
     let master_for = |entity: &str, languages: &[&str]| {
-        let (profile, templates, custom_templates) = support::ubs_profile();
+        let (profile, templates) = support::ubs_profile();
         let mut vars = HashMap::new();
         vars.insert("formrange_code".into(), "TEST".into());
         vars.insert("formrange_entity".into(), entity.to_string());
         let ctx = Context::new(languages[0].to_string(), vars);
-        let mut config = AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+        let mut config = AemConfig::from_profile(&profile, templates, &ctx)
             .expect("profile config");
         config.languages = languages.iter().map(|l| l.to_string()).collect();
 
@@ -182,12 +182,12 @@ fn the_metadata_control_masters_the_issuing_regions_language() {
 /// the preview step is the only preview there is, so it stays.
 #[test]
 fn a_form_that_renders_its_dor_through_redacto_has_no_preview_step() {
-    let (profile, templates, custom_templates) = support::ubs_profile();
+    let (profile, templates) = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "TEST".into());
     vars.insert("formrange_entity".into(), "033".into());
     let ctx = Context::new("it".to_string(), vars);
-    let mut config = AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+    let mut config = AemConfig::from_profile(&profile, templates, &ctx)
         .expect("profile config");
 
     let root = AemNode::Root {
@@ -243,12 +243,12 @@ fn a_form_that_renders_its_dor_through_redacto_has_no_preview_step() {
 /// synonym.
 #[test]
 fn the_metadata_control_names_languages_by_their_canonical_codes() {
-    let (profile, templates, custom_templates) = support::ubs_profile();
+    let (profile, templates) = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "TEST".into());
     vars.insert("formrange_entity".into(), "019".into());
     let ctx = Context::new("de".to_string(), vars);
-    let mut config = AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+    let mut config = AemConfig::from_profile(&profile, templates, &ctx)
         .expect("profile config");
     // As the merge hands them over: ISO codes, Spanish among them.
     config.languages = vec!["de".into(), "en".into(), "es".into()];
@@ -274,14 +274,14 @@ fn the_metadata_control_names_languages_by_their_canonical_codes() {
 
 #[test]
 fn test_ubs_profile_entity_folder_mapping() {
-    let (profile, _, _) = support::ubs_profile();
+    let (profile, _) = support::ubs_profile();
 
     let config_for = |code: &str, entity: &str, lang: &str| {
         let mut vars = HashMap::new();
         vars.insert("formrange_code".into(), code.to_string());
         vars.insert("formrange_entity".into(), entity.to_string());
         let ctx = Context::new(lang.to_string(), vars);
-        AemConfig::from_profile(&profile, HashMap::new(), HashMap::new(), &ctx).unwrap()
+        AemConfig::from_profile(&profile, HashMap::new(), &ctx).unwrap()
     };
 
     assert_eq!(
@@ -317,7 +317,7 @@ bind_to_xsd = true
     vars.insert("formrange_code".to_string(), "AAAB".to_string());
     let ctx = Context::new("en".to_string(), vars);
 
-    let config = AemConfig::from_profile(&profile, HashMap::new(), HashMap::new(), &ctx)
+    let config = AemConfig::from_profile(&profile, HashMap::new(), &ctx)
         .expect("bind_to_xsd=true without xsd_path should succeed");
 
     assert!(config.bind_to_xsd);
@@ -662,13 +662,13 @@ fn the_first_page_heading_is_a_subtitle_not_a_step_title() {
 /// gets no draw.
 #[test]
 fn the_banking_preface_carries_the_dor_header_slot_text() {
-    let (profile, templates, custom_templates) = support::ubs_profile();
+    let (profile, templates) = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "AAOS".into());
     vars.insert("formrange_entity".into(), "033".into());
     let mut ctx = Context::new("it".to_string(), vars);
     ctx.header = Some("UBS Europe SE (Succursale Italia)".to_string());
-    let config = AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+    let config = AemConfig::from_profile(&profile, templates, &ctx)
         .expect("profile config");
 
     let root = AemNode::Root {
@@ -792,14 +792,14 @@ fn the_configurator_reset_carries_its_archetype() {
 /// for it.
 #[test]
 fn a_profile_without_contact_templates_falls_back_to_the_text_box() {
-    let (profile, mut templates, custom_templates) = support::ubs_profile();
+    let (profile, mut templates) = support::ubs_profile();
     templates.remove("email");
     templates.remove("telephone");
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "AAEI".into());
     vars.insert("formrange_entity".into(), "019".into());
     let ctx = Context::new("de".to_string(), vars);
-    let config = AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+    let config = AemConfig::from_profile(&profile, templates, &ctx)
         .expect("build AemConfig from the UBS profile");
 
     let root = AemNode::Root {
@@ -829,12 +829,12 @@ fn a_profile_without_contact_templates_falls_back_to_the_text_box() {
 /// emitted the radio, recognised by its option labels, not by one field name.
 #[test]
 fn an_authored_configurator_radio_also_preselects_private_person() {
-    let (profile, templates, custom_templates) = support::ubs_profile();
+    let (profile, templates) = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "TEST".into());
     vars.insert("formrange_entity".into(), "019".into());
     let ctx = Context::new("de".to_string(), vars);
-    let config = AemConfig::from_profile(&profile, templates, custom_templates, &ctx)
+    let config = AemConfig::from_profile(&profile, templates, &ctx)
         .expect("profile config");
 
     let choice = |name: &str, labels: &[&str], first_key: usize| AemNode::RadioButton {

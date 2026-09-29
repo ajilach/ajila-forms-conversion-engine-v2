@@ -11,6 +11,13 @@
 //!   lists it. An identity entry (`fd_Text` → `Text`) is not required: AEM shows
 //!   a key's own text when the dictionary lacks it, so it changes nothing;
 //! - the XSD is identical.
+//!
+//! The account-holder cluster and the signature block of `AABF_019` and
+//! `AAOS_033_IT` were custom templates in the retired engine; the documents now
+//! author them as ordinary nodes, which render differently. Those subtrees
+//! ([`REAUTHORED`]) are left out of the comparison on both sides, everything
+//! else is held to the golden output as before, and the schema, to which the
+//! templates contributed nothing, is compared for the document without them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::Read;
@@ -20,6 +27,29 @@ use regex_lite::Regex;
 use u2s_aem_ubs_mcp::{UbsAemDocument, encode};
 
 const FORMS: &[&str] = &["AAOS_033_IT", "AAEV_019_EN", "AABF_019"];
+
+/// The `name`s of the subtrees re-authored since the golden run: in the golden
+/// packages the roots the retired custom templates wrote, in the documents the
+/// ordinary nodes that replace them.
+const REAUTHORED: &[&str] = &[
+    // The configurator choice, `formular_adressat_radio` and `tipo_radio`.
+    "RB_FormularAdressat",
+    "RB_GroupTipo",
+    // The account-holder cluster, `account_holder` and `account_holder_it`.
+    "PN_AccountHolder",
+    "PN_DatiDelIClienteIDiSeguitoIl_5156bd48",
+    // The signature block, `signatures` and `signatures_it`.
+    "PN_SignatureBlock",
+    "PN_Signatures_de979668",
+    "PN_FirmaE_de979668",
+    // The step titles of the steps those land on: a step whose inputs repeat
+    // hands its jump-to-field button to the rows (`panel.xml`), and the
+    // templates' contents were opaque to that rule.
+    "PN_FormConfigurator_a2b5bc39Title",
+    "PN_SignaturesTitle",
+    "PN_FormConfigurator_b550357eTitle",
+    "PN_FirmaE_d942e2baTitle",
+];
 
 fn golden_dir(form: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -48,16 +78,47 @@ fn canonical(text: &str) -> String {
 
 /// `xml` as one line per element event, each element's attributes sorted and
 /// blank text dropped: what AEM reads from a file, without the whitespace
-/// between elements, which it ignores.
-fn xml_structure(xml: &str) -> String {
+/// between elements, which it ignores. Every element whose `name` is in
+/// `masked` is left out, with everything inside it.
+fn structure_without(xml: &str, masked: &[&str]) -> String {
     use quick_xml::events::Event;
     let mut reader = quick_xml::Reader::from_str(xml);
     let mut out = String::new();
     let mut depth = 0usize;
+    // The depth of the masked element being skipped, if any.
+    let mut skipping: Option<usize> = None;
+    let is_masked = |e: &quick_xml::events::BytesStart| {
+        e.attributes().flatten().any(|a| {
+            a.key.as_ref() == b"name" && masked.contains(&String::from_utf8_lossy(&a.value).as_ref())
+        })
+    };
     loop {
         let event = reader
             .read_event()
             .unwrap_or_else(|e| panic!("well-formed XML: {e}"));
+        if let Some(at) = skipping {
+            match &event {
+                Event::Start(_) => depth += 1,
+                Event::End(_) => {
+                    depth -= 1;
+                    if depth == at {
+                        skipping = None;
+                    }
+                }
+                Event::Eof => break,
+                _ => {}
+            }
+            continue;
+        }
+        match &event {
+            Event::Start(e) if is_masked(e) => {
+                skipping = Some(depth);
+                depth += 1;
+                continue;
+            }
+            Event::Empty(e) if is_masked(e) => continue,
+            _ => {}
+        }
         let element = |e: &quick_xml::events::BytesStart| {
             let mut attrs: Vec<String> = e
                 .attributes()
@@ -144,11 +205,30 @@ fn first_difference(expected: &str, actual: &str) -> String {
     )
 }
 
-fn encode_golden(form: &str) -> u2s_aem_ubs_mcp::UbsAemBuild {
+fn golden_document(form: &str) -> serde_json::Value {
     let json = std::fs::read_to_string(golden_dir(form).join("document.json")).unwrap();
-    let doc = UbsAemDocument::from_json(&serde_json::from_str(&json).unwrap())
+    serde_json::from_str(&json).unwrap()
+}
+
+fn encode_json(form: &str, json: &serde_json::Value) -> u2s_aem_ubs_mcp::UbsAemBuild {
+    let doc = UbsAemDocument::from_json(json)
         .unwrap_or_else(|e| panic!("{form}: document.json is a document: {e}"));
     encode(&doc).unwrap_or_else(|e| panic!("{form} encodes: {e}"))
+}
+
+fn encode_golden(form: &str) -> u2s_aem_ubs_mcp::UbsAemBuild {
+    encode_json(form, &golden_document(form))
+}
+
+/// `node` without the [`REAUTHORED`] subtrees.
+fn without_reauthored(mut node: serde_json::Value) -> serde_json::Value {
+    if let Some(children) = node.get_mut("children").and_then(|c| c.as_array_mut()) {
+        children.retain(|c| !c["name"].as_str().is_some_and(|n| REAUTHORED.contains(&n)));
+        for child in children.iter_mut() {
+            *child = without_reauthored(child.take());
+        }
+    }
+    node
 }
 
 #[test]
@@ -213,7 +293,14 @@ fn encoded_packages_match_the_golden_packages() {
                 }
                 continue;
             }
-            let (want, got) = (canonical(golden_text), canonical(encoded_text));
+            let (want, got) = if name.ends_with(".xml") {
+                (
+                    structure_without(golden_text, REAUTHORED),
+                    structure_without(encoded_text, REAUTHORED),
+                )
+            } else {
+                (canonical(golden_text), canonical(encoded_text))
+            };
             if want != got {
                 failures.push(format!(
                     "{form}: {name} differs; {}",
@@ -238,7 +325,9 @@ fn encoded_packages_match_the_golden_packages() {
 #[test]
 fn encoded_schemas_match_the_golden_schemas() {
     for form in FORMS {
-        let build = encode_golden(form);
+        let mut doc = golden_document(form);
+        doc["form"] = without_reauthored(doc["form"].take());
+        let build = encode_json(form, &doc);
         let golden = std::fs::read_to_string(golden_dir(form).join("schema.xsd")).unwrap();
         let xsd = build
             .xsd
@@ -270,10 +359,16 @@ fn decoded_golden_packages_re_encode_to_the_same_files() {
             }
             match encoded.get(name) {
                 None => failures.push(format!("{form}: re-encoding drops {name}")),
-                Some(text) if xml_structure(text) != xml_structure(golden_text) => {
+                Some(text)
+                    if structure_without(text, REAUTHORED)
+                        != structure_without(golden_text, REAUTHORED) =>
+                {
                     failures.push(format!(
                         "{form}: {name} differs; {}",
-                        first_difference(&xml_structure(golden_text), &xml_structure(text))
+                        first_difference(
+                            &structure_without(golden_text, REAUTHORED),
+                            &structure_without(text, REAUTHORED)
+                        )
                     ))
                 }
                 Some(_) => {}
@@ -281,4 +376,64 @@ fn decoded_golden_packages_re_encode_to_the_same_files() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The re-authored account-holder clusters behave as the custom templates did:
+/// the configurator shows each party's container, each party's Add and Remove
+/// drive its signature twin, and a partner generic hides the sub-panels the
+/// form does not need. The packages pass the form checks.
+#[test]
+fn the_reauthored_clusters_pair_each_party_with_its_signature() {
+    for (form, configurator, twins) in [
+        (
+            "AABF_019",
+            "RB_FormularAdressat",
+            &["RCP_SGN_CPGRP_repeat", "RCP_Sign_AHGRP_repeat", "RCP_Sign_AHGRP_AR_repeat"][..],
+        ),
+        (
+            "AAOS_033_IT",
+            "RB_GroupTipo",
+            &["RCP_SGN_CPGRP_repeat", "RCP_Sign_AHGRP_repeat"][..],
+        ),
+    ] {
+        let files = unzip(&encode_golden(form).package);
+        let xml = files
+            .values()
+            .find(|text| text.contains("guideContainer"))
+            .unwrap_or_else(|| panic!("{form}: the package holds the form"));
+        for twin in twins {
+            assert!(
+                xml.contains(&format!("window.forms.ubs.addInstance({twin});"))
+                    && xml.contains(&format!("window.forms.ubs.removeInstance({twin});")),
+                "{form}: a party's buttons must drive {twin}"
+            );
+        }
+        assert!(
+            xml.contains("window.forms.ubs.hideAFHideDor(this.PN_EntityBasic);"),
+            "{form}: the contracting party hides its entity sub-panel"
+        );
+        assert!(
+            xml.contains(&format!("{configurator}.value == \\\\&quot;1\\\\&quot;")),
+            "{form}: the configurator shows the individual's container"
+        );
+        // The configurator opens on the individual (feedback
+        // PROBLEM-formconfig-private-person-default): its option key as `_value`.
+        let radio = xml
+            .split('<')
+            .find(|element| element.contains(&format!("name=\"{configurator}\"")))
+            .unwrap_or_else(|| panic!("{form}: the configurator is in the form"));
+        assert!(
+            radio.contains(r#"_value="1""#),
+            "{form}: the configurator must preselect option 1: {radio}"
+        );
+        // Switching option empties the panels the choice decides (feedback #107).
+        for panel in ["PN_IndividualContainer", "PN_LegalEntityContainer"] {
+            assert!(
+                xml.contains(&format!("{panel}.resetData();")),
+                "{form}: the configurator must empty {panel}"
+            );
+        }
+        u2s_aem_ubs_mcp::aem::validate_aem_form_xml(xml)
+            .unwrap_or_else(|errors| panic!("{form}: {errors:?}"));
+    }
 }

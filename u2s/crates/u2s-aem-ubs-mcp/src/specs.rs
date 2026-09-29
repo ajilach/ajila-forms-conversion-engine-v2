@@ -7,10 +7,10 @@
 
 use serde_json::{Value, json};
 
-/// The output format's key. Not bare `aem`: the JSON Schema is
-/// `u2s-aem`'s **generic** Adaptive Forms model, but the encoder is a UBS
-/// profile, and a second AEM profile must be able to register beside this one
-/// rather than collide with it.
+/// The output format's key. Not bare `aem`: that is `u2s-aem`'s generic
+/// Adaptive Forms model, while this is the UBS document and its profile, and a
+/// second AEM profile must be able to register beside this one rather than
+/// collide with it.
 pub const FORMAT_KEY: &str = "aem-ubs";
 
 /// The MCP convention version this server speaks.
@@ -29,7 +29,12 @@ pub const CONTRACT_VERSION: &str = "1.0.0";
 /// deserializes -- but a real, decoded document now routinely carries
 /// them, which a caller pinned to reading `0.1.0`'s own schema description
 /// would not expect.
-pub const FORMAT_VERSION: &str = "0.2.0";
+///
+/// Bumped `0.2.0` -> `0.3.0` when the format became the UBS document
+/// (`UbsAemDocument`: the XFA variables, the header, the languages and the
+/// multilingual form tree) encoded through the UBS templates, in place of the
+/// generic model. A `0.2.0` document does not read as a `0.3.0` one.
+pub const FORMAT_VERSION: &str = "0.3.0";
 
 pub fn tool_specs() -> Vec<Value> {
     vec![
@@ -38,14 +43,14 @@ pub fn tool_specs() -> Vec<Value> {
             "description":
                 "Decode a UBS AEM FileVault content package back into an aem-ubs JSON document. \
                  Exactly one of `artifact_blob` (a u2s blob handle) or `artifact_path` (a \
-                 filesystem path, for conformance test vectors) must be given. Decode is \
-                 lossless-or-error: a package this decoder cannot fully represent returns a \
-                 tool error naming what could not be represented, never a partial document. \
-                 The decoded document is returned as a blob reference, never inlined, and is \
-                 not yet validated against every possible source quirk a real, human-authored \
-                 package may carry -- known accepted gaps (binary DOR renditions, most vault \
-                 packaging metadata) are named in this crate's own design notes, not silently \
-                 dropped from the decoded document.",
+                 filesystem path, for conformance test vectors) must be given. The form's \
+                 variables and languages come from the metadata the profile writes into every \
+                 package, the header from the DoR header slot, and what the UBS templates \
+                 write (step titles, repeatable wrappers, the preface, fragment content, the \
+                 form chrome) is folded back into the nodes it is written for; anything the \
+                 model does not type is kept as passthrough. A package that is not a UBS \
+                 adaptive form returns a tool error. The decoded document is returned as a \
+                 blob reference, never inlined.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -72,19 +77,20 @@ pub fn tool_specs() -> Vec<Value> {
         json!({
             "name": "encode",
             "description":
-                "Encode a finished output-format JSON document into the UBS AEM FileVault \
-                 content package. The document is validated against the aem-ubs semantic \
-                 rules (name uniqueness, translation coverage, layout bounds) before \
-                 encoding; a document that fails validation returns a tool error naming \
-                 the JSON Pointer of each violation instead of a package. The package is \
-                 returned as a blob reference, never inlined -- it is a ZIP archive, always \
-                 well past the size a prompt should carry.",
+                "Encode a finished aem-ubs document into the UBS AEM FileVault content \
+                 package, through the UBS templates. A document with unknown fields, a text in \
+                 a language `languages` does not list, a master text translated two ways, or a \
+                 variable the profile needs missing returns a tool error saying which, instead \
+                 of a package. The package, the same form bound to its schema \
+                 (`bound_package`) and the schema (`xsd`) are returned as blob references, never \
+                 inlined -- a package is a ZIP archive, always well past the size a prompt \
+                 should carry.",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "output_json": {
                         "type": "object",
-                        "description": "A document conforming to the aem-ubs JSON Schema."
+                        "description": "A document conforming to the aem-ubs JSON Schema (`UbsAemDocument`)."
                     }
                 },
                 "required": ["output_json"],
@@ -149,10 +155,13 @@ pub fn manifest() -> Value {
             "version": FORMAT_VERSION,
             "description_md":
                 "UBS AEM Adaptive Forms. The delivered artefact is a FileVault content \
-                 package (a ZIP of JCR XML); this JSON is the working tree the encoder \
-                 lowers into it. The schema is generated from the typed model in `u2s-aem`, \
-                 which is the only place that model is visible.",
-            "json_schema": u2s_aem::schema(),
+                 package (a ZIP of JCR XML); this JSON is the UBS document the encoder \
+                 lowers into it through the UBS templates: the source form's XFA variables \
+                 (which name and place the form), its master-page header, its languages, and \
+                 the multilingual form tree (`form`, a `Root`). The step titles, the toolbar, \
+                 the DAM metadata, the dictionaries and the schema are the profile's. The \
+                 schema is generated from `UbsAemDocument` in `u2s-aem-ubs-mcp`.",
+            "json_schema": u2s_aem_ubs_mcp::document_schema(),
         },
         "test_vectors": [
             {
@@ -177,33 +186,26 @@ pub fn manifest() -> Value {
 /// A minimal but real `aem-ubs` document -- small enough to embed inline in
 /// a test vector's own `args` (unlike `decode`'s own vector, which needs a
 /// real package and so reaches for `$FIXTURES` instead).
-fn minimal_form() -> Value {
+pub(crate) fn minimal_form() -> Value {
     json!({
-        "metadata": {
-            "form_name": "ConformanceForm",
-            "master_language": "en",
-            "languages": ["en"],
-            "dor": "none",
-            "data_model": { "kind": "unbound" }
-        },
-        "pages": [
-            {
-                "name": "Page1",
-                "properties": {},
-                "children": [
-                    {
-                        "type": "TextField",
-                        "common": {
-                            "name": "Name",
-                            "resource_type": "fd/af/components/controls/textbox"
-                        },
-                        "field": { "label": { "en": "Name" } },
-                        "layout": { "width": 12 },
-                        "input": "single_line"
-                    }
-                ]
-            }
-        ]
+        "variables": { "formrange_code": "AAEV", "formrange_entity": "019" },
+        "languages": ["en"],
+        "form": {
+            "type": "Root",
+            "title": { "en": "Conformance form" },
+            "children": [{
+                "type": "Panel", "uuid": "00000000-0000-4000-8000-000000000001",
+                "name": "PN_Details", "title": { "en": "Details" }, "is_page": true,
+                "visible": true, "is_conditional": false, "dor_num_cols": null,
+                "colspan": 12, "dor_colspan": null, "bind_ref": null, "frag_ref": null,
+                "children": [{
+                    "type": "TextField", "uuid": "00000000-0000-4000-8000-000000000002",
+                    "name": "TXT_Name", "label": { "en": "Name" }, "mandatory": false,
+                    "visible": true, "max_chars": null, "colspan": 12, "dor_colspan": null,
+                    "bind_ref": null, "kind": "Plain"
+                }]
+            }]
+        }
     })
 }
 
@@ -221,12 +223,12 @@ mod tests {
     }
 
     #[test]
-    fn the_manifest_carries_the_schema_from_u2s_aem_verbatim() {
+    fn the_manifest_carries_the_ubs_document_schema_verbatim() {
         let manifest = manifest();
         assert_eq!(
             manifest["format"]["json_schema"],
-            u2s_aem::schema(),
-            "the schema must be u2s-aem's own, not a copy that can drift"
+            u2s_aem_ubs_mcp::document_schema(),
+            "the schema must be the UBS document's own, not a copy that can drift"
         );
         assert_eq!(manifest["format"]["key"], FORMAT_KEY);
     }
@@ -263,6 +265,13 @@ mod tests {
             std::collections::BTreeSet::from(["decode", "encode", "fragment_search"]),
             "every declared tool should have at least one test vector"
         );
+    }
+
+    /// The encode vector is a document the encoder accepts.
+    #[test]
+    fn the_encode_vector_encodes() {
+        let doc = u2s_aem_ubs_mcp::UbsAemDocument::from_json(&minimal_form()).unwrap();
+        u2s_aem_ubs_mcp::encode(&doc).expect("the conformance document encodes");
     }
 
     #[test]

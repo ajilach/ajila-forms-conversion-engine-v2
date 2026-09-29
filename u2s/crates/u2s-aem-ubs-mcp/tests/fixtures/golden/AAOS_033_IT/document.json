@@ -10,30 +10,64 @@
             "uuid": "88cb9d98-21e5-4280-a49a-e7d27beb80d9"
           },
           {
+            "alignment": "Vertical",
             "bind_ref": null,
             "colspan": 12,
-            "dor_colspan": 12,
+            "conditions": [
+              {
+                "show": true,
+                "target_panel_name": "PN_IndividualContainer",
+                "value": {
+                  "type": "text",
+                  "value": "1"
+                }
+              },
+              {
+                "show": true,
+                "target_panel_name": "PN_LegalEntityContainer",
+                "value": {
+                  "type": "text",
+                  "value": "2"
+                }
+              },
+              {
+                "show": true,
+                "target_panel_name": "PN_SGN_IndividualContainer",
+                "value": {
+                  "type": "text",
+                  "value": "1"
+                }
+              },
+              {
+                "show": true,
+                "target_panel_name": "PN_SGN_LegalEntityContainer",
+                "value": {
+                  "type": "text",
+                  "value": "2"
+                }
+              }
+            ],
+            "dor_colspan": null,
             "label": {
               "it": "Tipo"
             },
-            "mandatory": false,
-            "name": "DD_Tipo_0e1e4620",
+            "mandatory": true,
+            "name": "RB_GroupTipo",
             "options": [
               {
                 "label": {
                   "it": "Individual"
                 },
-                "value": "Individual"
+                "value": "1"
               },
               {
                 "label": {
                   "it": "Legal entity"
                 },
-                "value": "Legal entity"
+                "value": "2"
               }
             ],
-            "template_key": "tipo_radio",
-            "type": "Custom",
+            "type": "RadioButton",
             "uuid": "5ac2f10c-5254-4921-8a1d-6f9091b1bdf6",
             "visible": true
           },
@@ -61,17 +95,135 @@
           },
           {
             "bind_ref": null,
+            "children": [
+              {
+                "colspan": 12,
+                "content": {
+                  "it": "<p>Dati del/i cliente/i (di seguito il «Cliente»)</p>"
+                },
+                "dor_colspan": null,
+                "heading_level": 3,
+                "name": "TTL_AccountHolder",
+                "type": "TitleDraw",
+                "uuid": "fba5fcad-1fc2-52d1-bcf2-cef22b405ade",
+                "visible": true
+              },
+              {
+                "bind_ref": null,
+                "children": [
+                  {
+                    "bind_ref": null,
+                    "children": [
+                      {
+                        "bind_ref": null,
+                        "frag_ref": "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_ContractualPartnerGeneric1",
+                        "init_hide": [
+                          "PN_EntityBasic",
+                          "PN_Address"
+                        ],
+                        "name": "PN_CPGRP",
+                        "title": {},
+                        "type": "Fragment",
+                        "uuid": "64dc38c7-c5d6-5962-a6d4-60f80205163d",
+                        "visible": true
+                      }
+                    ],
+                    "frag_ref": null,
+                    "max_occur": 4,
+                    "min_occur": 1,
+                    "name": "RCP_CPGRP",
+                    "title": {
+                      "it": "Cliente"
+                    },
+                    "type": "Repeatable",
+                    "uuid": "0271e373-e5bb-52b1-827d-15bd0287146f",
+                    "visible": true
+                  }
+                ],
+                "colspan": 12,
+                "dor_colspan": null,
+                "dor_num_cols": null,
+                "frag_ref": null,
+                "is_conditional": true,
+                "is_page": false,
+                "name": "PN_IndividualContainer",
+                "title": {
+                  "it": "Condizione: Tipo = Persona fisica"
+                },
+                "type": "Panel",
+                "uuid": "3574073d-b48b-550c-8816-19f3823ac97c",
+                "visible": false
+              },
+              {
+                "bind_ref": null,
+                "children": [
+                  {
+                    "bind_ref": null,
+                    "colspan": 12,
+                    "dor_colspan": null,
+                    "kind": "Plain",
+                    "label": {
+                      "it": "Nome della società"
+                    },
+                    "mandatory": false,
+                    "max_chars": null,
+                    "name": "TXT_NomeDellaSocieta",
+                    "type": "TextField",
+                    "uuid": "82935447-397f-5629-b907-d4387c6cb187",
+                    "visible": true
+                  },
+                  {
+                    "bind_ref": null,
+                    "children": [
+                      {
+                        "bind_ref": null,
+                        "frag_ref": "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_PartnertoPartnerGeneric1",
+                        "name": "PN_AHGRP",
+                        "title": {},
+                        "type": "Fragment",
+                        "uuid": "ff15a76b-f9bf-5b64-84c3-0ac3afb46053",
+                        "visible": true
+                      }
+                    ],
+                    "frag_ref": null,
+                    "max_occur": 4,
+                    "min_occur": 1,
+                    "name": "RCP_AHGRP",
+                    "title": {
+                      "it": "Legale rappresentante"
+                    },
+                    "type": "Repeatable",
+                    "uuid": "36ac5b04-de3d-547b-b4fc-79aee2917673",
+                    "visible": true
+                  }
+                ],
+                "colspan": 12,
+                "dor_colspan": null,
+                "dor_num_cols": null,
+                "frag_ref": null,
+                "is_conditional": true,
+                "is_page": false,
+                "name": "PN_LegalEntityContainer",
+                "title": {
+                  "it": "Condizione: Tipo = Persona giuridica"
+                },
+                "type": "Panel",
+                "uuid": "749a6cfe-811e-5cb5-b30c-e9d3850306a8",
+                "visible": false
+              }
+            ],
             "colspan": 12,
-            "dor_colspan": 12,
-            "label": {
+            "dor_colspan": null,
+            "dor_num_cols": null,
+            "frag_ref": null,
+            "is_conditional": false,
+            "is_page": false,
+            "name": "PN_AccountHolder",
+            "title": {
               "it": "Dati del/i cliente/i (di seguito il «Cliente»)"
             },
-            "mandatory": false,
-            "name": "PN_DatiDelIClienteIDiSeguitoIl_d5719244",
-            "options": [],
-            "template_key": "account_holder_it",
-            "type": "Custom",
-            "uuid": "dcc5d04d-ad99-4dae-ba1d-9b6ee1f4b69b",
+            "type": "Panel",
+            "uuid": "891c9b67-a022-5641-9297-699916c69417",
             "visible": true
           }
         ],
@@ -693,17 +845,115 @@
         "children": [
           {
             "bind_ref": null,
+            "children": [
+              {
+                "bind_ref": null,
+                "children": [
+                  {
+                    "bind_ref": null,
+                    "children": [
+                      {
+                        "bind_ref": null,
+                        "frag_ref": "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1",
+                        "name": "PN_SGN_CPGRP",
+                        "title": {},
+                        "type": "Fragment",
+                        "uuid": "513d3eb3-a14e-5566-b1ce-6987161a30e5",
+                        "visible": true
+                      }
+                    ],
+                    "frag_ref": null,
+                    "max_occur": 4,
+                    "min_occur": 1,
+                    "name": "RCP_SGN_CPGRP",
+                    "title": {
+                      "it": "Cliente"
+                    },
+                    "type": "Repeatable",
+                    "uuid": "da588f2b-d86a-5c16-8080-452a1c28a7a7",
+                    "visible": true
+                  }
+                ],
+                "colspan": 12,
+                "dor_colspan": null,
+                "dor_num_cols": null,
+                "frag_ref": null,
+                "is_conditional": true,
+                "is_page": false,
+                "name": "PN_SGN_IndividualContainer",
+                "title": {
+                  "it": "Condizione: Tipo = Persona fisica"
+                },
+                "type": "Panel",
+                "uuid": "9f2ee20b-f68f-5f1c-aafe-f8c434013a4c",
+                "visible": false
+              },
+              {
+                "bind_ref": null,
+                "children": [
+                  {
+                    "bind_ref": null,
+                    "children": [
+                      {
+                        "bind_ref": null,
+                        "frag_ref": "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1",
+                        "name": "PN_Sign_AHGRP",
+                        "title": {},
+                        "type": "Fragment",
+                        "uuid": "3437c015-4268-57ee-9ebd-25c14d0941c3",
+                        "visible": true
+                      }
+                    ],
+                    "frag_ref": null,
+                    "max_occur": 4,
+                    "min_occur": 1,
+                    "name": "RCP_Sign_AHGRP",
+                    "title": {
+                      "it": "Legale/i rappresentante/i"
+                    },
+                    "type": "Repeatable",
+                    "uuid": "69a88a2a-ea76-54e9-9359-37626259872d",
+                    "visible": true
+                  }
+                ],
+                "colspan": 12,
+                "dor_colspan": null,
+                "dor_num_cols": null,
+                "frag_ref": null,
+                "is_conditional": true,
+                "is_page": false,
+                "name": "PN_SGN_LegalEntityContainer",
+                "title": {
+                  "it": "Condizione: Tipo = Persona giuridica"
+                },
+                "type": "Panel",
+                "uuid": "9053faab-86e3-595b-ad8a-5596b906d2b8",
+                "visible": false
+              },
+              {
+                "always_in_pdf": true,
+                "bind_ref": null,
+                "frag_ref": "/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature",
+                "name": "PN_FRG_InternalBankUseOnly",
+                "summary_exclude": true,
+                "title": {},
+                "type": "Fragment",
+                "uuid": "0bc984d4-3924-5a98-8035-623f81671fcf",
+                "visible": false
+              }
+            ],
             "colspan": 12,
-            "dor_colspan": 12,
-            "label": {
+            "dor_colspan": null,
+            "dor_num_cols": null,
+            "frag_ref": null,
+            "is_conditional": false,
+            "is_page": false,
+            "name": "PN_SignatureBlock",
+            "title": {
               "it": "Firma/e"
             },
-            "mandatory": false,
-            "name": "PN_FirmaE_d942e2ba",
-            "options": [],
-            "template_key": "signatures_it",
-            "type": "Custom",
-            "uuid": "918eaa20-3b69-40ff-b53c-1c1abaad92eb",
+            "type": "Panel",
+            "uuid": "4a8ac86a-7aea-505a-911f-8df996212436",
             "visible": true
           }
         ],

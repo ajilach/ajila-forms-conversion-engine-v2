@@ -604,6 +604,7 @@ mod ubs_xsd_naming {
             title: title.into(),
             frag_ref: frag_ref.into(),
             bind_ref: None,
+            init_hide: Vec::new(),
         }
     }
 

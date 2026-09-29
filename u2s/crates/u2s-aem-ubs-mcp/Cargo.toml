@@ -34,15 +34,7 @@ rmcp = { version = "3.1", features = ["server", "transport-io"] }
 semver = "1"
 serde_json = { workspace = true }
 tokio = { workspace = true }
-# The ONLY crate that may name an AEM type. `u2s-server` never links this
-# binary -- it registers it at runtime and reads its schema back as JSON --
-# which is exactly what keeps `tests/genericity.rs` green while the core
-# stays format-agnostic.
-u2s-aem = { path = "../u2s-aem" }
-# The mechanical encoder + the fragment-library scan/search logic. Kept as
-# a separate library crate rather than inlined here so it stays testable
-# without an MCP harness -- the "library has the logic, binary is thin"
-# split every other u2s server already follows.
+# The fragment-library scan and search behind `fragment_search`.
 u2s-mapper-aem = { path = "../u2s-mapper-aem" }
 u2s-blob = { path = "../u2s-blob" }
 

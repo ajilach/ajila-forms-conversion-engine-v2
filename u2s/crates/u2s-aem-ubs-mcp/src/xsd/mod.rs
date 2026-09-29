@@ -390,7 +390,7 @@ fn default_group_page_panels() -> bool {
 pub struct AemElementRule {
     // --- match keys ---
     /// Node kind: `panel`, `repeatable`, `fragment`, `textbox`, `numericbox`,
-    /// `datepicker`, `dropdownlist`, `checkbox`, `radiobutton`, `custom`, or
+    /// `datepicker`, `dropdownlist`, `checkbox`, `radiobutton`, or
     /// `field` for any data leaf.
     #[serde(default)]
     pub kind: Option<String>,
@@ -544,7 +544,6 @@ impl AemElementRule {
                             | "dropdownlist"
                             | "checkbox"
                             | "radiobutton"
-                            | "custom"
                     ));
             if !ok {
                 return false;
