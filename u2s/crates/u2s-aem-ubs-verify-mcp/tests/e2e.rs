@@ -798,3 +798,34 @@ async fn the_server_passes_the_shared_conformance_battery() {
 
     client.cancel().await.ok();
 }
+
+/// Closing a form must leave the session's browser for the next one: the
+/// session keeps one Chromium container for all of a caller's forms, so a
+/// second `verify_open` after a `verify_close` (a conversion's Reviewer after
+/// its Author) has to find it answering. Needs the same live environment as
+/// the tests above, and `U2S_AEM_VERIFY_LIVE_WIZARD_PACKAGE_PATH`.
+#[tokio::test]
+#[ignore = "needs a real Docker daemon, a real AEM environment, and \
+            U2S_AEM_VERIFY_LIVE_WIZARD_PACKAGE_PATH"]
+async fn a_closed_form_leaves_the_browser_for_the_next_open() {
+    let package_path = std::env::var("U2S_AEM_VERIFY_LIVE_WIZARD_PACKAGE_PATH").expect(
+        "U2S_AEM_VERIFY_LIVE_WIZARD_PACKAGE_PATH must name a real UBS FileVault package to open",
+    );
+    let server = live_test_server("reopen-after-close");
+    let client = server.connect().await;
+
+    for round in ["first", "second"] {
+        let opened = call_ok(
+            &client,
+            "verify_open",
+            serde_json::json!({ "package_path": package_path }),
+        )
+        .await;
+        let form = opened["form"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the {round} open hands back a form: {opened}"))
+            .to_owned();
+        call_ok(&client, "verify_close", serde_json::json!({ "form": form })).await;
+    }
+    client.cancel().await.ok();
+}

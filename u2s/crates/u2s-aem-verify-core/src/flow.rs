@@ -731,12 +731,11 @@ pub(crate) struct LiveForm {
 }
 
 impl LiveForm {
-    /// Closes the page, then the browser session -- the same order
-    /// [`execute`] always used, and the only order chromiumoxide's own
-    /// `Browser::close` (invoked by [`BrowserSession::close`]) expects.
+    /// Closes the page, then disconnects from the browser, which stays up for
+    /// the session's next form (see [`BrowserSession::disconnect`]).
     pub(crate) async fn close(self) {
         self.page.close().await;
-        self.browser_session.close().await;
+        self.browser_session.disconnect().await;
     }
 }
 
@@ -969,7 +968,7 @@ async fn execute(
     }
 
     page.close().await;
-    browser_session.close().await;
+    browser_session.disconnect().await;
 
     Ok(VerifyReport {
         dry_run: false,

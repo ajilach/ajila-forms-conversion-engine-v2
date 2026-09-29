@@ -289,14 +289,18 @@ impl BrowserSession {
         PageHandle::new(page).await
     }
 
-    /// Closes every page and the connection. Aborts the handler task last
-    /// so an in-flight `close()` call still has somewhere to send its
-    /// command.
-    pub async fn close(mut self) {
+    /// Drops the connection and leaves the browser running.
+    ///
+    /// Never `Browser::close`: that is CDP's `Browser.close`, which ends the
+    /// Chromium process itself, and the browser this session connected to is
+    /// not its own -- it is the verifier session's container, shared by every
+    /// form a caller opens on it, so closing it left the next `verify_open`
+    /// with nothing to connect to. A caller closes its own pages first
+    /// ([`PageHandle::close`]); the container's lifecycle is the session's.
+    pub async fn disconnect(mut self) {
         if let Some(task) = self.download_task.take() {
             task.abort();
         }
-        let _ = self.browser.close().await;
         self.handler_task.abort();
     }
 }
