@@ -3,7 +3,7 @@
 Source: `ajilach/ajila-forms-conversion-engine-v3` (local checkout usually at
 `../unstructured-to-structured`).
 
-Upstream commit: `1cdfcc5`
+Upstream commit: `f62dbdc`
 
 Re-sync with `scripts/sync-u2s.sh <checkout>`. It copies the crates and plain-file assets, then
 re-applies every file in `u2s/patches/` in order. Do not edit vendored code directly: make the

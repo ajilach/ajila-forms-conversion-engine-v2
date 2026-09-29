@@ -8392,7 +8392,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "toml",
- "u2s-aem",
  "u2s-blob",
  "u2s-doc-tools",
  "u2s-mapper-aem",

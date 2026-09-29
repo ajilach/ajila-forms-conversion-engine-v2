@@ -9,7 +9,7 @@ checkbox, `RB_` radio button, `TTL_` title, `ST_` (or `ITXT_`, `ETXT_`) static t
 `CRT_` or `IMG_` for an HTML component showing a table, chart or image. A panel inside a
 repeatable may also use the repeatable family (`RCP_`, `RCHP_`, `RCBP_`, `RCHT_`).
 
-Fragments, custom elements, the preface, appendix and footnote placeholders, message boxes and
+Fragments, the preface and footnote placeholders, message boxes and
 the profile's own fixed panels are named by the profile and are not checked. Only the prefix
 is checked; the rest of the name is free.
 

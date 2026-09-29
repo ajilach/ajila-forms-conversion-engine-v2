@@ -290,15 +290,14 @@ mod tests {
     struct TempDir(PathBuf);
     impl TempDir {
         fn new() -> Self {
+            // One counter for the whole test binary: tests run in parallel,
+            // and two created within the clock's resolution must still get
+            // directories of their own.
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
             let path = std::env::temp_dir().join(format!(
                 "u2s-mapper-aem-test-{}-{}",
                 std::process::id(),
-                std::sync::atomic::AtomicU64::new(0)
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-                    + std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .unwrap()
-                        .as_nanos() as u64
+                NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             ));
             std::fs::create_dir_all(&path).unwrap();
             Self(path)
