@@ -181,3 +181,95 @@ async fn a_streamed_openai_compatible_turn_reads_back_the_same_way() {
     // The system prompt has to arrive, or every stage runs unprompted.
     assert!(body.contains("You are an analyst."), "{body}");
 }
+
+/// A tool that answers with an image — a page render, say — must not end the
+/// turn on this dialect. Chat completions only lets a `tool` message carry
+/// text, so the image has to travel in the user message that follows the tool
+/// results, with a note in the tool message that ties the two together. rig
+/// refuses the request outright instead, which paused every run whose Analyst
+/// looked at a page.
+#[tokio::test]
+async fn an_image_tool_result_travels_in_the_following_user_message() {
+    use rig_core::message::{AssistantContent, Message, ToolResultContent, UserContent};
+
+    let listener = TcpListener::bind("127.0.0.1:0").expect("a free port");
+    let addr = listener.local_addr().expect("an address");
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || serve_once(listener, tx));
+
+    let endpoint = LlmEndpoint::openai(format!("http://{addr}/v1"), "sk-test", "some/model");
+    let resolved = TurnPlan::for_endpoint(endpoint)
+        .resolve()
+        .expect("the endpoint resolves to a model");
+
+    let request = CompletionRequest {
+        model: None,
+        preamble: None,
+        chat_history: vec![
+            Message::user("Look at page one."),
+            Message::Assistant {
+                id: None,
+                content: vec![AssistantContent::tool_call(
+                    "call_a",
+                    "pdf_render_page",
+                    serde_json::json!({"page": 1}),
+                )],
+            },
+            Message::User {
+                content: vec![UserContent::tool_result_from_wire(
+                    "call_a",
+                    "pdf_render_page",
+                    vec![
+                        ToolResultContent::text("page 1 of 3"),
+                        ToolResultContent::image_base64(
+                            "AAAA",
+                            Some(rig_core::message::ImageMediaType::PNG),
+                            None,
+                        ),
+                    ],
+                )],
+            },
+        ],
+        documents: Vec::new(),
+        tools: Vec::new(),
+        temperature: None,
+        max_tokens: Some(u64::from(resolved.max_tokens)),
+        tool_choice: None,
+        additional_params: None,
+        output_schema: None,
+        record_telemetry_content: false,
+    };
+
+    let mut response = resolved
+        .model
+        .stream(request)
+        .await
+        .expect("a tool result carrying an image is accepted");
+    while let Some(item) = response.next().await {
+        item.expect("the stream carries no mid-flight error");
+    }
+
+    let sent = rx.recv().expect("the server captured a request");
+    let (_, body) = sent.split_once("\r\n\r\n").expect("a well-formed request");
+    let json: serde_json::Value = serde_json::from_str(body).expect("a JSON body");
+    let messages = json["messages"].as_array().expect("a message array");
+    let roles: Vec<&str> = messages
+        .iter()
+        .map(|m| m["role"].as_str().unwrap_or_default())
+        .collect();
+    assert_eq!(roles, ["user", "assistant", "tool", "user"], "{body}");
+
+    let tool = &messages[2];
+    assert_eq!(tool["tool_call_id"], "call_a");
+    let tool_text = tool["content"].to_string();
+    assert!(tool_text.contains("page 1 of 3"), "{tool_text}");
+    assert!(!tool_text.contains("image_url"), "{tool_text}");
+
+    let images: Vec<&str> = messages[3]["content"]
+        .as_array()
+        .expect("the image message carries parts")
+        .iter()
+        .filter_map(|p| p["image_url"]["url"].as_str())
+        .collect();
+    assert_eq!(images, ["data:image/png;base64,AAAA"], "{body}");
+}
