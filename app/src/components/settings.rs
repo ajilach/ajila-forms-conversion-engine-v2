@@ -554,6 +554,25 @@ pub fn SettingsPage(
                                 _ => rsx! {},
                             }
                         }
+                        div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Run analysis" }
+                            ToggleRow {
+                                label: "Record every run for analysis",
+                                desc: "Writes a folder per conversion: a report of where the time went, a timeline, the full prompt, messages and tool calls of every stage, and the complete trace. Plain Markdown and JSON Lines, readable by people and AI assistants.",
+                                checked: s.run_analysis,
+                                on_toggle: move |v: bool| update.call(Box::new(move |s| s.run_analysis = v)),
+                            }
+                            TextRow {
+                                label: "Folder",
+                                desc: "Where the run folders go. Leave empty for the run-analysis folder at the root of the engine's repository.",
+                                value: s.run_analysis_dir.clone(),
+                                placeholder: "default",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.run_analysis_dir = v.trim().to_string()))
+                                },
+                            }
+                        }
                     },
 
                     SettingsTab::References => rsx! {

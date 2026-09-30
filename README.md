@@ -138,9 +138,38 @@ to run without verification.
 Artefacts are named as in the app: `forms-package-<code>.zip`,
 `forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd`, `redacto-<code>.sql`,
 plus `agent-log-<code>.md` — the run transcript. The finalize step only builds the
-package; there is no upload or AEM path in the output. Ctrl-C stops the run at its
+package; there is no upload or AEM path in the output. Every run is also recorded
+for analysis into `run-analysis/<date>_<time>_<source>_<session>/` at the root of
+this repository (see [Run analysis](#run-analysis)). Ctrl-C stops the run at its
 next checkpoint: no artefacts are written, but the session id is printed and the edit
 history holds what the agent had built, so the run can be resumed with `--session`.
+
+## Run analysis
+
+Every AI conversion, from the app or the CLI, is recorded into a folder of plain
+Markdown and JSON Lines meant for a person to read and for an AI assistant to be
+handed as is: `report.md` (where the time went per stage and per tool, the slowest
+turns and calls, repeated calls, recurring errors, review verdicts, control
+events), `timeline.md`, one transcript per stage with every prompt, message, tool
+call and result, the complete `trace.jsonl`, and `evaluation.md` — a template for
+the person who checks the converted form to record a verdict, scores, findings and
+requirements for v3. Files are written while the run happens, so an aborted or
+crashed run is recorded up to that moment.
+
+```sh
+# Runs go to run-analysis/ in this repository by default. Elsewhere, or not at all:
+cargo run --release -p blueprint-cli -- convert form.pdf --analysis-dir ~/runs
+cargo run --release -p blueprint-cli -- convert form.pdf --no-analysis
+
+# Compare many runs: time per stage, tool cost, errors recurring across forms
+python3 scripts/analyze_runs.py run-analysis --out runs-overview.md
+
+# Collect the filled-in human evaluations: verdicts, findings, v3 requirements
+python3 scripts/collect_evaluations.py run-analysis --out evaluations-overview.md --csv evaluations.csv
+```
+
+The app records into the same `run-analysis/` folder (Settings → Run analysis changes it). Details, the file
+layout and how to use the files with an AI assistant: [docs/run-analysis.md](docs/run-analysis.md).
 
 ## App
 

@@ -112,6 +112,15 @@ pub struct ConvertArgs {
     #[arg(long, default_value = "2", value_name = "N")]
     retries: usize,
 
+    /// Directory the run's analysis folder is created in: a report of where
+    /// the time went, a timeline, per-stage transcripts and the full trace.
+    /// Defaults to `run-analysis/` in the engine's checkout, as in the app.
+    #[arg(long, value_name = "DIR", conflicts_with = "no_analysis")]
+    analysis_dir: Option<PathBuf>,
+
+    /// Do not record the run for analysis.
+    #[arg(long)]
+    no_analysis: bool,
 }
 
 fn parse_provider(value: &str) -> Result<Provider, String> {
@@ -448,6 +457,14 @@ fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
         )
         .into());
     }
+    // Unless named, the analysis folder is the same as the app's: run-analysis/
+    // in the engine's checkout, so every run, app or console, is in one place.
+    settings.run_analysis = !args.no_analysis;
+    settings.run_analysis_dir = args
+        .analysis_dir
+        .as_ref()
+        .map(|dir| dir.display().to_string())
+        .unwrap_or_default();
     if let Some(rounds) = args.max_review_rounds {
         settings.max_review_rounds = rounds;
     }

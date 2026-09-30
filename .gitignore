@@ -25,3 +25,5 @@ AAHA_019_merged.zip
 .claude
 # pdfium dynamic library, fetched by scripts/fetch-pdfium.sh.
 /vendor/pdfium
+# Bytecode left by running the scripts' tests.
+__pycache__/

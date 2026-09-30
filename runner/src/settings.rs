@@ -81,6 +81,21 @@ pub struct AppSettings {
     /// system prompt. Empty = none.
     #[serde(default)]
     pub agent_instructions: String,
+    /// Whether every run is recorded for analysis: a folder per run with a
+    /// report, a timeline, per-stage transcripts and the full trace (see
+    /// [`crate::analysis`]). On unless switched off.
+    #[serde(default = "default_run_analysis")]
+    pub run_analysis: bool,
+    /// Where those folders go. Empty = `run-analysis/` in the engine's checkout
+    /// (see [`crate::analysis::default_root`]).
+    #[serde(default)]
+    pub run_analysis_dir: String,
+}
+
+/// Runs are recorded by default: the recording is what makes a slow or
+/// looping run explainable afterwards, and it costs only disk space.
+fn default_run_analysis() -> bool {
+    true
 }
 
 /// Requests in flight per endpoint. Three keeps several conversions moving
@@ -104,6 +119,8 @@ impl Default for AppSettings {
             redacto_verify: agent::u2s::RedactoVerifySettings::default(),
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
+            run_analysis: default_run_analysis(),
+            run_analysis_dir: String::new(),
         }
     }
 }
