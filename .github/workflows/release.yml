@@ -191,35 +191,11 @@ jobs:
         run: ./scripts/fetch-pdfium.sh
         shell: bash
 
-      - name: Build and stage the mcp sidecar
-        # Bundle the standalone `mcp` stdio server alongside the app (see
-        # [bundle].external_bin in app/Dioxus.toml). dx resolves the external_bin
-        # source as `<value>-<target-triple>` relative to its working directory
-        # (the repo root, where `dx bundle` runs below), and copies it next to
-        # the app executable with the triple stripped (e.g. Contents/MacOS/mcp on
-        # macOS, /usr/bin/mcp in the .deb, next to the .exe on Windows). The app
-        # registers this binary with Claude Desktop via the Settings → Claude
-        # Desktop → Install button.
-        run: |
-          cargo build --release -p mcp --target ${{ matrix.target }}
-          # The rule worker every conversion runs its rules in, for both the app
-          # and the mcp server, which sit side by side.
-          cargo build --release -p u2s-rules-host --bin u2s-rules-worker --target ${{ matrix.target }}
-          mkdir -p sidecar
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            cp "target/${{ matrix.target }}/release/mcp.exe" "sidecar/mcp-${{ matrix.target }}.exe"
-            cp "target/${{ matrix.target }}/release/u2s-rules-worker.exe" "sidecar/u2s-rules-worker-${{ matrix.target }}.exe"
-          else
-            cp "target/${{ matrix.target }}/release/mcp" "sidecar/mcp-${{ matrix.target }}"
-            cp "target/${{ matrix.target }}/release/u2s-rules-worker" "sidecar/u2s-rules-worker-${{ matrix.target }}"
-          fi
-          # pdfium travels the same external_bin way, next to the app binary.
-          # Not on Windows: external_bin appends .exe, which a DLL cannot carry.
-          if [[ "${{ matrix.os }}" == macos* ]]; then
-            cp vendor/pdfium/lib/libpdfium.dylib "sidecar/libpdfium.dylib-${{ matrix.target }}"
-          elif [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
-            cp vendor/pdfium/lib/libpdfium.so "sidecar/libpdfium.so-${{ matrix.target }}"
-          fi
+      - name: Build and stage the sidecars
+        # The binaries the app ships next to its executable (mcp, the rule
+        # worker, pdfium), staged where [bundle].external_bin in app/Dioxus.toml
+        # expects them. The same script stages them for a local build.
+        run: ./scripts/stage-sidecars.sh ${{ matrix.target }}
         shell: bash
 
       - name: Bundle with Dioxus CLI

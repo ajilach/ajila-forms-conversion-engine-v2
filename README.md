@@ -160,10 +160,15 @@ dx serve --platform desktop
 
 ### Production Build
 
+The app needs `u2s-rules-worker` and pdfium next to its executable, and `dx bundle` is what puts them there (`dx build` does not copy them). Stage them first, from the repo root:
+
 ```sh
-cd app
-dx build --release --platform desktop
+./scripts/fetch-pdfium.sh
+./scripts/stage-sidecars.sh
+dx bundle --release --platform desktop --package blueprint-app --package-types macos
 ```
+
+The app lands in `target/dx/blueprint-app/bundle/macos/macos/BlueprintApp.app`.
 
 ## MCP Server
 

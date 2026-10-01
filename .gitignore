@@ -5,7 +5,7 @@
 /.idea
 /.ori
 
-# Staged mcp sidecar binary for `dx bundle` (built in CI, see release.yml).
+# Sidecar binaries staged for `dx bundle` by scripts/stage-sidecars.sh.
 # Repo-root, because dx resolves [bundle].external_bin relative to its CWD.
 /sidecar
 
