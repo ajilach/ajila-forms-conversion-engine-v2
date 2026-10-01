@@ -10,7 +10,12 @@
 
 use rig_agent::agent::model::ModelHandle;
 use rig_core::client::{CompletionClient, ModelLister};
+use rig_core::completion::{
+    CompletionError, CompletionModel, CompletionRequest, CompletionResponse, ProviderCapabilities,
+};
+use rig_core::message::{Message, ToolResultContent, UserContent};
 use rig_core::model::Model;
+use rig_core::streaming::StreamingCompletionResponse;
 use rig_core::providers::{anthropic, openai, openrouter};
 
 use crate::provider::{DEFAULT_OPENAI_BASE_URL, LlmEndpoint, Provider};
@@ -111,9 +116,11 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
             // migration and is worth several francs on a long run.
             Ok(ModelHandle::named(
                 "openrouter",
-                client
-                    .completion_model(&endpoint.model)
-                    .with_prompt_caching(),
+                ImagesAfterToolResults(
+                    client
+                        .completion_model(&endpoint.model)
+                        .with_prompt_caching(),
+                ),
             ))
         }
         Provider::OpenAi => {
@@ -130,10 +137,89 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
                 .completions_api();
             Ok(ModelHandle::named(
                 "openai",
-                client.completion_model(&endpoint.model),
+                ImagesAfterToolResults(client.completion_model(&endpoint.model)),
             ))
         }
     }
+}
+
+/// Tells the model where a tool result's images went, in the result itself.
+const IMAGES_FOLLOW_NOTE: &str = "(image output follows in the next message)";
+
+/// A chat-completions model whose requests carry no image inside a tool result.
+///
+/// That dialect only lets a `tool` message hold text, and rig refuses such a
+/// request outright rather than translating it, so a stage that renders a page
+/// would stop at its first look. The images move to the end of the same user
+/// message instead, which rig sends as the user message right after the tool
+/// messages: what the hand-written transport did before the rig migration.
+/// Anthropic takes images in a tool result natively and is not wrapped.
+struct ImagesAfterToolResults<M>(M);
+
+impl<M: CompletionModel> CompletionModel for ImagesAfterToolResults<M> {
+    async fn completion(
+        &self,
+        mut request: CompletionRequest,
+    ) -> Result<CompletionResponse, CompletionError> {
+        request.chat_history = images_after_tool_results(request.chat_history);
+        self.0.completion(request).await
+    }
+
+    async fn stream(
+        &self,
+        mut request: CompletionRequest,
+    ) -> Result<StreamingCompletionResponse, CompletionError> {
+        request.chat_history = images_after_tool_results(request.chat_history);
+        self.0.stream(request).await
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.0.capabilities()
+    }
+}
+
+/// Move every image out of each user message's tool results to the end of that
+/// message, leaving [`IMAGES_FOLLOW_NOTE`] in each result that lost one.
+///
+/// Order is kept: the images follow in the order their results came, and each
+/// result keeps its text in place, so a tool message is never empty.
+fn images_after_tool_results(history: Vec<Message>) -> Vec<Message> {
+    history
+        .into_iter()
+        .map(|message| match message {
+            Message::User { content } => Message::User {
+                content: user_content_with_images_last(content),
+            },
+            other => other,
+        })
+        .collect()
+}
+
+fn user_content_with_images_last(content: Vec<UserContent>) -> Vec<UserContent> {
+    let mut moved = Vec::new();
+    let mut kept: Vec<UserContent> = content
+        .into_iter()
+        .map(|item| match item {
+            UserContent::ToolResult(mut result) => {
+                let before = moved.len();
+                let mut remaining = Vec::with_capacity(result.content.len());
+                for part in result.content {
+                    match part {
+                        ToolResultContent::Image(image) => moved.push(UserContent::Image(image)),
+                        other => remaining.push(other),
+                    }
+                }
+                if moved.len() > before {
+                    remaining.push(ToolResultContent::text(IMAGES_FOLLOW_NOTE));
+                }
+                result.content = remaining;
+                UserContent::ToolResult(result)
+            }
+            other => other,
+        })
+        .collect();
+    kept.extend(moved);
+    kept
 }
 
 /// The models `endpoint` offers, as the provider reports them.
@@ -208,6 +294,76 @@ mod tests {
                 "{} did not resolve",
                 provider.as_str()
             );
+        }
+    }
+
+    /// `ModelHandle` snapshots capabilities when it erases the model, so a
+    /// wrapper that did not forward them would quietly drop what the OpenAI
+    /// model declares (structured output composing with tools).
+    #[test]
+    fn the_image_wrapper_keeps_the_models_capabilities() {
+        let endpoint = LlmEndpoint::openai("https://vllm.internal/v1", "k", "m");
+        let bare = openai::Client::builder()
+            .api_key("k")
+            .base_url("https://vllm.internal/v1")
+            .build()
+            .expect("a client")
+            .completions_api()
+            .completion_model("m")
+            .capabilities();
+        assert_ne!(bare, ProviderCapabilities::default());
+        assert_eq!(model_for(&endpoint).expect("resolves").capabilities(), bare);
+    }
+
+    fn image(data: &str) -> ToolResultContent {
+        ToolResultContent::image_base64(data, None, None)
+    }
+
+    fn result(call: &str, content: Vec<ToolResultContent>) -> UserContent {
+        UserContent::tool_result_from_wire(call, "pdf_render_page", content)
+    }
+
+    /// Each result keeps its text and gains the note; the images follow all
+    /// results in the order they came, and a text-only result is untouched.
+    #[test]
+    fn tool_result_images_move_behind_the_results_in_order() {
+        let history = vec![Message::User {
+            content: vec![
+                result("a", vec![ToolResultContent::text("page 1"), image("one")]),
+                result("b", vec![ToolResultContent::text("plain")]),
+                result("c", vec![image("two"), image("three")]),
+            ],
+        }];
+
+        let shaped = images_after_tool_results(history);
+        let [Message::User { content }] = shaped.as_slice() else {
+            panic!("one user message stays one user message");
+        };
+        let texts = |item: &UserContent| match item {
+            UserContent::ToolResult(r) => r
+                .content
+                .iter()
+                .map(|p| match p {
+                    ToolResultContent::Text(t) => t.text.clone(),
+                    other => panic!("an image stayed in a tool result: {other:?}"),
+                })
+                .collect::<Vec<_>>(),
+            other => panic!("expected a tool result, got {other:?}"),
+        };
+        assert_eq!(texts(&content[0]), ["page 1", IMAGES_FOLLOW_NOTE]);
+        assert_eq!(texts(&content[1]), ["plain"]);
+        assert_eq!(texts(&content[2]), [IMAGES_FOLLOW_NOTE]);
+
+        let moved: Vec<_> = content[3..]
+            .iter()
+            .map(|item| match item {
+                UserContent::Image(image) => format!("{:?}", image.data),
+                other => panic!("expected an image, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(moved.len(), 3);
+        for (got, want) in moved.iter().zip(["one", "two", "three"]) {
+            assert!(got.contains(want), "{got} should be {want}");
         }
     }
 
