@@ -86,7 +86,7 @@ pub fn AgentFlow(
     /// Discard the finished result and return to a clean upload state.
     on_reset: EventHandler<()>,
 ) -> Element {
-    let mut processing_state = tab.state;
+    let processing_state = tab.state;
     let mut uploaded_files = tab.files;
     let mut feedback = tab.feedback;
     let mut timeline_open = tab.timeline_open;
@@ -129,14 +129,10 @@ pub fn AgentFlow(
                                 on_aem_upload: move |()| on_aem_upload.call(()),
                                 on_feedback: move |text: String| on_feedback.call(text),
                                 on_continue: move |()| on_continue.call(()),
-                                // Answer a paused run's retry prompt; the agent loop
-                                // polls these on the shared processing state.
-                                on_retry: move |_| {
-                                    processing_state.write().retry_action = Some(RetryAction::Retry);
-                                },
-                                on_give_up: move |_| {
-                                    processing_state.write().retry_action = Some(RetryAction::Cancel);
-                                },
+                                // Answer a paused run's retry prompt; the paused
+                                // run polls the tab's answer cell for it.
+                                on_retry: move |_| tab.retry.peek().answer(RetryAction::Retry),
+                                on_give_up: move |_| tab.retry.peek().answer(RetryAction::Cancel),
                                 on_new: move |_| {
                                     uploaded_files.set(Vec::new());
                                     feedback.set(String::new());
@@ -357,12 +353,29 @@ fn RunBox(
         _ => "ag-box",
     };
 
+    // Read the state once, take what this box shows, and let go before
+    // rendering. A `state.read()` inside `rsx!` can outlive its line, so
+    // several of them meant one render holding a read while asking for the
+    // next — which froze the app for good whenever a write from the run's
+    // thread was waiting in between. The run no longer writes the state, but a
+    // render that never nests reads cannot fall into that again.
+    let (elapsed_secs, error, aborted, warnings, aem_path) = {
+        let s = state.read();
+        (
+            s.elapsed_secs,
+            s.error.clone(),
+            s.aborted,
+            s.warnings.clone(),
+            s.aem_form_path.clone().filter(|_| s.aem_uploaded),
+        )
+    };
+
     rsx! {
         section { class: box_class,
             RunHeader {
                 status,
                 profile,
-                elapsed_secs: state.read().elapsed_secs,
+                elapsed_secs,
                 abort,
                 on_new,
             }
@@ -372,24 +385,24 @@ fn RunBox(
 
             // ---- Failed request: retry (or give up) without losing the run ----
             if status == RunStatus::Paused {
-                RetryPrompt { error: state.read().error.clone(), on_retry, on_give_up }
-            } else if let Some(error) = state.read().error.as_ref() {
+                RetryPrompt { error, on_retry, on_give_up }
+            } else if let Some(error) = error.as_ref() {
                 div { class: "progress-error",
                     strong { "Error: " }
                     "{error}"
                 }
-            } else if state.read().aborted {
+            } else if aborted {
                 div { class: "progress-note", "Stopped at your request." }
             }
 
             // Non-fatal problems the run reported — a Redacto dump that could not
             // be built, a cross-language merge that failed. Without this the run
             // looks clean while an output is silently missing.
-            if !state.read().warnings.is_empty() {
+            if !warnings.is_empty() {
                 div { class: "progress-warnings",
                     strong { "Warnings:" }
                     ul {
-                        for warning in state.read().warnings.iter() {
+                        for warning in warnings.iter() {
                             li { "{warning}" }
                         }
                     }
@@ -398,7 +411,7 @@ fn RunBox(
 
             // ---- Result + feedback (done only) ----
             if done {
-                if state.read().aem_uploaded && let Some(path) = state.read().aem_form_path.as_ref() {
+                if let Some(path) = aem_path.as_ref() {
                     div { class: "ag-aem",
                         span { class: "ag-aem-label", "Uploaded to AEM" }
                         span { class: "ag-aem-path", "{path}" }
@@ -1229,6 +1242,8 @@ mod tests {
         }
     }
 
+
+
     #[test]
     fn filename_falls_back_when_the_form_code_is_unknown() {
         assert_eq!(
@@ -1240,8 +1255,6 @@ mod tests {
             "redacto.sql"
         );
     }
-
-
 
     /// The log is the only durable record of a run once the window is closed, so
     /// every step kind has to survive the transcript.

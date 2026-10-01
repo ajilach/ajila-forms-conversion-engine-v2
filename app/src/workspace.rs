@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use dioxus::prelude::*;
 
-use crate::models::{AbortFlag, ProcessingState, RunState, UploadState};
+use crate::models::{AbortFlag, ProcessingState, RetryAnswer, RunState, UploadState};
 use crate::tabs::{
     active_after_close, RestoredView, SavedTab, SavedWorkspace, TabId, TabPhase, MAX_TABS,
     WORKSPACE_VERSION,
@@ -23,14 +23,15 @@ use crate::tabs::{
 /// future without ceremony.
 ///
 /// Every signal is created in [`ScopeId::APP`], which never unmounts. That is
-/// the load-bearing detail: a run's future holds `state` for minutes and writes
-/// to it throughout, so the handle has to outlive the tab strip button that
+/// the load-bearing detail: a run's progress task holds `state` for minutes and
+/// writes to it throughout, so the handle has to outlive the tab strip button that
 /// happened to be on screen when the run started, and survive other tabs being
 /// opened, closed and reordered around it.
 #[derive(Clone, Copy, PartialEq)]
 pub struct Tab {
     pub id: TabId,
-    /// The run's progress. Written by the run's future, read by the box.
+    /// The run's progress, read by the box. Written only on the UI thread, from
+    /// what the run sends (see [`RunState`]).
     pub state: RunState,
     /// `true` while this tab's run future is alive.
     pub processing: Signal<bool>,
@@ -49,6 +50,8 @@ pub struct Tab {
     pub session_id: Signal<Option<String>>,
     /// Stops this tab's run, and only this tab's run.
     pub abort: Signal<AbortFlag>,
+    /// The Retry / Give up answer for this tab's run when it pauses.
+    pub retry: Signal<RetryAnswer>,
     /// Progress of the on-demand "Upload to AEM" action.
     pub aem_upload: Signal<UploadState>,
     /// Set when this tab came back from a previous session and has not been
@@ -75,9 +78,7 @@ impl Tab {
         }
         Self {
             id: TabId::next(),
-            // The only one that crosses threads: the run writes it from a
-            // worker, everything else is touched on the UI thread alone.
-            state: RunState::new_maybe_sync_in_scope(ProcessingState::default(), ScopeId::APP),
+            state: app(ProcessingState::default()),
             processing: app(false),
             profile: app(profile),
             target: app(target),
@@ -86,6 +87,7 @@ impl Tab {
             timeline_open: app(false),
             session_id: app(None),
             abort: app(AbortFlag::default()),
+            retry: app(RetryAnswer::default()),
             aem_upload: app(UploadState::default()),
             restored: app(None),
             last_download: app(HashMap::new()),
@@ -109,7 +111,7 @@ impl Tab {
 
         Self {
             id: TabId::from_saved(saved.id),
-            state: RunState::new_maybe_sync_in_scope(restored.state, ScopeId::APP),
+            state: app(restored.state),
             // Never `true`: reopening a workspace must not start anything. The
             // run that filled this tab ended with the process that drove it, and
             // carrying on is the operator's explicit call — the Continue button.
@@ -121,6 +123,7 @@ impl Tab {
             timeline_open: app(false),
             session_id: app(saved.session_id.clone()),
             abort: app(AbortFlag::default()),
+            retry: app(RetryAnswer::default()),
             aem_upload: app(if saved.aem_uploaded {
                 UploadState::Success
             } else {
@@ -171,8 +174,8 @@ impl Tab {
     /// process, and `ProcessingState` holds the built package — several
     /// megabytes that would otherwise never be reclaimed.
     ///
-    /// Only ever called once the tab's run has ended, because a future still
-    /// writing to a released signal would panic.
+    /// Only ever called once the tab's run has ended — its progress task has
+    /// applied the last update — because writing to a released signal panics.
     fn release(self) {
         self.state.manually_drop();
         self.processing.manually_drop();
@@ -183,6 +186,7 @@ impl Tab {
         self.timeline_open.manually_drop();
         self.session_id.manually_drop();
         self.abort.manually_drop();
+        self.retry.manually_drop();
         self.aem_upload.manually_drop();
         self.restored.manually_drop();
         self.last_download.manually_drop();
