@@ -27,6 +27,10 @@ pub struct ServerUnderTest {
     /// Tool-name prefix, e.g. `"pdf"` or `"xfa"`.
     pub prefix: &'static str,
     pub env: Vec<(String, String)>,
+    /// Variables the server must not inherit from this test process -- a
+    /// test of the unconfigured case cannot rely on the developer's own
+    /// environment being empty.
+    pub env_removed: Vec<String>,
 }
 
 impl ServerUnderTest {
@@ -48,11 +52,17 @@ impl ServerUnderTest {
             binary,
             prefix,
             env: Vec::new(),
+            env_removed: Vec::new(),
         }
     }
 
     pub fn env(mut self, key: &str, value: impl AsRef<str>) -> Self {
         self.env.push((key.to_string(), value.as_ref().to_string()));
+        self
+    }
+
+    pub fn env_remove(mut self, key: &str) -> Self {
+        self.env_removed.push(key.to_string());
         self
     }
 
@@ -62,6 +72,9 @@ impl ServerUnderTest {
 
     fn command(&self) -> Command {
         let mut cmd = Command::new(&self.binary);
+        for k in &self.env_removed {
+            cmd.env_remove(k);
+        }
         for (k, v) in &self.env {
             cmd.env(k, v);
         }

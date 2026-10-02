@@ -641,11 +641,11 @@ asset missing a language, a reference to an asset key that does not exist, a dis
 nothing and lists every violation; fix them with json_patch. json_validate checks the document \
 against the schema. Build after every substantive change.\n\
    Then verify the dump on a real database: redacto_verify_dump_check (offline: it decodes the dump \
-the way the platform will) and redacto_verify_run, which imports it into a throwaway Postgres with \
-the platform's schema and reports the row counts. It always checks the latest build_redacto_dump \
-result. When a rendering endpoint is configured it also returns one rendered PDF per language: read \
-each with pdf_render_pages (its path is `doc_path`) and compare it with that language's source \
-pages; otherwise rendering is reported as skipped, which is not a failure.\n\
+the way the platform will) and redacto_verify_run, which imports it into a Redacto platform of this \
+run's own, reports the row counts and returns one rendered PDF per language. It always checks the \
+latest build_redacto_dump result. Read each rendered PDF with pdf_render_pages (its path is \
+`doc_path`) and compare it with that language's source pages. A failed import or render is a \
+defect: fix the document and rebuild.\n\
 5. Review end to end. TWO separate checks, both required — one for text, one for structure.\n\
    TEXT: walk each language's PDF with xfa_page_text against the document (json_outline, json_get) \
 and confirm every heading, paragraph, list item, table cell and footnote reached it. For EVERY miss, \
@@ -703,8 +703,9 @@ from every round, then rebuild.";
 pub const REDACTO_REVIEWER_ADDENDUM: &str = "\
 ROLE: Reviewer. You do NOT edit the document — you judge the Author's result and report. Verify \
 independently: json_validate, build_redacto_dump (a document that builds nothing is \
-disqualifying) and redacto_verify_run (the dump imported into a real database; a failed import is \
-disqualifying, and any rendered PDF is read with pdf_render_pages against the source pages). \
+disqualifying) and redacto_verify_run (the dump imported into a real Redacto platform and rendered; a failed import \
+or render is disqualifying, and every rendered PDF is read with pdf_render_pages against the source \
+pages). \
 COVERAGE against the source is your own check: walk each language's PDF with xfa_page_text against \
 the document (json_outline, json_get, json_search) and name every heading, paragraph, list item, \
 table cell or footnote that did not arrive, and every text present in only one language when the \

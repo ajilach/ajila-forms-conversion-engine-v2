@@ -94,6 +94,7 @@ pub enum NativeJsonTool {
     ListFacts,
     GetFact,
     ProposeFact,
+    Verify,
 }
 
 /// Where a native tool's body actually runs.
@@ -126,6 +127,11 @@ pub enum Route {
     /// facts live in the store and extracting one needs a model, the page
     /// renders and the sandbox.
     FactWorkbench,
+    /// Answered by the application through `u2s_agent`'s `OutputVerifier`,
+    /// because verifying encodes the document and installs it on a real
+    /// target system, which takes the encoder, the verifier server and the
+    /// blob store.
+    Verifier,
 }
 
 impl NativeJsonTool {
@@ -143,13 +149,16 @@ impl NativeJsonTool {
         NativeJsonTool::ListFacts,
         NativeJsonTool::GetFact,
         NativeJsonTool::ProposeFact,
+        NativeJsonTool::Verify,
     ];
 
-    /// What a conversion's agents may be offered: every tool except the
-    /// fact tools. Facts exist to check a conversion independently of it, so
-    /// no agent taking part in one may read or propose them -- enforced by
-    /// the offer itself, not by a wiring that happens to leave the
-    /// workbench out.
+    /// What a conversion is always offered: every tool except the fact
+    /// tools and `verify_output`. Facts exist to check a conversion
+    /// independently of it, so the agent doing one may not read or propose
+    /// them -- enforced by the offer itself, not by a wiring that happens to
+    /// leave the workbench out. `verify_output` is added on top only when
+    /// the dataset has a verifier enabled: offered without one, every call
+    /// would only report that nothing can verify.
     pub const OFFERED_TO_RUNS: &'static [NativeJsonTool] = &[
         NativeJsonTool::Outline,
         NativeJsonTool::Get,
@@ -178,6 +187,7 @@ impl NativeJsonTool {
             NativeJsonTool::ListFacts => "fact_list",
             NativeJsonTool::GetFact => "fact_get",
             NativeJsonTool::ProposeFact => "fact_propose",
+            NativeJsonTool::Verify => "verify_output",
         }
     }
 
@@ -270,6 +280,14 @@ impl NativeJsonTool {
                  the same answer every time: if two extractions of a sample input disagree, the \
                  rule cannot be saved."
             }
+            NativeJsonTool::Verify => {
+                "Verify the document as it stands on a real target system: it is encoded, \
+                 installed and rendered, and you get back what went wrong (errors and warnings) \
+                 plus screenshots of the rendered result, which are attached for you to look \
+                 at. Read-only on the document. Slow -- a call can take minutes -- and the \
+                 number of calls per run is capped, so call it once the document is complete \
+                 and validates, and again only after you fixed what it reported."
+            }
         }
     }
 
@@ -280,6 +298,10 @@ impl NativeJsonTool {
     /// `rule_propose` counts as a mutation even though it never touches the
     /// document: a second identical call is a second proposal somebody has
     /// to read, not a repeat of an answer that already stands.
+    ///
+    /// `verify_output` counts as one too: it takes no arguments, so a call
+    /// after an edit looks identical to the one before it, yet verifies a
+    /// different document.
     pub fn is_idempotent(self) -> bool {
         !matches!(
             self,
@@ -287,6 +309,7 @@ impl NativeJsonTool {
                 | NativeJsonTool::Autofix
                 | NativeJsonTool::Propose
                 | NativeJsonTool::ProposeFact
+                | NativeJsonTool::Verify
         )
     }
 
@@ -298,6 +321,7 @@ impl NativeJsonTool {
             NativeJsonTool::CheckRules | NativeJsonTool::Autofix => Route::Sandbox,
             NativeJsonTool::Propose => Route::Proposer,
             NativeJsonTool::TryRule => Route::DryRunner,
+            NativeJsonTool::Verify => Route::Verifier,
             NativeJsonTool::ListFacts | NativeJsonTool::GetFact | NativeJsonTool::ProposeFact => {
                 Route::FactWorkbench
             }
@@ -392,6 +416,11 @@ impl NativeJsonTool {
                     "expected_revision": { "type": "integer", "minimum": 0 }
                 },
                 "required": ["expected_revision"],
+                "additionalProperties": false
+            }),
+            NativeJsonTool::Verify => json!({
+                "type": "object",
+                "properties": {},
                 "additionalProperties": false
             }),
             NativeJsonTool::Propose => json!({
@@ -493,6 +522,13 @@ pub enum NativeToolError {
     NoProposer,
     #[error("the rule was not proposed: {detail}")]
     ProposalRefused { detail: String },
+    #[error(
+        "verify_output is unavailable because this agent has no verifier wired; nothing was \
+         verified"
+    )]
+    NoVerifier,
+    #[error("the document was not verified: {detail}")]
+    VerifyFailed { detail: String },
     #[error(
         "rule_try is unavailable because this agent has no dry runner wired; nothing was tried"
     )]
@@ -696,6 +732,9 @@ pub fn dispatch(
                     .to_owned(),
             })
         }
+        NativeJsonTool::Verify => Err(NativeToolError::PatchRejected {
+            detail: "verify_output is dispatched through the output verifier, not here".to_owned(),
+        }),
     }
 }
 
@@ -1053,11 +1092,12 @@ mod tests {
         for tool in NativeJsonTool::OFFERED_TO_RUNS {
             assert_ne!(tool.route(), Route::FactWorkbench, "{}", tool.name());
         }
-        // Everything else is offered: only the fact tools are held back.
+        // Everything else is always offered: only the fact tools and the
+        // conditionally offered verifier are held back.
         for tool in NativeJsonTool::ALL {
             assert_eq!(
                 NativeJsonTool::OFFERED_TO_RUNS.contains(tool),
-                tool.route() != Route::FactWorkbench,
+                !matches!(tool.route(), Route::FactWorkbench | Route::Verifier),
                 "{}",
                 tool.name()
             );
@@ -1073,6 +1113,7 @@ mod tests {
                     | NativeJsonTool::Autofix
                     | NativeJsonTool::Propose
                     | NativeJsonTool::ProposeFact
+                    | NativeJsonTool::Verify
             );
             assert_eq!(tool.is_idempotent(), !mutates, "{}", tool.name());
         }

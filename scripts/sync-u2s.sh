@@ -17,8 +17,8 @@ SRC="$(cd "$1" && pwd)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEST="$ROOT/u2s"
 
-if [ -n "$(git -C "$ROOT" status --porcelain -- u2s docker/aem)" ]; then
-  echo "u2s/ or docker/aem/ has uncommitted changes; commit or stash them first" >&2
+if [ -n "$(git -C "$ROOT" status --porcelain -- u2s docker/aem docker/redacto)" ]; then
+  echo "u2s/, docker/aem/ or docker/redacto/ has uncommitted changes; commit or stash them first" >&2
   exit 1
 fi
 
@@ -38,7 +38,7 @@ CRATES=(
 # The recorded commit must describe exactly what is copied: only the paths
 # copied below must be clean upstream, so work in progress on the rest of the
 # upstream workspace does not block a sync.
-COPIED=(specs/AEM.md vendor/fonts corpus/ubs fixtures docker/aem)
+COPIED=(specs/aem/aem-xml-spec.md vendor/fonts corpus/ubs fixtures docker/aem docker/redacto)
 for c in "${CRATES[@]}"; do COPIED+=("crates/$c"); done
 if [ -n "$(git -C "$SRC" status --porcelain -- "${COPIED[@]}")" ]; then
   echo "$SRC has uncommitted changes in what is copied; commit them upstream first so $COMMIT matches:" >&2
@@ -53,13 +53,17 @@ done
 # Plain-file assets. Symlinked assets (the corpus forms and Frutiger faces
 # that originate in this repo, and the fixture links into crates/) are left
 # as they are.
-cp "$SRC/specs/AEM.md" "$DEST/specs/AEM.md"
+rm -f "$DEST/specs/AEM.md"
+mkdir -p "$DEST/specs/aem"
+cp "$SRC/specs/aem/aem-xml-spec.md" "$DEST/specs/aem/aem-xml-spec.md"
 cp "$SRC/vendor/fonts/DejaVuSans.ttf" "$SRC/vendor/fonts/LICENSE" "$DEST/vendor/fonts/"
 cp "$SRC/vendor/fonts/ubs-frutiger/README.md" "$DEST/vendor/fonts/ubs-frutiger/"
 cp "$SRC/corpus/ubs/README.md" "$DEST/corpus/ubs/"
 cp "$SRC/fixtures/README.md" "$DEST/fixtures/"
 cp "$SRC/docker/aem/README.md" "$SRC/docker/aem/bake-ubs-platform.sh" "$ROOT/docker/aem/"
 rsync -a --delete "$SRC/docker/aem/dompurify/" "$ROOT/docker/aem/dompurify/"
+mkdir -p "$ROOT/docker/redacto"
+cp "$SRC/docker/redacto/README.md" "$ROOT/docker/redacto/"
 
 for p in "$DEST"/patches/*.patch; do
   echo "applying $(basename "$p")"

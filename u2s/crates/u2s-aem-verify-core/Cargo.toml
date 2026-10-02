@@ -10,6 +10,8 @@ name = "u2s_aem_verify_core"
 path = "src/lib.rs"
 
 [dependencies]
+# The default data volume name is derived from the image reference.
+sha2 = "0.10"
 # Encoding a `verify_screenshot` image inline in a tool result -- the same
 # crate and version every other u2s server already uses for this.
 base64 = "0.22"

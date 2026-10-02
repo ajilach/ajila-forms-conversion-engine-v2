@@ -30,7 +30,6 @@
 //! - [`interactive`] -- the one-step-at-a-time control tools
 //!   (`verify_open`/`verify_controls`/`verify_set`/...) built on the same
 //!   `flow` primitives `verify_run` uses.
-//! - [`warm`] -- the `warm` CLI subcommand's image-commit logic.
 //! - [`server`] -- the rmcp `ServerHandler` glue shared by every binary,
 //!   parameterised by a [`server::ServerConfig`].
 
@@ -43,10 +42,9 @@ pub mod profile;
 pub mod server;
 pub mod session;
 pub mod specs_shared;
-pub mod warm;
 
 /// Prefix every log line this crate's own modules emit -- one shared
 /// string rather than each binary's own name, since a log line from this
-/// crate is about the shared runtime (session boot, wizard walk, warm)
+/// crate is about the shared runtime (session boot, wizard walk)
 /// regardless of which thin binary is hosting it right now.
 pub const LOG_PREFIX: &str = "u2s-aem-verify-core";

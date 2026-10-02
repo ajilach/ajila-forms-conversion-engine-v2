@@ -114,10 +114,9 @@ Prerequisites on the machine running an AEM conversion:
 - The Docker data volume with the UBS platform baked in (one-time setup: `docker/aem/bake-ubs-platform.sh`, see `docker/aem/README.md`)
 - Only an ARM image exists today, so AEM conversions currently run only on Apple Silicon hosts
 
-For a **Redacto target**, the verifier imports the built dump into a throwaway Postgres
-container; if a rendering endpoint is configured it also returns rendered PDFs.
+For a **Redacto target**, the verifier boots a Redacto platform of the run's own (Postgres, migration, core and rendering containers), imports the built dump there and renders it once per language.
 
-Prerequisites for Redacto: Docker running and the public Postgres image pulled (`verify prepare` does that).
+Prerequisites for Redacto: Docker running, the public Postgres image pulled (`verify prepare` does that), and the platform images from ajila's private registry pulled: `az acr login --name ajilaclouddev`, then `docker pull` each image the settings name (see `docker/redacto/README.md`).
 
 **For both targets:**
 - `u2s-rules-worker`: `cargo build --release -p u2s-rules-host --bin u2s-rules-worker`. Every check rule runs in this process, next to the binary that converts; a run whose rules cannot run is refused. The agent tests need it built first.

@@ -19,21 +19,19 @@ pub fn tool_specs() -> Vec<Value> {
         json!({
             "name": "verify_status",
             "description":
-                "Reports this profile's own configuration (the Postgres image it boots, and \
-                 whether -- and where -- a rendering endpoint is configured), whether Docker is \
-                 currently reachable, whether the configured rendering endpoint (if any) \
-                 answers right now, and whether `session_id`'s own throwaway Postgres session is \
-                 up and for how long. Touches nothing side-effecting -- safe to call at any \
-                 time, and is how a caller distinguishes \"this server is misconfigured\" from \
-                 \"Docker is not running right now\".",
+                "Reports this profile's own configuration (the platform images, which of them \
+                 this host's Docker daemon is missing, or which setting is missing), whether \
+                 Docker is reachable, and whether `session_id` has a booted platform. Touches \
+                 nothing side-effecting -- safe to call at any time, and is how a caller \
+                 distinguishes \"this server is misconfigured\" from \"Docker is down right \
+                 now\".",
             "input_schema": {
                 "type": "object",
                 "properties": {
                     "session_id": {
                         "type": "string",
                         "description":
-                            "Which caller's session to report on -- the same value passed to \
-                             verify_run. Omit to report on the shared default session."
+                            "Which caller's platform to report on; omitted means the shared default session."
                     }
                 },
                 "additionalProperties": false
@@ -66,18 +64,15 @@ pub fn tool_specs() -> Vec<Value> {
         json!({
             "name": "verify_run",
             "description":
-                "Imports the dump into `session_id`'s own throwaway Postgres session (booted on \
-                 first use, then reused across calls -- wiped clean at the start of every \
-                 import, so the same document can be re-verified after an edit without a \
-                 primary-key collision against its own previous run) and reports the resulting \
-                 row counts. When this profile has a rendering endpoint configured, also calls \
-                 it once per declared language and returns each rendered PDF as an artefact -- \
-                 this assumes the SAME dump has already been imported into that platform's own \
-                 database out of band; otherwise rendering is reported as skipped, not failed. \
-                 `dry_run: true` performs only the offline dump check and reports nothing about \
-                 Docker or a network. Every artefact travels as a blob, never inline. This tool \
-                 is side-effecting: it writes to a real (if throwaway) database and is never \
-                 offered to the Conversion Agent.",
+                "Imports the dump into the Redacto platform of `session_id` (booted on that \
+                 session's first call, which takes some seconds, then reused), replacing any \
+                 earlier import of the same document (so an edited document can be \
+                 re-verified), reports that document's row counts, then renders it once per \
+                 declared language and returns each rendered PDF as an artefact. An import or \
+                 render failure is an error finding naming the cause. `dry_run: true` performs \
+                 only the offline dump check and touches neither Docker nor a network. Every \
+                 artefact travels as a blob, never inline. This tool is side-effecting: it \
+                 writes to the platform database and is never offered to the Conversion Agent.",
             "input_schema": {
                 "type": "object",
                 "properties": {
@@ -91,7 +86,7 @@ pub fn tool_specs() -> Vec<Value> {
                     },
                     "session_id": {
                         "type": "string",
-                        "description": "Which caller's session to use. Omit for the shared default session."
+                        "description": "Which caller's platform to verify on; omitted means the shared default session. Calls on one session serialize."
                     },
                     "dry_run": {
                         "type": "boolean",

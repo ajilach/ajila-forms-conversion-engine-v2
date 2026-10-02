@@ -1,6 +1,6 @@
-//! MCP stdio server verifying a `redacto-ubs` dump: a real Postgres import
-//! on a throwaway (session-reused) database, plus an optional render call
-//! against an already-running Redacto platform.
+//! MCP stdio server verifying a `redacto-ubs` dump: it boots a Redacto
+//! platform per `session_id` (`u2s_redacto_verify_core::session`), imports
+//! the dump there, and renders every declared language.
 //!
 //! **No format module.** The output format this verifies is already owned
 //! by its own encoder server, `u2s-redacto-ubs-mcp` -- registering this
@@ -21,7 +21,6 @@ pub mod specs;
 
 use std::borrow::Cow;
 use std::sync::Arc;
-use std::time::Duration;
 
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::*;
@@ -30,22 +29,28 @@ use rmcp::{ErrorData as McpError, transport::stdio};
 use serde_json::{Value, json};
 use u2s_blob::BlobStore;
 use u2s_redacto_verify_core::flow::{self, RunOutcome};
-use u2s_redacto_verify_core::profile::RenderProfile;
+use u2s_redacto_verify_core::profile::{ProfileError, RenderProfile};
 use u2s_redacto_verify_core::session::{self, SessionPool};
 use u2s_verify_core::docker::DockerLifecycle;
-use u2s_verify_core::types::{Artefact, ArtefactKind, BlobDescriptor};
+use u2s_verify_core::session::{DEFAULT_SESSION_KEY, Reach};
+use u2s_verify_core::types::{Artefact, ArtefactKind, BlobDescriptor, ErrorKind, VerifyError};
 
 const MANIFEST_URI: &str = "u2s://manifest";
 /// `U2S_REDACTO_VERIFY_UBS_*` -- must be `U2S_*`-prefixed to pass
 /// `u2s_mcp::registration::validate_stdio_env`, the same discipline every
 /// other server's own configuration variable in this workspace follows.
 const ENV_PREFIX: &str = "U2S_REDACTO_VERIFY_UBS";
+const PROFILE_NAME: &str = "redacto-ubs";
 
 #[derive(Clone)]
 pub struct RedactoVerifyServer {
     blobs: Arc<BlobStore>,
-    pool: Arc<SessionPool>,
-    profile: Arc<RenderProfile>,
+    /// An error names the missing setting. The server still starts, so its
+    /// offline tools and conformance vectors work without the platform
+    /// images, but `verify_run` refuses, and `u2s-server`'s deployment
+    /// bootstrap refuses to start until every image setting is present.
+    profile: Arc<Result<RenderProfile, ProfileError>>,
+    sessions: Arc<SessionPool>,
 }
 
 impl RedactoVerifyServer {
@@ -54,29 +59,42 @@ impl RedactoVerifyServer {
         // would request plain "pdf" here instead -- the one behavioural
         // difference this crate's own module doc says a Redacto profile
         // can carry.
-        let profile = RenderProfile::from_env("redacto-ubs", ENV_PREFIX, "pdf-ua");
+        let profile = RenderProfile::from_env(PROFILE_NAME, ENV_PREFIX, "pdf-ua");
+        if let Err(err) = &profile {
+            log::warn!("u2s-redacto-ubs-verify-mcp: verify_run is unavailable: {err}");
+        }
         Self::with_parts(profile, BlobStore::from_env())
     }
 
     /// [`Self::new`] for in-process hosts: the profile and blob store come
     /// from the caller instead of the environment.
-    pub fn with_parts(profile: RenderProfile, blobs: BlobStore) -> Self {
-        let pool = SessionPool::new(profile.postgres_image.clone());
+    pub fn with_parts(profile: Result<RenderProfile, ProfileError>, blobs: BlobStore) -> Self {
         Self {
             blobs: Arc::new(blobs),
-            pool: Arc::new(pool),
             profile: Arc::new(profile),
+            sessions: Arc::new(SessionPool::new()),
         }
     }
 
-    /// Tears down the default session's container. In-process hosts never
-    /// pass a `session_id`, so this is every container they caused.
+    /// Tears down every session that is not in use right now.
     pub async fn shutdown(&self) -> Result<(), String> {
         let docker = DockerLifecycle::connect()
             .await
-            .map_err(|err| format!("could not reach Docker to tear down the session: {err}"))?;
-        self.pool.teardown(session::DEFAULT_SESSION_KEY, &docker).await;
+            .map_err(|err| format!("could not reach Docker to tear down sessions: {err}"))?;
+        self.sessions
+            .sweep_idle(&docker, std::time::Duration::ZERO)
+            .await;
         Ok(())
+    }
+
+    /// The caller's `session_id`, or [`DEFAULT_SESSION_KEY`] for a caller
+    /// with no `u2s-server` run behind it (a human, a test).
+    fn session_id(args: &Value) -> String {
+        args.get("session_id")
+            .and_then(Value::as_str)
+            .filter(|v| !v.is_empty())
+            .unwrap_or(DEFAULT_SESSION_KEY)
+            .to_owned()
     }
 
     fn resolve_bytes(&self, args: &Value) -> Result<Vec<u8>, String> {
@@ -106,32 +124,48 @@ impl RedactoVerifyServer {
     }
 
     async fn verify_status(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session_id =
-            args.get("session_id").and_then(Value::as_str).unwrap_or(session::DEFAULT_SESSION_KEY);
-
-        let docker_reachable = DockerLifecycle::connect().await.is_ok();
-        let rendering_reachable = match &self.profile.rendering_base_url {
-            Some(url) => Some(u2s_verify_core::http::is_reachable(url, Duration::from_secs(3)).await),
-            None => None,
+        let docker = DockerLifecycle::connect().await.ok();
+        let profile = match self.profile.as_ref() {
+            Ok(profile) => {
+                // The verifier cannot pull the private images itself, so
+                // their presence on the daemon is worth reporting before a
+                // run fails on it.
+                let mut missing_images = Vec::new();
+                if let Some(docker) = &docker {
+                    for image in profile.images.all() {
+                        if !matches!(docker.image_id(image).await, Ok(Some(_))) {
+                            missing_images.push(image);
+                        }
+                    }
+                }
+                json!({
+                    "name": profile.name,
+                    "configured": true,
+                    "images": {
+                        "postgres": profile.images.postgres,
+                        "migration": profile.images.migration,
+                        "core": profile.images.core,
+                        "rendering": profile.images.rendering,
+                    },
+                    "missing_images": docker.as_ref().map(|_| missing_images),
+                    "render_format": profile.render_format,
+                })
+            }
+            Err(err) => json!({ "name": PROFILE_NAME, "configured": false, "problem": err.to_string() }),
         };
-        let session_age_secs = self.pool.peek(session_id).await.map(|d| d.as_secs());
-        let sessions_active = self.pool.active_count().await;
 
+        let session_id = Self::session_id(args);
+        let (session_active, session_uptime_secs) = match self.sessions.lock(&session_id).await.as_ref() {
+            Some(session) => (true, Some(session.started_at.elapsed().as_secs())),
+            None => (false, None),
+        };
         Ok(CallToolResult::structured(json!({
-            "profile": {
-                "name": self.profile.name,
-                "postgres_image": self.profile.postgres_image,
-                "rendering_configured": self.profile.rendering_base_url.is_some(),
-                "render_format": self.profile.render_format,
-            },
-            "docker_reachable": docker_reachable,
-            "rendering_reachable": rendering_reachable,
-            "session": {
-                "id": session_id,
-                "up": session_age_secs.is_some(),
-                "age_secs": session_age_secs,
-            },
-            "sessions_active": sessions_active,
+            "profile": profile,
+            "docker_reachable": docker.is_some(),
+            "session_id": session_id,
+            "session_active": session_active,
+            "session_uptime_secs": session_uptime_secs,
+            "active_session_count": self.sessions.active_count().await,
         })))
     }
 
@@ -160,13 +194,23 @@ impl RedactoVerifyServer {
             ));
         }
 
-        let session_id =
-            args.get("session_id").and_then(Value::as_str).unwrap_or(session::DEFAULT_SESSION_KEY);
-
-        let RunOutcome { mut report, rendered } =
-            flow::run(&self.pool, session_id, &bytes, &self.profile)
-                .await
-                .map_err(|err| err.to_string())?;
+        let profile = self
+            .profile
+            .as_ref()
+            .as_ref()
+            .map_err(|err| format!("verify_run is unavailable: {err}"))?;
+        let docker = DockerLifecycle::connect()
+            .await
+            .map_err(|err| VerifyError::new(ErrorKind::DockerUnreachable, err.to_string()).to_string())?;
+        let session_id = Self::session_id(args);
+        // Held until the render is done, so this call's render always sees
+        // this call's import.
+        let guard = session::ensure(&self.sessions, &session_id, &docker, profile)
+            .await
+            .map_err(|err| err.to_string())?;
+        let platform = guard.as_ref().expect("ensure always leaves Some on success");
+        let RunOutcome { mut report, rendered } = flow::run(&bytes, profile, &docker, platform).await;
+        drop(guard);
 
         for artefact in rendered {
             let blob = self
@@ -207,14 +251,13 @@ impl ServerHandler for RedactoVerifyServer {
         );
         info.server_info = Implementation::new("u2s-redacto-ubs-verify-mcp", env!("CARGO_PKG_VERSION"));
         info.instructions = Some(
-            "Verifies a redacto-ubs dump: imports it into a throwaway (session-reused) Postgres \
-             database and reports row counts, plus -- when this profile has a rendering endpoint \
-             configured -- renders it and returns each language's PDF as an artefact. Pass \
-             `session_id` (any stable string identifying the calling agent/run) so concurrent \
-             callers each get their own database rather than sharing and blocking on one; omit it \
-             to use a single shared default session. `verify_run` is side-effecting and offered \
-             to the Output Review Agent alone; `verify_status` and `verify_dump_check` are plain \
-             reads. Read `u2s://manifest` for the exact `verify_run` contract."
+            "Verifies a redacto-ubs dump: imports it into a Redacto platform of its own \
+             `session_id` (booted on that session's first `verify_run`, which takes some seconds, \
+             then reused), replacing any earlier import of the same document, renders every \
+             declared language there, and returns each PDF as an artefact. Sessions never see \
+             each other's imports. `verify_run` is side-effecting and offered to the Output \
+             Review Agent alone; `verify_status` and `verify_dump_check` are plain reads. Read \
+             `u2s://manifest` for the exact `verify_run` contract."
                 .to_string(),
         );
         info
@@ -278,6 +321,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
     let server = RedactoVerifyServer::new();
+    if let Ok(profile) = server.profile.as_ref() {
+        u2s_verify_core::session::remove_leftovers(
+            profile.name,
+            &Reach::from_self_container(profile.self_container.as_deref()),
+        )
+        .await;
+        tokio::spawn(u2s_verify_core::session::idle_sweep_loop(
+            Arc::clone(&server.sessions),
+            profile.idle_timeout,
+        ));
+    }
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())

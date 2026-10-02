@@ -215,7 +215,8 @@ mod tests {
             redacto_url: Some(
                 "http://host.docker.internal:18080/bin/redacto/summary/generatepdf".to_owned(),
             ),
-            aem_data_volume: Some("u2s-aem-ubs-data".to_owned()),
+            aem_data_volume: "u2s-aem-ubs-data".to_owned(),
+            self_container: None,
             aem_container_port: 8080,
             max_inline_bytes: 1536 * 1024,
         }

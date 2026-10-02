@@ -390,8 +390,53 @@ pub fn SettingsPage(
                         div { class: "settings-section",
                             h3 { class: "settings-section-title", "Redacto verification" }
                             TextRow {
+                                label: "Core image",
+                                desc: "The Redacto platform's core service. The verifier boots a platform of its own for each run (see docker/redacto/README.md); pull the private images after `az acr login --name ajilaclouddev`.",
+                                value: s.redacto_verify.core_image.clone(),
+                                placeholder: "",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.redacto_verify.core_image = v.trim().to_string()
+                                            }),
+                                        )
+                                },
+                            }
+                            TextRow {
+                                label: "Rendering image",
+                                desc: "The Redacto platform's rendering service.",
+                                value: s.redacto_verify.rendering_image.clone(),
+                                placeholder: "",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.redacto_verify.rendering_image = v.trim().to_string()
+                                            }),
+                                        )
+                                },
+                            }
+                            TextRow {
+                                label: "Migration image",
+                                desc: "The platform's database migrations, run once per boot.",
+                                value: s.redacto_verify.migration_image.clone(),
+                                placeholder: "",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.redacto_verify.migration_image = v.trim().to_string()
+                                            }),
+                                        )
+                                },
+                            }
+                            TextRow {
                                 label: "Postgres image",
-                                desc: "The public Postgres image dumps are imported into.",
+                                desc: "The platform's database.",
                                 value: s.redacto_verify.postgres_image.clone(),
                                 placeholder: "postgres:16-alpine",
                                 secret: false,
@@ -405,23 +450,23 @@ pub fn SettingsPage(
                                 },
                             }
                             TextRow {
-                                label: "Rendering URL",
-                                desc: "Empty skips rendering; the import check still runs.",
-                                value: s.redacto_verify.rendering_url.clone(),
+                                label: "Platform",
+                                desc: "The Docker platform the platform images run as. Empty lets Docker decide.",
+                                value: s.redacto_verify.platform.clone(),
                                 placeholder: "",
                                 secret: false,
                                 on_change: move |v: String| {
                                     update
                                         .call(
                                             Box::new(move |s| {
-                                                s.redacto_verify.rendering_url = v.trim().to_string()
+                                                s.redacto_verify.platform = v.trim().to_string()
                                             }),
                                         )
                                 },
                             }
                             TextRow {
                                 label: "Username",
-                                desc: "Basic auth username for the Redacto platform.",
+                                desc: "Basic auth username for the platform's rendering service.",
                                 value: s.redacto_verify.user.clone(),
                                 placeholder: "admin",
                                 secret: false,

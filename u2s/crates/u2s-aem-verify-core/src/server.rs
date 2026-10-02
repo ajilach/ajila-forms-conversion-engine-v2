@@ -6,9 +6,6 @@
 //! `u2s_mcp::manifest::VerifyCapability::Run` in its manifest entry, and is
 //! never offered to the Conversion Agent (`u2s-server`'s enablement gate
 //! reads `side_effecting`, not this crate's own judgment).
-//!
-//! `warm` is a CLI subcommand on the same binary (`<binary> warm`), not an
-//! MCP tool -- see `crate::warm`.
 
 use std::borrow::Cow;
 use std::sync::Arc;
@@ -139,35 +136,20 @@ impl AemVerifyServer {
     }
 
     async fn verify_status(&self, args: &Value) -> Result<CallToolResult, String> {
-        // A commit-based warm image cannot exist for a data-volume profile
-        // (see `crate::warm::warm_command`'s own doc) -- skip the lookup
-        // entirely rather than report `warm_image_present`/`_stale` for an
-        // image nothing ever builds or reads.
-        let (docker_reachable, warm_image_present, warm_image_stale) =
-            match DockerLifecycle::connect().await {
-                Ok(docker) if self.profile.aem_data_volume.is_some() => {
-                    (docker.is_reachable().await, false, false)
-                }
-                Ok(docker) => {
-                    let reachable = docker.is_reachable().await;
-                    let warm_tag = crate::warm::warm_image_tag(&self.profile.format);
-                    let base_id = docker
-                        .image_id(&self.profile.aem_image)
-                        .await
-                        .ok()
-                        .flatten();
-                    let warm_labels = docker.image_labels(&warm_tag).await.ok().flatten();
-                    let present = warm_labels.is_some();
-                    let stale = match (&base_id, &warm_labels) {
-                        (Some(base_id), Some(labels)) => {
-                            labels.get("u2s.base_image_id") != Some(base_id)
-                        }
-                        _ => false,
-                    };
-                    (reachable, present, stale)
-                }
-                Err(_) => (false, false, false),
-            };
+        // The verifier cannot pull the private AEM image itself, so its
+        // presence on the daemon is worth reporting before a run fails on it.
+        let (docker_reachable, aem_image_present) = match DockerLifecycle::connect().await {
+            Ok(docker) => (
+                docker.is_reachable().await,
+                docker
+                    .image_id(&self.profile.aem_image)
+                    .await
+                    .ok()
+                    .flatten()
+                    .is_some(),
+            ),
+            Err(_) => (false, false),
+        };
 
         let redacto_reachable = match &self.profile.redacto_url {
             Some(url) => Some(
@@ -176,7 +158,7 @@ impl AemVerifyServer {
             None => None,
         };
         let session_id = Self::session_id(args);
-        let session_status = self.session.status(&session_id).await;
+        let session_status = crate::session::status(&self.session, &session_id).await;
         let active_session_count = self.session.active_count().await;
 
         Ok(CallToolResult::structured(json!({
@@ -186,8 +168,7 @@ impl AemVerifyServer {
             "platform": self.profile.platform,
             "submit": submit_str(&self.profile.submit),
             "docker_reachable": docker_reachable,
-            "warm_image_present": warm_image_present,
-            "warm_image_stale": warm_image_stale,
+            "aem_image_present": aem_image_present,
             "aem_data_volume": self.profile.aem_data_volume,
             "redacto_url": self.profile.redacto_url,
             "redacto_reachable": redacto_reachable,
@@ -613,74 +594,7 @@ impl ServerHandler for AemVerifyServer {
     }
 }
 
-/// Tears down every container this profile's own label
-/// (`profile.owner_label()`) names, found rather than tracked in memory --
-/// the precedent every leftover-cleanup in this workspace follows. Run
-/// once at server startup: a container `verify_run` created before a crash
-/// or a forced restart is otherwise never noticed again, since nothing
-/// else in this process remembers it existed. Best-effort: Docker being
-/// unreachable here is not a startup failure, only something logged, since
-/// the server must still start and serve `verify_status` either way.
-pub async fn remove_leftover_containers(profile: &Profile) {
-    let docker = match DockerLifecycle::connect().await {
-        Ok(docker) => docker,
-        Err(err) => {
-            log::warn!(
-                "{}: could not check for leftover containers: {err}",
-                crate::LOG_PREFIX
-            );
-            return;
-        }
-    };
-    let ids = match docker.find_by_label(&profile.owner_label()).await {
-        Ok(ids) => ids,
-        Err(err) => {
-            log::warn!(
-                "{}: could not list leftover containers: {err}",
-                crate::LOG_PREFIX
-            );
-            return;
-        }
-    };
-    for id in ids {
-        log::warn!(
-            "{}: removing a leftover container from a prior run: {id}",
-            crate::LOG_PREFIX
-        );
-        if let Err(err) = docker.teardown(&id).await {
-            log::warn!(
-                "{}: could not remove leftover container {id}: {err}",
-                crate::LOG_PREFIX
-            );
-        }
-    }
-}
-
-/// Runs forever, checking every minute whether any of the profile's
-/// per-`session_id` sessions (`crate::session`) has gone unused for at
-/// least `profile.idle_timeout` and tearing that one down if so -- the
-/// safety net a long-lived session needs that the old disposable-per-run
-/// containers never did, so a forgotten agent's session does not occupy
-/// AEM's fairly heavy memory footprint indefinitely. Reconnects to Docker
-/// each tick rather than holding one connection open for the process
-/// lifetime, since `DockerLifecycle::connect` is cheap and this way a
-/// Docker daemon that restarted mid-session is not a reason for the sweep
-/// itself to die.
-async fn idle_sweep_loop(profile: Arc<Profile>, session: Arc<SessionPool>) {
-    loop {
-        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
-        match DockerLifecycle::connect().await {
-            Ok(docker) => session.sweep_idle(&docker, profile.idle_timeout).await,
-            Err(err) => log::warn!(
-                "{}: could not reach Docker for the idle-session sweep: {err}",
-                crate::LOG_PREFIX
-            ),
-        }
-    }
-}
-
-/// The whole `fn main` body for an AEM-verifying binary: `<binary> warm`
-/// dispatches to `crate::warm::warm_command`, anything else starts the MCP
+/// The whole `fn main` body for an AEM-verifying binary: starts the MCP
 /// server. Each binary's own `main.rs` is left as a one-line
 /// `#[tokio::main] async fn main() { u2s_aem_verify_core::server::run_main(config()).await }`
 /// (or exits with the error this returns), so neither binary duplicates
@@ -689,48 +603,26 @@ async fn idle_sweep_loop(profile: Arc<Profile>, session: Arc<SessionPool>) {
 pub async fn run_main(config: ServerConfig) -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let args: Vec<String> = std::env::args().collect();
-    if args.get(1).map(String::as_str) == Some("warm") {
-        let profile = match Profile::from_env() {
-            Ok(p) => p,
-            Err(e) => {
-                eprintln!("{} warm: cannot start: {e}", config.name);
-                std::process::exit(2);
-            }
-        };
-        if let Some(expected) = config.expected_format
-            && profile.format != expected
-        {
-            eprintln!(
-                "{} warm: U2S_AEM_VERIFY_FORMAT={:?} but this binary only ever serves \
-                 {expected:?}",
-                config.name, profile.format
-            );
-            std::process::exit(2);
-        }
-        if let Err(e) = crate::warm::warm_command(&profile, config.name).await {
-            eprintln!("{} warm: {e}", config.name);
-            std::process::exit(1);
-        }
-        return Ok(());
-    }
-
     let config = Arc::new(config);
     let server = match AemVerifyServer::new(Arc::clone(&config)) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{}: cannot start: {e}", config.name);
             eprintln!(
-                "hint: check U2S_AEM_VERIFY_FORMAT, U2S_AEM_VERIFY_IMAGE, U2S_AEM_VERIFY_USER \
+                "hint: check U2S_AEM_VERIFY_FORMAT, U2S_AEM_VERIFY_IMAGE, U2S_AEM_VERIFY_USER, \
                  and U2S_AEM_VERIFY_PASSWORD are all set"
             );
             std::process::exit(2);
         }
     };
-    remove_leftover_containers(&server.profile).await;
-    tokio::spawn(idle_sweep_loop(
-        Arc::clone(&server.profile),
+    u2s_verify_core::session::remove_leftovers(
+        &server.profile.format,
+        &crate::session::reach_of(&server.profile),
+    )
+    .await;
+    tokio::spawn(u2s_verify_core::session::idle_sweep_loop(
         Arc::clone(&server.session),
+        server.profile.idle_timeout,
     ));
 
     let service = server.serve(stdio()).await?;

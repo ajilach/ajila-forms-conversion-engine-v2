@@ -75,24 +75,24 @@ pub struct Profile {
     /// submit strategy does not depend on it (`SubmitArtefact::DocumentOfRecord`
     /// or `SubmitArtefact::None`).
     pub redacto_url: Option<String>,
-    /// A named Docker volume to mount at `/aem/crx-quickstart` (the JCR
+    /// The named Docker volume mounted at `/aem/crx-quickstart` (the JCR
     /// repository and quickstart install) on every AEM container this
-    /// profile boots -- required for an image that declares
-    /// `VOLUME /aem/crx-quickstart` in its own Dockerfile, which
-    /// `ajila.azurecr.io/aemforms-arm` does: `docker commit` never captures
-    /// a volume's contents (only a container's own layer), so any state
-    /// deployed onto such an image -- the UBS platform, its OSGi config --
-    /// is silently absent from a committed image and the container fails
-    /// to even start on next boot (confirmed live: missing quickstart jar,
-    /// missing `conf/sling.properties`). Persisting via a volume that is
-    /// explicitly re-attached on every boot sidesteps this entirely: the
-    /// volume itself is the durable state, `docker/aem/bake-ubs-platform.sh`
-    /// populates it once, and `crate::session::boot` skips the warm-image
-    /// dance (`crate::session::select_aem_image`) when this is set, always
-    /// booting `aem_image` directly, since the volume already gives a fast
-    /// reboot. `None` for a profile whose image does not declare this
-    /// volume (the old commit-based warm path still applies there).
-    pub aem_data_volume: Option<String>,
+    /// profile boots: the AEM images declare that path a `VOLUME`, so an
+    /// instance's state lives in the volume, never in an image layer. A new
+    /// volume is seeded from the image on first boot (see
+    /// `docker/aem/README.md`); every later boot reuses it.
+    ///
+    /// `U2S_AEM_VERIFY_DATA_VOLUME` when set, otherwise derived from the
+    /// format and the image reference ([`default_data_volume`]), so a new
+    /// image gets a fresh volume instead of booting on an older image's
+    /// state.
+    pub aem_data_volume: String,
+    /// `U2S_VERIFY_SELF_CONTAINER`: the name of the container this process
+    /// runs in, when it runs in one. Set, each session's network is joined
+    /// and siblings are reached by container address
+    /// ([`crate::session::Reach::SessionNetwork`]); unset, through ports
+    /// published on this host's loopback ([`crate::session::Reach::Published`]).
+    pub self_container: Option<String>,
     /// The port AEM listens on *inside* its own container -- not
     /// necessarily 4502. A vanilla Adobe quickstart jar defaults to 4502,
     /// but `ajila.azurecr.io/aemforms-arm` runs its own entrypoint script
@@ -136,7 +136,9 @@ pub enum ProfileError {
 }
 
 const DEFAULT_CHROMIUM_IMAGE: &str = "chromedp/headless-shell:stable";
-const DEFAULT_PLATFORM: &str = "linux/amd64";
+/// Empty: the daemon runs the image for its own architecture. The AEM images
+/// are published for both arm64 and amd64.
+const DEFAULT_PLATFORM: &str = "";
 const DEFAULT_BOOT_TIMEOUT_SECS: u64 = 900;
 /// 30 minutes: long enough that a developer stepping away between calls
 /// during a debugging session does not eat a cold reboot, short enough that
@@ -212,7 +214,10 @@ impl Profile {
 
         let keep_on_failure = read("U2S_AEM_VERIFY_KEEP_ON_FAILURE").as_deref() == Some("1");
         let redacto_url = read("U2S_AEM_VERIFY_REDACTO_URL").filter(|v| !v.is_empty());
-        let aem_data_volume = read("U2S_AEM_VERIFY_DATA_VOLUME").filter(|v| !v.is_empty());
+        let aem_data_volume = read("U2S_AEM_VERIFY_DATA_VOLUME")
+            .filter(|v| !v.is_empty())
+            .unwrap_or_else(|| default_data_volume(&format, &aem_image));
+        let self_container = read("U2S_VERIFY_SELF_CONTAINER").filter(|v| !v.is_empty());
 
         let aem_container_port = match read("U2S_AEM_VERIFY_CONTAINER_PORT") {
             None => DEFAULT_AEM_CONTAINER_PORT,
@@ -245,6 +250,7 @@ impl Profile {
             keep_on_failure,
             redacto_url,
             aem_data_volume,
+            self_container,
             aem_container_port,
             max_inline_bytes,
         })
@@ -256,23 +262,29 @@ impl Profile {
     /// format alone. `crate::flow::acquire` writes the label this matches
     /// against via [`Self::owner_labels`], so the two cannot drift apart.
     pub fn owner_label(&self) -> String {
-        format!("{FORMAT_LABEL_KEY}={}", self.format)
+        u2s_verify_core::session::owner_label(&self.format)
     }
 
     /// The label(s) every container and network this profile creates
     /// carries -- the write side of [`Self::owner_label`]'s read-side
     /// filter.
     pub fn owner_labels(&self) -> std::collections::HashMap<String, String> {
-        std::collections::HashMap::from([(FORMAT_LABEL_KEY.to_owned(), self.format.clone())])
+        u2s_verify_core::session::owner_labels(&self.format)
     }
 }
 
-/// The Docker label key naming which profile's format a container belongs
-/// to. A `const` rather than the string repeated at each of
-/// [`Profile::owner_label`]/[`Profile::owner_labels`] -- a label key that
-/// drifted between the writer and the filter reading it back would fail
-/// silently (an empty match, not an error).
-const FORMAT_LABEL_KEY: &str = "u2s.verify.format";
+/// `u2s-aem-<format>-<first 12 hex digits of sha256(image)>`: one volume per
+/// image reference, stable across restarts. Pure function. Unit-tested.
+pub fn default_data_volume(format: &str, image: &str) -> String {
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(image.as_bytes());
+    let hex: String = digest.iter().take(6).map(|b| format!("{b:02x}")).collect();
+    let format: String = format
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '-' })
+        .collect();
+    format!("u2s-aem-{format}-{hex}")
+}
 
 #[cfg(test)]
 mod tests {
@@ -307,7 +319,11 @@ mod tests {
         assert_eq!(profile.idle_timeout, Duration::from_secs(1800));
         assert!(!profile.keep_on_failure);
         assert_eq!(profile.redacto_url, None);
-        assert_eq!(profile.aem_data_volume, None);
+        assert_eq!(
+            profile.aem_data_volume,
+            default_data_volume("aem-ubs", "registry.example/aem-ubs:sp1")
+        );
+        assert_eq!(profile.self_container, None);
         assert_eq!(profile.aem_container_port, 4502);
         assert_eq!(profile.max_inline_bytes, DEFAULT_MAX_INLINE_BYTES);
     }
@@ -462,19 +478,27 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_data_volume_is_treated_as_unset() {
-        let mut pairs = minimal_env();
-        pairs.push(("U2S_AEM_VERIFY_DATA_VOLUME", ""));
-        let profile = Profile::from_reader(env(&pairs)).expect("parses");
-        assert_eq!(profile.aem_data_volume, None);
-    }
-
-    #[test]
-    fn a_data_volume_is_carried_through_verbatim() {
+    fn an_explicit_data_volume_wins_and_an_empty_one_falls_back() {
         let mut pairs = minimal_env();
         pairs.push(("U2S_AEM_VERIFY_DATA_VOLUME", "u2s-aem-ubs-data"));
         let profile = Profile::from_reader(env(&pairs)).expect("parses");
-        assert_eq!(profile.aem_data_volume.as_deref(), Some("u2s-aem-ubs-data"));
+        assert_eq!(profile.aem_data_volume, "u2s-aem-ubs-data");
+        let mut empty = minimal_env();
+        empty.push(("U2S_AEM_VERIFY_DATA_VOLUME", ""));
+        let profile = Profile::from_reader(env(&empty)).expect("parses");
+        assert_eq!(
+            profile.aem_data_volume,
+            default_data_volume("aem-ubs", "registry.example/aem-ubs:sp1")
+        );
+    }
+
+    #[test]
+    fn the_default_data_volume_follows_the_image() {
+        let a = default_data_volume("aem-ubs", "ajila.azurecr.io/u2s-aem-ubs:1");
+        let b = default_data_volume("aem-ubs", "ajila.azurecr.io/u2s-aem-ubs:2");
+        assert_ne!(a, b);
+        assert_eq!(a, default_data_volume("aem-ubs", "ajila.azurecr.io/u2s-aem-ubs:1"));
+        assert!(a.starts_with("u2s-aem-aem-ubs-") && a.len() == "u2s-aem-aem-ubs-".len() + 12, "{a}");
     }
 
     #[test]

@@ -17,10 +17,8 @@
 # quickstart jar and crx-quickstart/conf/sling.properties. The volume
 # itself is the durable artifact instead -- attach it (via
 # U2S_AEM_VERIFY_UBS_DATA_VOLUME) to any container booted from the
-# always-vanilla base image and the deployed state is already there. No
-# `just aem-warm` step either: that command refuses to run against a
-# data-volume profile (see `u2s-aem-verify-mcp warm_command`'s own doc) for
-# the same reason -- the volume already makes every boot fast.
+# always-vanilla base image and the deployed state is already there.
+# publish-images.sh ships that volume inside an image for everyone else.
 #
 # Usage:
 #   ./bake-ubs-platform.sh <base-image> <volume-name> <ajila-forms-ubs-dir> \

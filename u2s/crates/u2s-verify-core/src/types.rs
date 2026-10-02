@@ -208,6 +208,11 @@ pub enum ErrorKind {
     /// have depended on it -- refused up front rather than left to fail
     /// obscurely partway through `guideBridge.submit()`.
     RedactoUnreachable,
+    /// A verifier that boots its own Redacto platform
+    /// (`u2s-redacto-verify-core::session`) could not bring it up: a
+    /// container failed to start, the migration failed, or a service never
+    /// became ready.
+    RedactoNotReady,
     /// `verify_run` was called on a `session_id` that already has a form
     /// open for interaction (`u2s-aem-verify-core::interactive`). The two
     /// paths share one installed-package slot per AEM session, so they
@@ -230,6 +235,7 @@ impl ErrorKind {
             Self::DownloadNotPdf => "download_not_pdf",
             Self::StorageFailed => "storage_failed",
             Self::RedactoUnreachable => "redacto_unreachable",
+            Self::RedactoNotReady => "redacto_not_ready",
             Self::FormOpen => "form_open",
         }
     }
@@ -353,6 +359,7 @@ mod tests {
             ErrorKind::DownloadNotPdf,
             ErrorKind::StorageFailed,
             ErrorKind::RedactoUnreachable,
+            ErrorKind::RedactoNotReady,
         ];
         let strings: std::collections::BTreeSet<&str> = all.iter().map(|k| k.as_str()).collect();
         assert_eq!(

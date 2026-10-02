@@ -11,7 +11,6 @@
 //! it". The mutex is held only for the length of a `Vec::push`/`drain`,
 //! never across an `.await`.
 
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -516,12 +515,6 @@ impl PageHandle {
     }
 }
 
-/// The path a completed download landed at, given the host-visible bind
-/// mount directory `u2s-aem-verify-core::flow` configured and the guid
-/// [`BrowserSession::wait_for_download`] returned.
-pub fn download_path(host_downloads_dir: &Path, guid: &str) -> std::path::PathBuf {
-    host_downloads_dir.join(guid)
-}
 
 #[cfg(test)]
 mod tests {
@@ -531,12 +524,6 @@ mod tests {
     /// run -- see the crate's module doc and `u2s-aem-verify-core`'s
     /// `#[ignore]`d live tests for the CDP-backed coverage. This only
     /// exercises the pure path composition.
-    #[test]
-    fn download_path_joins_the_directory_and_guid() {
-        let dir = Path::new("/downloads");
-        let path = download_path(dir, "abcd-1234");
-        assert_eq!(path, std::path::PathBuf::from("/downloads/abcd-1234"));
-    }
 
     #[test]
     fn image_format_reports_its_own_mime_and_extension() {

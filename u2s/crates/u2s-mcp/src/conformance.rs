@@ -412,17 +412,37 @@ async fn run_vector(
         }
     };
 
-    // A vector whose whole point is that the call is refused
-    // (`expect.error: true`) skips every check below that assumes success
-    // -- see `TestVector`'s own doc.
+    let succeeded = first_call_findings(vector, &result, findings);
+
+    // `normalize`/`decode`/`encode` get one more check `query` does not --
+    // see this module's own doc for why determinism is real signal for
+    // exactly these three roles.
+    if succeeded && matches!(role, Some(ToolRole::Normalize | ToolRole::Decode | ToolRole::Encode)) {
+        check_determinism(client, vector, fixture_dir, &result, findings).await;
+    }
+}
+
+/// Everything one vector's first call is checked for, shared by [`run`]
+/// and [`run_via_pool`] so the two cannot judge a vector differently.
+/// Returns whether the call succeeded as a success-expecting vector, the
+/// only case a determinism check applies to. Pure. Unit-tested.
+///
+/// A vector whose whole point is that the call is refused
+/// (`expect.error: true`) skips every check that assumes success -- see
+/// `TestVector`'s own doc.
+fn first_call_findings(
+    vector: &crate::manifest::TestVector,
+    result: &rmcp::model::CallToolResult,
+    findings: &mut Vec<Finding>,
+) -> bool {
     if vector.expect.get("error").and_then(Value::as_bool) == Some(true) {
-        if let Err(reason) = error_expectation_met(&result, &vector.expect) {
+        if let Err(reason) = error_expectation_met(result, &vector.expect) {
             findings.push(Finding::fail(format!(
                 "test vector for {}: {reason}",
                 vector.tool
             )));
         }
-        return;
+        return false;
     }
 
     if result.is_error == Some(true) {
@@ -430,7 +450,7 @@ async fn run_vector(
             "test vector for {} returned a tool error",
             vector.tool
         )));
-        return;
+        return false;
     }
 
     if let Some(expected_structured) = vector.expect.get("structured") {
@@ -443,13 +463,7 @@ async fn run_vector(
             )));
         }
     }
-
-    // `normalize`/`decode`/`encode` get one more check `query` does not --
-    // see this module's own doc for why determinism is real signal for
-    // exactly these three roles.
-    if matches!(role, Some(ToolRole::Normalize | ToolRole::Decode | ToolRole::Encode)) {
-        check_determinism(client, vector, fixture_dir, &result, findings).await;
-    }
+    true
 }
 
 /// The pure check behind `expect.error: true`: `result` must actually be a
@@ -687,28 +701,12 @@ pub async fn run_via_pool(
                 continue;
             }
         };
-
-        if result.is_error == Some(true) {
-            findings.push(Finding::fail(format!(
-                "test vector for {} returned a tool error",
-                vector.tool
-            )));
-            continue;
-        }
-        if let Some(expected) = vector.expect.get("structured") {
-            let actual = result.structured_content.clone().unwrap_or(Value::Null);
-            if !subset_matches(&actual, expected) {
-                findings.push(Finding::fail(format!(
-                    "test vector for {}: structured result does not match",
-                    vector.tool
-                )));
-            }
-        }
+        let succeeded = first_call_findings(vector, &result, &mut findings);
 
         // Same determinism check `run` applies -- see this module's own
         // doc for why it is real signal for exactly these three roles.
         let role = manifest.tools.iter().find(|t| t.tool == vector.tool).map(|t| t.role);
-        if matches!(role, Some(ToolRole::Normalize | ToolRole::Decode | ToolRole::Encode)) {
+        if succeeded && matches!(role, Some(ToolRole::Normalize | ToolRole::Decode | ToolRole::Encode)) {
             let second = call_vector_via_pool(pool, server_id, transport, vector, fixture_dir).await;
             match second {
                 Ok(second) => {
@@ -924,6 +922,43 @@ mod tests {
         let first = rmcp::model::CallToolResult::structured(json!({ "digest": "abc123" }));
         let second = rmcp::model::CallToolResult::structured(json!({ "digest": "def456" }));
         assert!(determinism_agrees(&first, &second).is_err());
+    }
+
+    fn vector(expect: serde_json::Value) -> crate::manifest::TestVector {
+        crate::manifest::TestVector {
+            tool: "verify_open".to_owned(),
+            args: json!({}),
+            expect,
+        }
+    }
+
+    /// Both runners judge a vector through this one function, so an
+    /// `expect.error` vector passes through the server's pool path too.
+    #[test]
+    fn an_expected_error_is_a_pass_and_skips_determinism() {
+        let refused = rmcp::model::CallToolResult::error(vec![rmcp::model::ContentBlock::text(
+            "package_invalid: not a zip",
+        )]);
+        let mut findings = Vec::new();
+        let succeeded = first_call_findings(
+            &vector(json!({ "error": true, "error_contains": "package_invalid" })),
+            &refused,
+            &mut findings,
+        );
+        assert!(findings.is_empty(), "{findings:?}");
+        assert!(!succeeded);
+
+        let mut findings = Vec::new();
+        first_call_findings(
+            &vector(json!({ "error": true, "error_contains": "something_else" })),
+            &refused,
+            &mut findings,
+        );
+        assert_eq!(findings.len(), 1);
+
+        let mut findings = Vec::new();
+        assert!(!first_call_findings(&vector(json!({})), &refused, &mut findings));
+        assert!(findings[0].message.contains("returned a tool error"), "{findings:?}");
     }
 
     #[test]

@@ -13,9 +13,9 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use bollard::Docker;
-use bollard::models::{ContainerConfig, ContainerCreateBody, HostConfig, PortBinding, PortMap};
+use bollard::models::{ContainerCreateBody, HostConfig, PortBinding, PortMap};
 use bollard::query_parameters::{
-    CommitContainerOptionsBuilder, CreateContainerOptions, CreateImageOptionsBuilder,
+    CreateContainerOptions, CreateImageOptionsBuilder,
     InspectContainerOptions, ListContainersOptionsBuilder, RemoveContainerOptionsBuilder,
     StopContainerOptionsBuilder,
 };
@@ -63,13 +63,6 @@ pub enum DockerError {
         #[source]
         source: bollard::errors::Error,
     },
-    #[error("cannot commit container {id:?} as {tag:?}: {source}")]
-    Commit {
-        id: String,
-        tag: String,
-        #[source]
-        source: bollard::errors::Error,
-    },
     /// Stop and remove failures are collected rather than surfaced
     /// individually -- see [`DockerLifecycle::teardown`].
     #[error("cannot stop or remove container {id:?}: {source}")]
@@ -83,6 +76,44 @@ pub enum DockerError {
         id: String,
         #[source]
         source: bollard::errors::Error,
+    },
+    #[error("cannot wait for container {id:?} to exit: {source}")]
+    Wait {
+        id: String,
+        #[source]
+        source: bollard::errors::Error,
+    },
+    #[error("container {id:?} did not exit within {waited:?}")]
+    RunTimedOut { id: String, waited: Duration },
+    #[error("{command:?} in container {container:?} did not succeed within {waited:?}: {last}")]
+    ExecNotReady {
+        container: String,
+        command: String,
+        waited: Duration,
+        last: String,
+    },
+    #[error("cannot remove network {name:?}: {source}")]
+    RemoveNetwork {
+        name: String,
+        #[source]
+        source: bollard::errors::Error,
+    },
+    #[error("cannot list networks: {0}")]
+    ListNetworks(#[source] bollard::errors::Error),
+    #[error("cannot connect container {container:?} to network {network:?}: {source}")]
+    ConnectNetwork {
+        container: String,
+        network: String,
+        #[source]
+        source: bollard::errors::Error,
+    },
+    #[error("container {container:?} has no address on network {network:?}")]
+    NoAddress { container: String, network: String },
+    #[error("cannot copy {path:?} out of container {id:?}: {reason}")]
+    CopyOut {
+        id: String,
+        path: String,
+        reason: String,
     },
 }
 
@@ -215,10 +246,19 @@ impl DockerLifecycle {
     /// a crashed prior run reusing the same name -- treated as success,
     /// not an error, since the network this call wanted now exists either
     /// way.
-    pub async fn ensure_network(&self, name: &str) -> Result<(), DockerError> {
+    ///
+    /// `labels` let [`Self::find_networks_by_label`] find a network a
+    /// crashed process left behind, the way [`Self::find_by_label`] finds
+    /// its containers.
+    pub async fn ensure_network(
+        &self,
+        name: &str,
+        labels: &HashMap<String, String>,
+    ) -> Result<(), DockerError> {
         let request = bollard::models::NetworkCreateRequest {
             name: name.to_owned(),
             driver: Some("bridge".to_owned()),
+            labels: (!labels.is_empty()).then(|| labels.clone()),
             ..Default::default()
         };
         match self.docker.create_network(request).await {
@@ -237,10 +277,127 @@ impl DockerLifecycle {
         self.docker
             .remove_network(name)
             .await
-            .map_err(|source| DockerError::CreateNetwork {
+            .map_err(|source| DockerError::RemoveNetwork {
                 name: name.to_owned(),
                 source,
             })
+    }
+
+    /// Names of every network carrying `label` (`key=value`).
+    pub async fn find_networks_by_label(&self, label: &str) -> Result<Vec<String>, DockerError> {
+        let mut filters = HashMap::new();
+        filters.insert("label".to_owned(), vec![label.to_owned()]);
+        let options = bollard::query_parameters::ListNetworksOptionsBuilder::default()
+            .filters(&filters)
+            .build();
+        let networks = self
+            .docker
+            .list_networks(Some(options))
+            .await
+            .map_err(DockerError::ListNetworks)?;
+        Ok(networks.into_iter().filter_map(|n| n.name).collect())
+    }
+
+    /// Attaches `container` (id or name) to `network`. Already attached is
+    /// success: the container ends up on the network either way.
+    pub async fn connect_network(&self, network: &str, container: &str) -> Result<(), DockerError> {
+        let request = bollard::models::NetworkConnectRequest {
+            container: container.to_owned(),
+            endpoint_config: None,
+        };
+        match self.docker.connect_network(network, request).await {
+            Ok(()) => Ok(()),
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 403,
+                ref message,
+            }) if message.contains("already exists") => Ok(()),
+            Err(source) => Err(DockerError::ConnectNetwork {
+                container: container.to_owned(),
+                network: network.to_owned(),
+                source,
+            }),
+        }
+    }
+
+    /// Detaches `container` from `network`, forcibly, so a network can be
+    /// removed afterwards. Not attached (or the network already gone) is
+    /// success.
+    pub async fn disconnect_network(
+        &self,
+        network: &str,
+        container: &str,
+    ) -> Result<(), DockerError> {
+        let request = bollard::models::NetworkDisconnectRequest {
+            container: container.to_owned(),
+            force: Some(true),
+        };
+        match self.docker.disconnect_network(network, request).await {
+            Ok(()) => Ok(()),
+            // The daemon answers 404 for a missing network and, confirmed
+            // live, 500 "is not connected to network" for a container that
+            // already left it.
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => Ok(()),
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 500,
+                ref message,
+            }) if message.contains("is not connected") => Ok(()),
+            Err(source) => Err(DockerError::ConnectNetwork {
+                container: container.to_owned(),
+                network: network.to_owned(),
+                source,
+            }),
+        }
+    }
+
+    /// `container`'s IPv4 address on `network`.
+    pub async fn container_ip(&self, container: &str, network: &str) -> Result<String, DockerError> {
+        let inspected = self
+            .docker
+            .inspect_container(container, None::<InspectContainerOptions>)
+            .await
+            .map_err(|source| DockerError::InspectContainer {
+                id: container.to_owned(),
+                source,
+            })?;
+        inspected
+            .network_settings
+            .and_then(|settings| settings.networks)
+            .and_then(|networks| networks.get(network).cloned())
+            .and_then(|endpoint| endpoint.ip_address)
+            .filter(|ip| !ip.is_empty())
+            .ok_or_else(|| DockerError::NoAddress {
+                container: container.to_owned(),
+                network: network.to_owned(),
+            })
+    }
+
+    /// The contents of one regular file inside a container, through the
+    /// Engine's archive endpoint (what `docker cp` uses). Works wherever
+    /// the daemon runs, unlike reading a bind-mounted host path, which
+    /// needs this process and the daemon to share a filesystem.
+    pub async fn copy_file_out(&self, id: &str, path: &str) -> Result<Vec<u8>, DockerError> {
+        use futures::TryStreamExt;
+        let options = bollard::query_parameters::DownloadFromContainerOptionsBuilder::new()
+            .path(path)
+            .build();
+        let chunks: Vec<bytes::Bytes> = self
+            .docker
+            .download_from_container(id, Some(options))
+            .try_collect()
+            .await
+            .map_err(|err| DockerError::CopyOut {
+                id: id.to_owned(),
+                path: path.to_owned(),
+                reason: err.to_string(),
+            })?;
+        let archive: Vec<u8> = chunks.concat();
+        single_file_from_tar(&archive).map_err(|reason| DockerError::CopyOut {
+            id: id.to_owned(),
+            path: path.to_owned(),
+            reason,
+        })
     }
 
     /// Creates and starts a container from `spec`, returning its id and
@@ -486,28 +643,90 @@ impl DockerLifecycle {
         })
     }
 
+    /// Polls `cmd` inside `container` until `ready` accepts its result, or
+    /// gives up after `timeout` -- a readiness probe for a container whose
+    /// readiness only its own tools can check (`pg_isready`, a `curl`
+    /// against a port that is never published). Pass
+    /// [`ExecOutput::succeeded`] to wait for exit 0. The error carries the
+    /// last attempt's output.
+    pub async fn wait_for_exec(
+        &self,
+        container: &str,
+        cmd: &[&str],
+        ready: impl Fn(&ExecOutput) -> bool,
+        timeout: Duration,
+        poll_interval: Duration,
+    ) -> Result<(), DockerError> {
+        let deadline = tokio::time::Instant::now() + timeout;
+        let mut last = "never attempted".to_owned();
+        while tokio::time::Instant::now() < deadline {
+            match self
+                .exec(container, cmd.iter().map(|s| (*s).to_owned()).collect(), None)
+                .await
+            {
+                Ok(result) if ready(&result) => return Ok(()),
+                Ok(result) => last = format!("exit {}: {}", result.exit_code, result.output.trim()),
+                Err(err) => last = err.to_string(),
+            }
+            tokio::time::sleep(poll_interval).await;
+        }
+        Err(DockerError::ExecNotReady {
+            container: container.to_owned(),
+            command: cmd.join(" "),
+            waited: timeout,
+            last,
+        })
+    }
+
+    /// Runs a one-shot container to completion: starts it from `spec`,
+    /// waits up to `timeout` for it to exit, collects its combined
+    /// stdout+stderr, and removes it -- also when waiting failed. A
+    /// non-zero exit is an [`ExecOutput`], not an error: what it means is
+    /// the caller's business.
+    pub async fn run_to_completion(
+        &self,
+        spec: &ContainerSpec,
+        timeout: Duration,
+    ) -> Result<ExecOutput, DockerError> {
+        use bollard::query_parameters::LogsOptionsBuilder;
+        use futures::StreamExt;
+
+        let container = self.run(spec).await?;
+        let waited = tokio::time::timeout(timeout, async {
+            match self.docker.wait_container(&container.id, None).next().await {
+                Some(Ok(response)) => Ok(response.status_code),
+                Some(Err(bollard::errors::Error::DockerContainerWaitError { code, .. })) => Ok(code),
+                Some(Err(source)) => Err(DockerError::Wait {
+                    id: container.id.clone(),
+                    source,
+                }),
+                None => Ok(-1),
+            }
+        })
+        .await;
+
+        let logs_options = LogsOptionsBuilder::default().stdout(true).stderr(true).build();
+        let mut output = String::new();
+        let mut logs = self.docker.logs(&container.id, Some(logs_options));
+        while let Some(Ok(chunk)) = logs.next().await {
+            output.push_str(&chunk.to_string());
+        }
+        if let Err(err) = self.teardown(&container.id).await {
+            log::warn!("u2s-verify-core: could not remove one-shot container {}: {err}", container.id);
+        }
+
+        let exit_code = waited.map_err(|_| DockerError::RunTimedOut {
+            id: container.id.clone(),
+            waited: timeout,
+        })??;
+        Ok(ExecOutput { exit_code, output })
+    }
+
     /// The content-addressable id of a local image, or `None` if it is not
     /// present -- distinguished from an error, since "not pulled yet" is
     /// an ordinary answer here, not a failure to check.
     pub async fn image_id(&self, image: &str) -> Result<Option<String>, DockerError> {
         Ok(self.inspect_image(image).await?.and_then(|i| i.id))
-    }
-
-    /// The labels baked into a local image's config, or `None` if the
-    /// image is not present. This is how `verify_status` tells a fresh
-    /// warm image from a stale one: `warm_command` stamps
-    /// `u2s.base_image_id` with the base image's id at commit time, so a
-    /// mismatch against the base image's *current* id means the base
-    /// image moved since the warm image was built.
-    pub async fn image_labels(
-        &self,
-        image: &str,
-    ) -> Result<Option<HashMap<String, String>>, DockerError> {
-        Ok(self
-            .inspect_image(image)
-            .await?
-            .and_then(|i| i.config)
-            .and_then(|c| c.labels))
     }
 
     async fn inspect_image(
@@ -524,39 +743,6 @@ impl DockerLifecycle {
                 source,
             }),
         }
-    }
-
-    /// Commits a stopped container as `repo_tag`, carrying `labels` on the
-    /// resulting image -- this is the mechanism behind `u2s-aem-verify-core`'s
-    /// `warm` subcommand: boot the base image once, wait until it is fully
-    /// ready, stop it, and commit the result so a later run starts from
-    /// "already booted" rather than a cold `crx-quickstart`.
-    pub async fn commit(
-        &self,
-        container_id: &str,
-        repo_tag: &str,
-        labels: HashMap<String, String>,
-    ) -> Result<String, DockerError> {
-        let (repo, tag) = repo_tag.split_once(':').unwrap_or((repo_tag, "latest"));
-        let options = CommitContainerOptionsBuilder::default()
-            .container(container_id)
-            .repo(repo)
-            .tag(tag)
-            .build();
-        let config = ContainerConfig {
-            labels: Some(labels),
-            ..Default::default()
-        };
-        let response = self
-            .docker
-            .commit_container(options, config)
-            .await
-            .map_err(|source| DockerError::Commit {
-                id: container_id.to_owned(),
-                tag: repo_tag.to_owned(),
-                source,
-            })?;
-        Ok(response.id)
     }
 }
 
@@ -616,9 +802,57 @@ pub async fn wait_for_http(
     })
 }
 
+/// The one regular file in a tar archive, as the archive endpoint returns
+/// it for a file path. Pure function. Unit-tested.
+pub fn single_file_from_tar(archive: &[u8]) -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let mut entries = tar::Archive::new(archive);
+    let mut found: Option<Vec<u8>> = None;
+    for entry in entries.entries().map_err(|err| err.to_string())? {
+        let mut entry = entry.map_err(|err| err.to_string())?;
+        if !entry.header().entry_type().is_file() {
+            continue;
+        }
+        if found.is_some() {
+            return Err("the archive holds more than one file".to_owned());
+        }
+        let mut contents = Vec::new();
+        entry
+            .read_to_end(&mut contents)
+            .map_err(|err| err.to_string())?;
+        found = Some(contents);
+    }
+    found.ok_or_else(|| "the archive holds no file".to_owned())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn tar_of(files: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        for (name, contents) in files {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(contents.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, name, *contents).unwrap();
+        }
+        builder.into_inner().unwrap()
+    }
+
+    #[test]
+    fn the_single_file_is_extracted() {
+        let archive = tar_of(&[("abc.pdf", b"%PDF-1.7 body")]);
+        assert_eq!(single_file_from_tar(&archive).unwrap(), b"%PDF-1.7 body");
+    }
+
+    #[test]
+    fn an_empty_or_multi_file_archive_is_refused() {
+        assert!(single_file_from_tar(&tar_of(&[])).is_err());
+        assert!(single_file_from_tar(&tar_of(&[("a", b"1"), ("b", b"2")])).is_err());
+        assert!(single_file_from_tar(b"not a tar").is_err());
+    }
 
     /// No Docker daemon is assumed present for this crate's own test run
     /// (see the crate's module doc and `u2s-aem-verify-core`'s `#[ignore]`d
@@ -673,6 +907,81 @@ mod tests {
     /// it) -- exactly the image `u2s-redacto-verify-core` boots for real.
     #[tokio::test]
     #[ignore = "needs a real Docker daemon"]
+    async fn networks_addresses_and_file_copies_work_against_a_real_daemon() {
+        let lifecycle = DockerLifecycle::connect().await.expect("a real Docker daemon");
+        lifecycle
+            .ensure_image("postgres:16-alpine", "")
+            .await
+            .expect("postgres:16-alpine pulls or is already present");
+        let unique = format!(
+            "{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        );
+        let label_key = "u2s.verify-core.network-test";
+        let labels = HashMap::from([(label_key.to_owned(), unique.clone())]);
+        let network = format!("u2s-verify-core-net-test-{unique}");
+        lifecycle.ensure_network(&network, &labels).await.expect("network");
+
+        let spec = |name: String, network: &str| ContainerSpec {
+            name,
+            image: "postgres:16-alpine".to_owned(),
+            platform: String::new(),
+            network: network.to_owned(),
+            env: vec![("POSTGRES_PASSWORD".to_owned(), "password".to_owned())],
+            labels: HashMap::new(),
+            publish_ports: vec![],
+            binds: vec![],
+            extra_hosts: vec![],
+            memory_bytes: None,
+        };
+        let on_network = lifecycle
+            .run(&spec(format!("u2s-verify-core-a-{unique}"), &network))
+            .await
+            .expect("container on the network");
+        let joiner = lifecycle
+            .run(&spec(format!("u2s-verify-core-b-{unique}"), "bridge"))
+            .await
+            .expect("container on bridge");
+
+        let ip = lifecycle.container_ip(&on_network.id, &network).await.expect("an address");
+        assert!(ip.parse::<std::net::Ipv4Addr>().is_ok(), "{ip}");
+        assert!(lifecycle.container_ip(&joiner.id, &network).await.is_err());
+
+        lifecycle.connect_network(&network, &joiner.id).await.expect("join");
+        lifecycle.connect_network(&network, &joiner.id).await.expect("joining twice is fine");
+        assert!(lifecycle.container_ip(&joiner.id, &network).await.is_ok());
+
+        lifecycle
+            .exec(
+                &on_network.id,
+                vec!["sh".to_owned(), "-c".to_owned(), "printf '%s' '%PDF-1.7 x' > /tmp/out.pdf".to_owned()],
+                None,
+            )
+            .await
+            .expect("write a file");
+        let bytes = lifecycle.copy_file_out(&on_network.id, "/tmp/out.pdf").await.expect("copy out");
+        assert_eq!(bytes, b"%PDF-1.7 x");
+        assert!(lifecycle.copy_file_out(&on_network.id, "/tmp/missing").await.is_err());
+
+        let found = lifecycle
+            .find_networks_by_label(&format!("{label_key}={unique}"))
+            .await
+            .expect("list");
+        assert_eq!(found, vec![network.clone()]);
+
+        lifecycle.disconnect_network(&network, &joiner.id).await.expect("leave");
+        lifecycle.disconnect_network(&network, &joiner.id).await.expect("leaving twice is fine");
+        let _ = lifecycle.teardown(&on_network.id).await;
+        let _ = lifecycle.teardown(&joiner.id).await;
+        lifecycle.remove_network(&network).await.expect("remove");
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a real Docker daemon"]
     async fn exec_pipes_stdin_and_reports_the_real_exit_code() {
         let lifecycle = DockerLifecycle::connect().await.expect("a real Docker daemon");
         lifecycle
@@ -715,6 +1024,41 @@ mod tests {
             .expect("exec must reach the daemon");
         assert!(!exit_status.succeeded(), "`false` must report a non-zero exit code");
 
+        lifecycle
+            .wait_for_exec(
+                &running.id,
+                &["pg_isready", "-U", "postgres"],
+                ExecOutput::succeeded,
+                Duration::from_secs(60),
+                Duration::from_millis(500),
+            )
+            .await
+            .expect("postgres becomes ready");
+        let never = lifecycle
+            .wait_for_exec(
+                &running.id,
+                &["false"],
+                ExecOutput::succeeded,
+                Duration::from_secs(2),
+                Duration::from_millis(500),
+            )
+            .await;
+        assert!(matches!(never, Err(DockerError::ExecNotReady { .. })), "{never:?}");
+
         let _ = lifecycle.teardown(&running.id).await;
+
+        // Without a password the image refuses to initialize and exits 1,
+        // explaining why: a one-shot container with no command override.
+        let one_shot = ContainerSpec {
+            name: format!("{}-oneshot", spec.name),
+            env: Vec::new(),
+            ..spec
+        };
+        let result = lifecycle
+            .run_to_completion(&one_shot, Duration::from_secs(60))
+            .await
+            .expect("the container runs and exits");
+        assert_eq!(result.exit_code, 1, "{result:?}");
+        assert!(result.output.contains("POSTGRES_PASSWORD"), "{result:?}");
     }
 }

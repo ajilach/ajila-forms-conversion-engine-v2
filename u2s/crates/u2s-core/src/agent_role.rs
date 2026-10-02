@@ -7,7 +7,7 @@
 //! other. `u2s-store` stores it as the Postgres `agent_role` enum on
 //! `dataset_tools.enabled_for` and on `agent_turns.agent_role`; `u2s-agent`
 //! puts it on a `ToolDecl`'s `roles_allowed`. Because both sides name this
-//! one type, "side-effecting tools are refused to the Conversion Agent" is a
+//! one type, "only the Conversion Agent may call a side-effecting tool" is a
 //! single comparison rather than two conventions that can drift.
 //!
 //! The Rule Agent is deliberately **not** a variant of the enablement half of
@@ -19,22 +19,20 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One of the four agents in PLAN.md's pipeline.
+/// One of the two agents in PLAN.md: the Conversion Agent and the Rule Agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
-    InputReview,
     Conversion,
-    OutputReview,
     /// Off the conversion path and interactive (PLAN.md). Calls one native
     /// tool, `rule_try`, and no MCP tool.
     Rule,
 }
 
-/// A role name that is not one of the four.
+/// A role name that is not one of the two.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error(
-    "unknown agent role {value:?}: expected one of input_review, conversion, output_review, rule"
+    "unknown agent role {value:?}: expected one of conversion, rule"
 )]
 pub struct AgentRoleError {
     pub value: String,
@@ -44,30 +42,19 @@ impl AgentRole {
     /// Every role, including [`AgentRole::Rule`]. This is the vocabulary
     /// `agent_turns.agent_role` records, because a Rule Agent call is still a
     /// model call worth auditing and costing.
-    pub const ALL: &'static [AgentRole] = &[
-        AgentRole::InputReview,
-        AgentRole::Conversion,
-        AgentRole::OutputReview,
-        AgentRole::Rule,
-    ];
+    pub const ALL: &'static [AgentRole] = &[AgentRole::Conversion, AgentRole::Rule];
 
     /// The roles a tool enablement may name. Excludes [`AgentRole::Rule`],
     /// which calls no *enableable* (MCP) tool — enabling a tool "for the
     /// Rule Agent" would be a row that can never be read, which is worse
     /// than a row that cannot be written.
-    pub const TOOL_USING: &'static [AgentRole] = &[
-        AgentRole::InputReview,
-        AgentRole::Conversion,
-        AgentRole::OutputReview,
-    ];
+    pub const TOOL_USING: &'static [AgentRole] = &[AgentRole::Conversion];
 
     /// The wire and database spelling. Must stay in step with the Postgres
     /// `agent_role` enum's labels, which the enablement migration defines.
     pub fn as_str(self) -> &'static str {
         match self {
-            AgentRole::InputReview => "input_review",
             AgentRole::Conversion => "conversion",
-            AgentRole::OutputReview => "output_review",
             AgentRole::Rule => "rule",
         }
     }
@@ -173,7 +160,7 @@ mod tests {
     fn an_unknown_role_is_an_error_and_never_a_panic() {
         let err = AgentRole::parse("admin").expect_err("not a role");
         assert_eq!(err.value, "admin");
-        assert!(err.to_string().contains("input_review"), "{err}");
+        assert!(err.to_string().contains("conversion"), "{err}");
     }
 
     /// The Rule Agent calls `rule_try`, a native tool, but no *enableable*
@@ -183,9 +170,7 @@ mod tests {
     #[test]
     fn the_rule_agent_is_not_tool_using() {
         assert!(!AgentRole::Rule.is_tool_using());
-        assert!(AgentRole::InputReview.is_tool_using());
         assert!(AgentRole::Conversion.is_tool_using());
-        assert!(AgentRole::OutputReview.is_tool_using());
         assert_eq!(AgentRole::TOOL_USING.len(), AgentRole::ALL.len() - 1);
     }
 

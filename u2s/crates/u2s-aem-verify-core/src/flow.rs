@@ -89,7 +89,6 @@
 //! stay the orchestration `verify_run` alone uses.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -611,7 +610,7 @@ pub async fn run(
         .await
         .map_err(|err| VerifyError::new(ErrorKind::DockerUnreachable, err.to_string()))?;
 
-    let (mut guard, session_findings) = session.ensure(session_id, &docker, profile).await?;
+    let (mut guard, session_findings) = session::ensure(session, session_id, &docker, profile).await?;
     let state = guard
         .as_mut()
         .expect("ensure always leaves Some on success");
@@ -1492,8 +1491,7 @@ pub(crate) async fn submit_and_capture_artefact(
     match &profile.submit {
         SubmitArtefact::Download => match session.wait_for_download(SUBMIT_TIMEOUT).await {
             Ok(guid) => {
-                let path = browser::download_path(&instances.downloads_dir, &guid);
-                read_downloaded_pdf(&path, blobs, artefacts, findings);
+                read_downloaded_pdf(instances, &guid, blobs, artefacts, findings).await;
             }
             Err(err) => findings.push(Finding::error(
                 ErrorKind::NoDownload.as_str(),
@@ -1531,36 +1529,53 @@ pub(crate) async fn submit_and_capture_artefact(
     }
 }
 
-/// Reads, stores as a blob, and removes the file at `path` -- the last part
-/// matters now that `path` lives in the session's shared, persistent
-/// downloads directory (`crate::session::Instances::downloads_dir`) rather
-/// than a per-run directory the caller deletes wholesale afterward; leaving
-/// it behind would otherwise accumulate one file per call for as long as
-/// the session stays up.
-fn read_downloaded_pdf(
-    path: &PathBuf,
+/// Copies the download named `guid` out of the session's Chromium
+/// container, stores it as a blob, and removes it there. Removing matters:
+/// the container lives as long as the session, so leaving each file behind
+/// would accumulate one per call.
+async fn read_downloaded_pdf(
+    instances: &Instances,
+    guid: &str,
     blobs: &BlobStore,
     artefacts: &mut Vec<Artefact>,
     findings: &mut Vec<Finding>,
 ) {
-    let bytes = match std::fs::read(path) {
+    let path = format!("{}/{guid}", crate::session::CHROMIUM_DOWNLOAD_DIR);
+    let copied = match DockerLifecycle::connect().await {
+        Ok(docker) => {
+            let copied = docker.copy_file_out(&instances.chromium.id, &path).await;
+            if copied.is_ok()
+                && let Err(err) = docker
+                    .exec(
+                        &instances.chromium.id,
+                        vec!["rm".to_owned(), "-f".to_owned(), path.clone()],
+                        None,
+                    )
+                    .await
+            {
+                log::warn!(
+                    "{}: could not remove {path} from the Chromium container: {err}",
+                    crate::LOG_PREFIX
+                );
+            }
+            copied.map_err(|err| err.to_string())
+        }
+        Err(err) => Err(err.to_string()),
+    };
+    let bytes = match copied {
         Ok(bytes) => bytes,
         Err(err) => {
             findings.push(Finding::error(
                 ErrorKind::DownloadNotPdf.as_str(),
-                format!(
-                    "could not read the downloaded file at {}: {err}",
-                    path.display()
-                ),
+                format!("could not read the downloaded file {path}: {err}"),
             ));
             return;
         }
     };
-    let _ = std::fs::remove_file(path);
     if !bytes.starts_with(b"%PDF") {
         findings.push(Finding::error(
             ErrorKind::DownloadNotPdf.as_str(),
-            format!("the downloaded file at {} is not a PDF", path.display()),
+            format!("the downloaded file {path} is not a PDF"),
         ));
         return;
     }

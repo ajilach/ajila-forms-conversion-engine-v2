@@ -181,8 +181,8 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
             settings.aem_verify.image, settings.aem_verify.data_volume
         ),
         OutputTarget::Redacto => println!(
-            "Verification: Postgres image {} (checked before the run starts)",
-            settings.redacto_verify.postgres_image
+            "Verification: Redacto core image {}, rendering image {} (checked before the run starts)",
+            settings.redacto_verify.core_image, settings.redacto_verify.rendering_image
         ),
     }
 

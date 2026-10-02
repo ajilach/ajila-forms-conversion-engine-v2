@@ -323,7 +323,7 @@ mod tests {
             target: OutputTarget::Redacto,
             settings: AppSettings {
                 redacto_verify: agent::u2s::RedactoVerifySettings {
-                    postgres_image: String::new(),
+                    core_image: String::new(),
                     ..Default::default()
                 },
                 ..AppSettings::default()
@@ -341,7 +341,7 @@ mod tests {
         .err()
         .expect("the run must be refused");
         assert!(err.contains("Verification is not possible"), "{err}");
-        assert!(err.contains("no Postgres image"), "{err}");
+        assert!(err.contains("U2S_REDACTO_VERIFY_UBS_CORE_IMAGE is not set"), "{err}");
     }
 
     /// A continuation is nothing but the tree it was seeded with, so a session

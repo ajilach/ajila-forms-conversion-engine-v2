@@ -86,18 +86,19 @@ You need:
 - The Docker data volume with the UBS platform baked in (one-time setup: run `docker/aem/bake-ubs-platform.sh`; see `docker/aem/README.md` for details)
 - Apple Silicon host (only an ARM image exists today)
 
-**For a Redacto target:** The verifier imports the built dump into a throwaway Postgres
-container using `redacto_verify_*` tools; if a rendering endpoint is configured it
-also returns rendered PDFs.
+**For a Redacto target:** The `redacto_verify_*` tools boot a Redacto platform of the
+run's own (Postgres, migration, core, rendering), import the built dump there and render
+it once per language.
 
 You need:
 - Docker running
 - The public Postgres image pulled (`verify prepare` does that)
+- The platform's migration, core and rendering images from ajila's private registry: `az acr login --name ajilaclouddev`, then `docker pull` each (see `docker/redacto/README.md`)
 
 **For both targets:**
 - `u2s-rules-worker`: every check rule runs in this process, which must sit next to `blueprint` (`target/release/` after the build above); a conversion whose rules cannot run is refused before it starts.
 - `pdfium`: Run `./scripts/fetch-pdfium.sh` to download the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
-- Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM image (default none, must be pulled manually), data volume (default `u2s-aem-ubs-data`), AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: Postgres image (default `postgres:16-alpine`), optional rendering endpoint URL.
+- Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM image (default none, must be pulled manually), data volume (default `u2s-aem-ubs-data`), AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: the migration, core and rendering images (default: the ones `ajila-redacto-platform`'s CI publishes to `ajilaclouddev.azurecr.io`), Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin).
 - CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
 - Prepare: Run `blueprint verify prepare` to pull the public verifier images (headless Chromium `chromedp/headless-shell:stable` and Postgres). The AEM image must be pulled by hand (see above).
 - Check: Run `blueprint verify check [--target aem|redacto]` to run the readiness check a conversion performs: settings complete, Docker reachable, images present locally, the AEM data volume exists, pdfium loads.

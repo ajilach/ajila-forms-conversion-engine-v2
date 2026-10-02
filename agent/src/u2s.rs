@@ -307,19 +307,26 @@ impl AemVerifySettings {
     }
 }
 
-/// Where the Redacto verifier's throwaway Postgres comes from, and the
-/// optional already-running platform it renders against. Stored like
-/// [`AemVerifySettings`].
+/// The images of the Redacto platform the verifier boots per session
+/// (`docker/redacto/README.md`), its Docker platform and the rendering
+/// service's basic auth. Stored like [`AemVerifySettings`].
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct RedactoVerifySettings {
-    /// The public Postgres image dumps are imported into.
+    /// The platform's database.
     #[serde(rename = "redacto_verify_postgres_image")]
     pub postgres_image: String,
-    /// Base URL of a running Redacto platform's rendering endpoint. Empty
-    /// means rendering is reported as skipped; the import check still runs.
-    #[serde(rename = "redacto_verify_rendering_url")]
-    pub rendering_url: String,
+    /// The platform's Flyway migrations, run once per boot.
+    #[serde(rename = "redacto_verify_migration_image")]
+    pub migration_image: String,
+    #[serde(rename = "redacto_verify_core_image")]
+    pub core_image: String,
+    #[serde(rename = "redacto_verify_rendering_image")]
+    pub rendering_image: String,
+    /// The Docker platform to run the platform images as. Empty lets the
+    /// daemon decide.
+    #[serde(rename = "redacto_verify_platform")]
+    pub platform: String,
     #[serde(rename = "redacto_verify_user")]
     pub user: String,
     #[serde(rename = "redacto_verify_password")]
@@ -327,25 +334,43 @@ pub struct RedactoVerifySettings {
 }
 
 impl Default for RedactoVerifySettings {
+    /// The images `ajila-redacto-platform`'s CI publishes, as upstream's
+    /// `.env.example` names them.
     fn default() -> Self {
         Self {
             postgres_image: "postgres:16-alpine".into(),
-            rendering_url: String::new(),
+            migration_image: "ajilaclouddev.azurecr.io/ajila-redacto-platform-ajila-redacto-migration:latest"
+                .into(),
+            core_image: "ajilaclouddev.azurecr.io/ajila-redacto-platform-ajila-redacto-core:latest".into(),
+            rendering_image: "ajilaclouddev.azurecr.io/ajila-redacto-platform-ajila-redacto-rendering:latest"
+                .into(),
+            platform: String::new(),
             user: "admin".into(),
             password: "admin".into(),
         }
     }
 }
 
+/// The Redacto verifier's profile name, which is also the owner label on
+/// every container and network it boots.
+const REDACTO_PROFILE_NAME: &str = "redacto-ubs";
+
 impl RedactoVerifySettings {
-    fn profile(&self) -> RenderProfile {
-        RenderProfile {
-            name: "redacto-ubs",
-            postgres_image: self.postgres_image.trim().to_string(),
-            rendering_base_url: optional(&self.rendering_url),
-            basic_auth: Some((self.user.trim().to_string(), self.password.clone())),
-            render_format: "pdf-ua",
-        }
+    fn profile(&self) -> Result<RenderProfile, String> {
+        RenderProfile::from_reader(REDACTO_PROFILE_NAME, "U2S_REDACTO_VERIFY_UBS", "pdf-ua", |key| {
+            let value = match key.strip_prefix("U2S_REDACTO_VERIFY_UBS_")? {
+                "POSTGRES_IMAGE" => self.postgres_image.trim(),
+                "MIGRATION_IMAGE" => self.migration_image.trim(),
+                "CORE_IMAGE" => self.core_image.trim(),
+                "RENDERING_IMAGE" => self.rendering_image.trim(),
+                "PLATFORM" => self.platform.trim(),
+                "USER" => self.user.trim(),
+                "PASSWORD" => self.password.as_str(),
+                _ => return None,
+            };
+            optional(value)
+        })
+        .map_err(|e| format!("the Redacto verification settings are incomplete: {e}"))
     }
 }
 
@@ -415,35 +440,36 @@ pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String
     ))
 }
 
-/// The Redacto counterpart of [`aem_verify_readiness`]: a reachable Docker,
-/// the Postgres image present locally, and pdfium.
+/// The Redacto counterpart of [`aem_verify_readiness`]: complete settings, a
+/// reachable Docker, every platform image present locally, and pdfium.
 pub async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Result<String, String> {
     let mut problems = Vec::new();
-    if settings.postgres_image.trim().is_empty() {
-        problems.push("no Postgres image is configured for Redacto verification".into());
+    let profile = settings.profile();
+    if let Err(e) = &profile {
+        problems.push(e.clone());
     }
-    if let Some(docker) = docker_problems(&mut problems).await
-        && !settings.postgres_image.trim().is_empty()
-    {
-        image_problem(&docker, &settings.postgres_image, &mut problems).await;
+    let docker = docker_problems(&mut problems).await;
+    if let (Some(docker), Ok(profile)) = (&docker, &profile) {
+        for image in profile.images.all() {
+            image_problem(docker, image, &mut problems).await;
+        }
     }
     pdf_problem(&mut problems);
     if !problems.is_empty() {
         return Err(problems.join("\n"));
     }
     Ok(format!(
-        "Postgres image {}, Docker reachable, pdfium loaded{}.",
-        settings.postgres_image,
-        match optional(&settings.rendering_url) {
-            Some(url) => format!(", rendering against {url}"),
-            None => ", no rendering endpoint (rendering is skipped)".into(),
-        }
+        "Redacto platform images {}, Docker reachable, pdfium loaded.",
+        [&settings.postgres_image, &settings.migration_image, &settings.core_image, &settings.rendering_image]
+            .map(|image| image.trim())
+            .join(", ")
     ))
 }
 
 /// Pulls the public images the verifiers run: the AEM verifier's Chromium and
-/// the Redacto verifier's Postgres. The AEM image lives in a private registry
-/// and has to be pulled by hand after `az acr login`.
+/// the Redacto platform's Postgres. The AEM image and the other Redacto
+/// platform images live in private registries and have to be pulled by hand
+/// after `az acr login` (see docker/aem/README.md and docker/redacto/README.md).
 pub async fn pull_verifier_images(
     aem: &AemVerifySettings,
     redacto: &RedactoVerifySettings,
@@ -488,7 +514,8 @@ async fn image_problem(docker: &DockerLifecycle, image: &str, problems: &mut Vec
         Ok(Some(_)) => {}
         Ok(None) => problems.push(format!(
             "the image {image} is not present locally; pull it first (`verify prepare` pulls the \
-             public images, the AEM image needs `az acr login` and `docker pull`)"
+             public images; the AEM and Redacto platform images need `az acr login` and \
+             `docker pull`, see docker/aem/README.md and docker/redacto/README.md)"
         )),
         Err(e) => problems.push(format!("could not look up the image {image}: {e}")),
     }
@@ -510,13 +537,11 @@ fn pdf_problem(problems: &mut Vec<String>) {
 /// says one does; the OS drops it with a crashed process.
 const AEM_VERIFIER_LOCK: &str = "aem-verifier.lock";
 
-/// Redacto verifier sessions each get their own Postgres, so any number may
+/// Redacto verifier sessions each get their own platform, so any number may
 /// run: each holds this file's lock shared. Only a process that can briefly
 /// take it exclusively knows that no Redacto container anywhere is in use.
 const REDACTO_VERIFIER_LOCK: &str = "redacto-verifier.lock";
 
-/// The label upstream puts on every Redacto verifier container.
-const REDACTO_CONTAINER_LABEL: &str = "u2s.redacto-verify-session";
 
 /// How long a verifier may sit unused before its containers are torn down.
 /// Matches upstream's own idle timeout.
@@ -612,9 +637,10 @@ impl U2sTools {
         Ok(())
     }
 
-    pub fn attach_redacto_verify(&mut self, settings: &RedactoVerifySettings) {
-        let server = RedactoVerifyServer::with_parts(settings.profile(), self.verify_blobs());
+    pub fn attach_redacto_verify(&mut self, settings: &RedactoVerifySettings) -> Result<(), String> {
+        let server = RedactoVerifyServer::with_parts(Ok(settings.profile()?), self.verify_blobs());
         self.verifier = Some(Verifier::Redacto(server));
+        Ok(())
     }
 
     fn verify_blobs(&self) -> u2s_blob::BlobStore {
@@ -662,13 +688,21 @@ impl U2sTools {
                         return Err(format!("could not take the AEM verifier lock: {e}"));
                     }
                 }
-                u2s_aem_verify_core::server::remove_leftover_containers(profile).await;
+                u2s_verify_core::session::remove_leftovers(
+                    &profile.format,
+                    &u2s_aem_verify_core::session::reach_of(profile),
+                )
+                .await;
                 file
             }
             Some(Verifier::Redacto(_)) => {
                 let file = open_lock(REDACTO_VERIFIER_LOCK)?;
                 if file.try_lock().is_ok() {
-                    remove_leftover_redacto_containers().await;
+                    u2s_verify_core::session::remove_leftovers(
+                        REDACTO_PROFILE_NAME,
+                        &u2s_verify_core::session::Reach::from_self_container(None),
+                    )
+                    .await;
                     file.unlock()
                         .map_err(|e| format!("could not release the Redacto verifier lock: {e}"))?;
                 }
@@ -867,22 +901,6 @@ impl Drop for U2sTools {
             watcher.abort();
         }
         self.release_lock();
-    }
-}
-
-/// Removes every Redacto verifier container. Only called while holding the
-/// Redacto lock exclusively, when none of them can be in use.
-async fn remove_leftover_redacto_containers() {
-    let Ok(docker) = DockerLifecycle::connect().await else {
-        return;
-    };
-    let Ok(ids) = docker.find_by_label(REDACTO_CONTAINER_LABEL).await else {
-        return;
-    };
-    for id in ids {
-        if let Err(e) = docker.teardown(&id).await {
-            eprintln!("blueprint: could not remove the leftover Redacto container {id}: {e}");
-        }
     }
 }
 

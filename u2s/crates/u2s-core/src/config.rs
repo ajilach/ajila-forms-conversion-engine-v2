@@ -30,27 +30,6 @@ impl EnvSource for BTreeMap<String, String> {
     }
 }
 
-/// Which Cargo build profile produced this binary. A parameter to `from_env`
-/// rather than a `cfg!` read inside it, so profile-dependent rules (e.g.
-/// "dev auth mode refuses to start under a release profile") are testable
-/// from a debug-built test — `cfg!(debug_assertions)` is only a proxy for
-/// the profile and does not belong inside the parser itself.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BuildProfile {
-    Debug,
-    Release,
-}
-
-impl BuildProfile {
-    pub fn current() -> Self {
-        if cfg!(debug_assertions) {
-            BuildProfile::Debug
-        } else {
-            BuildProfile::Release
-        }
-    }
-}
-
 /// One thing wrong with the configuration. `from_env` implementations
 /// accumulate every problem in one pass rather than stopping at the first,
 /// so a fresh checkout reports everything wrong at once instead of one
@@ -65,8 +44,8 @@ pub enum ConfigProblem {
         value_hint: String,
         reason: String,
     },
-    /// A value that parses fine but is not allowed in this context — e.g.
-    /// `U2S_AUTH_MODE=dev` under a release build.
+    /// A variable that is set but not allowed — e.g. the removed
+    /// `U2S_AUTH_MODE`.
     Forbidden {
         key: &'static str,
         reason: &'static str,

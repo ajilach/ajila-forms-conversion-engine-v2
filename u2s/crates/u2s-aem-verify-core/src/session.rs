@@ -25,25 +25,18 @@
 //! whichever AEM instance its `session_id` is already running, rather than
 //! the whole container being disposable.
 //!
-//! **Interior mutability, documented.** Each session's state lives behind
-//! its own `Arc<tokio::sync::Mutex<Option<SessionState>>>`; [`SessionPool::ensure`]
-//! hands the caller an owned guard for the whole duration of a `verify_run`.
-//! This is not a workaround for something better solved otherwise: only one
-//! call may use a *given* shared AEM instance at a time, since a real AEM
-//! author cannot safely process concurrent package installs -- the lock
-//! *is* that serialization point, scoped per session so it never blocks a
-//! different `session_id`'s call. The pool's own outer map is behind a
-//! second, short-lived `tokio::sync::Mutex` guarding only insertion/lookup
-//! of which sessions exist, never held across a boot or a `verify_run`.
+//! **The pool itself is `u2s_verify_core::session::SessionPool`**, shared
+//! with the Redacto verifier; its module doc covers the locking. Holding a
+//! session's lock for a whole call matters here in particular: a real AEM
+//! author cannot safely process concurrent package installs.
 
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use tokio::sync::{Mutex, OwnedMutexGuard};
+use tokio::sync::OwnedMutexGuard;
 
 use u2s_verify_core::docker::{ContainerSpec, DockerLifecycle, RunningContainer, wait_for_http};
+use u2s_verify_core::session::{PooledSession, remove_session_network, sanitize_for_docker_name};
+pub use u2s_verify_core::session::{DEFAULT_SESSION_KEY, Reach};
 use u2s_verify_core::types::{ErrorKind, Finding, VerifyError};
 
 use crate::profile::Profile;
@@ -58,22 +51,75 @@ pub(crate) const CHROMIUM_DOWNLOAD_DIR: &str = "/downloads";
 /// at flexibility now.
 const AEM_DATA_VOLUME_CONTAINER_PATH: &str = "/aem/crx-quickstart";
 
-/// The `session_id` a caller that omits one gets -- preserves the
-/// single-shared-session behaviour for a human or a test calling the tool
-/// directly, with no `u2s-server` conversion run behind it.
-pub const DEFAULT_SESSION_KEY: &str = "default";
+/// How `profile` reaches the containers it boots.
+pub fn reach_of(profile: &Profile) -> Reach {
+    Reach::from_self_container(profile.self_container.as_deref())
+}
 
-/// The containers, network, and host-visible download directory one
-/// session's AEM and Chromium share -- booted together in [`boot`] since
-/// Chromium's boot cost is negligible next to AEM's and both need the same
-/// network and bind mount, so splitting their lifecycles would add
-/// complexity for no benefit.
+/// The three addresses a session is used through.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Endpoints {
+    pub aem_base_url: String,
+    pub aem_network_url: String,
+    pub cdp_url: String,
+}
+
+/// Builds [`Endpoints`] from what boot learned about the two containers.
+/// Pure function. Unit-tested.
+///
+/// Chromium is addressed by IP, never by container name: its DevTools
+/// endpoint refuses a `Host` header that is neither an IP nor `localhost`,
+/// and `chromiumoxide` keeps the address it connected through for the
+/// websocket it opens next.
+pub(crate) fn endpoints(
+    reach: &Reach,
+    aem_container_name: &str,
+    aem_container_port: u16,
+    aem_published_port: Option<u16>,
+    chromium_ip: Option<&str>,
+    chromium_published_port: Option<u16>,
+) -> Result<Endpoints, String> {
+    let aem_network_url = format!("http://{aem_container_name}:{aem_container_port}");
+    match reach {
+        Reach::Published => {
+            let aem_port = aem_published_port.ok_or_else(|| {
+                format!("the AEM container never published port {aem_container_port}")
+            })?;
+            let cdp_port = chromium_published_port.ok_or_else(|| {
+                format!("the Chromium container never published port {CHROMIUM_CDP_PORT}")
+            })?;
+            Ok(Endpoints {
+                aem_base_url: format!("http://127.0.0.1:{aem_port}"),
+                aem_network_url,
+                cdp_url: format!("http://127.0.0.1:{cdp_port}"),
+            })
+        }
+        Reach::SessionNetwork { .. } => {
+            let ip = chromium_ip
+                .ok_or_else(|| "the Chromium container has no address on the session network".to_owned())?;
+            Ok(Endpoints {
+                aem_base_url: aem_network_url.clone(),
+                aem_network_url,
+                cdp_url: format!("http://{ip}:{CHROMIUM_CDP_PORT}"),
+            })
+        }
+    }
+}
+
+/// The containers and network one session's AEM and Chromium share --
+/// booted together in [`boot`] since Chromium's boot cost is negligible
+/// next to AEM's and both need the same network, so splitting their
+/// lifecycles would add complexity for no benefit.
 pub struct Instances {
     pub network: String,
     pub aem: RunningContainer,
     pub chromium: RunningContainer,
-    /// `http://127.0.0.1:<host-published-port>` -- reachable from this
-    /// *process*, which runs on the host, not inside any container. What
+    /// How this process reaches the session: see [`Reach`]. Kept so
+    /// [`teardown`] can leave the network it joined.
+    pub reach: Reach,
+    /// The AEM address this *process* uses: a published loopback port
+    /// ([`Reach::Published`]) or the container's name on the session
+    /// network ([`Reach::SessionNetwork`]). What
     /// [`crate::aem_client::AemClient`] and every readiness wait use.
     pub aem_base_url: String,
     /// `http://<aem container name>:<container-internal port>` --
@@ -87,18 +133,8 @@ pub struct Instances {
     /// this one instead.
     pub aem_network_url: String,
     pub cdp_url: String,
-    /// The image tag actually booted (the warm image, or the base image
-    /// when no fresh warm image existed) -- what `verify_status` reports
-    /// this session is running, since it need not match `profile.aem_image`
-    /// literally.
+    /// The image this session booted -- what `verify_status` reports.
     pub aem_image: String,
-    /// Host-visible directory bind-mounted into the Chromium container at
-    /// [`CHROMIUM_DOWNLOAD_DIR`] -- fixed for the session's lifetime
-    /// (Docker bind mounts cannot be changed after a container is created),
-    /// unlike the old per-run directory this replaces. Each call still
-    /// removes the one file it downloaded once read; only [`teardown`]
-    /// removes the directory itself.
-    pub downloads_dir: PathBuf,
 }
 
 pub struct SessionState {
@@ -155,282 +191,89 @@ pub struct OpenFormStatus {
     pub revision: u64,
 }
 
-type Slot = Arc<Mutex<Option<SessionState>>>;
+/// The per-`session_id` AEM + Chromium sessions of one profile.
+pub type SessionPool = u2s_verify_core::session::SessionPool<SessionState>;
 
-/// The per-profile collection of per-`session_id` sessions -- see the
-/// module doc for why one process holds more than one session at a time.
-pub struct SessionPool {
-    slots: Mutex<HashMap<String, Slot>>,
-}
+impl PooledSession for SessionState {
+    type Ctx = DockerLifecycle;
 
-impl Default for SessionPool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SessionPool {
-    pub fn new() -> Self {
-        Self {
-            slots: Mutex::new(HashMap::new()),
-        }
+    fn last_used(&self) -> Instant {
+        self.last_used
     }
 
-    /// The slot for `key`, creating an empty one if this is the first call
-    /// for it. Only the map's own short-lived lock is held here -- never
-    /// the slot's, so this never blocks on another call's in-flight boot or
-    /// `verify_run`.
-    async fn slot(&self, key: &str) -> Slot {
-        let mut slots = self.slots.lock().await;
-        Arc::clone(
-            slots
-                .entry(key.to_owned())
-                .or_insert_with(|| Arc::new(Mutex::new(None))),
+    fn touch(&mut self) {
+        SessionState::touch(self);
+    }
+
+    /// The AEM login page still answers: enough to trust reusing the
+    /// session without paying for a full readiness wait again.
+    async fn is_alive(&self) -> bool {
+        u2s_verify_core::http::is_reachable(
+            &format!("{}/libs/granite/core/content/login.html", self.instances.aem_base_url),
+            Duration::from_secs(3),
         )
+        .await
     }
 
-    pub async fn status(&self, key: &str) -> SessionStatus {
-        let slot = self.slot(key).await;
-        let guard = slot.lock().await;
-        match guard.as_ref() {
-            Some(state) => SessionStatus {
-                active: true,
-                uptime_secs: Some(state.started_at.elapsed().as_secs()),
-                aem_image: Some(state.instances.aem_image.clone()),
-                open_form: state.open_form.as_ref().map(|form| OpenFormStatus {
-                    handle: form.handle.clone(),
-                    revision: form.revision,
-                }),
-            },
-            None => SessionStatus {
-                active: false,
-                uptime_secs: None,
-                aem_image: None,
-                open_form: None,
-            },
+    /// Whatever form `crate::interactive` had open dies with these
+    /// containers, so its browser side is closed first (no uninstall: the
+    /// package goes away with the container), rather than leaking a CDP
+    /// target and a background task nobody will ever join.
+    async fn teardown(mut self, docker: &DockerLifecycle) {
+        if let Some(form) = self.open_form.take() {
+            form.live.close().await;
         }
-    }
-
-    /// How many `session_id`s currently have a booted session -- the
-    /// aggregate half of `verify_status`, next to the one `session_id`'s
-    /// own detail [`Self::status`] reports.
-    pub async fn active_count(&self) -> usize {
-        let slots: Vec<Slot> = self.slots.lock().await.values().cloned().collect();
-        let mut count = 0;
-        for slot in slots {
-            if slot.lock().await.is_some() {
-                count += 1;
-            }
-        }
-        count
-    }
-
-    /// Boots `key`'s session if none exists yet, or the previous one no
-    /// longer answers (detected by a quick liveness probe, not just "a slot
-    /// exists") -- then hands back an *owned* lock guard (outliving `self`,
-    /// since it is cloned out of the `Arc`) for the caller's whole
-    /// `verify_run`, plus any findings from a fresh boot (e.g. "not
-    /// warmed"; empty when an existing session was reused).
-    pub async fn ensure(
-        &self,
-        key: &str,
-        docker: &DockerLifecycle,
-        profile: &Profile,
-    ) -> Result<(OwnedMutexGuard<Option<SessionState>>, Vec<Finding>), VerifyError> {
-        let slot = self.slot(key).await;
-        let mut guard = slot.lock_owned().await;
-
-        let alive = match guard.as_ref() {
-            Some(state) => probe_alive(&state.instances).await,
-            None => false,
-        };
-
-        let findings = if alive {
-            guard.as_mut().expect("alive implies Some").touch();
-            Vec::new()
-        } else {
-            if let Some(mut stale) = guard.take() {
-                log::warn!(
-                    "{}: session {key:?}'s containers no longer answer; rebooting",
-                    crate::LOG_PREFIX
-                );
-                // The containers are about to be torn down out from under
-                // whatever form `crate::interactive` had open on them --
-                // close its browser side (no uninstall: the package is
-                // going away with the container regardless) before
-                // discarding it, so its `LiveForm` does not leak a CDP
-                // target and a background task nobody will ever join.
-                if let Some(form) = stale.open_form.take() {
-                    form.live.close().await;
-                }
-                teardown(docker, &stale.instances).await;
-            }
-            let (instances, boot_findings) = boot(docker, profile, key).await?;
-            *guard = Some(SessionState {
-                instances,
-                started_at: Instant::now(),
-                last_used: Instant::now(),
-                installed_package_path: None,
-                open_form: None,
-            });
-            boot_findings
-        };
-
-        Ok((guard, findings))
-    }
-
-    /// Locks `key`'s slot without booting anything -- `None` inside means
-    /// no session is currently up for this key. This is the lock
-    /// `crate::interactive`'s tools hold for the length of one call, the
-    /// same owned-guard shape [`Self::ensure`] hands `verify_run`, so an
-    /// interactive call and a `verify_run` on the same `session_id` can
-    /// never race each other, and two different `session_id`s never
-    /// contend on each other's lock.
-    pub async fn lock(&self, key: &str) -> OwnedMutexGuard<Option<SessionState>> {
-        let slot = self.slot(key).await;
-        slot.lock_owned().await
-    }
-
-    /// Tears down every session that has gone unused for at least
-    /// `idle_timeout`, and forgets the slot for any session that is not
-    /// currently booted -- the safety net a persistent instance needs that
-    /// a disposable one never did, so an agent that never comes back does
-    /// not run its AEM instance indefinitely. Call periodically from a
-    /// background task, never from inside a `verify_run` itself.
-    pub async fn sweep_idle(&self, docker: &DockerLifecycle, idle_timeout: Duration) {
-        let slots: Vec<(String, Slot)> = self
-            .slots
-            .lock()
-            .await
-            .iter()
-            .map(|(key, slot)| (key.clone(), Arc::clone(slot)))
-            .collect();
-
-        for (key, slot) in &slots {
-            let mut guard = slot.lock().await;
-            let Some(state) = guard.as_ref() else {
-                continue;
-            };
-            if state.last_used.elapsed() < idle_timeout {
-                continue;
-            }
-            log::info!(
-                "{}: tearing down session {key:?} after {:?} idle",
-                crate::LOG_PREFIX,
-                state.last_used.elapsed()
-            );
-            if let Some(mut state) = guard.take() {
-                // Same reasoning as the reboot path in `ensure`: whatever
-                // form was left open dies with these containers, so close
-                // its browser side first rather than leak it.
-                if let Some(form) = state.open_form.take() {
-                    form.live.close().await;
-                }
-                teardown(docker, &state.instances).await;
-            }
-        }
-
-        // Forgets a slot only when nothing else is using it right now
-        // (`try_lock`): a slot mid-`ensure()` elsewhere must not be pruned
-        // out from under it. An empty slot left behind costs nothing but a
-        // `HashMap` entry, so leaving one on contention is harmless -- the
-        // next sweep tries again.
-        let mut slots_map = self.slots.lock().await;
-        slots_map.retain(|_, slot| match slot.try_lock() {
-            Ok(guard) => guard.is_some(),
-            Err(_) => true,
-        });
+        teardown(docker, &self.instances).await;
     }
 }
 
-/// `true` iff the session's AEM container still answers its login page --
-/// enough to trust reusing it without paying for a full readiness wait
-/// again, since a session that passed [`boot`]'s own wait once is assumed
-/// to still be in the same state unless something external touched it.
-async fn probe_alive(instances: &Instances) -> bool {
-    u2s_verify_core::http::is_reachable(
-        &format!(
-            "{}/libs/granite/core/content/login.html",
-            instances.aem_base_url
-        ),
-        Duration::from_secs(3),
-    )
-    .await
-}
-
-/// Picks the AEM image to boot from -- `crate::warm::warm_image_tag`'s warm
-/// image when it exists *and* its `u2s.base_image_id` label still matches the
-/// base image's current id, the base image otherwise (with a finding naming
-/// why, since a cold boot from here can take many minutes longer than a
-/// warm one). Never fails on a missing or stale warm image: that is the
-/// ordinary state before the first `warm` run, not a problem with the
-/// verifier itself.
-///
-/// **Never called at all when `profile.aem_data_volume` is set.** A
-/// commit-based warm image cannot exist for an image that declares
-/// `VOLUME /aem/crx-quickstart`: `docker commit` never captures a volume's
-/// contents, so `warm_command`'s own commit would silently produce an image
-/// missing the entire JCR repository -- confirmed live (the committed image
-/// crashed on boot, missing its own quickstart jar). A data-volume profile
-/// gets its fast-reboot benefit from the volume itself instead, so
-/// [`boot`] boots `profile.aem_image` directly and skips this function
-/// rather than risk it picking a warm image `warm_command` should not have
-/// been able to build in the first place.
-async fn select_aem_image(
+/// `pool`'s session for `key`, booted if none exists or the previous one no
+/// longer answers, locked for the caller's whole call -- plus any findings
+/// from a fresh boot (empty when an existing session was reused).
+pub async fn ensure(
+    pool: &SessionPool,
+    key: &str,
     docker: &DockerLifecycle,
     profile: &Profile,
-) -> (String, Option<Finding>) {
-    let warm_tag = crate::warm::warm_image_tag(&profile.format);
-    let base_id = docker.image_id(&profile.aem_image).await.ok().flatten();
-    let warm_labels = docker.image_labels(&warm_tag).await.ok().flatten();
-
-    match (&base_id, &warm_labels) {
-        (Some(base_id), Some(labels)) if labels.get("u2s.base_image_id") == Some(base_id) => {
-            (warm_tag, None)
-        }
-        (_, Some(_)) => (
-            profile.aem_image.clone(),
-            Some(Finding::warning(
-                "not_warmed",
-                format!(
-                    "{warm_tag} exists but no longer matches {}; booting the base image \
-                     instead -- run this profile's binary's `warm` subcommand again to refresh it",
-                    profile.aem_image
-                ),
-            )),
-        ),
-        (_, None) => (
-            profile.aem_image.clone(),
-            Some(Finding::warning(
-                "not_warmed",
-                format!(
-                    "no warm image found for this profile ({warm_tag}); booting {} cold -- \
-                     run this profile's binary's `warm` subcommand once to build one",
-                    profile.aem_image
-                ),
-            )),
-        ),
-    }
+) -> Result<(OwnedMutexGuard<Option<SessionState>>, Vec<Finding>), VerifyError> {
+    let mut findings = Vec::new();
+    let (guard, _booted) = pool
+        .ensure(key, docker, || async {
+            let (instances, boot_findings) = boot(docker, profile, key).await?;
+            findings = boot_findings;
+            let now = Instant::now();
+            Ok::<_, VerifyError>(SessionState {
+                instances,
+                started_at: now,
+                last_used: now,
+                installed_package_path: None,
+                open_form: None,
+            })
+        })
+        .await?;
+    Ok((guard, findings))
 }
 
-/// A container name/label component derived from `session_id`: Docker
-/// container names only allow `[a-zA-Z0-9_.-]`, and a `session_id` from an
-/// external caller (a `RunId` today, but the tool contract does not pin
-/// that) is not guaranteed to already be one. Anything else becomes `_`,
-/// and a boot-time UUID is appended regardless so two sessions can never
-/// collide on a name even if this sanitization maps them to the same
-/// string.
-fn sanitize_for_docker_name(session_id: &str) -> String {
-    session_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+/// A point-in-time snapshot of `key`'s session for `verify_status`.
+pub async fn status(pool: &SessionPool, key: &str) -> SessionStatus {
+    let guard = pool.lock(key).await;
+    match guard.as_ref() {
+        Some(state) => SessionStatus {
+            active: true,
+            uptime_secs: Some(state.started_at.elapsed().as_secs()),
+            aem_image: Some(state.instances.aem_image.clone()),
+            open_form: state.open_form.as_ref().map(|form| OpenFormStatus {
+                handle: form.handle.clone(),
+                revision: form.revision,
+            }),
+        },
+        None => SessionStatus {
+            active: false,
+            uptime_secs: None,
+            aem_image: None,
+            open_form: None,
+        },
+    }
 }
 
 async fn boot(
@@ -438,11 +281,9 @@ async fn boot(
     profile: &Profile,
     session_id: &str,
 ) -> Result<(Instances, Vec<Finding>), VerifyError> {
-    // The warm image is a local commit, never a registry pull; the base
-    // image is the only one `ensure_image` ever needs to reach for, and it
-    // must happen before `select_aem_image` so a first-ever boot (base
-    // image not pulled yet) still has an id to compare a warm image
-    // against rather than always reading as "no match".
+    // The daemon must already hold the AEM image: it is private, and this
+    // process has no registry credentials (compose pulls it with the host's
+    // login). `ensure_image` finds it locally and never reaches a registry.
     docker
         .ensure_image(&profile.aem_image, &profile.platform)
         .await
@@ -451,31 +292,25 @@ async fn boot(
         .ensure_image(&profile.chromium_image, "")
         .await
         .map_err(|err| VerifyError::new(ErrorKind::ImageMissing, err.to_string()))?;
-
-    // A data-volume profile has nothing for select_aem_image to pick
-    // between: no commit-based warm image can exist for it in the first
-    // place (see select_aem_image's own doc), and the volume already makes
-    // this boot fast once it has been populated once.
-    let (aem_image, image_finding) = if profile.aem_data_volume.is_some() {
-        (profile.aem_image.clone(), None)
-    } else {
-        select_aem_image(docker, profile).await
-    };
+    let aem_image = profile.aem_image.clone();
 
     let boot_id = format!(
         "{}-{}",
         sanitize_for_docker_name(session_id),
         uuid::Uuid::new_v4().simple()
     );
+    let reach = reach_of(profile);
     let network = format!("u2s-verify-{boot_id}");
     docker
-        .ensure_network(&network)
+        .ensure_network(&network, &profile.owner_labels())
         .await
         .map_err(|err| VerifyError::new(ErrorKind::DockerUnreachable, err.to_string()))?;
-
-    let downloads_dir = std::env::temp_dir().join(format!("u2s-verify-downloads-{boot_id}"));
-    std::fs::create_dir_all(&downloads_dir)
-        .map_err(|err| VerifyError::new(ErrorKind::StorageFailed, err.to_string()))?;
+    if let Reach::SessionNetwork { self_container } = &reach {
+        docker
+            .connect_network(&network, self_container)
+            .await
+            .map_err(|err| VerifyError::new(ErrorKind::DockerUnreachable, err.to_string()))?;
+    }
 
     let mut labels = profile.owner_labels();
     labels.insert("u2s.verify".to_owned(), "1".to_owned());
@@ -484,13 +319,11 @@ async fn boot(
     // `bollard`'s bind syntax ("source:dest") does not distinguish a named
     // volume from a host path -- Docker resolves that itself from whether
     // the source looks like an absolute path, auto-creating the volume on
-    // first use if it does not already exist. Same mechanism `chromium`'s
-    // own download-dir bind below uses, just a volume name instead of a
-    // host path as the source.
-    let aem_binds = match &profile.aem_data_volume {
-        Some(volume) => vec![format!("{volume}:{AEM_DATA_VOLUME_CONTAINER_PATH}")],
-        None => Vec::new(),
-    };
+    // first use if it does not already exist.
+    let aem_binds = vec![format!(
+        "{}:{AEM_DATA_VOLUME_CONTAINER_PATH}",
+        profile.aem_data_volume
+    )];
     let aem_container_name = format!("u2s-verify-aem-{boot_id}");
     let aem = docker
         .run(&ContainerSpec {
@@ -500,7 +333,11 @@ async fn boot(
             network: network.clone(),
             env: Vec::new(),
             labels: labels.clone(),
-            publish_ports: vec![profile.aem_container_port],
+            publish_ports: if reach.publishes() {
+                vec![profile.aem_container_port]
+            } else {
+                Vec::new()
+            },
             binds: aem_binds,
             // Needed for a UBS profile's Redacto OSGi config
             // (`profile.redacto_url`, typically `http://host.docker.internal:.../`)
@@ -525,30 +362,42 @@ async fn boot(
             network: network.clone(),
             env: Vec::new(),
             labels,
-            publish_ports: vec![CHROMIUM_CDP_PORT],
-            binds: vec![format!(
-                "{}:{CHROMIUM_DOWNLOAD_DIR}",
-                downloads_dir.display()
-            )],
+            publish_ports: if reach.publishes() {
+                vec![CHROMIUM_CDP_PORT]
+            } else {
+                Vec::new()
+            },
+            // Downloads stay inside the container; `crate::flow` copies
+            // each one out through the Engine's archive endpoint.
+            binds: Vec::new(),
             extra_hosts: Vec::new(),
             memory_bytes: None,
         })
         .await
         .map_err(|err| VerifyError::new(ErrorKind::ChromiumNotReady, err.to_string()))?;
 
-    let aem_port = aem
-        .published_port(profile.aem_container_port)
-        .ok_or_else(|| {
-            VerifyError::new(
-                ErrorKind::AemNotReady,
-                format!(
-                    "the AEM container never published port {}",
-                    profile.aem_container_port
-                ),
-            )
-        })?;
-    let aem_base_url = format!("http://127.0.0.1:{aem_port}");
-    let aem_network_url = format!("http://{aem_container_name}:{}", profile.aem_container_port);
+    let chromium_ip = match &reach {
+        Reach::Published => None,
+        Reach::SessionNetwork { .. } => Some(
+            docker
+                .container_ip(&chromium.id, &network)
+                .await
+                .map_err(|err| VerifyError::new(ErrorKind::ChromiumNotReady, err.to_string()))?,
+        ),
+    };
+    let Endpoints {
+        aem_base_url,
+        aem_network_url,
+        cdp_url,
+    } = endpoints(
+        &reach,
+        &aem_container_name,
+        profile.aem_container_port,
+        aem.published_port(profile.aem_container_port),
+        chromium_ip.as_deref(),
+        chromium.published_port(CHROMIUM_CDP_PORT),
+    )
+    .map_err(|message| VerifyError::new(ErrorKind::AemNotReady, message))?;
     wait_for_http(
         &format!("{aem_base_url}/libs/granite/core/content/login.html"),
         200,
@@ -559,13 +408,6 @@ async fn boot(
     .await
     .map_err(|err| VerifyError::new(ErrorKind::AemNotReady, err.to_string()))?;
 
-    let chromium_port = chromium.published_port(CHROMIUM_CDP_PORT).ok_or_else(|| {
-        VerifyError::new(
-            ErrorKind::ChromiumNotReady,
-            format!("the Chromium container never published port {CHROMIUM_CDP_PORT}"),
-        )
-    })?;
-    let cdp_url = format!("http://127.0.0.1:{chromium_port}");
     wait_for_http(
         &format!("{cdp_url}/json/version"),
         200,
@@ -581,13 +423,13 @@ async fn boot(
             network,
             aem,
             chromium,
+            reach,
             aem_base_url,
             aem_network_url,
             cdp_url,
             aem_image,
-            downloads_dir,
         },
-        image_finding.into_iter().collect(),
+        Vec::new(),
     ))
 }
 
@@ -600,14 +442,7 @@ async fn teardown(docker: &DockerLifecycle, instances: &Instances) {
             );
         }
     }
-    if let Err(err) = docker.remove_network(&instances.network).await {
-        log::warn!(
-            "{}: could not remove network {}: {err}",
-            crate::LOG_PREFIX,
-            instances.network,
-        );
-    }
-    let _ = std::fs::remove_dir_all(&instances.downloads_dir);
+    remove_session_network(docker, &instances.network, &instances.reach).await;
 }
 
 #[cfg(test)]
@@ -615,31 +450,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn sanitizing_replaces_anything_unsafe_for_a_docker_name() {
-        assert_eq!(sanitize_for_docker_name("run-abc123"), "run-abc123");
-        assert_eq!(sanitize_for_docker_name("run/abc:123"), "run_abc_123");
-        assert_eq!(sanitize_for_docker_name(""), "");
+    fn published_endpoints_use_the_host_loopback() {
+        let e = endpoints(&Reach::Published, "u2s-verify-aem-x", 8080, Some(49001), None, Some(49002))
+            .unwrap();
+        assert_eq!(e.aem_base_url, "http://127.0.0.1:49001");
+        assert_eq!(e.aem_network_url, "http://u2s-verify-aem-x:8080");
+        assert_eq!(e.cdp_url, "http://127.0.0.1:49002");
     }
 
-    #[tokio::test]
-    async fn a_pool_with_no_sessions_reports_nothing_active() {
-        let pool = SessionPool::new();
-        let status = pool.status(DEFAULT_SESSION_KEY).await;
-        assert!(!status.active);
-        assert_eq!(status.uptime_secs, None);
-        assert_eq!(pool.active_count().await, 0);
+    #[test]
+    fn session_network_endpoints_use_the_container_name_and_chromium_ip() {
+        let reach = Reach::SessionNetwork {
+            self_container: "u2s".to_owned(),
+        };
+        let e = endpoints(&reach, "u2s-verify-aem-x", 8080, None, Some("172.20.0.3"), None).unwrap();
+        assert_eq!(e.aem_base_url, "http://u2s-verify-aem-x:8080");
+        assert_eq!(e.aem_network_url, e.aem_base_url);
+        assert_eq!(e.cdp_url, "http://172.20.0.3:9222");
     }
 
-    #[tokio::test]
-    async fn different_session_ids_get_independent_slots() {
-        let pool = SessionPool::new();
-        // Merely asking for a slot's status must not create a phantom
-        // "active" session, and two different keys must not alias to the
-        // same slot.
-        let a = pool.slot("agent-a").await;
-        let b = pool.slot("agent-b").await;
-        assert!(!Arc::ptr_eq(&a, &b));
-        let a_again = pool.slot("agent-a").await;
-        assert!(Arc::ptr_eq(&a, &a_again));
+    #[test]
+    fn a_missing_address_is_an_error_not_a_guess() {
+        assert!(endpoints(&Reach::Published, "a", 8080, None, None, Some(1)).is_err());
+        assert!(endpoints(&Reach::Published, "a", 8080, Some(1), None, None).is_err());
+        let reach = Reach::SessionNetwork {
+            self_container: "u2s".to_owned(),
+        };
+        assert!(endpoints(&reach, "a", 8080, None, None, None).is_err());
     }
 }

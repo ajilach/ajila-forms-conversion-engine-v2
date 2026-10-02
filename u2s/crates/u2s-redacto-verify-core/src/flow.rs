@@ -1,25 +1,18 @@
-//! The whole `verify_run` flow: offline dump check, a real Postgres import,
-//! and -- only when the profile configures one -- a render call against an
-//! already-running platform. Each step's own findings accumulate rather
-//! than short-circuiting the whole run on the first problem, so a caller
-//! sees everything wrong in one call.
+//! The whole `verify_run` flow: offline dump check, an import into a
+//! session's own Redacto platform ([`crate::session`]), and a render of
+//! every declared language. Each step's findings accumulate rather than short-circuiting
+//! the run on the first problem, so a caller sees everything wrong in one
+//! call.
 
 use std::time::{Duration, Instant};
 
 use u2s_verify_core::docker::DockerLifecycle;
 use u2s_verify_core::types::{Finding, VerifyReport};
 
+use crate::dump_check;
+use crate::platform::{self, DocumentId, ImportError};
 use crate::profile::RenderProfile;
-use crate::session::{self, SessionPool};
-use crate::{dump_check, session::SessionError};
-
-#[derive(Debug, thiserror::Error)]
-pub enum FlowError {
-    #[error("cannot reach the Docker daemon: is it running?")]
-    DockerUnreachable,
-    #[error(transparent)]
-    Session(#[from] SessionError),
-}
+use crate::session::RedactoSession;
 
 /// A rendered artefact's bytes, kept alongside its own blob so a caller can
 /// choose how to store it -- this crate names no blob store of its own,
@@ -52,21 +45,33 @@ pub fn dry_run(dump_bytes: &[u8]) -> VerifyReport {
     VerifyReport::dry(findings, started.elapsed().as_millis() as u64)
 }
 
-/// The full flow: dump check, a real Postgres import on `session_id`'s own
-/// session, and an optional render call. `blob_store` is a callback rather
-/// than a `u2s_blob::BlobStore` reference so this crate stays free to name
-/// a blob type of its own ([`RenderedArtefact`]) instead of depending on
-/// `u2s-blob`'s -- reserved for the binary on top, which already links it
-/// for `encode`/`decode`.
+/// The full flow: dump check, import into `session`'s platform database,
+/// and a render per language. The caller holds `session`'s lock for the
+/// whole call, so the render always sees this call's import. `blob_store`
+/// is not taken here: this crate names no blob type of its own
+/// ([`RenderedArtefact`]); the binary on top stores the rendered bytes.
 pub async fn run(
-    pool: &SessionPool,
-    session_id: &str,
     dump_bytes: &[u8],
     profile: &RenderProfile,
-) -> Result<RunOutcome, FlowError> {
+    docker: &DockerLifecycle,
+    session: &RedactoSession,
+) -> RunOutcome {
     let started = Instant::now();
     let mut findings = Vec::new();
     let mut rendered = Vec::new();
+    let finish = |findings, rendered| RunOutcome {
+        // Left empty on purpose: an `Artefact` carries a `BlobDescriptor`
+        // this crate cannot mint. The binary on top stores each of
+        // `rendered`'s bytes and appends the resulting artefacts itself.
+        report: VerifyReport {
+            dry_run: false,
+            steps: Vec::new(),
+            artefacts: Vec::new(),
+            findings,
+            duration_ms: started.elapsed().as_millis() as u64,
+        },
+        rendered,
+    };
 
     let check = dump_check::check(dump_bytes);
     if !check.ok {
@@ -77,92 +82,70 @@ pub async fn run(
         // A dump that does not even decode cannot be usefully imported --
         // stop here rather than handing psql bytes it will reject anyway
         // for a second, less informative reason.
-        return Ok(RunOutcome {
-            report: VerifyReport {
-                dry_run: false,
-                steps: Vec::new(),
-                artefacts: Vec::new(),
-                findings,
-                duration_ms: started.elapsed().as_millis() as u64,
-            },
-            rendered,
-        });
+        return finish(findings, rendered);
     }
-
-    let docker = DockerLifecycle::connect().await.map_err(|_| FlowError::DockerUnreachable)?;
-    pool.sweep(&docker).await;
-    let mut guard = pool.ensure(session_id, &docker).await?;
-    let state = guard.as_mut().expect("ensure() always leaves Some behind");
-
-    let import = session::import(&docker, &state.container_id, dump_bytes).await?;
-    findings.push(Finding::warning(
-        "import_ok",
-        format!(
-            "imported {} row(s) across {} table(s) into a throwaway Postgres session",
-            import.total_rows(),
-            import.table_counts.len()
-        ),
-    ));
-    if import.table_counts.get("documents").copied().unwrap_or(0) != 1 {
-        findings.push(Finding::error(
-            "unexpected_document_count",
-            format!("expected exactly one documents row, found {:?}", import.table_counts.get("documents")),
-        ));
-    }
-
-    match &profile.rendering_base_url {
-        None => {
-            findings.push(Finding::warning(
-                "rendering_skipped",
-                "no rendering endpoint configured for this profile -- only the Postgres import \
-                 was checked, not the rendered output. Set the profile's rendering URL to also \
-                 render this document (the dump must already be imported into THAT platform's \
-                 own database -- see RenderProfile's own doc)."
-                    .to_owned(),
-            ));
+    let raw_id = check.document_id.clone().expect("check.ok implies Some");
+    let document_id = match DocumentId::parse(&raw_id) {
+        Ok(id) => id,
+        Err(message) => {
+            findings.push(Finding::error("dump_invalid", message));
+            return finish(findings, rendered);
         }
-        Some(base_url) => {
-            let document_id = check.document_id.clone().expect("check.ok implies Some");
-            for language in &check.languages {
-                match render_one(base_url, profile, &document_id, language).await {
-                    Ok(bytes) => rendered.push(RenderedArtefact {
-                        language: language.clone(),
-                        bytes,
-                        media_type: "application/pdf",
-                    }),
-                    Err(message) => {
-                        findings.push(Finding::error("render_failed", message));
-                    }
-                }
+    };
+
+    match platform::import(docker, &session.postgres.id, &document_id, dump_bytes).await {
+        Ok(import) => {
+            findings.push(Finding::warning(
+                "import_ok",
+                format!(
+                    "imported {} row(s) for document {} into the platform database",
+                    import.total_rows(),
+                    document_id.as_str()
+                ),
+            ));
+            if import.table_counts.get("documents").copied().unwrap_or(0) != 1 {
+                findings.push(Finding::error(
+                    "unexpected_document_count",
+                    format!(
+                        "expected exactly one documents row for {}, found {:?}",
+                        document_id.as_str(),
+                        import.table_counts.get("documents")
+                    ),
+                ));
+                return finish(findings, rendered);
             }
         }
+        Err(err) => {
+            let kind = match err {
+                ImportError::Psql { .. } | ImportError::NotUtf8(_) => "import_failed",
+                ImportError::Docker(_) => "platform_unreachable",
+            };
+            findings.push(Finding::error(kind, err.to_string()));
+            return finish(findings, rendered);
+        }
     }
 
-    Ok(RunOutcome {
-        // Left empty on purpose: an `Artefact` carries a `BlobDescriptor`
-        // this crate cannot mint (it names no blob store -- see this
-        // function's own doc). The binary on top stores each of
-        // `rendered`'s bytes and appends the resulting artefacts itself.
-        report: VerifyReport {
-            dry_run: false,
-            steps: Vec::new(),
-            artefacts: Vec::new(),
-            findings,
-            duration_ms: started.elapsed().as_millis() as u64,
-        },
-        rendered,
-    })
+    for language in &check.languages {
+        match render_one(profile, &session.rendering_base_url, document_id.as_str(), language).await {
+            Ok(bytes) => rendered.push(RenderedArtefact {
+                language: language.clone(),
+                bytes,
+                media_type: "application/pdf",
+            }),
+            Err(message) => findings.push(Finding::error("render_failed", message)),
+        }
+    }
+    finish(findings, rendered)
 }
 
 /// `POST {base}/bin/redacto/rendering/integration?profile=json-default&format={pdf|pdf-ua}`,
 /// the platform's own rendering API
 /// (`ajila-redacto-platform/.context/assets/api/redacto-rendering.openapi.json`).
-/// Assumes `document_id` is already imported into whatever database that
-/// endpoint reads from -- see [`RenderProfile::rendering_base_url`]'s own
-/// doc on why this crate never arranges that itself.
+/// Called after [`platform::import`] put `document_id` into the database
+/// the platform's `core` service reads.
 async fn render_one(
-    base_url: &str,
     profile: &RenderProfile,
+    rendering_base_url: &str,
     document_id: &str,
     language: &str,
 ) -> Result<Vec<u8>, String> {
@@ -173,15 +156,14 @@ async fn render_one(
 
     let url = format!(
         "{}/bin/redacto/rendering/integration?profile=json-default&format={}",
-        base_url.trim_end_matches('/'),
+        rendering_base_url.trim_end_matches('/'),
         profile.render_format
     );
-    let mut request = client
+    let (user, password) = &profile.basic_auth;
+    let request = client
         .post(&url)
-        .json(&serde_json::json!({ "documentId": document_id, "language": language }));
-    if let Some((user, password)) = &profile.basic_auth {
-        request = request.basic_auth(user, Some(password));
-    }
+        .json(&serde_json::json!({ "documentId": document_id, "language": language }))
+        .basic_auth(user, Some(password));
 
     let response = request.send().await.map_err(|e| format!("{url}: {e}"))?;
     let status = response.status();

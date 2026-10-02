@@ -764,7 +764,7 @@ pub async fn open(
         InteractionError::Verify(VerifyError::new(ErrorKind::DockerUnreachable, err.to_string()))
     })?;
 
-    let (mut guard, _boot_findings) = pool.ensure(session_id, &docker, profile).await?;
+    let (mut guard, _boot_findings) = crate::session::ensure(pool, session_id, &docker, profile).await?;
     let state = guard
         .as_mut()
         .expect("ensure always leaves Some on success");

@@ -3,10 +3,11 @@
 //! Proves the manifest parses with no format module, `verify_status` and
 //! `verify_dump_check` answer without touching Docker, and `verify_run`
 //! with `dry_run: true` performs the same offline check wrapped in its own
-//! result shape. `verify_run` with `dry_run: false` (a real Postgres
-//! import) is `#[ignore]`d live coverage -- `u2s-redacto-verify-core`'s own
-//! `tests/live_import.rs` already exercises the underlying flow directly;
-//! this only additionally proves the MCP plumbing around it.
+//! result shape. `verify_run` with `dry_run: false` (booting a platform per
+//! session, importing, rendering) is `#[ignore]`d live coverage --
+//! `u2s-redacto-verify-core`'s own `tests/live_import.rs` exercises the
+//! underlying flow directly; this additionally proves the MCP plumbing,
+//! per-session isolation, and the startup cleanup of leftovers.
 
 use u2s_render_test_harness::ServerUnderTest;
 
@@ -35,7 +36,10 @@ async fn the_manifest_parses_with_no_format_module() {
 
 #[tokio::test]
 async fn verify_status_answers_without_touching_docker_state() {
-    let server = ServerUnderTest::locate("u2s-redacto-ubs-verify-mcp", "redacto");
+    let server = ServerUnderTest::locate("u2s-redacto-ubs-verify-mcp", "redacto")
+        .env_remove("U2S_REDACTO_VERIFY_UBS_MIGRATION_IMAGE")
+        .env_remove("U2S_REDACTO_VERIFY_UBS_CORE_IMAGE")
+        .env_remove("U2S_REDACTO_VERIFY_UBS_RENDERING_IMAGE");
     let client = server.connect().await;
 
     let result = client
@@ -45,8 +49,15 @@ async fn verify_status_answers_without_touching_docker_state() {
     assert_ne!(result.is_error, Some(true));
     let structured = result.structured_content.expect("structured content");
     assert_eq!(structured["profile"]["name"], "redacto-ubs");
-    assert_eq!(structured["profile"]["rendering_configured"], false);
-    assert_eq!(structured["rendering_reachable"], serde_json::Value::Null);
+    // No platform images in this test's environment: the status says which
+    // setting is missing instead of probing anything.
+    assert_eq!(structured["profile"]["configured"], false);
+    assert!(
+        structured["profile"]["problem"].as_str().unwrap().contains("MIGRATION_IMAGE"),
+        "{structured}"
+    );
+    assert_eq!(structured["session_active"], false);
+    assert_eq!(structured["active_session_count"], 0);
 
     client.cancel().await.ok();
 }
@@ -171,62 +182,85 @@ async fn the_server_passes_the_shared_conformance_battery() {
     client.cancel().await.ok();
 }
 
-/// Real Postgres coverage over the MCP surface itself -- `#[ignore]`d like
-/// every other Docker-backed test in this workspace.
+const PLATFORM_IMAGES: [&str; 3] = [
+    "U2S_REDACTO_VERIFY_UBS_MIGRATION_IMAGE",
+    "U2S_REDACTO_VERIFY_UBS_CORE_IMAGE",
+    "U2S_REDACTO_VERIFY_UBS_RENDERING_IMAGE",
+];
+
+fn verify_run_args(fixture: &std::path::Path, session_id: &str) -> rmcp::model::CallToolRequestParams {
+    rmcp::model::CallToolRequestParams::new("verify_run".to_owned()).with_arguments(
+        serde_json::json!({ "artifact_path": fixture.display().to_string(), "session_id": session_id })
+            .as_object()
+            .unwrap()
+            .clone(),
+    )
+}
+
+/// Real platform coverage over the MCP surface itself: two sessions verify
+/// at once, each on a platform of its own, and a restarted server removes
+/// what the previous process left behind. Needs a Docker daemon holding the
+/// platform images and the `U2S_REDACTO_VERIFY_UBS_*_IMAGE` variables
+/// (`.env.example` has them). `#[ignore]`d like every other Docker-backed
+/// test in this workspace.
 #[tokio::test]
-#[ignore = "needs a real Docker daemon"]
-async fn verify_run_actually_imports_a_real_fixture() {
+#[ignore = "needs a Docker daemon with the Redacto platform images"]
+async fn concurrent_sessions_each_boot_their_own_platform() {
+    for key in PLATFORM_IMAGES {
+        assert!(std::env::var(key).is_ok(), "{key} must be set");
+    }
     let blob_dir = std::env::temp_dir().join(format!(
         "u2s-redacto-ubs-verify-mcp-live-{}-{}",
         std::process::id(),
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
     ));
-    let server = ServerUnderTest::locate("u2s-redacto-ubs-verify-mcp", "redacto")
-        .env("U2S_BLOB_DIR", blob_dir.display().to_string());
-    let client = server.connect().await;
+    let server = || {
+        ServerUnderTest::locate("u2s-redacto-ubs-verify-mcp", "redacto")
+            .env("U2S_BLOB_DIR", blob_dir.display().to_string())
+    };
+    let docker = u2s_verify_core::docker::DockerLifecycle::connect().await.expect("Docker is reachable");
+    let label = u2s_verify_core::session::owner_label("redacto-ubs");
 
-    // A unique session id, so this test's own container (which the server
-    // process leaves running for reuse -- see this crate's own module doc
-    // on why teardown is the idle-timeout sweep's job, not a tool this
-    // server exposes) never collides with a concurrent run of this same
-    // test or of `u2s-redacto-verify-core`'s own `live_import.rs`.
-    let session_id = format!(
-        "e2e-test-{}-{}",
-        std::process::id(),
-        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+    let client = server().connect().await;
+    let fixture = fixtures_dir().join("redacto-AAEV_019.sql");
+    let (a, b) = tokio::join!(
+        client.call_tool(verify_run_args(&fixture, "live-a")),
+        client.call_tool(verify_run_args(&fixture, "live-b")),
     );
-
-    let fixture_path = fixtures_dir().join("redacto-AAEV_019.sql");
-    let result = client
+    for result in [a, b] {
+        let result = result.expect("verify_run must answer");
+        assert_ne!(result.is_error, Some(true), "a real fixture must import cleanly: {:?}", result.content);
+        let structured = result.structured_content.expect("structured content");
+        assert_eq!(structured["dry_run"], false);
+        assert!(
+            structured["findings"].as_array().unwrap().iter().any(|f| f["kind"] == "import_ok"),
+            "{structured}"
+        );
+        assert!(
+            !structured["artefacts"].as_array().unwrap().is_empty(),
+            "one rendered PDF per language: {structured}"
+        );
+    }
+    // Two sessions, two platforms of three long-running containers each.
+    assert_eq!(docker.find_networks_by_label(&label).await.unwrap().len(), 2);
+    assert_eq!(docker.find_by_label(&label).await.unwrap().len(), 6);
+    let status = client
         .call_tool(
-            rmcp::model::CallToolRequestParams::new("verify_run".to_owned()).with_arguments(
-                serde_json::json!({
-                    "artifact_path": fixture_path.display().to_string(),
-                    "session_id": session_id,
-                })
-                .as_object()
-                .unwrap()
-                .clone(),
-            ),
+            rmcp::model::CallToolRequestParams::new("verify_status".to_owned())
+                .with_arguments(serde_json::json!({ "session_id": "live-a" }).as_object().unwrap().clone()),
         )
         .await
-        .expect("verify_run must answer");
-    assert_ne!(result.is_error, Some(true), "a real fixture must import cleanly: {:?}", result.content);
-    let structured = result.structured_content.expect("structured content");
-    assert_eq!(structured["dry_run"], false);
-    assert!(
-        structured["findings"].as_array().unwrap().iter().any(|f| f["kind"] == "import_ok"),
-        "{structured}"
-    );
-
+        .expect("verify_status must answer");
+    let status = status.structured_content.expect("structured content");
+    assert_eq!(status["session_active"], true, "{status}");
+    assert_eq!(status["active_session_count"], 2, "{status}");
     client.cancel().await.ok();
-    let _ = std::fs::remove_dir_all(&blob_dir);
 
-    // The server process (now exited) owned the session pool in memory, so
-    // nothing inside it can tear this container down any more -- clean up
-    // directly, the same way a real deployment's idle-timeout sweep
-    // eventually would.
-    if let Ok(docker) = u2s_verify_core::docker::DockerLifecycle::connect().await {
-        let _ = docker.teardown(&format!("u2s-redacto-verify-{session_id}")).await;
-    }
+    // The process is gone, its platforms are not; the next one's startup
+    // removes them.
+    let restarted = server().connect().await;
+    assert!(docker.find_by_label(&label).await.unwrap().is_empty());
+    assert!(docker.find_networks_by_label(&label).await.unwrap().is_empty());
+    restarted.cancel().await.ok();
+    let _ = std::fs::remove_dir_all(&blob_dir);
 }

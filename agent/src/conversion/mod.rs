@@ -317,13 +317,14 @@ impl ConversionAgent {
     }
 
     /// Start the UBS Redacto verifier for this run: from then on the
-    /// `redacto_verify_*` tools import the built dump into a throwaway
-    /// Postgres. Run [`crate::u2s::redacto_verify_readiness`] first.
+    /// `redacto_verify_*` tools import the built dump into a Redacto platform
+    /// of the run's own and render it there. Run
+    /// [`crate::u2s::redacto_verify_readiness`] first.
     pub fn with_redacto_verify(
         mut self,
         settings: &crate::u2s::RedactoVerifySettings,
     ) -> Result<Self, String> {
-        self.u2s_tools()?.attach_redacto_verify(settings);
+        self.u2s_tools()?.attach_redacto_verify(settings)?;
         Ok(self)
     }
 

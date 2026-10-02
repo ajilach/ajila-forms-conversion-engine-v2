@@ -31,7 +31,7 @@ pub mod slug;
 pub mod text;
 
 pub use agent_role::{AgentRole, AgentRoleError, TurnPhase};
-pub use config::{BuildProfile, ConfigError, ConfigProblem, EnvSource, ProcessEnv};
+pub use config::{ConfigError, ConfigProblem, EnvSource, ProcessEnv};
 pub use format::{
     FormatId, FormatIdError, FormatScope, matches as format_matches, scopes_could_overlap,
 };

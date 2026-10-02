@@ -1,4 +1,4 @@
-diff --git b/u2s/crates/u2s-aem-ubs-verify-mcp/src/lib.rs b/u2s/crates/u2s-aem-ubs-verify-mcp/src/lib.rs
+diff --git a/u2s/crates/u2s-aem-ubs-verify-mcp/src/lib.rs b/u2s/crates/u2s-aem-ubs-verify-mcp/src/lib.rs
 new file mode 100644
 index 0000000..6507101
 --- /dev/null
@@ -14,10 +14,10 @@ index 0000000..6507101
 +mod ubs_js;
 +mod ubs_metadata;
 diff --git a/u2s/crates/u2s-aem-verify-core/src/server.rs b/u2s/crates/u2s-aem-verify-core/src/server.rs
-index 9d09265..b397f86 100644
+index df72920..55013da 100644
 --- a/u2s/crates/u2s-aem-verify-core/src/server.rs
 +++ b/u2s/crates/u2s-aem-verify-core/src/server.rs
-@@ -55,7 +55,7 @@ pub struct ServerConfig {
+@@ -52,7 +52,7 @@ pub struct ServerConfig {
  }
  
  #[derive(Clone)]
@@ -26,7 +26,7 @@ index 9d09265..b397f86 100644
      profile: Arc<Profile>,
      blobs: Arc<BlobStore>,
      session: Arc<SessionPool>,
-@@ -69,6 +69,16 @@ impl AemVerifyServer {
+@@ -66,6 +66,16 @@ impl AemVerifyServer {
      /// reported, not fatal.
      fn new(config: Arc<ServerConfig>) -> Result<Self, String> {
          let profile = Profile::from_env().map_err(|err| format!("cannot start: {err}"))?;
@@ -43,7 +43,7 @@ index 9d09265..b397f86 100644
          if let Some(expected) = config.expected_format
              && profile.format != expected
          {
-@@ -80,13 +90,24 @@ impl AemVerifyServer {
+@@ -77,13 +87,24 @@ impl AemVerifyServer {
          }
          Ok(Self {
              profile: Arc::new(profile),
@@ -70,16 +70,7 @@ index 9d09265..b397f86 100644
          match name {
              "verify_status" => self.verify_status(args).await,
              "verify_package_check" => self.verify_package_check(args),
-@@ -600,7 +621,7 @@ impl ServerHandler for AemVerifyServer {
- /// else in this process remembers it existed. Best-effort: Docker being
- /// unreachable here is not a startup failure, only something logged, since
- /// the server must still start and serve `verify_status` either way.
--async fn remove_leftover_containers(profile: &Profile) {
-+pub async fn remove_leftover_containers(profile: &Profile) {
-     let docker = match DockerLifecycle::connect().await {
-         Ok(docker) => docker,
-         Err(err) => {
-diff --git b/u2s/crates/u2s-redacto-ubs-verify-mcp/src/lib.rs b/u2s/crates/u2s-redacto-ubs-verify-mcp/src/lib.rs
+diff --git a/u2s/crates/u2s-redacto-ubs-verify-mcp/src/lib.rs b/u2s/crates/u2s-redacto-ubs-verify-mcp/src/lib.rs
 new file mode 100644
 index 0000000..4fcba3d
 --- /dev/null
@@ -98,7 +89,7 @@ index 0000000..4fcba3d
 +pub use server::RedactoVerifyServer;
 +pub use server::specs;
 diff --git a/u2s/crates/u2s-redacto-ubs-verify-mcp/src/main.rs b/u2s/crates/u2s-redacto-ubs-verify-mcp/src/main.rs
-index 7367e62..f8f6a0c 100644
+index 1a752ec..54cb544 100644
 --- a/u2s/crates/u2s-redacto-ubs-verify-mcp/src/main.rs
 +++ b/u2s/crates/u2s-redacto-ubs-verify-mcp/src/main.rs
 @@ -17,7 +17,7 @@
@@ -110,48 +101,48 @@ index 7367e62..f8f6a0c 100644
  
  use std::borrow::Cow;
  use std::sync::Arc;
-@@ -42,7 +42,7 @@ const MANIFEST_URI: &str = "u2s://manifest";
- const ENV_PREFIX: &str = "U2S_REDACTO_VERIFY_UBS";
+@@ -43,7 +43,7 @@ const ENV_PREFIX: &str = "U2S_REDACTO_VERIFY_UBS";
+ const PROFILE_NAME: &str = "redacto-ubs";
  
  #[derive(Clone)]
 -struct RedactoVerifyServer {
 +pub struct RedactoVerifyServer {
      blobs: Arc<BlobStore>,
-     pool: Arc<SessionPool>,
-     profile: Arc<RenderProfile>,
-@@ -55,14 +55,30 @@ impl RedactoVerifyServer {
-         // difference this crate's own module doc says a Redacto profile
-         // can carry.
-         let profile = RenderProfile::from_env("redacto-ubs", ENV_PREFIX, "pdf-ua");
+     /// An error names the missing setting. The server still starts, so its
+     /// offline tools and conformance vectors work without the platform
+@@ -63,13 +63,30 @@ impl RedactoVerifyServer {
+         if let Err(err) = &profile {
+             log::warn!("u2s-redacto-ubs-verify-mcp: verify_run is unavailable: {err}");
+         }
 +        Self::with_parts(profile, BlobStore::from_env())
 +    }
 +
 +    /// [`Self::new`] for in-process hosts: the profile and blob store come
 +    /// from the caller instead of the environment.
-+    pub fn with_parts(profile: RenderProfile, blobs: BlobStore) -> Self {
-         let pool = SessionPool::new(profile.postgres_image.clone());
++    pub fn with_parts(profile: Result<RenderProfile, ProfileError>, blobs: BlobStore) -> Self {
          Self {
 -            blobs: Arc::new(BlobStore::from_env()),
 +            blobs: Arc::new(blobs),
-             pool: Arc::new(pool),
              profile: Arc::new(profile),
+             sessions: Arc::new(SessionPool::new()),
          }
      }
  
-+    /// Tears down the default session's container. In-process hosts never
-+    /// pass a `session_id`, so this is every container they caused.
++    /// Tears down every session that is not in use right now.
 +    pub async fn shutdown(&self) -> Result<(), String> {
 +        let docker = DockerLifecycle::connect()
 +            .await
-+            .map_err(|err| format!("could not reach Docker to tear down the session: {err}"))?;
-+        self.pool.teardown(session::DEFAULT_SESSION_KEY, &docker).await;
++            .map_err(|err| format!("could not reach Docker to tear down sessions: {err}"))?;
++        self.sessions
++            .sweep_idle(&docker, std::time::Duration::ZERO)
++            .await;
 +        Ok(())
 +    }
 +
-     fn resolve_bytes(&self, args: &Value) -> Result<Vec<u8>, String> {
-         let blob_handle = args.get("artifact_blob").and_then(Value::as_str);
-         let path = args.get("artifact_path").and_then(Value::as_str);
-@@ -80,7 +96,7 @@ impl RedactoVerifyServer {
+     /// The caller's `session_id`, or [`DEFAULT_SESSION_KEY`] for a caller
+     /// with no `u2s-server` run behind it (a human, a test).
+     fn session_id(args: &Value) -> String {
+@@ -97,7 +114,7 @@ impl RedactoVerifyServer {
          }
      }
  
@@ -160,7 +151,7 @@ index 7367e62..f8f6a0c 100644
          match name {
              "verify_status" => self.verify_status(args).await,
              "verify_dump_check" => self.verify_dump_check(args),
-diff --git b/u2s/crates/u2s-render-pdf-mcp/src/lib.rs b/u2s/crates/u2s-render-pdf-mcp/src/lib.rs
+diff --git a/u2s/crates/u2s-render-pdf-mcp/src/lib.rs b/u2s/crates/u2s-render-pdf-mcp/src/lib.rs
 new file mode 100644
 index 0000000..82072dd
 --- /dev/null
@@ -228,7 +219,7 @@ index 4bd1286..2663ab9 100644
          let path = arg_str(args, "doc_path")?;
          match name {
              "pdf_info" => {
-diff --git b/u2s/crates/u2s-render-xfa-mcp/src/lib.rs b/u2s/crates/u2s-render-xfa-mcp/src/lib.rs
+diff --git a/u2s/crates/u2s-render-xfa-mcp/src/lib.rs b/u2s/crates/u2s-render-xfa-mcp/src/lib.rs
 new file mode 100644
 index 0000000..dd794bf
 --- /dev/null
@@ -300,7 +291,7 @@ index 448ad9a..9ce81d0 100644
          match name {
              "xfa_open" => {
                  let path = arg_str(args, "doc_path")?;
-diff --git b/u2s/crates/u2s-xfa-mcp/src/lib.rs b/u2s/crates/u2s-xfa-mcp/src/lib.rs
+diff --git a/u2s/crates/u2s-xfa-mcp/src/lib.rs b/u2s/crates/u2s-xfa-mcp/src/lib.rs
 new file mode 100644
 index 0000000..2d856c0
 --- /dev/null

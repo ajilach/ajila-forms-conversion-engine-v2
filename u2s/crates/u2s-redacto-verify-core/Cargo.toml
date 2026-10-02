@@ -3,13 +3,14 @@ name = "u2s-redacto-verify-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The Redacto verification runtime shared by every Redacto-verifying MCP server, built on u2s-verify-core: a throwaway (or session-reused) Postgres import of a real dump, plus an optional render call against an already-running Redacto platform. Format-specific behaviour is a RenderProfile the binary on top supplies."
+description = "The Redacto verification runtime shared by every Redacto-verifying MCP server, built on u2s-verify-core: boots a Redacto platform per session_id, imports a real dump into it, and renders it there. Format-specific behaviour is a RenderProfile the binary on top supplies."
 
 [dependencies]
+log = { workspace = true }
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-tokio = { workspace = true, features = ["time"] }
+tokio = { workspace = true, features = ["time", "sync"] }
 u2s-blob = { path = "../u2s-blob" }
 u2s-mapper-redacto = { path = "../u2s-mapper-redacto" }
 u2s-redacto = { path = "../u2s-redacto" }

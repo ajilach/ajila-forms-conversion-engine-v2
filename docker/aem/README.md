@@ -1,208 +1,77 @@
-# Setting up the AEM state `u2s-aem-ubs-verify-mcp` needs
+# The AEM images the verifiers boot
 
-ajila has its own private Docker registry of ready-to-run AEM Forms
-images -- there is no vanilla-jar-plus-service-packs build here, unlike a
-generic AEM verifier setup. What still needs to happen on top is deploying
-the UBS-specific platform (`ajila-forms-ubs`, Maven-deployed) and pointing
-its Redacto rendering integration (an OSGi config) at an already-running
-rendering dependency.
+The AEM verifiers start their own AEM containers from two private,
+prebuilt images, each published for arm64 and amd64:
 
-**That deployed state lives in a Docker volume, never a committed image.**
-`ajila.azurecr.io/aemforms-arm` declares `/aem/crx-quickstart` -- the
-entire JCR repository and quickstart install -- as a `VOLUME` in its own
-Dockerfile. `docker commit` only ever captures a container's own writable
-layer, never a volume's contents, so a container booted from a *committed*
-derivative of this image comes up with an empty `/aem/crx-quickstart`: no
-quickstart jar, no `conf/sling.properties`, nothing -- confirmed live, the
-resulting image crashed on boot. There is no flag or workaround for this;
-it is how Docker volumes work by design. The fix is to never commit: boot
-the *always-vanilla* base image with a named volume explicitly attached at
-`/aem/crx-quickstart`, deploy onto that, and keep pointing every future
-boot at the same volume (`U2S_AEM_VERIFY_UBS_DATA_VOLUME`) instead of a
-baked image tag.
+| Image | Verifies | Contents |
+|---|---|---|
+| `ajila.azurecr.io/u2s-aem-generic:<tag>` | the generic `aem` format | ajila's AEM Forms base image, as is |
+| `ajila.azurecr.io/u2s-aem-ubs:<tag>` | `aem-ubs` | the base image plus the UBS platform (`ajila-forms-ubs`), the Redacto summary renderer and the OSGi settings they need |
 
-Two stages. The first you run once per branch/service-pack level you want
-to verify against; the second just points u2s at the result -- there is no
-`just aem-warm` step for this profile (see below for why).
+`.env` names them (`U2S_AEM_VERIFY_UBS_IMAGE`, `U2S_AEM_VERIFY_GENERIC_IMAGE`)
+and `docker compose up` pulls them with the host's registry login. Nothing
+else is needed to use them.
 
-## 1. One-time setup
+**Why a seeding image, not a committed one.** The base images declare
+`/aem/crx-quickstart` (the JCR repository and quickstart install) a
+`VOLUME`, and `docker commit` never captures a volume's contents: a
+committed image comes up with an empty repository and crashes (confirmed
+live). The verifier therefore always mounts a named volume there, named
+after the image (`crates/u2s-aem-verify-core/src/profile.rs`,
+`default_data_volume`), and:
 
-- **Azure CLI**, authenticated against ajila's registry:
-  ```sh
-  brew install azure-cli
-  az login
-  az acr login --subscription BC_AZ_Ajila_10128 --name ajila
-  ```
-  `az login` needs your own browser-based Azure AD auth -- nothing here can
-  do that for you.
-- **`ajila-forms-ubs`**, checked out locally on the branch you want to
-  verify (e.g. `local-setup/redacto-summary`). This is the UBS-specific
-  platform bundle; the bake below Maven-deploys it, it does not build it
-  from anything in this repository.
-- **`ajila-forms-ubs-redacto-summary`**, checked out locally. A UBS form's
-  submit path calls a Redacto renderer at render time
-  (`POST /bin/redacto/summary/generatepdf`), and this is the bundle that
-  answers it. The bake below installs it **into the AEM instance itself**,
-  so there is no second container to run, keep alive or remember to
-  redeploy -- AEM simply calls itself on localhost.
+- the generic image needs nothing: Docker copies the base image's vanilla
+  install into a fresh volume, and AEM's first boot initialises it;
+- the UBS image carries the baked volume as `/opt/u2s/crx-quickstart.tar`,
+  and its entrypoint ([seed/seed-entrypoint.sh](seed/seed-entrypoint.sh))
+  unpacks it into the volume once per image tag before starting AEM.
 
-  The bundle is written for standalone Apache Sling and ships its own
-  `docker-compose.yml` for that, but nothing in it requires standalone
-  Sling: it declares only old, conservative `provided` APIs (Sling API
-  2.9, OSGi 4.2, servlet 2.5, JCR 2.0 -- all satisfied by AEM 6.5), embeds
-  every heavy rendering dependency of its own (openhtmltopdf, PDFBox,
-  Batik, jsoup), marks its remaining imports `resolution:=optional`, and
-  carries its own fonts, profiles and template as bundle resources. It
-  registers by `sling.servlet.paths`, so it answers on AEM's own port with
-  no further wiring.
+Both images run AEM on port 8080 (`U2S_AEM_VERIFY_*_CONTAINER_PORT=8080`
+in `.env.example`); the verifier's own default of 4502 is a vanilla Adobe
+quickstart's.
 
-  If you would rather run it as a separate service anyway (its
-  `docker-compose.yml` publishes `18080`), pass the checkout to the bake
-  script as usual and set `REDACTO_URL` to point the UBS platform at that
-  instance instead. Note that container has no volume, so a
-  `docker compose down` silently loses the deployed bundle and the next
-  boot answers every request `404` with nothing in its logs naming why.
+## Publishing new images
 
-## 2. Populate the data volume
+Needed whenever `ajila-forms-ubs` or the base image changes. On a machine
+with Docker buildx:
+
+- **Azure CLI**, logged in to ajila's registry (`az login`, then
+  `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`), with push
+  rights on `u2s-aem-generic` and `u2s-aem-ubs`, and both base images
+  (arm64: `ajila.azurecr.io/aemforms-arm:<version>`, plus the amd64 one).
+- **`ajila-forms-ubs`**, checked out on the branch to verify against (e.g.
+  `local-setup/redacto-summary`), with Maven and JDK 8. If the Maven deploy
+  fails on a missing dependency, build `ajila-forms-ubs-OP2-mock` first
+  (`mvn clean install`) and retry.
+- **`ajila-forms-ubs-redacto-summary`**, checked out. A UBS form's submit
+  path calls a Redacto renderer (`POST /bin/redacto/summary/generatepdf`);
+  the bake installs this bundle into the AEM instance itself, so AEM calls
+  itself on localhost. It is written for standalone Sling but needs nothing
+  beyond AEM 6.5's APIs.
+
+Then:
 
 ```sh
-docker pull --platform linux/arm64 ajila.azurecr.io/aemforms-arm:6.5.17.0
-
-./docker/aem/bake-ubs-platform.sh \
-    ajila.azurecr.io/aemforms-arm:6.5.17.0 \
-    u2s-aem-ubs-data \
-    /path/to/your/ajila-forms-ubs \
-    /path/to/your/ajila-forms-ubs-redacto-summary \
-    linux/arm64
+./docker/aem/publish-images.sh <tag> <arm64-base> <amd64-base> \
+    <ajila-forms-ubs-dir> <redacto-summary-dir> \
+    ./crates/u2s-aem-ubs-verify-mcp/tests/fixtures/global_fragments_20_August.zip
 ```
 
-`bake-ubs-platform.sh` creates the named volume (a no-op if it already
-exists), boots the base image with it attached at `/aem/crx-quickstart`,
-waits for AEM to report ready, runs `mvn clean install -PautoInstallPackage`
-from your `ajila-forms-ubs` checkout against it, builds and uploads the
-Redacto summary bundle from your `ajila-forms-ubs-redacto-summary`
-checkout, sets the three OSGi configs the wiki's "Local Setup Guide
-(Docker)" page names (`ConfigurationService`'s Redacto URL,
-`OnlineFormsAuthenticationConfiguration`'s exclusion list,
-`DownloadService`'s protection flag) plus one more the in-AEM renderer
-needs (below), rebuilds client libraries, then stops the container -- the
-deployed state stays in the volume. Safe to re-run against the same volume
-name later (a new branch, a changed checkout): the package install, the
-bundle upload and the OSGi config writes all replace prior state rather
-than erroring.
+It tags the two base images together as the generic image, runs
+[bake-ubs-platform.sh](bake-ubs-platform.sh) once per architecture (the
+amd64 bake runs under emulation on an Apple silicon machine, slowly),
+exports each baked volume into a seeding image, and pushes the UBS image
+for both architectures. Put the printed tags into `.env.example`.
 
-Since the renderer now runs inside AEM, the Redacto URL is
-`http://localhost:8080/bin/redacto/summary/generatepdf` -- AEM reaching
-its own servlet inside its own container, so neither `localhost:18080` nor
-`host.docker.internal`. Override it with a `REDACTO_URL` environment
-variable to point at an external renderer instead.
+The bake itself Maven-deploys the UBS platform, uploads the fragment
+library and the Redacto summary bundle, writes four OSGi configs as
+`sling:OsgiConfig` nodes (the Web Console's configMgr endpoint silently
+ignores a scripted POST), and rebuilds client libraries. One of the configs
+exempts `/bin/redacto` from AEM's authentication requirement, because the
+UBS platform posts to the renderer without credentials; this is a local,
+disposable verification instance, never a real one.
 
-The extra OSGi config is an authentication exemption. `ajila-forms-ubs`'s
-own `RedactoIntegrationService` posts to the renderer with no credentials
-at all ("no authentication for now", in its source), which was free
-against a standalone Sling container with nothing in front of it. Inside
-AEM the same request gets a `401`, because AEM's stock
-`sling.auth.requirements` is `+/` -- authentication required everywhere.
-The script rewrites that property with its four stock entries plus
-`-/bin/redacto`. It repeats the defaults because writing the property
-replaces the whole list; dropping `+/` would leave the entire instance
-unauthenticated. This is a local, disposable verification instance that
-already runs with the UBS platform's own authentication, servlet filter
-and download protection switched off, so one more local-only exemption is
-in keeping with it -- but it has no business anywhere real.
-
-The bundle is uploaded to the Web Console rather than deployed with its
-own `autoInstallBundle` profile, because that profile's maven-sling-plugin
-configuration hardcodes `<slingUrl>http://localhost:18080/system/console</slingUrl>`
-in the pom. An explicit plugin configuration beats `-Dsling.url`, so that
-profile would quietly deploy to a standalone Sling container (or fail when
-none is running) no matter what target you asked for. The script also
-starts the bundle explicitly: `-F start=start` on the install action was
-confirmed live to leave it in state `Installed` rather than `Active`.
-
-OSGi config is written as a `sling:OsgiConfig` JCR node under
-`/apps/system/config/<pid>` (the same mechanism a content package uses to
-ship configuration), not scripted against `/system/console/configMgr/<pid>`
-the way a person would through the browser: a curl multipart POST to that
-endpoint was tried first and, live against a real 6.5.17.0 instance,
-returned 200 OK without ever actually persisting a value -- read back
-immediately after, every property still showed the metatype default
-(`is_set: false`). This may well be a missing piece of what the Web
-Console's own JS sends alongside the form (a CSRF token, most likely) that
-a browser supplies automatically and a bare curl script does not
-reconstruct -- not evidence the browser UI itself is broken. If you are
-setting one of these by hand rather than running the script, either use
-the Web Console UI directly (`/system/console/configMgr`) in a real
-browser, or CRXDE Lite to create the same `sling:OsgiConfig` node this
-script writes.
-
-If the Maven deploy fails on a missing dependency, build
-`ajila-forms-ubs-OP2-mock` first (`mvn clean install`, no special profile
--- it only needs to land in your local Maven repository) and retry.
-
-## 3. Point u2s at it
-
-```sh
-export U2S_AEM_VERIFY_UBS_IMAGE=ajila.azurecr.io/aemforms-arm:6.5.17.0
-export U2S_AEM_VERIFY_UBS_DATA_VOLUME=u2s-aem-ubs-data
-export U2S_AEM_VERIFY_UBS_CONTAINER_PORT=8080
-export U2S_AEM_VERIFY_UBS_USER=admin
-export U2S_AEM_VERIFY_UBS_PASSWORD=admin
-# Leave U2S_AEM_VERIFY_UBS_REDACTO_URL unset when the renderer is baked
-# into AEM (the default since step 2 installs it there). It configures a
-# host-side reachability pre-check for a *separately running* renderer, so
-# that `verify_run` refuses up front rather than letting a submit fail
-# invisibly inside AEM. An in-AEM renderer needs no such check -- if AEM
-# is up, so is it -- and the check could not be written anyway, since the
-# verifier publishes the AEM container on a fresh random host port each
-# run. Set it only when REDACTO_URL pointed the platform at an external
-# renderer, and then to an address reachable *from the host*:
-# export U2S_AEM_VERIFY_UBS_REDACTO_URL=http://localhost:18080/bin/redacto/summary/generatepdf
-# Optional: only needed when a form's own metadata component declares more
-# than one mandator entity and the first one is not the one you want --
-# see U2S_AEM_VERIFY_UBS_MANDATOR in .env.example.
-# export U2S_AEM_VERIFY_UBS_MANDATOR=033
-```
-
-`U2S_AEM_VERIFY_UBS_IMAGE` stays the *vanilla* base image here -- never a
-committed derivative, for the reason above. `U2S_AEM_VERIFY_UBS_DATA_VOLUME`
-is what actually carries the deployed state: `crate::session::boot` attaches
-it at `/aem/crx-quickstart` on every AEM container this profile boots, so
-each boot starts from the already-deployed platform rather than a vanilla
-install. `U2S_AEM_VERIFY_UBS_CONTAINER_PORT` matters too and is easy to get
-wrong: this crate's own default (4502) is a *vanilla Adobe quickstart jar's*
-default, but ajila's image runs its entrypoint with an explicit `-p 8080`
-(`docker inspect`'s own `ExposedPorts`/`AEM_START_OPTS` confirm it) --
-leaving this unset publishes a port nothing inside the container is
-listening on, and every `verify_run` times out waiting for a login page
-that can never answer (confirmed live).
-
-**No `just aem-warm` for this profile, and none is needed.** That command
-exists to skip a slow first-boot bundle-activation cost by committing an
-already-booted container -- exactly the operation that cannot work here.
-`crate::warm::warm_command` (shared by every AEM-verifying binary, in
-`crates/u2s-aem-verify-core`) refuses outright when
-`U2S_AEM_VERIFY_UBS_DATA_VOLUME` is set, rather than silently building a
-broken image. The volume already gives every boot the fast-start benefit
-`aem-warm` would otherwise exist to provide.
-
-From here `verify_run` keeps one AEM instance running across calls rather
-than rebooting per call (`crates/u2s-aem-verify-core/src/session.rs`) --
-`U2S_AEM_VERIFY_UBS_REDACTO_URL` must stay reachable for as long as that
-session is up, and `verify_status` reports whether it currently is. The
-same session also backs `verify_open` and its sibling interactive control
-tools (`verify_controls`/`verify_set`/`verify_next`/`verify_prev`/
-`verify_reset`/`verify_screenshot`/`verify_submit`/`verify_close`,
-`crates/u2s-aem-verify-core/src/interactive.rs`), for driving a form one
-step at a time instead of walking it in one shot -- `verify_status`'s own
-`session_open_form` names a form left open by a run that never called
-`verify_close`.
-
-Re-run stage 2 whenever the ACR base image tag or your `ajila-forms-ubs`
-branch changes -- against the same volume name, so the change lands in the
-state every future boot already reuses.
-
-## 4. Opening a UBS form needs its own mandator/language
+## Opening a UBS form needs its own mandator/language
 
 A UBS Adaptive Form cannot simply be opened at its `.html` URL the way a
 generic AEM form can. Its server-side prefill/DoR metadata service
@@ -215,8 +84,8 @@ detail. `u2s-aem-ubs-verify-mcp` derives the right value itself, offline,
 from the package's own metadata component before ever opening a browser
 (`crates/u2s-aem-ubs-verify-mcp/src/ubs_metadata.rs`) -- nothing to
 configure here beyond the optional `U2S_AEM_VERIFY_UBS_MANDATOR` override
-above, for a form that declares more than one entity and needs a specific
-one.
+(see `.env.example`), for a form that declares more than one entity and
+needs a specific one.
 
 Submitting is likewise not a plain `guideBridge.submit()`: on the
 `local-setup/redacto-summary` branch this volume is baked from,
@@ -247,9 +116,9 @@ form data (a URL-parameter problem, not this crate's own logic -- check
 true"` line from `DorRenderingExecutor` means the `redactoSummary`
 DAM flag or the `summaryComponent` field was not actually populated.
 `ConvertPdf`/`XMLForm.exe` errors mean the native path was taken after
-all. If the Redacto summary bundle itself was redeployed recently, re-run
-its smoke test above -- a `docker compose down` on that service silently
-drops the deployed bundle (see step 1).
+all. A `404` from `/bin/redacto/summary/generatepdf` means the Redacto
+summary bundle is not active in this AEM instance: the image was published
+from a bake that did not install it.
 
 A `no_download` whose log shows Redacto *did* render -- a
 `rendering summary document at ...` line and
