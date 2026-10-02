@@ -458,12 +458,8 @@ pub async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Resul
     if !problems.is_empty() {
         return Err(problems.join("\n"));
     }
-    Ok(format!(
-        "Redacto platform images {}, Docker reachable, pdfium loaded.",
-        [&settings.postgres_image, &settings.migration_image, &settings.core_image, &settings.rendering_image]
-            .map(|image| image.trim())
-            .join(", ")
-    ))
+    let images = profile.map(|p| p.images.all().join(", ")).unwrap_or_default();
+    Ok(format!("Redacto platform images {images}, Docker reachable, pdfium loaded."))
 }
 
 /// Pulls the public images the verifiers run: the AEM verifier's Chromium and
@@ -541,7 +537,6 @@ const AEM_VERIFIER_LOCK: &str = "aem-verifier.lock";
 /// run: each holds this file's lock shared. Only a process that can briefly
 /// take it exclusively knows that no Redacto container anywhere is in use.
 const REDACTO_VERIFIER_LOCK: &str = "redacto-verifier.lock";
-
 
 /// How long a verifier may sit unused before its containers are torn down.
 /// Matches upstream's own idle timeout.

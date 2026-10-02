@@ -2082,7 +2082,6 @@ mod controller {
         assert!(finished, "{stored:?}");
     }
 
-    /// The whole point of wiring `SqliteConversationMemory` in
     /// Every tool call id in `history` that no later user message answers.
     fn unanswered_calls(history: &[Message]) -> Vec<String> {
         let calls = history.iter().flat_map(|m| match m {
@@ -2185,8 +2184,36 @@ mod controller {
             other => panic!("the call's result must follow it: {other:?}"),
         }
         assert!(matches!(&repaired[4], Message::User { .. }), "{repaired:?}");
+        assert_eq!(answer_unanswered_tool_calls(repaired.clone()), repaired, "the repair is idempotent");
     }
 
+    /// Parallel calls answered in part keep the answered result and gain the
+    /// missing one, results ahead of the message's text.
+    #[test]
+    fn a_partly_answered_parallel_turn_gains_only_the_missing_result() {
+        let calls = Message::Assistant {
+            id: None,
+            content: vec![
+                AssistantContent::tool_call("a", "json_get", serde_json::json!({})),
+                AssistantContent::tool_call("b", "json_get", serde_json::json!({})),
+            ],
+        };
+        let answered_a = Message::User {
+            content: vec![UserContent::tool_result(
+                "a",
+                "json_get",
+                vec![ToolResultContent::Text("{}".to_string().into())],
+            )],
+        };
+        let repaired = answer_unanswered_tool_calls(vec![Message::user("go"), calls, answered_a]);
+
+        assert_eq!(unanswered_calls(&repaired), Vec::<String>::new(), "{repaired:?}");
+        assert_eq!(repaired.len(), 3, "{repaired:?}");
+        let Message::User { content } = &repaired[2] else { panic!("{repaired:?}") };
+        assert_eq!(content.len(), 2, "one result per call, none duplicated: {content:?}");
+    }
+
+    /// The whole point of wiring `SqliteConversationMemory` in
     /// `build_stage_agent`: a stage that reaches a natural end appends to it,
     /// and a *later* run of the same stage under the same session id — the
     /// shape our own resume flow (`RunSeed::Continue`/`Feedback`) actually
