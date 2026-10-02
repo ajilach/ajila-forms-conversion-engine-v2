@@ -7,6 +7,7 @@ description = "The Redacto verification runtime shared by every Redacto-verifyin
 
 [dependencies]
 log = { workspace = true }
+lopdf = "0.44"
 reqwest = { version = "0.13", default-features = false, features = ["rustls", "json"] }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -127,11 +127,25 @@ pub async fn run(
 
     for language in &check.languages {
         match render_one(profile, &session.rendering_base_url, document_id.as_str(), language).await {
-            Ok(bytes) => rendered.push(RenderedArtefact {
-                language: language.clone(),
-                bytes,
-                media_type: "application/pdf",
-            }),
+            Ok(bytes) => {
+                match blank_render(&bytes) {
+                    Ok(false) => {}
+                    Ok(true) => findings.push(Finding::error(
+                        "render_blank",
+                        format!(
+                            "the {language} render has no text on any page: the platform could \
+                             not style the document, e.g. because it does not ship the stylesheet \
+                             the document names (its core service logs the cause)"
+                        ),
+                    )),
+                    Err(message) => findings.push(Finding::error("render_failed", message)),
+                }
+                rendered.push(RenderedArtefact {
+                    language: language.clone(),
+                    bytes,
+                    media_type: "application/pdf",
+                });
+            }
             Err(message) => findings.push(Finding::error("render_failed", message)),
         }
     }
@@ -177,9 +191,65 @@ async fn render_one(
     Ok(bytes.to_vec())
 }
 
+/// Whether a rendered PDF has no text at all, judged by its pages declaring
+/// no font: text needs one, and a render the platform could not style comes
+/// back as a valid PDF of blank pages. Pure.
+fn blank_render(pdf: &[u8]) -> Result<bool, String> {
+    let doc = lopdf::Document::load_mem(pdf).map_err(|e| format!("the rendered PDF cannot be read: {e}"))?;
+    let pages = doc.get_pages();
+    if pages.is_empty() {
+        return Ok(true);
+    }
+    for page in pages.values() {
+        let fonts = doc
+            .get_page_fonts(*page)
+            .map_err(|e| format!("the rendered PDF's fonts cannot be read: {e}"))?;
+        if !fonts.is_empty() {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A one-page PDF whose page declares the given fonts.
+    fn pdf_with_fonts(fonts: lopdf::Dictionary) -> Vec<u8> {
+        use lopdf::{Document, Object, dictionary};
+        let mut doc = Document::with_version("1.7");
+        let pages_id = doc.new_object_id();
+        let page_id = doc.add_object(dictionary! {
+            "Type" => "Page",
+            "Parent" => pages_id,
+            "MediaBox" => vec![0.into(), 0.into(), 595.into(), 842.into()],
+            "Resources" => dictionary! { "Font" => fonts },
+        });
+        doc.objects.insert(
+            pages_id,
+            Object::Dictionary(dictionary! {
+                "Type" => "Pages",
+                "Kids" => vec![page_id.into()],
+                "Count" => 1,
+            }),
+        );
+        let catalog_id = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => pages_id });
+        doc.trailer.set("Root", catalog_id);
+        let mut bytes = Vec::new();
+        doc.save_to(&mut bytes).expect("the PDF saves");
+        bytes
+    }
+
+    /// The platform answers a render it could not style (a stylesheet it does
+    /// not ship) with a valid PDF of blank pages: no page declares a font.
+    #[test]
+    fn a_render_without_a_font_is_blank() {
+        assert_eq!(blank_render(&pdf_with_fonts(lopdf::Dictionary::new())), Ok(true));
+        let font = lopdf::dictionary! { "Type" => "Font", "Subtype" => "Type1", "BaseFont" => "Helvetica" };
+        assert_eq!(blank_render(&pdf_with_fonts(lopdf::dictionary! { "F1" => font })), Ok(false));
+        assert!(blank_render(b"%PDF-1.7 not really").is_err());
+    }
 
     #[test]
     fn dry_run_on_garbage_reports_an_error_finding() {

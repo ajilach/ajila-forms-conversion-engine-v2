@@ -66,7 +66,9 @@ pub enum Error {
 
 /// The language UBS masters a document in when it ships it.
 const MASTER_LANGUAGE: &str = "en";
-const STYLE: &str = "default.css";
+/// The stylesheet the UBS build of the Redacto platform ships (`ajila-redacto-platform`
+/// `feature/ubs`); it has no `default.css`, and a document naming one renders blank.
+const STYLE: &str = "ubs-default.css";
 const OWNER: &str = "admin";
 const HEADER_KEY: &str = "ubsHeader";
 const FOOTER_KEY: &str = "ubsFooter";
