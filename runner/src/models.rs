@@ -52,6 +52,21 @@ pub struct ModelInfo {
 /// this table still resolve through the family heuristics below.
 pub const KNOWN_MODELS: &[ModelInfo] = &[
     ModelInfo {
+        id: "claude-opus-5-5",
+        context_window: 1_000_000,
+        max_output_tokens: 128_000,
+    },
+    ModelInfo {
+        id: "claude-fable-5-1",
+        context_window: 1_000_000,
+        max_output_tokens: 128_000,
+    },
+    ModelInfo {
+        id: "claude-sonnet-5-5",
+        context_window: 1_000_000,
+        max_output_tokens: 128_000,
+    },
+    ModelInfo {
         id: "claude-opus-5",
         context_window: 1_000_000,
         max_output_tokens: 128_000,

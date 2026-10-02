@@ -8,7 +8,9 @@
 //! wrong one.
 //!
 //! Rates are USD per million tokens, matching how both providers bill. Verified
-//! against OpenRouter's published Anthropic pricing on 2026-09-04.
+//! against OpenRouter's published Anthropic pricing on 2026-09-04; Opus 5.5,
+//! Sonnet 5.5 and Fable 5.1 against Anthropic's published pricing on
+//! 2026-10-02.
 
 /// What one model costs, in USD per million tokens.
 pub struct Price {
@@ -16,7 +18,8 @@ pub struct Price {
     pub id: &'static str,
     pub input: f64,
     pub output: f64,
-    /// Tokens served from the cache — a tenth of the input rate.
+    /// Tokens served from the cache: a tenth of the input rate up to Opus 5,
+    /// a flat rate from the 5.5 generation on.
     pub cache_read: f64,
     /// Tokens written to the cache. This is the 5-minute rate (1.25x input);
     /// the 1-hour TTL we put on the static prefix costs 2x input, so a run whose
@@ -28,6 +31,27 @@ pub struct Price {
 
 /// Published rates for the models in [`crate::models::KNOWN_MODELS`].
 pub const PRICES: &[Price] = &[
+    Price {
+        id: "claude-opus-5-5",
+        input: 4.00,
+        output: 20.00,
+        cache_read: 0.20,
+        cache_write: 5.00,
+    },
+    Price {
+        id: "claude-sonnet-5-5",
+        input: 2.00,
+        output: 10.00,
+        cache_read: 0.20,
+        cache_write: 2.50,
+    },
+    Price {
+        id: "claude-fable-5-1",
+        input: 10.00,
+        output: 50.00,
+        cache_read: 0.25,
+        cache_write: 12.50,
+    },
     Price {
         id: "claude-opus-5",
         input: 5.00,
