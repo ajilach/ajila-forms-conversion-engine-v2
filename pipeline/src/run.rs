@@ -22,7 +22,9 @@ use rig_agent::agent::{Agent, AgentBuilder, MultiTurnStreamItem, StreamingError}
 use rig_agent::completion::PromptError;
 use rig_core::completion::CompletionError;
 use rig_core::memory::ConversationMemory;
-use rig_core::message::{AssistantContent, Message};
+use rig_core::message::{
+    AssistantContent, Message, ProviderCallId, ToolCallId, ToolResultContent, UserContent,
+};
 use rig_memory::{CompactingMemory, MemoryPolicy, TemplateCompactor};
 
 use crate::hooks::{PriceFn, SharedHook, StageHook};
@@ -528,8 +530,10 @@ pub(crate) async fn run_stage(
 
     let memory = stage_memory(&session_id, role.name, context_budget.policy());
     let loaded: Vec<Message> = match &memory {
+        // Repaired as it is loaded: a conversation stored before calls were
+        // answered on the way out still holds unanswered ones.
         Some((memory, id)) => match memory.load(id).await {
-            Ok(loaded) => loaded,
+            Ok(loaded) => answer_unanswered_tool_calls(loaded),
             Err(e) => {
                 obs.emit(RunEvent::Warning(format!(
                     "{}: the stage's earlier conversation could not be loaded ({e}); \
@@ -557,6 +561,7 @@ pub(crate) async fn run_stage(
         &mut history,
     )
     .await;
+    let history = answer_unanswered_tool_calls(history);
     store_stage(memory.as_ref(), &loaded, &history, role, obs).await;
     outcome
 }
@@ -806,6 +811,62 @@ fn stage_memory(session_id: &str, role_name: &str, policy: Arc<dyn MemoryPolicy>
     let memory: Arc<dyn ConversationMemory> =
         Arc::new(CompactingMemory::new(SqliteConversationMemory, policy, compactor));
     Some((memory, memory::conversation_id(session_id, role_name)))
+}
+
+/// What a call left unanswered is answered with when a conversation is
+/// resumed.
+const UNANSWERED_CALL_RESULT: &str = "The stage ended here; this call returned nothing further.";
+
+/// `history` with a result for every tool call it leaves unanswered, put in
+/// the user message right after the call (inserting one where there is
+/// none). A stage a hook stops (`submit_review`, the stuck watch, an abort)
+/// ends after a call and before rig records its result, and a provider
+/// refuses to continue a conversation holding such a call. Pure.
+fn answer_unanswered_tool_calls(history: Vec<Message>) -> Vec<Message> {
+    let mut repaired: Vec<Message> = Vec::with_capacity(history.len() + 1);
+    let mut messages = history.into_iter().peekable();
+    while let Some(message) = messages.next() {
+        let calls: Vec<(ToolCallId, Option<ProviderCallId>, String)> = match &message {
+            Message::Assistant { content, .. } => content
+                .iter()
+                .filter_map(|c| match c {
+                    AssistantContent::ToolCall(call) => {
+                        Some((call.id.clone(), call.provider.clone(), call.function.name.clone()))
+                    }
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+        repaired.push(message);
+        if calls.is_empty() {
+            continue;
+        }
+        let mut next = match messages.peek() {
+            Some(Message::User { .. }) => messages.next().expect("peeked"),
+            _ => Message::User { content: Vec::new() },
+        };
+        let Message::User { content } = &mut next else { unreachable!("only a user message is taken") };
+        let missing: Vec<UserContent> = calls
+            .into_iter()
+            .filter(|(id, _, _)| {
+                !content.iter().any(|c| matches!(c, UserContent::ToolResult(r) if &r.call == id))
+            })
+            .map(|(id, provider, name)| {
+                UserContent::tool_result_for(
+                    id,
+                    provider,
+                    name,
+                    vec![ToolResultContent::Text(UNANSWERED_CALL_RESULT.to_string().into())],
+                )
+            })
+            .collect();
+        content.splice(0..0, missing);
+        if !content.is_empty() {
+            repaired.push(next);
+        }
+    }
+    repaired
 }
 
 /// Append what a stage added to what it loaded: `full` is the stage's whole
@@ -1279,7 +1340,6 @@ mod controller {
     use agent::ConversionAgent;
     use crate::observer::RunObserver;
     use rig_core::completion::Usage;
-    use rig_core::message::UserContent;
     use rig_core::test_utils::{MockCompletionModel, MockStreamEvent};
     use std::sync::{Arc, Mutex};
 
@@ -2023,6 +2083,110 @@ mod controller {
     }
 
     /// The whole point of wiring `SqliteConversationMemory` in
+    /// Every tool call id in `history` that no later user message answers.
+    fn unanswered_calls(history: &[Message]) -> Vec<String> {
+        let calls = history.iter().flat_map(|m| match m {
+            Message::Assistant { content, .. } => content
+                .iter()
+                .filter_map(|c| match c {
+                    AssistantContent::ToolCall(call) => Some(call.id.to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        });
+        let answered: Vec<String> = history
+            .iter()
+            .flat_map(|m| match m {
+                Message::User { content } => content
+                    .iter()
+                    .filter_map(|c| match c {
+                        UserContent::ToolResult(result) => Some(result.call.to_string()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect();
+        calls.filter(|id| !answered.contains(id)).collect()
+    }
+
+    /// A stage that `submit_review` ends stops before rig records that call's
+    /// result. The next round of the same stage loads that conversation, and a
+    /// provider refuses a tool call left unanswered (`tool_use ids were found
+    /// without tool_result blocks`), so the stored conversation has to answer
+    /// every call it makes.
+    #[tokio::test]
+    async fn a_second_review_round_resumes_a_conversation_with_every_call_answered() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let session_id = format!("review-rounds-{}", uuid::Uuid::new_v4());
+        let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
+        let agent = || {
+            Arc::new(tokio::sync::Mutex::new(
+                ConversionAgent::new(None, Vec::new(), session_id.clone(), OutputTarget::Redacto)
+                    .expect("an agent without sources starts"),
+            ))
+        };
+        let review = |model: MockCompletionModel| {
+            let agent = agent();
+            async move {
+                let (obs, _) = recorder();
+                run_stage(
+                    &agent,
+                    role,
+                    "system",
+                    "review it",
+                    &AbortFlag::default(),
+                    ModelHandle::new(model),
+                    no_price(),
+                    4096,
+                    no_budget(),
+                    &obs,
+                    &mut Spend::default(),
+                )
+                .await
+            }
+        };
+
+        review(MockCompletionModel::from_stream_turns([review_turn(false, "The footer is missing.")])).await;
+        let second = MockCompletionModel::from_stream_turns([review_turn(true, "")]);
+        review(second.clone()).await;
+
+        let sent = &second.requests()[0].chat_history;
+        assert!(
+            sent.iter().any(|m| matches!(m, Message::Assistant { .. })),
+            "the second round must resume the first round's conversation: {sent:?}"
+        );
+        assert_eq!(unanswered_calls(sent), Vec::<String>::new(), "{sent:?}");
+    }
+
+    /// A conversation stored before calls were answered on the way out still
+    /// resumes: the missing results are put right after their calls, ahead of
+    /// whatever the next user message said.
+    #[test]
+    fn unanswered_calls_get_a_result_right_after_them() {
+        let call = |id: &str| {
+            Message::Assistant {
+                id: None,
+                content: vec![AssistantContent::tool_call(id, "submit_review", serde_json::json!({}))],
+            }
+        };
+        let history = vec![Message::user("review it"), call("a"), Message::user("again"), call("b")];
+
+        let repaired = answer_unanswered_tool_calls(history);
+
+        assert_eq!(unanswered_calls(&repaired), Vec::<String>::new(), "{repaired:?}");
+        assert_eq!(repaired.len(), 5, "{repaired:?}");
+        match &repaired[2] {
+            Message::User { content } => {
+                assert!(matches!(content.first(), Some(UserContent::ToolResult(_))), "{content:?}");
+                assert_eq!(user_text(&repaired[2]), "again");
+            }
+            other => panic!("the call's result must follow it: {other:?}"),
+        }
+        assert!(matches!(&repaired[4], Message::User { .. }), "{repaired:?}");
+    }
+
     /// `build_stage_agent`: a stage that reaches a natural end appends to it,
     /// and a *later* run of the same stage under the same session id — the
     /// shape our own resume flow (`RunSeed::Continue`/`Feedback`) actually
