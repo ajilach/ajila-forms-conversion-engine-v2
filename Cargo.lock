@@ -8617,6 +8617,7 @@ name = "u2s-redacto-verify-core"
 version = "0.1.0"
 dependencies = [
  "log",
+ "lopdf 0.44.0",
  "reqwest",
  "serde_json",
  "thiserror 2.0.18",
