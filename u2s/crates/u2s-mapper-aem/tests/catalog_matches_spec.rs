@@ -49,7 +49,7 @@ const SPEC_EXCLUSIONS: &[&str] = &[
 ];
 
 fn spec_text() -> String {
-    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../specs/AEM.md");
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../specs/aem/aem-xml-spec.md");
     fs::read_to_string(&path)
         .unwrap_or_else(|err| panic!("{} must be readable: {err}", path.display()))
 }

@@ -3,7 +3,7 @@
 Source: `ajilach/ajila-forms-conversion-engine-v3` (local checkout usually at
 `../unstructured-to-structured`).
 
-Upstream commit: `62da07a`
+Upstream commit: `c1a98fe`
 
 Re-sync with `scripts/sync-u2s.sh <checkout>`. It copies the crates and plain-file assets, then
 re-applies every file in `u2s/patches/` in order. Do not edit vendored code directly: make the
@@ -29,7 +29,7 @@ Assets that originate in this repo are symlinks rather than copies:
 | `u2s-xfa`, `u2s-render-xfa`, `u2s-xfa-mcp`, `u2s-render-xfa-mcp` | Source-form reads, renders and live interaction (`xfa_*`) |
 | `u2s-render-pdf`, `u2s-render-pdf-mcp` | Viewing the PDFs the verifiers produce (`pdf_*`); needs pdfium, see `scripts/fetch-pdfium.sh` |
 | `u2s-aem-ubs-verify-mcp`, `u2s-aem-verify-core`, `u2s-mapper-aem`, `u2s-aem` | AEM verification against a Docker AEM + Chromium |
-| `u2s-redacto-ubs-verify-mcp`, `u2s-redacto-verify-core`, `u2s-mapper-redacto`, `u2s-redacto` | Redacto dump verification against a throwaway Postgres |
+| `u2s-redacto-ubs-verify-mcp`, `u2s-redacto-verify-core`, `u2s-mapper-redacto`, `u2s-redacto` | Redacto dump verification: imports and renders the dump on a Redacto platform (Postgres, migration, core, rendering) booted per session, see `docker/redacto/README.md` |
 | `u2s-aem-ubs-mcp` | The UBS AEM format: the authored `UbsAemDocument`, `encode` into a FileVault package through the UBS templates, `decode` back, and the UBS check rules in `rules/` |
 | `u2s-redacto-ubs-mcp` | The UBS Redacto format: the authored `UbsRedactoDocument`, `encode` into the platform's dump with the UBS metadata and page furniture, `decode` back |
 | `u2s-doc-tools`, `u2s-jsondoc`, `u2s-schema` | The `json_*` document tools and `rule_*` rule tools over one revisioned JSON document, schema validation, and the loader for rules checked in as files |
@@ -54,10 +54,11 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
     `pub`.
   - Each constructor that reads the environment gets a `with_parts(...)` twin, which takes
     limits, blob store and profile as values; `new()` delegates to it. The Redacto verifier
-    also gets `shutdown()`, which tears down its default session.
+    also gets `shutdown()`, which tears down every session not in use.
   - `u2s-aem-ubs-verify-mcp` gets a `lib.rs` exposing its driver and specs.
   - `u2s-aem-verify-core`'s `AemVerifyServer` becomes public, with `with_parts`, `dispatch`
-    and `shutdown`, and `remove_leftover_containers` becomes public for the readiness check.
+    and `shutdown`. Leftover containers of a crashed run are removed through upstream's own
+    public `u2s_verify_core::session::remove_leftovers`.
 
 ## How the agent offers the vendored tools
 
