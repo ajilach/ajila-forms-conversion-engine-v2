@@ -82,22 +82,19 @@ impl Reach {
     }
 }
 
-/// A container name component derived from `session_id`: Docker names only
-/// allow `[a-zA-Z0-9_.-]`, and a `session_id` from an external caller is not
-/// guaranteed to be one. Anything else becomes `_`; callers append a
-/// boot-time UUID regardless, so two sessions never collide on a name even
-/// if this maps them to the same string. Pure function. Unit-tested.
-pub fn sanitize_for_docker_name(session_id: &str) -> String {
-    session_id
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() || c == '_' || c == '.' || c == '-' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect()
+/// The longest name a container may have when other containers address it
+/// by name: one DNS label. glibc's resolver (the one inside Chromium's
+/// image, among others) refuses a longer one, even though Docker accepts it
+/// as a container name.
+pub const DNS_LABEL_MAX: usize = 63;
+
+/// A fresh id for one boot's network and container names: 12 hex digits,
+/// short enough that `u2s-verify-<part>-<id>` stays one DNS label
+/// ([`DNS_LABEL_MAX`]). The session id never goes into a name, since a
+/// caller's id (a run UUID, typically) alone would use up most of the
+/// label; it is a container label (`u2s.verify.session_id`) instead.
+pub fn new_boot_id() -> String {
+    uuid::Uuid::new_v4().simple().to_string()[..12].to_owned()
 }
 
 /// Leaves `network` (when this process joined it) and removes it.
@@ -347,10 +344,11 @@ mod tests {
     }
 
     #[test]
-    fn sanitizing_replaces_anything_unsafe_for_a_docker_name() {
-        assert_eq!(sanitize_for_docker_name("run-abc123"), "run-abc123");
-        assert_eq!(sanitize_for_docker_name("run/abc:123"), "run_abc_123");
-        assert_eq!(sanitize_for_docker_name(""), "");
+    fn boot_ids_are_short_hex_and_distinct() {
+        let a = new_boot_id();
+        assert_eq!(a.len(), 12);
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit()), "{a}");
+        assert_ne!(a, new_boot_id());
     }
 
     #[test]

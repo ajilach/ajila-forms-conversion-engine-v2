@@ -35,7 +35,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::OwnedMutexGuard;
 
 use u2s_verify_core::docker::{ContainerSpec, DockerLifecycle, RunningContainer, wait_for_http};
-use u2s_verify_core::session::{PooledSession, remove_session_network, sanitize_for_docker_name};
+use u2s_verify_core::session::{PooledSession, new_boot_id, remove_session_network};
 pub use u2s_verify_core::session::{DEFAULT_SESSION_KEY, Reach};
 use u2s_verify_core::types::{ErrorKind, Finding, VerifyError};
 
@@ -276,6 +276,27 @@ pub async fn status(pool: &SessionPool, key: &str) -> SessionStatus {
     }
 }
 
+/// The names of one boot's network and containers. Chromium opens the form
+/// by the AEM container's name, so every name must be one DNS label
+/// (`u2s_verify_core::session::DNS_LABEL_MAX`); `boot_id` comes from
+/// `new_boot_id`. Pure. Unit-tested.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Names {
+    network: String,
+    aem: String,
+    chromium: String,
+}
+
+impl Names {
+    fn for_boot(boot_id: &str) -> Self {
+        Self {
+            network: format!("u2s-verify-{boot_id}"),
+            aem: format!("u2s-verify-aem-{boot_id}"),
+            chromium: format!("u2s-verify-chromium-{boot_id}"),
+        }
+    }
+}
+
 async fn boot(
     docker: &DockerLifecycle,
     profile: &Profile,
@@ -294,13 +315,12 @@ async fn boot(
         .map_err(|err| VerifyError::new(ErrorKind::ImageMissing, err.to_string()))?;
     let aem_image = profile.aem_image.clone();
 
-    let boot_id = format!(
-        "{}-{}",
-        sanitize_for_docker_name(session_id),
-        uuid::Uuid::new_v4().simple()
-    );
+    let Names {
+        network,
+        aem: aem_container_name,
+        chromium: chromium_container_name,
+    } = Names::for_boot(&new_boot_id());
     let reach = reach_of(profile);
-    let network = format!("u2s-verify-{boot_id}");
     docker
         .ensure_network(&network, &profile.owner_labels())
         .await
@@ -324,7 +344,6 @@ async fn boot(
         "{}:{AEM_DATA_VOLUME_CONTAINER_PATH}",
         profile.aem_data_volume
     )];
-    let aem_container_name = format!("u2s-verify-aem-{boot_id}");
     let aem = docker
         .run(&ContainerSpec {
             name: aem_container_name.clone(),
@@ -353,7 +372,7 @@ async fn boot(
 
     let chromium = docker
         .run(&ContainerSpec {
-            name: format!("u2s-verify-chromium-{boot_id}"),
+            name: chromium_container_name,
             image: profile.chromium_image.clone(),
             // The Chromium image ships its own architecture-appropriate
             // build; only the AEM image needs the platform pin this host
@@ -448,6 +467,18 @@ async fn teardown(docker: &DockerLifecycle, instances: &Instances) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_name_fits_one_dns_label() {
+        let names = Names::for_boot(&new_boot_id());
+        for name in [&names.network, &names.aem, &names.chromium] {
+            assert!(
+                name.len() <= u2s_verify_core::session::DNS_LABEL_MAX,
+                "{name} is longer than one DNS label"
+            );
+        }
+        assert_ne!(names.aem, names.chromium);
+    }
 
     #[test]
     fn published_endpoints_use_the_host_loopback() {

@@ -1,45 +1,62 @@
 //! The check rules a run's document is held to, and the sandbox they run in.
 //!
 //! The AEM rules are the UBS ones compiled into `u2s-aem-ubs-mcp`; the Redacto
-//! format has none yet. Every rule runs in a `u2s-rules-worker` process with a
+//! format has none yet. Every rule runs in a worker process with a
 //! memory and time ceiling (see `u2s-rules-host`), so a runaway script fails its
-//! own rule rather than the conversion. The worker ships next to every binary
-//! that runs conversions, the way `libpdfium` does.
+//! own rule rather than the conversion. That process is the running executable
+//! itself, started with the worker flag (see [`runner`]).
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 
 use u2s_doc_tools::native::RuleForCheck;
 use u2s_rules_host::runner::RuleRunner;
+use u2s_rules_host::worker::WORKER_ARG;
 
 use crate::OutputTarget;
 
-/// The worker binary's file name.
+/// The worker binary's file name, which only test binaries use.
 fn worker_name() -> String {
     format!("u2s-rules-worker{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// Where the worker is expected: next to the running executable. A test binary
-/// runs from `target/<profile>/deps`, where the worker is one level up.
-pub fn worker_path() -> Result<PathBuf, String> {
+/// What every rule runs in: this executable itself, started with
+/// [`WORKER_ARG`], so the app, the CLI and the MCP server ship no second
+/// program. Each of them hands control to [`serve_worker_if_invoked`] first
+/// thing in `main`.
+///
+/// A test binary cannot act as the worker (the test harness owns its `main`),
+/// so a test runs from `target/<profile>/deps` and uses the built
+/// `u2s-rules-worker` one level up instead.
+fn worker_command() -> Result<(PathBuf, Vec<OsString>), String> {
     let exe = std::env::current_exe().map_err(|e| format!("cannot locate this executable: {e}"))?;
-    let mut dir = exe
-        .parent()
-        .ok_or("this executable has no directory")?
-        .to_path_buf();
+    let dir = exe.parent().ok_or("this executable has no directory")?;
     if dir.ends_with("deps") {
-        dir.pop();
+        let parent = dir.parent().ok_or("the test binary's directory has no parent")?;
+        return Ok((parent.join(worker_name()), Vec::new()));
     }
-    Ok(dir.join(worker_name()))
+    Ok((exe, vec![WORKER_ARG.into()]))
 }
 
-/// A runner over the worker next to this executable, or why there is none.
+/// Serves rule-worker requests and exits, when this process was started as
+/// the worker; returns otherwise. Call it first thing in `main`, before a
+/// runtime, a window or a stdio server exists.
+pub fn serve_worker_if_invoked() {
+    if u2s_rules_host::worker::invoked_as_worker() {
+        u2s_rules_host::worker::run();
+        std::process::exit(0);
+    }
+}
+
+/// A runner over this executable as its own worker, or why there is none.
 pub fn runner() -> Result<RuleRunner, String> {
-    let path = worker_path()?;
-    RuleRunner::new(path.clone(), RuleRunner::workers_from_env()).map_err(|e| {
+    let (program, args) = worker_command()?;
+    RuleRunner::with_args(program.clone(), args, RuleRunner::workers_from_env()).map_err(|e| {
         format!(
-            "the rule sandbox cannot start: {e}. Build it with `cargo build -p u2s-rules-host \
-             --bin u2s-rules-worker` (with `--release` for release builds); it must sit at {}",
-            path.display()
+            "the rule sandbox cannot start: {e}. A test needs the worker built first: \
+             `cargo build -p u2s-rules-host --bin u2s-rules-worker` (with `--release` for \
+             release builds), so that it sits at {}",
+            program.display()
         )
     })
 }
@@ -62,7 +79,7 @@ pub fn readiness(target: OutputTarget) -> Result<String, String> {
         return Ok("no check rules for this format".into());
     }
     runner()?;
-    Ok(format!("{} check rules, sandbox at {}", rules.len(), worker_path()?.display()))
+    Ok(format!("{} check rules, each run in a sandboxed worker process", rules.len()))
 }
 
 #[cfg(test)]

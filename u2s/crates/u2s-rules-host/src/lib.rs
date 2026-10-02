@@ -28,6 +28,7 @@
 
 pub mod protocol;
 pub mod runner;
+pub mod worker;
 
 pub use protocol::{CheckRequest, CheckResponse, WireBudget, WireVerdict};
 pub use runner::{RuleRunner, RunnerError, WORKER_BIN};

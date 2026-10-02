@@ -24,3 +24,4 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["time", "sync"] }
 u2s-blob = { path = "../u2s-blob" }
+uuid = { workspace = true }

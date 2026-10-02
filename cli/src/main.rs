@@ -105,6 +105,8 @@ fn list_sessions() {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // This executable is also the rule worker; see `agent::rules::runner`.
+    agent::rules::serve_worker_if_invoked();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
     match Args::parse().command {

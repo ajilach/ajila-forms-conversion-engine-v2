@@ -3,8 +3,6 @@
 # where `[bundle].external_bin` in app/Dioxus.toml picks them up:
 #
 # - `mcp`, the stdio server the app registers with Claude Desktop;
-# - `u2s-rules-worker`, the process every check rule runs in (a run refuses to
-#   start without it);
 # - pdfium, which the u2s PDF renderer loads (not on Windows: external_bin
 #   appends .exe, which a DLL cannot carry).
 #
@@ -39,11 +37,9 @@ fi
 
 cd "$ROOT"
 cargo build --release -p mcp --target "$TARGET"
-cargo build --release -p u2s-rules-host --bin u2s-rules-worker --target "$TARGET"
 
 mkdir -p "$SIDECAR"
 cp "$OUT/mcp$EXE" "$SIDECAR/mcp-$TARGET$EXE"
-cp "$OUT/u2s-rules-worker$EXE" "$SIDECAR/u2s-rules-worker-$TARGET$EXE"
 if [ -n "$PDFIUM" ]; then
   cp "vendor/pdfium/lib/$PDFIUM" "$SIDECAR/$PDFIUM-$TARGET"
 fi

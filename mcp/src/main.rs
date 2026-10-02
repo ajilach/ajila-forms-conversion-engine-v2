@@ -497,8 +497,17 @@ impl ServerHandler for Blueprint {
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Before the runtime and the stdio server: this executable is also the
+    // rule worker, which builds its own runtime and owns stdin.
+    agent::rules::serve_worker_if_invoked();
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?
+        .block_on(serve())
+}
+
+async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let transport = rmcp::transport::stdio();
     let server = Blueprint::new();
     let agent = server.agent.clone();

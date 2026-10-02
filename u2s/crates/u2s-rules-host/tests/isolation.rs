@@ -381,3 +381,34 @@ async fn an_extract_runs_through_the_worker_and_a_runaway_one_is_stopped() {
         .unwrap_err();
     assert!(!err.is_empty());
 }
+
+/// A host that is its own worker starts it with arguments
+/// (`RuleRunner::with_args`). The program here only becomes a worker when its
+/// arguments arrive: `sh` without them would read the requests as a script.
+#[cfg(unix)]
+#[tokio::test]
+async fn a_worker_started_with_arguments_answers_like_any_other() {
+    let worker = u2s_rules_host::runner::test_support::worker_bin();
+    let runner = RuleRunner::with_args(
+        PathBuf::from("/bin/sh"),
+        vec!["-c".into(), format!("exec '{}'", worker.display()).into()],
+        1,
+    )
+    .expect("sh is present");
+
+    let results = runner
+        .run_batch(vec![(1u32, request(PASSING, ScriptBudget::default()))])
+        .await;
+
+    assert_eq!(results[0].1.verdict, CheckVerdict::Positive, "{:?}", results[0].1);
+}
+
+/// Only the first argument decides whether a process is a worker.
+#[test]
+fn the_worker_argument_is_recognised_only_first() {
+    use u2s_rules_host::worker::{WORKER_ARG, is_worker_invocation};
+    let args = |list: &[&str]| list.iter().map(std::ffi::OsString::from).collect::<Vec<_>>();
+    assert!(is_worker_invocation(args(&["host", WORKER_ARG])));
+    assert!(!is_worker_invocation(args(&["host"])));
+    assert!(!is_worker_invocation(args(&["host", "convert", WORKER_ARG])));
+}

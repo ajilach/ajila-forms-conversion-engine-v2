@@ -119,7 +119,7 @@ For a **Redacto target**, the verifier boots a Redacto platform of the run's own
 Prerequisites for Redacto: Docker running, the public Postgres image pulled (`verify prepare` does that), and the platform images from ajila's private registry pulled: `az acr login --name ajilaclouddev`, then `docker pull` each image the settings name (see `docker/redacto/README.md`).
 
 **For both targets:**
-- `u2s-rules-worker`: `cargo build --release -p u2s-rules-host --bin u2s-rules-worker`. Every check rule runs in this process, next to the binary that converts; a run whose rules cannot run is refused. The agent tests need it built first.
+- Check rules: every rule runs in a sandboxed worker process, which is the converting binary itself started with `--u2s-rules-worker`, so nothing extra ships. The agent tests need the standalone worker built first: `cargo build --release -p u2s-rules-host --bin u2s-rules-worker`.
 - `pdfium`: `./scripts/fetch-pdfium.sh` downloads the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
 - Settings: verifier settings live in the desktop app's settings (tab "Verification"): AEM image, data volume (default `u2s-aem-ubs-data`), container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL; for Redacto: the migration, core and rendering images, Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin). The CLI reads the same stored settings.
 - CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
@@ -159,7 +159,7 @@ dx serve --platform desktop
 
 ### Production Build
 
-The app needs `u2s-rules-worker` and pdfium next to its executable, and `dx bundle` is what puts them there (`dx build` does not copy them). Stage them first, from the repo root:
+`dx run --release --platform desktop --package blueprint-app` works directly once pdfium is fetched (`./scripts/fetch-pdfium.sh`). A distributable app needs pdfium and the `mcp` server next to its executable, and `dx bundle` is what puts them there (`dx build` does not copy them). Stage them first, from the repo root:
 
 ```sh
 ./scripts/fetch-pdfium.sh

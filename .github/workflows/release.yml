@@ -285,11 +285,9 @@ jobs:
         shell: bash
 
       - name: Build blueprint-cli
-        # The rule worker ships next to the binary: every rule a run checks runs
-        # in it, and a run whose rules cannot run is refused.
+        # The binary is also its own rule worker, so it ships alone with pdfium.
         run: |
           cargo build --release -p blueprint-cli --target ${{ matrix.target }}
-          cargo build --release -p u2s-rules-host --bin u2s-rules-worker --target ${{ matrix.target }}
         shell: bash
 
       - name: Package artifact
@@ -298,11 +296,11 @@ jobs:
           OUT="target/${{ matrix.target }}/release"
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
             cp vendor/pdfium/lib/pdfium.dll "$OUT/"
-            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe" "./$OUT/u2s-rules-worker.exe" "./$OUT/pdfium.dll"
+            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe" "./$OUT/pdfium.dll"
           else
-            chmod +x "$OUT/blueprint" "$OUT/u2s-rules-worker"
+            chmod +x "$OUT/blueprint"
             cp vendor/pdfium/lib/libpdfium.* "$OUT/"
-            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint u2s-rules-worker $(cd "$OUT" && ls libpdfium.*)
+            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint $(cd "$OUT" && ls libpdfium.*)
           fi
         shell: bash
 

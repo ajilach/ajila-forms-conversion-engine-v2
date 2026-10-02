@@ -21,6 +21,7 @@
 //! nothing that cannot be reclaimed.
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::hash::Hash;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -68,8 +69,9 @@ struct Worker {
 }
 
 impl Worker {
-    fn spawn(bin: &Path) -> std::io::Result<Self> {
+    fn spawn(bin: &Path, args: &[OsString]) -> std::io::Result<Self> {
         let mut child = Command::new(bin)
+            .args(args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
@@ -147,6 +149,8 @@ pub struct RuleRunner {
 
 struct Inner {
     worker_bin: PathBuf,
+    /// Passed to every worker it starts.
+    worker_args: Vec<OsString>,
     /// Idle workers, reused across batches. A worker that died is simply not
     /// returned here, so the pool refills itself on the next borrow.
     idle: Mutex<Vec<Worker>>,
@@ -173,6 +177,17 @@ impl RuleRunner {
     /// silently restore the abort risk this whole module exists to remove,
     /// and it would do so on exactly the machines where nobody checked.
     pub fn new(worker_bin: PathBuf, workers: usize) -> Result<Self, RunnerError> {
+        Self::with_args(worker_bin, Vec::new(), workers)
+    }
+
+    /// [`Self::new`] over a program started with `args`: a host executable
+    /// that serves as its own worker passes itself and
+    /// [`crate::worker::WORKER_ARG`].
+    pub fn with_args(
+        worker_bin: PathBuf,
+        args: Vec<OsString>,
+        workers: usize,
+    ) -> Result<Self, RunnerError> {
         let resolved = worker_bin
             .canonicalize()
             .map_err(|source| RunnerError::WorkerMissing {
@@ -182,6 +197,7 @@ impl RuleRunner {
         Ok(Self {
             inner: Arc::new(Inner {
                 worker_bin: resolved,
+                worker_args: args,
                 idle: Mutex::new(Vec::new()),
                 permits: tokio::sync::Semaphore::new(workers.max(1)),
             }),
@@ -377,7 +393,7 @@ impl RuleRunner {
         if let Some(worker) = self.inner.idle.lock().await.pop() {
             return Ok(worker);
         }
-        Worker::spawn(&self.inner.worker_bin)
+        Worker::spawn(&self.inner.worker_bin, &self.inner.worker_args)
     }
 
     async fn put_worker(&self, worker: Worker) {

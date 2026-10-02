@@ -62,6 +62,8 @@ fn reopen_tab(saved: &SavedTab) -> (Vec<(String, Vec<u8>)>, RestoredView) {
 const RETAINED_SESSIONS: usize = 50;
 
 fn main() {
+    // This executable is also the rule worker; see `agent::rules::runner`.
+    agent::rules::serve_worker_if_invoked();
     let saved = AppSettings::load();
     let mut config = dioxus::desktop::Config::new().with_window(
         dioxus::desktop::WindowBuilder::new()

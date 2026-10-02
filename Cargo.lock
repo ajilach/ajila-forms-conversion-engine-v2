@@ -8765,6 +8765,7 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "u2s-blob",
+ "uuid",
 ]
 
 [[package]]

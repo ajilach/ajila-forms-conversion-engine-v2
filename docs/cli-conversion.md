@@ -36,7 +36,6 @@ The Dioxus CLI is **not** needed. That is only for the desktop app.
 
 ```sh
 cargo build --release -p blueprint-cli
-cargo build --release -p u2s-rules-host --bin u2s-rules-worker
 ```
 
 The binary lands at `target/release/blueprint`. Expect a long first build and a
@@ -96,7 +95,7 @@ You need:
 - The platform's migration, core and rendering images from ajila's private registry: `az acr login --name ajilaclouddev`, then `docker pull` each (see `docker/redacto/README.md`)
 
 **For both targets:**
-- `u2s-rules-worker`: every check rule runs in this process, which must sit next to `blueprint` (`target/release/` after the build above); a conversion whose rules cannot run is refused before it starts.
+- Check rules: every rule runs in a sandboxed worker process, which is `blueprint` itself started with `--u2s-rules-worker`; nothing extra needs building or shipping.
 - `pdfium`: Run `./scripts/fetch-pdfium.sh` to download the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
 - Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM image (default none, must be pulled manually), data volume (default `u2s-aem-ubs-data`), AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: the migration, core and rendering images (default: the ones `ajila-redacto-platform`'s CI publishes to `ajilaclouddev.azurecr.io`), Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin).
 - CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.

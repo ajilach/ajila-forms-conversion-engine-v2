@@ -27,7 +27,9 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::OwnedMutexGuard;
 use u2s_verify_core::docker::{ContainerSpec, DockerLifecycle, ExecOutput, RunningContainer};
-use u2s_verify_core::session::{PooledSession, Reach, owner_labels, remove_session_network};
+use u2s_verify_core::session::{
+    PooledSession, Reach, new_boot_id, owner_labels, remove_session_network,
+};
 use u2s_verify_core::types::{ErrorKind, VerifyError};
 
 use crate::platform::{DB_NAME, DB_USER};
@@ -86,9 +88,10 @@ impl PooledSession for RedactoSession {
 }
 
 /// The names of one boot's network and containers. The services address
-/// each other by container name, so every name must be one DNS label (63
-/// characters at most): the session id is therefore a label on the
-/// containers, never part of a name. Pure. Unit-tested.
+/// each other by container name, so every name must be one DNS label
+/// (`u2s_verify_core::session::DNS_LABEL_MAX`); `boot_id` comes from
+/// [`new_boot_id`]. Pure.
+/// Unit-tested.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Names {
     pub network: String,
@@ -294,8 +297,7 @@ pub async fn boot(
         })?;
     }
 
-    let boot_id = uuid::Uuid::new_v4().simple().to_string()[..12].to_owned();
-    let names = Names::for_boot(&boot_id);
+    let names = Names::for_boot(&new_boot_id());
     let reach = Reach::from_self_container(profile.self_container.as_deref());
     let mut labels = owner_labels(profile.name);
     docker
@@ -442,6 +444,7 @@ async fn teardown_parts(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use u2s_verify_core::session::DNS_LABEL_MAX;
 
     fn profile() -> RenderProfile {
         RenderProfile::from_reader("redacto-ubs", "P", "pdf-ua", |key| {
@@ -468,6 +471,8 @@ mod tests {
 
     #[test]
     fn names_share_the_boot_id_never_collide_and_fit_one_dns_label() {
+        let names = Names::for_boot(&new_boot_id());
+        assert!(names.postgres.ends_with(&names.network["u2s-verify-redacto-".len()..]));
         let names = Names::for_boot("0123456789ab");
         assert_eq!(names.network, "u2s-verify-redacto-0123456789ab");
         assert_eq!(names.postgres, "u2s-verify-redacto-postgres-0123456789ab");
@@ -475,7 +480,7 @@ mod tests {
         let distinct: std::collections::BTreeSet<_> = all.iter().collect();
         assert_eq!(distinct.len(), all.len());
         for name in all {
-            assert!(name.len() <= 63, "{name} is longer than one DNS label");
+            assert!(name.len() <= DNS_LABEL_MAX, "{name} is longer than one DNS label");
         }
     }
 
