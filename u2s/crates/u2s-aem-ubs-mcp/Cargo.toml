@@ -3,7 +3,7 @@ name = "u2s-aem-ubs-mcp"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "The UBS AEM output format: the MCP stdio server for aem-ubs, and the library with the UBS document, its encoder through the UBS templates into a FileVault package, its decoder, and the UBS check rules"
+description = "The UBS AEM output format: the MCP stdio server for aem-ubs, and the library with the UBS document, its encoder through the UBS templates into a FileVault package, and its decoder"
 
 [[bin]]
 name = "u2s-aem-ubs-mcp"
@@ -26,8 +26,6 @@ serde = { workspace = true }
 tera = "1"
 thiserror = { workspace = true }
 toml = "0.8"
-# The rule files type, so the UBS rules compiled in here load like a rules directory.
-u2s-doc-tools = { path = "../u2s-doc-tools" }
 uuid = { workspace = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 rmcp = { version = "3.1", features = ["server", "transport-io"] }
@@ -39,7 +37,6 @@ u2s-mapper-aem = { path = "../u2s-mapper-aem" }
 u2s-blob = { path = "../u2s-blob" }
 
 [dev-dependencies]
-u2s-rules = { path = "../u2s-rules" }
 rmcp = { version = "3.1", features = ["client", "transport-child-process"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "sync", "time"] }
 u2s-mcp = { path = "../u2s-mcp" }

@@ -1,7 +1,11 @@
 //! The check rules a run's document is held to, and the sandbox they run in.
 //!
-//! The AEM rules are the UBS ones compiled into `u2s-aem-ubs-mcp`; the Redacto
-//! format has none yet. Every rule runs in a worker process with a
+//! The AEM rules are the UBS ones under `rules/aem/` at the repository root,
+//! one directory per rule (`rule.toml`, `check.js`, optionally `fix.js`),
+//! compiled in; the Redacto format has none yet. They live here rather than
+//! in the vendored UBS layer, which keeps the templates, the writer and the
+//! normalize passes: `specs/feedback/rule-coverage.md` says which of the
+//! feedback guard's problems each one stands for. Every rule runs in a worker process with a
 //! memory and time ceiling (see `u2s-rules-host`), so a runaway script fails its
 //! own rule rather than the conversion. That process is the running executable
 //! itself, started with the worker flag (see [`runner`]).
@@ -10,6 +14,7 @@ use std::ffi::OsString;
 use std::path::PathBuf;
 
 use u2s_doc_tools::native::RuleForCheck;
+use u2s_doc_tools::rules_dir::RuleFiles;
 use u2s_rules_host::runner::RuleRunner;
 use u2s_rules_host::worker::WORKER_ARG;
 
@@ -61,10 +66,32 @@ pub fn runner() -> Result<RuleRunner, String> {
     })
 }
 
+static AEM_RULES: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../rules/aem");
+
+/// The AEM rules under `rules/aem/`, compiled in, one per rule directory.
+pub fn aem_rule_files() -> Vec<RuleFiles> {
+    AEM_RULES
+        .dirs()
+        .map(|dir| {
+            let slug = dir.path().to_string_lossy().into_owned();
+            let text = |name: &str| {
+                dir.get_file(dir.path().join(name))
+                    .map(|f| f.contents_utf8().expect("a rule file is UTF-8").to_string())
+            };
+            RuleFiles {
+                rule_toml: text("rule.toml").unwrap_or_else(|| panic!("rule {slug} has a rule.toml")),
+                check_js: text("check.js").unwrap_or_else(|| panic!("rule {slug} has a check.js")),
+                fix_js: text("fix.js"),
+                slug,
+            }
+        })
+        .collect()
+}
+
 /// The rules `target`'s documents are checked against.
 pub fn rules_for(target: OutputTarget) -> Result<Vec<RuleForCheck>, String> {
     match target {
-        OutputTarget::Aem => u2s_doc_tools::rules_dir::load_rules(u2s_aem_ubs_mcp::rule_files())
+        OutputTarget::Aem => u2s_doc_tools::rules_dir::load_rules(aem_rule_files())
             .map_err(|e| format!("the UBS AEM rules do not load: {e}")),
         OutputTarget::Redacto => Ok(Vec::new()),
     }

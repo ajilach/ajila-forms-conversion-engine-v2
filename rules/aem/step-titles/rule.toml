@@ -1,0 +1,24 @@
+# Mirrors `find_step_title_panel.py` (PROBLEM-step-title-panel) and `step_title_dupes.py`
+# (PROBLEM-step-title-single) of the feedback repo, as the UBS writer's `panel.xml` meets them.
+id = "ubs-aem-step-titles"
+title = "A wizard step's title is its page title, written once"
+output_formats = ["aem-ubs"]
+description = """
+Every direct child of `form` that is a `Panel` is a wizard step (a page), and the writer builds
+its heading itself: a page with a `title` gets a step-title panel holding one level-2 heading
+carrying the `stepTitle` class. The heading is never authored. Three shapes break that:
+
+- A `Panel` directly under `form` with `is_page: false` that has a title or a heading. It is still
+  a step, but it gets no step-title panel, so its title renders nowhere as a heading. Set
+  `is_page: true`. (The special panels, such as `PN_Preview` and the form metadata, are not
+  steps.)
+- A page whose `title` is empty in the master language and which opens with a heading: its
+  first drawn element is a `TitleDraw`, or it holds a level-2 `TitleDraw` that is not alone in
+  its own panel. The heading is the step title written at the wrong place. Move its text into the
+  page's `title` and delete the draw. A page that is meant to have no title keeps only body text
+  at its start (the first page, whose subtitle is a static text, is the usual case).
+- A `stepTitle` css token on anything but the step's own heading. Only a step's first level-2
+  heading carries it: on a page with a `title` that is the writer's heading, so an authored token
+  there is a second title, remove it; on a page without a `title` it is the page's first level-2
+  `TitleDraw`, so move the token onto that heading.
+"""

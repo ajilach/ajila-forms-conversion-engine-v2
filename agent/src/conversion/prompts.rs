@@ -463,8 +463,11 @@ must pass; a table whose cells hold input fields is the one legitimate exception
 A structure the Author missed is an authorable issue: return it. Judge \
 ANALOGY to the source, and confirm every point in any prior REVIEW FEEDBACK is now fixed. Checklist: every rule_check verdict positive (the \
 naming prefixes, the input labels and duplicate sibling labels, the retired market fragments, the \
-legacy tables, rules in the code editor and never on `fd:rules`; each violation names the node and \
-what is wrong with it, and any negative verdict is a defect); the corpus invariants the UBS templates \
+legacy tables, rules in the code editor and never on `fd:rules`, email and telephone inputs as their \
+components, configurator choices wired to resettable panels, step titles, the banking relationship, \
+numbered signature families, the hidden infobox copy, loaded passthrough attributes, the form code \
+and entity, footnotes; each violation names the node and what is wrong with it, and any negative \
+verdict is a defect); the corpus invariants the UBS templates \
 guarantee by construction (anything excluded from the Document of Record is excluded from the summary \
 too, every panel is the UBS custom panel, the toolbar carries the Save Progress button, the \
 internal-bank-use block and the DoR copy of the Italy infobox reach the reader through the PDF alone, a \

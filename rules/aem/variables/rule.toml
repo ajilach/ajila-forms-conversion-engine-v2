@@ -1,0 +1,23 @@
+# The code pattern is `CODE_RE` of the feedback repo's `find_pagetitle_code.py`
+# (`formrange_code="([A-Z0-9]{3,6})"`); a form without a match is skipped by that detector, and by
+# the others that locate the form through its `AF_<code>` directory. The entity decides the
+# repository directory (`entity_dir` in the UBS profile's config.toml) and, with it, which
+# detectors apply (`find_dor_config.py` maps `afforms_germany_all`, `afforms_italy_all` and
+# `afforms_ch_all` to 019, 033 and 001).
+id = "ubs-aem-variables"
+title = "The form code and entity are well formed"
+output_formats = ["aem-ubs"]
+description = """
+The document's `variables` carry the source form's code and entity, and the profile derives from
+them where the form lives and what it is called: the `AF_<code>` directory, the page title, the
+schema path, the Document of Record template. A malformed value does not fail the build; it makes
+several of the feedback guard's detectors skip the form silently, which reads as a pass.
+
+- `formrange_code` must be 3 to 6 upper-case letters and digits (`AAEV`, `BAGE`).
+- `formrange_entity` must be a three-digit entity code: `019` (Germany), `033` (Italy), `001`
+  (Switzerland) or another entity's own code (a form of another entity lives in the global
+  directory).
+
+They come from the source form's template variables; keep them as the source has them and do not
+shorten, lower-case or pad them.
+"""

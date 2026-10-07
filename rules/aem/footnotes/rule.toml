@@ -1,0 +1,24 @@
+# Mirrors the two automatable shapes of `find_footnote_noncanonical.py`
+# (PROBLEM-footnote-modernize): `add_placeholder` (footnote references, no placeholder) and
+# `remove_placeholder` (a placeholder, no references). Its third shape, the legacy accordion
+# (`css="ubsAccordionFootnote"`), is not checked: the detector only counts it when every marker in
+# the body resolves to a footnote text in the accordion, which needs the rendered markers.
+id = "ubs-aem-footnotes"
+title = "Footnote references and the footnote placeholder go together"
+output_formats = ["aem-ubs"]
+description = """
+UBS forms model a footnote as an inline reference in a rich text,
+`<span data-af-footnote-id="ID"><sup>#</sup></span>`, followed by its hidden description
+`<p id="ID" class="footnoteDescription"><span class="footnoteDescText">TEXT</span></p>`, and show
+them all through a `FootnotePlaceholder` node ("The footnotes will appear here") on the page.
+The two stand or fall together:
+
+- A text in the document carries a footnote reference (`data-af-footnote-id`) but the form has no
+  `FootnotePlaceholder` node: add one to the page holding the references (usually at its end), or
+  the references number nothing and show no text.
+- The form has a `FootnotePlaceholder` node but no text carries a footnote reference: delete the
+  node.
+
+Superscript digits typed into a text (`<sup>1</sup>`, `¹`) are not footnote references; write the
+reference and its description in the shape above.
+"""

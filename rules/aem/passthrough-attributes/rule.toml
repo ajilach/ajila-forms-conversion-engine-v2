@@ -1,0 +1,31 @@
+# Mirrors the detectors of the feedback repo that read a deployed package's raw attributes and
+# nodes: `excludeFromDoRIfHidden="true"` (PROBLEM-dor-exclude-hidden), `defaultToCurrentDate="true"`
+# (PROBLEM-datepicker-current-date-default), a `dorExclusion="true"` tag without
+# `summaryExclusion="true"` (PROBLEM-dor-exclusion-implies-summary), the default panel component
+# `sling:resourceType="fd/af/components/panel"` (PROBLEM-panel-type-ubs) and a visibility script
+# with no Initialize rule (PROBLEM-visible-on-init).
+id = "ubs-aem-passthrough-attributes"
+title = "A loaded node carries no attribute or script the corpus retired"
+output_formats = ["aem-ubs"]
+description = """
+A document loaded from a deployed package keeps, in a node's `passthrough`, the attributes and child
+elements the typed fields do not model, and the writer emits them as they are. A few of them are
+shapes the corpus retired, and a package carrying one fails the feedback guard. They are reported
+here so that a loaded form is repaired, never carried over:
+
+- `excludeFromDoRIfHidden="true"` (on `raw_attributes` or in a `raw_children` element): delete it.
+  A hidden node's Document of Record presence is decided by `always_in_pdf` and `summary_exclude`.
+- `defaultToCurrentDate="true"`: delete it. A date picker does not preset today's date.
+- `dorExclusion="true"` without `summaryExclusion="true"`: the Document of Record is rendered from
+  the summary, so a node excluded from one is excluded from both. Set `summary_exclude` on the
+  node, or drop the attribute. (A typed node's own `dor_exclude` already writes both; this only
+  fires where the passthrough is what the writer emits.)
+- `sling:resourceType="fd/af/components/panel"` in a `raw_children` element: the default AEM
+  panel. Every panel is the UBS panel; express the element as a `Panel` node.
+- An `fd:scripts` element in `raw_children` with an `fd:visible` rule and no `fd:init`: a
+  visibility rule only runs when its inputs change, so the same condition must also run when the
+  form opens. Add an Initialize rule with the same condition, assigning `this.visible`, or
+  express the condition as the node's `conditions`.
+
+Delete the entry from `passthrough.raw_attributes`, or edit the `raw_children` element.
+"""

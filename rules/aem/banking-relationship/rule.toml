@@ -1,0 +1,24 @@
+# Mirrors the two detectors of the feedback repo: `find_panel_noncanonical.py` run for
+# PROBLEM-banking-relationship-fragment (the fragment is the canonical path and the panel carries
+# `dorExclusion`) and `find_missing_attr_on.py` run for PROBLEM-banking-relationship-margin (a
+# `PN_BR` tag carries `ubs-margin-20`). The `Preface` template (`preface.xml`) writes both right.
+id = "ubs-aem-banking-relationship"
+title = "The banking relationship is the canonical fragment in a PN_BR wrapper"
+output_formats = ["aem-ubs"]
+description = """
+The banking relationship block is rendered by a `Preface` node on the first page, which writes the
+canonical fragment `/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1` inside
+a `PN_BR` wrapper that is excluded from the Document of Record and the summary and carries the
+class `ubs-margin-20`. Prefer the `Preface` node.
+
+Two shapes of a hand-authored block are reported:
+
+- A node whose `frag_ref` names a banking relationship fragment (anything containing
+  `BankingRelationship`, except the custody-account fragments) but is not exactly
+  `/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1`. A market copy of the
+  fragment is the old shape. Replace the node with a `Preface` node on the first page, or point
+  `frag_ref` at that path.
+- A hand-built node named `PN_BR` (not a `Preface`) whose `css` is not exactly `ubs-margin-20`.
+  The guard requires that exact value, so set `css` to `ubs-margin-20` with no other classes, or
+  use a `Preface` node instead.
+"""

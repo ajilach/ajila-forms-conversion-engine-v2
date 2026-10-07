@@ -1,0 +1,20 @@
+# Mirrors `infobox_dor_copy.py` (PROBLEM-infobox-dor-copy) of the feedback repo, for the part the
+# writer's normalize pass (`copy_infobox_into_the_dor`) does not repair: it excludes an on-screen
+# infobox from the DoR and adds the hidden copy when there is none, but leaves a hidden infobox
+# fragment the document already carries exactly as authored.
+id = "ubs-aem-infobox-dor-copy"
+title = "A hidden infobox copy prints in the PDF from the last page"
+output_formats = ["aem-ubs"]
+description = """
+The Italy infobox (`affrg_italy_infobox`) shows on screen and also prints at the bottom of the last
+page of the finished document. The second place is a hidden reference to the same fragment, and it
+reaches the PDF only in one shape: a `Fragment` with `visible: false`, `always_in_pdf: true` and
+`summary_exclude: true`, and without `dor_exclude`, sitting inside the last page (the last
+`Panel` under `form` with `is_page: true`). Without `always_in_pdf` the summary drops a hidden
+node before the document is rendered and the infobox text prints nowhere; `dor_exclude` would
+drop it again.
+
+The writer adds that copy by itself when a form has a visible infobox and no hidden one, so do
+not author it. This rule reports a hidden infobox fragment already in the document that does not
+have the shape: set the missing flags, clear `dor_exclude`, or move it into the last page.
+"""

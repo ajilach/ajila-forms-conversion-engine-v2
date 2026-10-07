@@ -1,0 +1,34 @@
+# The approved option wordings in check.js are `APPROVED_LABEL_SETS` of the feedback repo's
+# `.claude/scripts/configurator_reset.py`, which `find_configurator_reset.py`
+# (PROBLEM-configurator-reset-on-change) reads, and `APPROVED_CONFIGURATOR_LABEL_SETS` of the UBS
+# writer (`xml_writer.rs`), which writes the reset script. Keep all three in step.
+id = "ubs-aem-configurator-panels"
+title = "A form configurator choice drives two or more conditional panels it can reset"
+output_formats = ["aem-ubs"]
+description = """
+A radio button or dropdown whose option labels are exactly one of the reviewed configurator
+wordings (`Individual` / `Company/Entity`, `Private Person` / `Minderjährige` / `Firma` (/
+`GbR`), `Individuo` / `Entità giuridica`, `Persona` / `Persona giuridica`, `For financial
+institutions` / `For natural persons`, and the other approved sets; compared case-insensitively,
+in order, markup ignored) gets a reset script written for it: when the choice changes, every
+panel it shows is emptied, so no option is ever shown carrying another option's data. The writer
+can only write that script when the choice is wired the way the writer expects, and a choice that
+is not is reported here.
+
+For such a choice, take the panels its `conditions` show (`show: true`, one `target_panel_name`
+each). Then:
+
+- At least two of them must be `Panel` nodes in the tree. A choice that decides fewer is not a
+  configurator: give each option its conditional panel, or reword the options if it is an ordinary
+  question.
+- Each must have `is_conditional: true`. The visibility script, which the reset is tied to, is
+  only written on a conditional panel.
+- Each name must be unique in the whole form (any node type), because the reset script refers to
+  the panel by its bare name. Rename the duplicate and its `target_panel_name`.
+- Each must hold something to clear: an input, an HtmlDisplayer, a Fragment, a footnote placeholder
+  or a Repeatable. A panel of static text only has nothing to reset; move the text out of the
+  panel or fold it into the one that holds the inputs.
+- None may contain another radio button or dropdown that itself shows two or more conditional
+  panels, because resetting the panel would discard that choice's value. Move the inner choice out
+  of the driven panel.
+"""

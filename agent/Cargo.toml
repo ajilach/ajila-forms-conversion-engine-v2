@@ -51,3 +51,5 @@ test-utils = []
 [dev-dependencies]
 # The tool executor is async; the tests drive it directly.
 tokio = { version = "1", features = ["macros", "rt"] }
+# Runs a rule's check script directly, for the rule tests.
+u2s-rules = { path = "../u2s/crates/u2s-rules" }

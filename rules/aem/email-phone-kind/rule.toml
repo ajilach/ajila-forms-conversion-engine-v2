@@ -1,0 +1,26 @@
+# The label words and the deny lists in check.js are copied from the feedback repo's
+# `.claude/scripts/email_phone_labels.py` (EMAIL_RE, PHONE_RE, DENY_LABEL, DENY_NAME, name_probe),
+# which `find_email_phone_component.py` (PROBLEM-email-phone-component) classifies with. Keep them
+# in step with it.
+id = "ubs-aem-email-phone-kind"
+title = "Email and telephone inputs are email and telephone components"
+output_formats = ["aem-ubs"]
+description = """
+An input that asks for an email address or a telephone number is the UBS email or telephone
+component, not a plain text box and not a number box: those carry the format validation, the
+autofill hint and the phone styling. The writer never infers this from the label, so the
+document has to say it.
+
+A `TextField` whose `kind` is absent or `Plain`, and any `NumberField`, is reported when its
+label in the form's master language (English when the form ships it, else the first language),
+or its `name` when it has no label, reads as an email address (`e-mail`, `courriel`, `posta
+elettronica`, `pec`) or as a phone or fax number (`tel`, `telefon`, `telephone`, `phone`,
+`mobile`, `handy`, `natel`, `cellulare`, `fax` and their other-language spellings). A few
+labels that only mention the word are exempt (a telephone order, a channel number).
+
+Fix a `TextField` by setting `kind` to `Email` or `Telephone`, and rename it to the matching
+prefix (`EML_` or `TEL_`). Fix a `NumberField` by replacing it with a `TextField` of kind
+`Email` or `Telephone` (same label, `mandatory`, `colspan` and `bind_ref`, prefix `EML_` or
+`TEL_`): a number box reformats a phone number as `1,234,567.00` and rejects a leading `+`.
+A multi-line field is left as it is.
+"""
