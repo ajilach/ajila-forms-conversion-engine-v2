@@ -346,9 +346,9 @@ pub fn internal_bank_use_is_pdf_only(root: &mut AemNode) {
 
 /// Whether a `fragRef` names one of the internal-bank-use fragments.
 ///
-/// `pub(crate)` because the review checker asks the same question of the
-/// rendered XML, and two readings of "is this the family" would drift.
-pub(crate) fn is_internal_bank_use(frag_ref: &str) -> bool {
+/// Public because a host's check of the rendered package asks the same
+/// question of the XML, and two readings of "is this the family" would drift.
+pub fn is_internal_bank_use(frag_ref: &str) -> bool {
     let mut parts = frag_ref.rsplit('/');
     let (Some(fragment), Some(library)) = (parts.next(), parts.next()) else {
         return false;

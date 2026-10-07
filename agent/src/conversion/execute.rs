@@ -180,7 +180,18 @@ impl ConversionAgent {
                 )
                 .await
                 {
-                    Ok(outcome) => ToolReply::Text(outcome.value.to_string()),
+                    Ok(mut outcome) => {
+                        // The document's build, when it has a current one, is
+                        // checked too: what the writer made of the document.
+                        if let (Some(package), Some(object)) = (self.package(), outcome.value.as_object_mut()) {
+                            let findings = match crate::package_checks::check_package(&package) {
+                                Ok(findings) => json!(findings),
+                                Err(e) => json!({ "error": e }),
+                            };
+                            object.insert("package_findings".into(), findings);
+                        }
+                        ToolReply::Text(outcome.value.to_string())
+                    }
                     Err(e) => ToolReply::Error(e.to_string()),
                 }
             }
@@ -420,6 +431,7 @@ impl ConversionAgent {
             Ok(valid) => valid,
             Err(problems) => return ToolReply::Error(format!("Nothing built: {problems}")),
         };
+        let findings = crate::package_checks::check_package(&build.package);
         let size = build.package.len();
         let bound = build.bound_package.as_ref().map(Vec::len);
         self.built = Some(Built::Aem {
@@ -431,7 +443,21 @@ impl ConversionAgent {
         if let Some(bound) = bound {
             report.push_str(&format!(" With bindRefs: {bound} bytes."));
         }
-        ToolReply::Text(format!("{report} {valid}"))
+        report.push_str(&format!(" {valid}"));
+        match findings {
+            Ok(findings) if findings.is_empty() => {}
+            Ok(findings) => {
+                report.push_str(
+                    "\nENGINE DEFECTS: the package breaks the feedback guard in shapes the templates \
+                     and the writer own, so editing the document cannot fix them; report each one:",
+                );
+                for f in findings {
+                    report.push_str(&format!("\n- {} on `{}`: {}", f.problem, f.node, f.detail));
+                }
+            }
+            Err(e) => report.push_str(&format!("\nThe package could not be checked against the feedback guard: {e}")),
+        }
+        ToolReply::Text(report)
     }
 
     fn build_redacto_dump(&mut self) -> ToolReply {

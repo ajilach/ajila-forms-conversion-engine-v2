@@ -18,6 +18,7 @@ pub mod db;
 mod mcp_reply;
 mod output_target;
 pub mod outputs;
+pub mod package_checks;
 pub mod profiles;
 pub mod references;
 pub mod rules;

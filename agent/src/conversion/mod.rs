@@ -75,6 +75,16 @@ pub struct ReviewResult {
     pub report: String,
 }
 
+/// The form's own content XML in an unzipped package: the `cq:Page` under
+/// `jcr_root/content/forms/af/`, as `(path, xml)`.
+pub(crate) fn form_content_xml(files: &[(String, String)]) -> Option<&(String, String)> {
+    files.iter().find(|(p, c)| {
+        p.starts_with("jcr_root/content/forms/af/")
+            && p.ends_with("/.content.xml")
+            && c.contains("\"cq:Page\"")
+    })
+}
+
 /// Validate FileVault package bytes (session-agnostic).
 ///
 /// The checks `build_aem_package` runs on every build: required FileVault
@@ -109,12 +119,7 @@ pub fn validate_package_bytes(pkg: &[u8]) -> Result<String, String> {
     }
 
     // 2. Validate the form content XML (the cq:Page under forms/af).
-    let form_xml = files.iter().find(|(p, c)| {
-        p.starts_with("jcr_root/content/forms/af/")
-            && p.ends_with("/.content.xml")
-            && c.contains("\"cq:Page\"")
-    });
-    match form_xml {
+    match form_content_xml(&files) {
         Some((path, xml)) => {
             if let Err(violations) = u2s_aem_ubs_mcp::aem::validate_aem_form_xml(xml) {
                 problems.push(format!(
@@ -775,6 +780,11 @@ mod tests {
 
         let built = reply_text(agent.execute("build_aem_package", &json!({})).await);
         assert!(built.contains("Built package") && built.contains("Package valid"), "{built}");
+        // The writer's package is checked against the guard on every build, and
+        // rule_check reports the same for the current build.
+        assert!(!built.contains("ENGINE DEFECTS"), "{built}");
+        let checked: Value = serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({})).await)).unwrap();
+        assert_eq!(checked["package_findings"], json!([]), "{checked}");
         let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
         assert!(files.iter().any(|(_, c)| c.contains("TXT_LastName")));
         assert!(agent.xsd().is_some() && agent.package_bound().is_some());

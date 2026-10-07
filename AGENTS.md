@@ -28,7 +28,8 @@
   every edit, as the check rules in `rules/aem/` (`rule_check`); the rest the templates, the writer
   or the normalize passes guarantee, and the parity tests upstream hold the encoder to the retired
   engine's output. `specs/feedback/rule-coverage.md` maps every enrolled problem to what guarantees
-  it. The check rules live here only (v3 keeps its rules in its database and ships none): add or change a rule in
+  it. What the templates guarantee is checked too: every build scans the rendered package
+  (`agent/src/package_checks.rs`) and reports a guard problem there as an engine defect. The check rules live here only (v3 keeps its rules in its database and ships none): add or change a rule in
   `rules/aem/<slug>/` (`rule.toml`, `check.js`) with a test in `agent/tests/rules.rs`.
 - Three of those rules are about a node's position among its siblings, so no template can satisfy
   them: they live in the UBS layer's `normalize.rs` and run over a copy of the tree on the way into

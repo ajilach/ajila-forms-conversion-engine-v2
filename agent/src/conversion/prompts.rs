@@ -472,7 +472,8 @@ guarantee by construction (anything excluded from the Document of Record is excl
 too, every panel is the UBS custom panel, the toolbar carries the Save Progress button, the \
 internal-bank-use block and the DoR copy of the Italy infobox reach the reader through the PDF alone, a \
 checkbox carries richTextOptions, the jump-to-field button sits on the step-title panel) need no check \
-of yours, but a package that breaks one is an ENGINE DEFECT to report; \
+of yours: every build checks the package for them, build_aem_package lists a broken one under ENGINE \
+DEFECTS and rule_check as `package_findings`, and each is an ENGINE DEFECT to report; \
 first-level \
 sections are pages and nothing deeper is; each source heading rendered exactly ONCE — a page panel's \
 heading comes from its own `title` (the template writes the PN_<name>Title wrapper and its TTL_ draw), so \

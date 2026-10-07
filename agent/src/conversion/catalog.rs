@@ -396,6 +396,8 @@ mod catalog_guards {
         "parent_path",
         "ref_id",
         "top_k",
+        // rule_check's report of the current build's package checks.
+        "package_findings",
         // Tool-call protocol vocabulary, not a tool.
         "tool_result",
         // MCP-only tools and their arguments, defined in the `mcp` crate.
