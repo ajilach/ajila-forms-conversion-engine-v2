@@ -252,6 +252,18 @@ impl ConversionAgent {
                 }
             }
 
+            "coverage_check" => {
+                let language = match input.get("language") {
+                    None | Some(Value::Null) => None,
+                    Some(Value::String(language)) => Some(language.as_str()),
+                    Some(other) => return ToolReply::Error(format!("language must be a string, not {other}")),
+                };
+                match crate::coverage::check(&self.current_pdfs, self.document.value(), language) {
+                    Ok(report) => ToolReply::Text(report.to_string()),
+                    Err(e) => ToolReply::Error(e),
+                }
+            }
+
             // §7 references: typed arguments, validated by the server itself.
             other if references_mcp::specs::is_reference_tool(other) => {
                 match self.references.dispatch(other, input) {

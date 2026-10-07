@@ -194,6 +194,7 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("build_aem_package",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
         ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE, Write),
         ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE, Write),
+        ("coverage_check",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
 
         // §6 verification through the vendored u2s verifiers (crate::u2s): the
         // AEM package against a Docker AEM, the Redacto dump against a throwaway
@@ -300,6 +301,19 @@ fn tool_specs() -> Vec<serde_json::Value> {
                  truncation note says so if it is hit.",
                 serde_json::json!({"path": {"type":"string"}, "offset": {"type":"integer"}, "limit": {"type":"integer"}}),
                 serde_json::json!(["path"]),
+            ),
+            t(
+                "coverage_check",
+                "Which texts of the source form did not reach the document. Compares every \
+                 user-visible text of each source PDF's XFA template (draws, captions, choice-list \
+                 items, master pages; every configurator variant, since the template holds them all) \
+                 with the document's texts in that PDF's language, and replies per language with the \
+                 coverage and the missing texts. A missing text is a lead to look up on the rendered \
+                 source page, not a defect by itself: texts only scripts use, page furniture and \
+                 texts a referenced fragment renders itself are expected misses. Pass language to \
+                 check one language only.",
+                serde_json::json!({"language": {"type":"string", "description": "A language code get_source_info lists; omit for every language."}}),
+                serde_json::json!([]),
             ),
         ];
         // §7 references, specified by the references server.

@@ -67,6 +67,20 @@
     "name": "read_package_file"
   },
   {
+    "description": "Which texts of the source form did not reach the document. Compares every user-visible text of each source PDF's XFA template (draws, captions, choice-list items, master pages; every configurator variant, since the template holds them all) with the document's texts in that PDF's language, and replies per language with the coverage and the missing texts. A missing text is a lead to look up on the rendered source page, not a defect by itself: texts only scripts use, page furniture and texts a referenced fragment renders itself are expected misses. Pass language to check one language only.",
+    "input_schema": {
+      "properties": {
+        "language": {
+          "description": "A language code get_source_info lists; omit for every language.",
+          "type": "string"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "coverage_check"
+  },
+  {
     "description": "List the profile's reference forms (hand-built, known-good worked examples). Consult references BEFORE building: they show the expected JCR structure, dictionary setup and DoR conventions for this profile's forms.",
     "input_schema": {
       "properties": {},

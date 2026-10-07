@@ -771,6 +771,37 @@ mod tests {
         assert!(beside.contains("template"), "{beside}");
     }
 
+    /// coverage_check compares the run's own source PDFs with its document: a
+    /// text patched in stops being missing, and an unknown language is refused.
+    #[tokio::test]
+    async fn coverage_check_follows_the_document() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let missing = |reply: ToolReply| -> Vec<String> {
+            let report: Value = serde_json::from_str(&reply_text(reply)).unwrap();
+            report["sources"][0]["missing"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|t| t.as_str().unwrap().to_string())
+                .collect()
+        };
+        let text = "The QI must withhold tax at the highest rate applicable to any partner, beneficiary, or owner.";
+        let before = missing(agent.execute("coverage_check", &json!({})).await);
+        assert!(before.iter().any(|t| t == text), "{before:?}");
+
+        let mut page = page("PN_Details");
+        page["children"] = json!([{
+            "type": "TextDraw", "uuid": "00000000-0000-4000-8000-000000000001", "name": "ST_Withhold",
+            "content": {"en": format!("<p>{text}</p>")}, "visible": true, "colspan": 12, "dor_colspan": null
+        }]);
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page }])).await;
+        let after = missing(agent.execute("coverage_check", &json!({"language": "en"})).await);
+        assert!(!after.iter().any(|t| t == text), "{after:?}");
+
+        let refused = agent.execute("coverage_check", &json!({"language": "xx"})).await;
+        assert!(matches!(refused, ToolReply::Error(e) if e.contains("xx")));
+    }
+
     /// The whole AEM path: patch a page in, build the package, and the build is
     /// what the verifier checks.
     #[tokio::test]

@@ -263,9 +263,11 @@ get_package_info / read_package_file.\n\
 5. Review end to end. (a) rule_check holds the document to the UBS rules on its own: naming, labels, \
 retired fragments, legacy tables, visual-editor rules. Fix every finding (rule_autofix applies the \
 fixes a rule ships) and re-run it. It does NOT compare against the source, \
-so COVERAGE is yours to check: walk the source section by section with xfa_page_text (and \
-xfa_search for a specific label) and confirm every heading, label, option, paragraph and footnote \
-reached your tree, in EVERY language, reading each language's own PDF. Every fillable source field \
+so COVERAGE is yours to check: run coverage_check, which lists per language every source text \
+your document does not carry, and look each one up on the rendered page (a text a referenced \
+fragment renders, or one only scripts use, is an expected miss); then walk the source section by \
+section with xfa_page_text (and xfa_search for a specific label) and confirm every heading, label, \
+option, paragraph and footnote reached your tree, in EVERY language, reading each language's own PDF. Every fillable source field \
 (text boxes, numeric boxes, dates, dropdowns, checkboxes, radio/choice groups, signatures, …) MUST \
 have a counterpart in the output: count them in xfa_controls and in your tree, and resolve any \
 difference (never silently dropped), since a lost field means data the form can no longer capture. \
@@ -435,10 +437,12 @@ pub const REVIEWER_ADDENDUM: &str = "\
 ROLE: Reviewer / validator. You do NOT edit the document. Read it with json_outline / json_get, \
 run json_validate, build_aem_package (which also checks the package XML) and rule_check (the UBS \
 rules: naming, labels, retired fragments, legacy tables, visual-editor rules; the document on its \
-own). COVERAGE against the source is your own check, since no tool makes it: walk the \
-source with xfa_page_text and xfa_search, every language from its own PDF and every configurator \
-variant (xfa_open / xfa_set), and confirm each heading, label, option, paragraph and field reached \
-the document. Then USE THE FORM AS A READER WOULD, on the AEM \
+own). COVERAGE against the source is your own check: start with coverage_check, which lists \
+per language the source texts the document does not carry (a lead to verify on the page, not a \
+verdict: fragment-rendered and script-only texts are expected misses), then walk the source with \
+xfa_page_text and xfa_search, every language from its own PDF and every configurator variant \
+(xfa_open / xfa_set), and confirm each heading, label, option, paragraph and field reached the \
+document. Then USE THE FORM AS A READER WOULD, on the AEM \
 verifier (it always checks the latest build_aem_package result): aem_verify_package_check, then \
 aem_verify_open and aem_verify_controls; walk every wizard page with aem_verify_next, fill every \
 field type with a plausible value (aem_verify_set), flip each conditional choice so its gated panel \

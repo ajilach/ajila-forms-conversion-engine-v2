@@ -14,6 +14,7 @@
 //! state.
 
 pub mod conversion;
+pub mod coverage;
 pub mod db;
 mod mcp_reply;
 mod output_target;
