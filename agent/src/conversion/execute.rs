@@ -90,7 +90,48 @@ pub(super) fn cap_total(text: String) -> String {
     )
 }
 
+/// A read's remaining work, which owns everything it touches.
+pub type ReadWork = std::pin::Pin<Box<dyn std::future::Future<Output = ToolReply> + Send>>;
+
 impl ConversionAgent {
+    /// Starts `name` as a read that runs beside the turn's other calls, when
+    /// it is one: everything it needs from the agent is taken now, and the
+    /// returned work no longer borrows it, so the caller lets go of the agent
+    /// before awaiting it. `None` means the call must go through
+    /// [`Self::execute`] instead, holding the agent throughout.
+    ///
+    /// A read that addresses a live form session (`session`) is not one: it
+    /// sees whatever revision the turn's `xfa_set` calls have reached, so it
+    /// keeps its place in the call order.
+    pub async fn start_read(&mut self, name: &str, input: &Value) -> Option<ReadWork> {
+        if access_of(name) != Access::Read || input.get("session").is_some() {
+            return None;
+        }
+        if let Some(refusal) = self.target_refusal(name) {
+            return Some(Box::pin(std::future::ready(ToolReply::Error(refusal))));
+        }
+        if references_mcp::specs::is_reference_tool(name) {
+            let server = self.references.clone();
+            let (name, input) = (name.to_string(), input.clone());
+            return Some(Box::pin(async move {
+                let result = tokio::task::spawn_blocking(move || server.dispatch(&name, &input)).await;
+                match result {
+                    Ok(Ok(result)) => crate::mcp_reply::reply_from_result(result, None),
+                    Ok(Err(e)) => ToolReply::Error(e.to_string()),
+                    Err(join) => ToolReply::Error(format!("the reference server failed: {join}")),
+                }
+            }));
+        }
+        let tools = match self.u2s_tools() {
+            Ok(tools) => tools,
+            Err(e) => return Some(Box::pin(std::future::ready(ToolReply::Error(e)))),
+        };
+        Some(match tools.start(name, input, None).await {
+            Ok(work) => Box::pin(work),
+            Err(refusal) => Box::pin(std::future::ready(refusal)),
+        })
+    }
+
     pub async fn execute(&mut self, name: &str, input: &Value) -> ToolReply {
         if let Some(refusal) = self.target_refusal(name) {
             return ToolReply::Error(refusal);

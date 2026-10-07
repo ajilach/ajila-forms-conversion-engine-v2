@@ -733,6 +733,39 @@ mod tests {
         assert!(languages.contains(&json!("en")) && languages.contains(&json!("de")));
     }
 
+    /// Exactly the catalog's reads take the read path, and a read that
+    /// addresses a live form session does not, since it has to see the turn's
+    /// `xfa_set` calls in order.
+    #[tokio::test]
+    async fn only_the_catalogs_reads_run_beside_other_calls() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        for tool in catalog() {
+            let started = agent.start_read(tool.name(), &json!({})).await.is_some();
+            assert_eq!(started, tool.access == Access::Read, "{}", tool.name());
+        }
+        assert!(
+            agent
+                .start_read("xfa_render_pages", &json!({"session": "s", "revision": 0}))
+                .await
+                .is_none()
+        );
+    }
+
+    /// A read run on the read path answers exactly what the same call answers
+    /// through `execute`: it is the same server work, done without the agent.
+    #[tokio::test]
+    async fn a_read_answers_the_same_on_either_path() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let info: Value = serde_json::from_str(&reply_text(agent.execute("get_source_info", &json!({})).await)).unwrap();
+        let input = json!({"doc_path": info["documents"][0]["doc_path"]});
+
+        let work = agent.start_read("xfa_packets", &input).await.expect("a read");
+        let beside = reply_text(work.await);
+        let through = reply_text(agent.execute("xfa_packets", &input).await);
+        assert_eq!(beside, through);
+        assert!(beside.contains("template"), "{beside}");
+    }
+
     /// The whole AEM path: patch a page in, build the package, and the build is
     /// what the verifier checks.
     #[tokio::test]
@@ -1173,7 +1206,8 @@ mod execute;
 mod prompts;
 
 use catalog::target_mask;
-pub use catalog::{ToolSpec, all_tools, catalog, scope, target, tools_for};
+pub use catalog::{Access, ToolSpec, access_of, all_tools, catalog, scope, target, tools_for};
+pub use execute::ReadWork;
 pub use prompts::*;
 
 use crate::OutputTarget;

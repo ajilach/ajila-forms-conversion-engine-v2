@@ -51,12 +51,35 @@ pub struct ToolSpec {
     pub targets: target::Mask,
     /// Stages this tool is *offered* to.
     pub scopes: scope::Mask,
+    /// Whether a call may run beside other calls of the same turn.
+    pub access: Access,
+}
+
+/// Whether a tool only reads state no other call of the turn can change.
+///
+/// A [`Access::Read`] call runs without holding the agent while its work is
+/// done, so several of them (rendering every language's pages, say) run side
+/// by side. Everything else is [`Access::Write`] and runs alone: the document
+/// tools, the builds, a live form session, a verifier session. When in doubt,
+/// a tool is a write.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Access {
+    Read,
+    Write,
 }
 
 impl ToolSpec {
     pub fn name(&self) -> &str {
         self.spec["name"].as_str().unwrap_or_default()
     }
+}
+
+/// Whether `name` only reads (see [`Access`]); an unknown name is a write.
+pub fn access_of(name: &str) -> Access {
+    catalog()
+        .iter()
+        .find(|t| t.name() == name)
+        .map_or(Access::Write, |t| t.access)
 }
 
 pub(super) fn target_mask(target: OutputTarget) -> target::Mask {
@@ -98,110 +121,113 @@ fn build_catalog() -> Vec<ToolSpec> {
         .chain(crate::u2s::tool_specs())
         .map(|spec| {
             let name = spec["name"].as_str().unwrap_or_default();
-            let (_, targets, scopes) = SCOPING
+            let (_, targets, scopes, access) = SCOPING
                 .iter()
-                .find(|(n, _, _)| *n == name)
+                .find(|(n, _, _, _)| *n == name)
                 .unwrap_or_else(|| panic!("tool {name:?} has no row in SCOPING"));
             ToolSpec {
                 targets: *targets,
                 scopes: *scopes,
+                access: *access,
                 spec,
             }
         })
         .collect()
 }
 
-/// Which target and which stages each tool belongs to.
+/// Which target and which stages each tool belongs to, and whether it only
+/// reads (see [`Access`]).
 ///
 /// One row per catalog entry — `scoping_covers_exactly_the_catalog` proves the
 /// two stay in step, and [`build_catalog`] panics on a missing row, so a new
 /// tool cannot be added without deciding who gets it.
 #[rustfmt::skip]
-const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
+const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
     use scope::*;
+    use Access::{Read, Write};
     &[
         // §1 source. Every stage reads the source through the xfa_* tools,
         // which take the `doc_path` only get_source_info hands out.
-        ("get_source_info",                   target::BOTH,    EVERYWHERE),
+        ("get_source_info",                   target::BOTH,    EVERYWHERE, Write),
 
         // §1b the source form through the vendored u2s servers (crate::u2s):
         // raw XFA reads, and rendering plus live interaction.
-        ("xfa_packets",                       target::BOTH,    EVERYWHERE),
-        ("xfa_read",                          target::BOTH,    EVERYWHERE),
-        ("xfa_search",                        target::BOTH,    EVERYWHERE),
-        ("xfa_outline",                       target::BOTH,    EVERYWHERE),
-        ("xfa_node",                          target::BOTH,    EVERYWHERE),
-        ("xfa_info",                          target::BOTH,    EVERYWHERE),
-        ("xfa_open",                          target::BOTH,    EVERYWHERE),
-        ("xfa_set",                           target::BOTH,    EVERYWHERE),
-        ("xfa_reset",                         target::BOTH,    EVERYWHERE),
-        ("xfa_close",                         target::BOTH,    EVERYWHERE),
-        ("xfa_controls",                      target::BOTH,    EVERYWHERE),
-        ("xfa_render_page",                   target::BOTH,    EVERYWHERE),
-        ("xfa_render_pages",                  target::BOTH,    EVERYWHERE),
-        ("xfa_render_region",                 target::BOTH,    EVERYWHERE),
-        ("xfa_page_text",                     target::BOTH,    EVERYWHERE),
-        ("xfa_search_text",                   target::BOTH,    EVERYWHERE),
+        ("xfa_packets",                       target::BOTH,    EVERYWHERE, Read),
+        ("xfa_read",                          target::BOTH,    EVERYWHERE, Read),
+        ("xfa_search",                        target::BOTH,    EVERYWHERE, Read),
+        ("xfa_outline",                       target::BOTH,    EVERYWHERE, Read),
+        ("xfa_node",                          target::BOTH,    EVERYWHERE, Read),
+        ("xfa_info",                          target::BOTH,    EVERYWHERE, Read),
+        ("xfa_open",                          target::BOTH,    EVERYWHERE, Write),
+        ("xfa_set",                           target::BOTH,    EVERYWHERE, Write),
+        ("xfa_reset",                         target::BOTH,    EVERYWHERE, Write),
+        ("xfa_close",                         target::BOTH,    EVERYWHERE, Write),
+        ("xfa_controls",                      target::BOTH,    EVERYWHERE, Write),
+        ("xfa_render_page",                   target::BOTH,    EVERYWHERE, Read),
+        ("xfa_render_pages",                  target::BOTH,    EVERYWHERE, Read),
+        ("xfa_render_region",                 target::BOTH,    EVERYWHERE, Read),
+        ("xfa_page_text",                     target::BOTH,    EVERYWHERE, Read),
+        ("xfa_search_text",                   target::BOTH,    EVERYWHERE, Read),
 
         // §1c PDFs the verifiers produce, through the vendored u2s PDF renderer.
-        ("pdf_info",                          target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("pdf_render_page",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("pdf_render_pages",                  target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("pdf_render_region",                 target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("pdf_page_text",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("pdf_search_text",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("pdf_info",                          target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
+        ("pdf_render_page",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
+        ("pdf_render_pages",                  target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
+        ("pdf_render_region",                 target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
+        ("pdf_page_text",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
+        ("pdf_search_text",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
 
         // §2 the run's output document: one revisioned JSON document per run,
         // read and patched with the json_* tools and held to the rules with the
         // rule_* ones. The UBS Redacto format has no rules yet.
-        ("json_outline",                      target::BOTH,    EVERYWHERE),
-        ("json_get",                          target::BOTH,    EVERYWHERE),
-        ("json_search",                       target::BOTH,    EVERYWHERE),
-        ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
-        ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("rule_list",                         target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("rule_check",                        target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("rule_autofix",                      target::AEM,     AEM_AUTHOR | MCP),
+        ("json_outline",                      target::BOTH,    EVERYWHERE, Write),
+        ("json_get",                          target::BOTH,    EVERYWHERE, Write),
+        ("json_search",                       target::BOTH,    EVERYWHERE, Write),
+        ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Write),
+        ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
+        ("rule_list",                         target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("rule_check",                        target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("rule_autofix",                      target::AEM,     AEM_AUTHOR | MCP, Write),
 
         // §3 building the output through the UBS encoders.
-        ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("build_aem_package",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE),
-        ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE),
+        ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
+        ("build_aem_package",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE, Write),
+        ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE, Write),
 
         // §6 verification through the vendored u2s verifiers (crate::u2s): the
         // AEM package against a Docker AEM, the Redacto dump against a throwaway
         // Postgres.
-        ("aem_verify_status",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_package_check",          target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_run",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_open",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_controls",               target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_set",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_next",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_prev",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_reset",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_screenshot",             target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_submit",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("aem_verify_close",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
-        ("redacto_verify_status",             target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("redacto_verify_dump_check",         target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("redacto_verify_run",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
+        ("aem_verify_status",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_package_check",          target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_run",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_open",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_controls",               target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_set",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_next",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_prev",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_reset",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_screenshot",             target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_submit",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("aem_verify_close",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("redacto_verify_status",             target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
+        ("redacto_verify_dump_check",         target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
+        ("redacto_verify_run",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
 
         // §7 references. The reference *forms* are AEM packages, so they are
         // pure token cost for a text-only Redacto document; only the reference
         // documentation is offered there.
-        ("list_reference_forms",              target::BOTH,    AEM_AUTHOR | MCP),
-        ("search_references",                 target::BOTH,    AEM_AUTHOR | MCP),
-        ("grep_references",                   target::BOTH,    AEM_AUTHOR | MCP),
-        ("read_reference_file",               target::BOTH,    AEM_AUTHOR | MCP),
-        ("get_reference_package",             target::BOTH,    AEM_AUTHOR | MCP),
-        ("list_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
-        ("read_reference_doc",                target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
-        ("grep_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
+        ("list_reference_forms",              target::BOTH,    AEM_AUTHOR | MCP, Read),
+        ("search_references",                 target::BOTH,    AEM_AUTHOR | MCP, Read),
+        ("grep_references",                   target::BOTH,    AEM_AUTHOR | MCP, Read),
+        ("read_reference_file",               target::BOTH,    AEM_AUTHOR | MCP, Read),
+        ("get_reference_package",             target::BOTH,    AEM_AUTHOR | MCP, Read),
+        ("list_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Read),
+        ("read_reference_doc",                target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Read),
+        ("grep_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Read),
 
         // §8 meta.
-        ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER | MCP),
+        ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER | MCP, Write),
     ]
 };
 
@@ -515,7 +541,7 @@ mod catalog_guards {
     #[test]
     fn scoping_covers_exactly_the_catalog() {
         let in_catalog: BTreeSet<&str> = catalog().iter().map(|t| t.name()).collect();
-        let in_scoping: BTreeSet<&str> = SCOPING.iter().map(|(n, _, _)| *n).collect();
+        let in_scoping: BTreeSet<&str> = SCOPING.iter().map(|(n, _, _, _)| *n).collect();
 
         let orphan_rows: Vec<_> = in_scoping.difference(&in_catalog).collect();
         let unscoped: Vec<_> = in_catalog.difference(&in_scoping).collect();

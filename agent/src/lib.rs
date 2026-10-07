@@ -26,10 +26,10 @@ pub mod source;
 pub mod u2s;
 
 pub use conversion::{
-    AUTHOR_ADDENDUM, ConversionAgent, MCP_ADDENDUM, NO_PACKAGE, REDACTO_AUTHOR_ADDENDUM,
+    AUTHOR_ADDENDUM, Access, ConversionAgent, MCP_ADDENDUM, NO_PACKAGE, REDACTO_AUTHOR_ADDENDUM,
     REDACTO_MCP_ADDENDUM, REDACTO_REVIEWER_ADDENDUM,
     REDACTO_SHARED_PREAMBLE, REDACTO_SYSTEM_PROMPT, REVIEWER_ADDENDUM, ReplyBlock, ReviewResult,
-    SHARED_PREAMBLE, SYSTEM_PROMPT, ToolReply, ToolSpec, all_tools, catalog, scope, target,
-    tools_for, validate_package_bytes,
+    SHARED_PREAMBLE, SYSTEM_PROMPT, ToolReply, ToolSpec, access_of, all_tools, catalog, scope,
+    target, tools_for, validate_package_bytes,
 };
 pub use output_target::OutputTarget;

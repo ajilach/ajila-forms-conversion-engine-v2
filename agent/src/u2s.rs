@@ -770,11 +770,27 @@ impl U2sTools {
     /// Runs `name`. `artifact` is the run's latest build (the package, or the
     /// Redacto dump), handed to a verifier tool that checks one.
     pub async fn call(&mut self, name: &str, input: &Value, artifact: Option<Artifact>) -> ToolReply {
+        match self.start(name, input, artifact).await {
+            Ok(work) => work.await,
+            Err(refusal) => refusal,
+        }
+    }
+
+    /// Everything [`Self::call`] needs from `self`, done now: the checks, the
+    /// supplied arguments, the verifier lock, the server handle. What is left
+    /// is the server's own work, which owns everything it touches, so a caller
+    /// may run it after letting go of the agent.
+    pub async fn start(
+        &mut self,
+        name: &str,
+        input: &Value,
+        artifact: Option<Artifact>,
+    ) -> Result<impl std::future::Future<Output = ToolReply> + Send + 'static, ToolReply> {
         let Some(entry) = entry(name) else {
-            return ToolReply::Error(format!("Unknown tool: {name}"));
+            return Err(ToolReply::Error(format!("Unknown tool: {name}")));
         };
         if let Err(e) = self.check_document(input) {
-            return ToolReply::Error(e);
+            return Err(ToolReply::Error(e));
         }
         let mut input = input.clone();
         if let Some(object) = input.as_object_mut() {
@@ -784,69 +800,69 @@ impl U2sTools {
         }
         if entry.takes_artifact {
             let Some(artifact) = artifact else {
-                return ToolReply::Error(match entry.family {
+                return Err(ToolReply::Error(match entry.family {
                     Family::RedactoVerify => "No dump built yet; call build_redacto_dump first.",
                     _ => "No package built yet; call build_aem_package first.",
                 }
-                .into());
+                .into()));
             };
-            let path = match self.write("artifacts", artifact.file_name, &artifact.bytes) {
-                Ok(path) => path,
-                Err(e) => return ToolReply::Error(e),
-            };
+            let path = self
+                .write("artifacts", artifact.file_name, &artifact.bytes)
+                .map_err(ToolReply::Error)?;
             if let (Some(object), Some(arg)) = (input.as_object_mut(), entry.family.artifact_argument()) {
                 object.insert(arg.to_string(), Value::String(path.display().to_string()));
             }
         }
 
         let server_name = entry.server_name.clone();
-        let result = match entry.family {
-            Family::XfaData => {
-                let server = self.data.clone();
-                blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())).await
-            }
-            Family::XfaRender => {
-                let server = self.render.clone();
-                blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())).await
-            }
-            Family::PdfRender => {
-                let server = match self.pdf_server() {
-                    Ok(server) => server.clone(),
-                    Err(e) => return ToolReply::Error(e),
-                };
-                blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())).await
-            }
-            Family::AemVerify | Family::RedactoVerify => {
-                let attached = matches!(
-                    (&self.verifier, entry.family),
-                    (Some(Verifier::Aem(..)), Family::AemVerify)
-                        | (Some(Verifier::Redacto(_)), Family::RedactoVerify)
-                );
-                if attached && !OFFLINE_VERIFY_TOOLS.contains(&server_name.as_str()) {
-                    if let Err(e) = self.acquire_lock().await {
-                        return ToolReply::Error(e);
+        let blobs = self.dir.path().join("blobs");
+        let work: std::pin::Pin<Box<dyn std::future::Future<Output = Result<CallToolResult, String>> + Send>> =
+            match entry.family {
+                Family::XfaData => {
+                    let server = self.data.clone();
+                    Box::pin(blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())))
+                }
+                Family::XfaRender => {
+                    let server = self.render.clone();
+                    Box::pin(blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())))
+                }
+                Family::PdfRender => {
+                    let server = self.pdf_server().map_err(ToolReply::Error)?.clone();
+                    Box::pin(blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())))
+                }
+                Family::AemVerify | Family::RedactoVerify => {
+                    let attached = matches!(
+                        (&self.verifier, entry.family),
+                        (Some(Verifier::Aem(..)), Family::AemVerify)
+                            | (Some(Verifier::Redacto(_)), Family::RedactoVerify)
+                    );
+                    if attached && !OFFLINE_VERIFY_TOOLS.contains(&server_name.as_str()) {
+                        self.acquire_lock().await.map_err(ToolReply::Error)?;
+                        self.touch();
                     }
-                    self.touch();
+                    match &self.verifier {
+                        Some(Verifier::Aem(server, _)) if entry.family == Family::AemVerify => {
+                            let server = server.clone();
+                            Box::pin(spawned(async move { server.dispatch(&server_name, &input).await }))
+                        }
+                        Some(Verifier::Redacto(server)) if entry.family == Family::RedactoVerify => {
+                            let server = server.clone();
+                            Box::pin(spawned(async move { server.dispatch(&server_name, &input).await }))
+                        }
+                        _ => {
+                            return Err(ToolReply::Error(format!(
+                                "{name} is not available in this run: its verifier was not started"
+                            )));
+                        }
+                    }
                 }
-                match &self.verifier {
-                Some(Verifier::Aem(server, _)) if entry.family == Family::AemVerify => {
-                    let server = server.clone();
-                    spawned(async move { server.dispatch(&server_name, &input).await }).await
-                }
-                Some(Verifier::Redacto(server)) if entry.family == Family::RedactoVerify => {
-                    let server = server.clone();
-                    spawned(async move { server.dispatch(&server_name, &input).await }).await
-                }
-                _ => Err(format!(
-                    "{name} is not available in this run: its verifier was not started"
-                )),
-                }
+            };
+        Ok(async move {
+            match work.await {
+                Ok(result) => crate::mcp_reply::reply_from_result(result, Some(&blobs)),
+                Err(message) => ToolReply::Error(message),
             }
-        };
-        match result {
-            Ok(result) => crate::mcp_reply::reply_from_result(result, Some(&self.dir.path().join("blobs"))),
-            Err(message) => ToolReply::Error(message),
-        }
+        })
     }
 
     fn pdf_server(&mut self) -> Result<&PdfRenderServer, String> {

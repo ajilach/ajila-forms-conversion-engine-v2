@@ -599,6 +599,7 @@ async fn run_stage_attempts(
         let mut stream = runner
             .preamble(system)
             .max_turns(remaining)
+            .tool_concurrency(crate::tools::TOOL_CONCURRENCY)
             .add_hook(hook.clone())
             .stream()
             .await;

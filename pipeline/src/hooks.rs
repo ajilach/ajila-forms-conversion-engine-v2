@@ -281,6 +281,12 @@ impl AgentHook for StageHook {
             return ToolResultAction::stop(SUBMIT_REVIEW_SENTINEL);
         }
 
+        // A read neither builds nor interrupts building: reads finish in any
+        // order beside the turn's other calls (see `tools`), so letting one
+        // reset the watch would make it depend on timing.
+        if agent::access_of(event.tool_name) == agent::Access::Read {
+            return ToolResultAction::Keep;
+        }
         let mut stuck = self.stuck.lock().unwrap_or_else(|p| p.into_inner());
         if stuck.observe(event.tool_name, &output.render()) {
             return ToolResultAction::stop(STUCK_SENTINEL);
@@ -1050,6 +1056,116 @@ mod tests {
             "the stage must recover and take its second scripted turn, not end on the \
              unknown tool"
         );
+    }
+
+    /// Reads finish in any order beside a turn's other calls, so they must
+    /// not reset the stuck watch: the same write repeated with only reads in
+    /// between is still going in circles.
+    #[tokio::test]
+    async fn reads_between_repeats_do_not_reset_the_stuck_watch() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let shared_agent = bare_shared_agent();
+        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::MCP)
+            .into_iter()
+            .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
+            .collect();
+        let tools = crate::tools::dynamic_tools_for(&shared_agent, &specs);
+        let turn = || {
+            vec![
+                MockStreamEvent::tool_call("watched", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::tool_call("read", "list_reference_docs", serde_json::json!({})),
+                MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+            ]
+        };
+        let model = MockCompletionModel::from_stream_turns(std::iter::repeat_with(turn).take(10));
+        let agent = agent_with_tools(model.clone(), tools);
+        let hook = StageHook::new(
+            &STUCK_ON_GET_SOURCE_INFO,
+            AbortFlag::default(),
+            SharedObserver::new(crate::observer::NullObserver),
+            no_price(),
+            Spend::default(),
+            no_budget(),
+        );
+
+        drain(
+            agent
+                .runner("go")
+                .add_hook(hook)
+                .max_turns(10)
+                .tool_concurrency(crate::tools::TOOL_CONCURRENCY)
+                .stream()
+                .await,
+        )
+        .await;
+
+        assert_eq!(model.request_count(), crate::roles::MAX_VALIDATE_REPEATS);
+    }
+
+    /// A turn whose calls mix reads and a write still runs every call and
+    /// records every result in call order, with reads running on the read path
+    /// beside the write (`tools::TOOL_CONCURRENCY`).
+    #[tokio::test]
+    async fn a_turn_of_reads_and_a_write_records_every_result_in_call_order() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let shared_agent = bare_shared_agent();
+        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::MCP)
+            .into_iter()
+            .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
+            .collect();
+        assert_eq!(specs.len(), 2);
+        assert_eq!(agent::access_of("list_reference_docs"), agent::Access::Read);
+        assert_eq!(agent::access_of("get_source_info"), agent::Access::Write);
+        let tools = crate::tools::dynamic_tools_for(&shared_agent, &specs);
+
+        let model = MockCompletionModel::from_stream_turns([
+            vec![
+                MockStreamEvent::tool_call("read-1", "list_reference_docs", serde_json::json!({})),
+                MockStreamEvent::tool_call("write", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::tool_call("read-2", "list_reference_docs", serde_json::json!({})),
+                MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+            ],
+            vec![
+                MockStreamEvent::text("done"),
+                MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+            ],
+        ]);
+        let agent = agent_with_tools(model.clone(), tools);
+        let (obs, log) = recorder();
+        let hook = StageHook::new(&PLAIN, AbortFlag::default(), obs, no_price(), Spend::default(), no_budget());
+
+        drain(
+            agent
+                .runner("go")
+                .add_hook(hook)
+                .max_turns(5)
+                .tool_concurrency(crate::tools::TOOL_CONCURRENCY)
+                .stream()
+                .await,
+        )
+        .await;
+
+        let requests = model.requests();
+        assert_eq!(requests.len(), 2, "the turn after the tools was never sent");
+        let results: Vec<String> = requests[1]
+            .chat_history
+            .iter()
+            .flat_map(|m| match m {
+                Message::User { content } => content
+                    .iter()
+                    .filter_map(|c| match c {
+                        rig_core::message::UserContent::ToolResult(r) => Some(r.call.to_string()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .collect();
+        assert_eq!(results, ["read-1", "write", "read-2"]);
+
+        let log = log.lock().unwrap();
+        let finished = log.iter().filter(|e| matches!(e, RunEvent::ToolFinished { ok: true, .. })).count();
+        assert_eq!(finished, 3, "{log:?}");
     }
 
     /// The whole point of wiring a `ContextBudget` in: a history that has

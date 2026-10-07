@@ -10,12 +10,25 @@
 //!
 //! Its callback is `Fn + Send + Sync + 'static`, so it cannot hold `&mut
 //! ConversionAgent` directly; [`SharedAgent`] is what makes that legal without
-//! reintroducing a second copy of the working tree — every stage's tools
+//! reintroducing a second copy of the working tree: every stage's tools
 //! dispatch against the one agent a run drives, cloning the `Arc` (which `Fn`
-//! permits) and locking it only for the call's duration. The lock is never
-//! contended: tool calls run at rig's default `tool_concurrency(1)`, so one
-//! call finishes before the next starts, which is also what keeps the
-//! activity timeline in call order.
+//! permits) and locking it for the call.
+//!
+//! A stage runs up to [`TOOL_CONCURRENCY`] of a turn's calls at once. A read
+//! (`ConversionAgent::start_read`) holds the lock only while it takes what it
+//! needs, then does its work without it, so a turn's renders and reads run
+//! side by side. Every other call holds the lock throughout, so writes run one
+//! at a time, in the order tokio's fair mutex hands it out (call order), and a
+//! read never sees a half-applied write. rig records the results in call
+//! order whatever order they finish in; only the live timeline sees them in
+//! completion order, and its observers key them by call id.
+//!
+//! A stop a hook raises (`submit_review`, the stuck watch) skips only the
+//! calls of that turn that have not started. With several running at once, a
+//! write already waiting for the agent still runs after the stop, though rig
+//! discards the turn's results. The Reviewer, whose verdict ends its stage,
+//! has no tool that edits the document, so what can still run there is a build
+//! or a verifier step.
 
 use std::sync::Arc;
 
@@ -25,6 +38,11 @@ use rig_core::message::ToolResultContent;
 use tokio::sync::Mutex;
 
 use crate::turns::media_media_type;
+
+/// How many of a turn's tool calls a stage runs at once. Only reads overlap
+/// (see the module docs); four covers a turn that renders or reads every
+/// language of a typical form.
+pub(crate) const TOOL_CONCURRENCY: usize = 4;
 
 /// The one `ConversionAgent` a run drives, shared across every stage's tools
 /// and the stage driver itself.
@@ -59,8 +77,14 @@ fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value) -> Option<Dy
             let agent = agent.clone();
             let name = dispatch_name.clone();
             Box::pin(async move {
-                let mut agent = agent.lock().await;
-                let reply = agent.execute(&name, &args).await;
+                let mut guard = agent.lock().await;
+                let reply = match guard.start_read(&name, &args).await {
+                    Some(work) => {
+                        drop(guard);
+                        work.await
+                    }
+                    None => guard.execute(&name, &args).await,
+                };
                 reply_to_tool_output(reply)
             })
         },
@@ -196,6 +220,26 @@ mod tests {
                 .unwrap()
                 .contains(r#""documents":[]"#)
         );
+    }
+
+    /// A read's work does not hold the agent: it finishes while something
+    /// else (a write, say) has the agent locked.
+    #[tokio::test]
+    async fn a_reads_work_runs_while_the_agent_is_held() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let agent = bare_agent();
+        let work = agent
+            .lock()
+            .await
+            .start_read("list_reference_docs", &serde_json::json!({}))
+            .await
+            .expect("list_reference_docs is a read");
+
+        let _held = agent.lock().await;
+        let reply = tokio::time::timeout(std::time::Duration::from_secs(10), work)
+            .await
+            .expect("the read waited for the agent");
+        assert!(matches!(reply, ToolReply::Text(_)), "{reply:?}");
     }
 
     /// A spec missing a name is dropped, not panicked on — the catalog's own

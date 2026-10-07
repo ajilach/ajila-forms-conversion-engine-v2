@@ -6,7 +6,7 @@
 //! printed as it arrives and kept as a Markdown transcript so a finished run
 //! leaves the same log the app offers as a download.
 
-use std::io::Write;
+use std::collections::HashMap;
 use std::time::Instant;
 
 use pipeline::{RetryAction, RunEvent, RunObserver};
@@ -20,13 +20,22 @@ pub struct ConsoleObserver {
     retries_left: usize,
     /// The answer [`Self::retry_prompt`] decided on, read back by `poll_retry`.
     retry_action: Option<RetryAction>,
-    /// The tool currently running, so its result lands on the same line.
-    running: Option<Instant>,
+    /// The tools currently running, by call id: when each started, the line
+    /// to print once it finishes, and its transcript entry. A stage runs a
+    /// turn's reads side by side, so several can be running and they finish
+    /// in any order.
+    running: HashMap<String, Running>,
     /// Whether the abort notice has been printed (it is emitted repeatedly).
     aborted: bool,
     /// The run's cumulative spend, reported once when it finishes.
     spend: Option<pipeline::Spend>,
     transcript: Vec<String>,
+}
+
+struct Running {
+    started: Instant,
+    line: String,
+    entry: usize,
 }
 
 impl ConsoleObserver {
@@ -35,7 +44,7 @@ impl ConsoleObserver {
             context_window,
             retries_left: retries,
             retry_action: None,
-            running: None,
+            running: HashMap::new(),
             aborted: false,
             spend: None,
             transcript: vec!["# Agent Conversion Log\n".to_string()],
@@ -98,11 +107,10 @@ impl RunObserver for ConsoleObserver {
                     .push(format!("> {}\n", text.replace('\n', "\n> ")));
             }
             RunEvent::ToolStarted {
+                id,
                 name,
                 input_summary,
-                ..
             } => {
-                self.running = Some(Instant::now());
                 let (line, entry) = if input_summary.is_empty() {
                     (format!("  · {name}"), format!("- `{name}`"))
                 } else {
@@ -111,23 +119,23 @@ impl RunObserver for ConsoleObserver {
                         format!("- `{name}` — {input_summary}"),
                     )
                 };
-                // No newline: the outcome and the elapsed time complete this
-                // line as soon as the tool returns.
-                print!("{line}");
-                let _ = std::io::stdout().flush();
+                // The transcript keeps call order; the line is printed whole
+                // once the call finishes, with its outcome and elapsed time.
                 self.transcript.push(entry);
+                let entry = self.transcript.len() - 1;
+                self.running.insert(id, Running { started: Instant::now(), line, entry });
             }
-            RunEvent::ToolFinished { ok, .. } => {
-                let secs = self
-                    .running
-                    .take()
-                    .map(|t| t.elapsed().as_secs_f32())
-                    .unwrap_or(0.0);
+            RunEvent::ToolFinished { id, ok, .. } => {
                 let glyph = if ok { "✓" } else { "✗" };
-                println!(" {glyph} ({secs:.1}s)");
-                // Mark the entry this result belongs to, matching the app's log.
-                if let Some(last) = self.transcript.last_mut() {
-                    *last = last.replacen("- ", &format!("- {glyph} "), 1);
+                match self.running.remove(&id) {
+                    Some(running) => {
+                        let secs = running.started.elapsed().as_secs_f32();
+                        println!("{} {glyph} ({secs:.1}s)", running.line);
+                        // Mark the entry this result belongs to, matching the app's log.
+                        let entry = &mut self.transcript[running.entry];
+                        *entry = entry.replacen("- ", &format!("- {glyph} "), 1);
+                    }
+                    None => println!("  · (unknown call {id}) {glyph}"),
                 }
             }
             RunEvent::Warning(w) => {
@@ -182,6 +190,27 @@ impl RunObserver for ConsoleObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stage runs a turn's reads side by side, so calls finish out of order;
+    /// each outcome has to land on its own call's entry, not on the last one.
+    #[test]
+    fn calls_finishing_out_of_order_mark_their_own_entries() {
+        let mut obs = ConsoleObserver::new(200_000, 0);
+        for (id, name) in [("a", "xfa_render_pages"), ("b", "pdf_render_pages")] {
+            obs.emit(RunEvent::ToolStarted {
+                id: id.into(),
+                name: name.into(),
+                input_summary: String::new(),
+            });
+        }
+        obs.emit(RunEvent::ToolFinished { id: "b".into(), ok: false, reply_chars: 0 });
+        obs.emit(RunEvent::ToolFinished { id: "a".into(), ok: true, reply_chars: 0 });
+
+        let transcript = obs.transcript();
+        assert!(transcript.contains("- ✓ `xfa_render_pages`"), "{transcript}");
+        assert!(transcript.contains("- ✗ `pdf_render_pages`"), "{transcript}");
+        assert!(obs.running.is_empty());
+    }
 
     /// The retry budget has to run out: a headless run that answers "retry"
     /// forever would sit on a permanent failure — a revoked key, say — until it
