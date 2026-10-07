@@ -313,8 +313,8 @@ Adobe's own switch and is not read on that path at all. Everything excluded from
 also be excluded from the summary — set both, never `dor_exclude` alone. To keep something off the \
 screen and out of the summary but IN the printed document, use `always_in_pdf` together with \
 `summary_exclude` and leave `dor_exclude` off, since it would undo them: that is the shape of the \
-internal-bank-use block, of the DoR copy of the Italy infobox, and of the legal-entity line printed in \
-the DoR header. `dor_exclude_title` excludes a panel's heading only, not the panel. These are ordinary \
+internal-bank-use block (including one a FIM signature-verification checkbox governs), of the DoR \
+copy of the Italy infobox, and of the legal-entity line printed in the DoR header. `dor_exclude_title` excludes a panel's heading only, not the panel. These are ordinary \
 fields on every node (a json_patch `replace` or `add` on the node), next to `css`, `jump_to_field`, `dor_header_slot` and \
 `show_if_hidden`.\n\n\
 THE ENGINE ADDS THREE SHAPES ITSELF when it writes the package, so do not author them and do not report \
@@ -381,14 +381,22 @@ form already carries. Every attribute that decides where a node shows up is a fi
 `jump_to_field`, `css`, `dor_header_slot` — so a fix is a field edit, and rule_check tells you which of \
 the UBS rules the document still breaks.";
 
+/// The Redacto counterpart of [`MCP_ADDENDUM`]: a Redacto session has no AEM
+/// package to export, no package to fix and no check rules.
+pub const REDACTO_MCP_ADDENDUM: &str = "\
+MCP specifics: prefer local file paths for inputs. `start_conversion` takes `pdf_path` / \
+`pdf_paths` (with `pdf_base64` only as a fallback when the file is not reachable on the server's \
+filesystem). The redacto_verify_* tools run against the Docker-hosted verifier configured in the \
+desktop app settings (shared history.db); `start_conversion` refuses to start a conversion whose \
+verifier is not ready, and reports what it checked.";
+
 // ── Multi-agent role prompts ─────────────────────────────────────────────────
 //
-// The desktop pipeline (see `app`'s `run_conversion`) splits the run into an
-// Analyst → Author → Reviewer sequence. Each role's system prompt is composed by
-// the controller as SHARED_PREAMBLE + the role addendum (+ for Author/Reviewer,
-// the Analyst's plan and accumulated review reports, pinned in the system field
-// so they are never evicted). The Author reuses the full [`SYSTEM_PROMPT`] as its
-// authoring body; MCP still serves [`SYSTEM_PROMPT`] to external clients.
+// The pipeline splits the run into an Author → (Reviewer → Author fix)*
+// sequence. The Author's system prompt is the full [`SYSTEM_PROMPT`] authoring
+// body + its addendum; the Reviewer's is SHARED_PREAMBLE + its addendum. Both
+// get the accumulated review reports pinned in the system field so they are
+// never evicted. MCP serves [`SYSTEM_PROMPT`] to external clients.
 
 /// Prepended to every pipeline-stage role prompt.
 pub const SHARED_PREAMBLE: &str = "\
@@ -405,64 +413,14 @@ languages under the codes the platform files them by (Spanish as SP), and \
 `formrange_afmasterlanguage` is the language the form was ISSUED in for its market — Germany DE, \
 Italy IT, elsewhere EN — which is deliberately not the authoring master the dictionaries are keyed \
 in (that stays EN). Do not plan around them and do not report them as defects. \
-(3) The reference forms and profile templates are ground truth for structure — consult them and \
-copy proven shapes (fragment references, visibility scripts) verbatim rather than inventing, and \
-read them fresh. When your stage is done, stop and reply with a concise, structured summary of what \
-you found or changed.";
-
-/// Analyst role: read-only source analysis + precedent research → a conversion plan.
-pub const ANALYST_ADDENDUM: &str = "\
-ROLE: Analyst. You do NOT edit the document. Produce ONE detailed CONVERSION PLAN that lets the Author \
-build the form without re-reading the bulky source. Inspect exhaustively (get_source_info: \
-form codes ending 019 = Germany, 033 = Italy; xfa_packets, xfa_outline, xfa_node, \
-xfa_search and xfa_read for the XFA; xfa_render_pages for every page of every language's PDF) and \
-EXPLORE THE VARIANTS yourself: nothing lists them for you. Open the form with xfa_open, find the \
-controls that drive visibility with xfa_controls, set each configurator choice with xfa_set, \
-re-render, and xfa_reset between explorations; a section you do not reveal is a section the Author \
-never builds. Research precedents FIRST via the reference \
-documentation (list_reference_docs, read_reference_doc, grep_reference_docs — the \"AF Fragments and \
-Common Fields\" catalogue, wizard pages & step-title headings, DoR/summary exclusions, translation \
-rules), then per section search_references / grep_references / get_reference_package / \
-read_reference_file. The plan must list every VARIANT you found: which control and which value \
-reveal it, and which sections it shows or hides. It must give, per top-level SECTION in source \
-order: whether it is a \
-wizard page (a first-level section = one page); its heading and the verbatim labels / options / \
-field text in EVERY language; each field's control type; which regions are TABLES (their column \
-count, whether the header row is ruled or arrives as detached headings, and whether any cell holds a \
-fillable field — the Author builds a table as one HtmlDisplayer node of HTML markup, and cannot \
-recover one this plan is silent about); any conditional or CASCADING behaviour \
-(quote the XFA change-event function and its clearItems/addItem/rawValue branches); the recommended \
-standard fragment with its exact JCR path (banking relationship → \
-affrg_BankingRelationship1 in afforms_ubs_fragmentlib, referenced under /content/forms/af/ while every \
-other fragment is referenced under /content/dam/formsanddocuments/; whether the form is \
-addressee-driven (it carries a Formular Adressat / Form addressee / Tipo configurator), and if so \
-its account-holder cluster: the choice and its options in every language, per option the parties \
-by role and the UBS partner generic each takes (contracting party → affrg_ContractualPartnerGeneric1 \
-as PN_CPGRP, partner of that party → affrg_PartnertoPartnerGeneric1 as PN_AHGRP, beneficial owner → \
-affrg_BeneficialOwnerGeneric1 as PN_BOGRP, POA/authorized signer → affrg_PowerofAttorneyGeneric1 as \
-PN_PAGRP), the sub-panels each party does not show, which parties sign, and which page each part \
-goes on; a loose address with no person block → affrg_AddressGeneric1; and \
-in a form with NO configurator, a bare name pair identifying the form's subject stays plain TXT_ \
-textboxes — state that explicitly rather than reaching for a partner generic). Never recommend a \
-germany/italy person or signature fragment: those libraries \
-are being emptied into the UBS generics, and the reference forms predating the change do not \
-override this. Also record any verbatim script/hook shape to copy (showAFShowDor / hideAFHideDor, \
-cascade visibility scripts) with its source ref_id + file path. Record as well, for the shapes the \
-deployed corpus is held to: the master-page header lines, verbatim (the validity line and the issuer, \
-e.g. \"UBS Europe SE\", which the Author sets as `/header` and the template prints in the DoR header \
-rather than on screen); which heading is the FIRST page's, since that \
-one becomes a subtitle rather than a step title; and whether the form carries an Italy infobox, an \
-internal-bank-use block or a FIM signature-verification checkbox, all of which reach the reader through \
-the printed document alone. List the languages (the source's own \
-— synonym locales such as de-ch are derived by the packager and are not authored) and any DoR / \
-summary exclusion notes. Your final message IS the plan — make it complete and self-contained; the \
-Author works from it, not by re-reading the source.";
+(3) The shapes this prompt names (fragment references, visibility scripts, exclusions) are the \
+house conventions; hold the document to them rather than to shapes of your own. When your stage \
+is done, stop and reply with a concise, structured summary of what you found or changed.";
 
 /// Author role: appended AFTER the full [`SYSTEM_PROMPT`] authoring body.
 pub const AUTHOR_ADDENDUM: &str = "\
-STAGE NOTE: A CONVERSION PLAN produced by an Analyst is appended below as your section / field / \
-precedent map. Trust it and use xfa_search / xfa_read only to fill specific gaps rather than \
-re-reading the whole XFA. A separate Reviewer judges fidelity after you, so do not try to end the run; once you \
+STAGE NOTE: You inspect the source and research the precedents yourself (steps 1 and 2): \
+nobody has done it before you. A separate Reviewer judges fidelity after you, so do not try to end the run; once you \
 have authored a complete form, compared every rendered page against it and fixed the structural \
 mismatches that comparison showed (step 5b), cleared every rule_check finding, run \
 build_aem_package, and \
@@ -503,8 +461,7 @@ fails in. The shape to require is ONE HtmlDisplayer node named `TBL_` whose `con
 The ubs-aem-legacy-table-panels rule names every panel still holding a table the old way, and it \
 must pass; a table whose cells hold input fields is the one legitimate exception and stays a Panel. \
 A structure the Author missed is an authorable issue: return it. Judge \
-ANALOGY to the source AND conformance to the CONVERSION PLAN appended below, and confirm every point \
-in any prior REVIEW FEEDBACK is now fixed. Checklist: every rule_check verdict positive (the \
+ANALOGY to the source, and confirm every point in any prior REVIEW FEEDBACK is now fixed. Checklist: every rule_check verdict positive (the \
 naming prefixes, the input labels and duplicate sibling labels, the retired market fragments, the \
 legacy tables, rules in the code editor and never on `fd:rules`; each violation names the node and \
 what is wrong with it, and any negative verdict is a defect); the corpus invariants the UBS templates \
@@ -528,7 +485,7 @@ show, and each party that signs has its signature Repeatable named after it (RCP
 PN_SGN_CPGRP for PN_CPGRP, RCP_Sign_AHGRP wrapping PN_Sign_AHGRP for PN_AHGRP, and so on), since a \
 misspelled name silently unpairs the Add button; never a germany/italy person or signature fragRef, while in a form with no configurator a bare \
 name pair stays plain TXT_ textboxes and a partner generic there is a defect; count the signers \
-the source shows against what the form collects, since a plan that says \"two signature blocks\" \
+the source shows against what the form collects, since an Author's summary that says \"two signature blocks\" \
 is not evidence of two. VERIFY the retirement explicitly: the \
 ubs-aem-retired-market-fragments rule reports every `frag_ref` still pointing into the germany/italy \
 libraries (the deliberately market-specific internal-bank-use, footnote, infobox and \
@@ -547,7 +504,7 @@ actually receives the PAIRED Visibility + Initialize showAFShowDor/hideAFHideDor
 `is_conditional: false` renders invisible forever, and a missing hook is the usual reason a \
 repeatable renders only one instance; every fillable source field present. \
 ENGINE-INTRINSIC issues — some defects come from the conversion engine itself (fixed template output, \
-resourceType assignments, lowering behaviour) and CANNOT be changed by the Author with json_patch. \
+resourceType assignments, lowering behaviour) and CANNOT be changed by the Author editing the document. \
 An engine-intrinsic issue is one you can point at in the profile templates or the lowering, not one you \
 assume: the templates write the dedicated email, telephone and multiline components for a text field of that `kind`, so an EML_/TEL_/TXTM_ \
 name reported as wrong-prefix is a real defect now, not the standing exception it used to be. \
@@ -555,9 +512,9 @@ Do not send such issues back to the Author and do not block approval on them —
 the label as a catch-all, and do NOT treat it as \"fine\": a repeatable's prefix, for one, is NOT \
 engine-intrinsic — the engine derives its inner panels from the name the Author gave it, so a \
 repeatable named `RP_…` or `PN_…` is ONE authorable rename, not fixed template output; before calling something engine-intrinsic, \
-check what the reference forms and profile templates actually contain, because a shape the engine gets \
+check what the built package actually contains (get_package_info, read_package_file), because a shape the engine gets \
 wrong is still a real defect the operator needs told about. Report every one explicitly under a clearly \
-separated ENGINE DEFECTS heading, with the node path and the shape the references use instead — that \
+separated ENGINE DEFECTS heading, with the node path and the shape the source and these conventions call for instead — that \
 list is the only way these reach the people who can fix the engine, so an unreported one is a silent \
 regression. Only return issues the Author \
 can actually fix by editing the document. End by calling submit_review with approved=true ONLY if every \
@@ -669,29 +626,12 @@ invent a translation for a language it does not. A non-master language whose tex
 the master-language text is an untranslated stub, not a translation. Keep tool inputs minimal and \
 valid JSON.";
 
-/// Redacto Analyst role: read-only source analysis → a conversion plan.
-pub const REDACTO_ANALYST_ADDENDUM: &str = "\
-ROLE: Analyst. You do NOT edit the document. Produce ONE detailed CONVERSION PLAN that lets the \
-Author build the Redacto document without re-reading the bulky source. Inspect exhaustively: \
-get_source_info (the authority on which languages the source has, one PDF each), then for EVERY \
-language's PDF xfa_render_pages and xfa_page_text, with xfa_search / xfa_read for exact wording. The \
-plan must give, per top-level SECTION in source order: its role (heading / body text / list / table \
-/ footnote block / multi-column region); its heading level; and, crucially, HOW THE LANGUAGES LINE \
-UP: which PDF carries each language, whether their block structures correspond one-to-one, and \
-every place they do NOT. Those mismatches are the entire difficulty of this conversion, which is why \
-the Author pairs the languages by hand. Also record: any footnote markers and the text they refer \
-to; any multi-column section; the page header drawn on the master page, quoted per language (the \
-Author sets it per language); and whether the source carries fillable fields (a Redacto document \
-cannot represent them, so the Author must be told). Your final message IS the plan — make it \
-complete and self-contained; the Author works from it, not by re-reading the source.";
-
 /// Redacto Author role: appended AFTER [`REDACTO_SYSTEM_PROMPT`].
 /// Mirrors [`AUTHOR_ADDENDUM`]; the "do not end the run yourself" contract is
 /// what the controller's review loop depends on, and is copied in substance.
 pub const REDACTO_AUTHOR_ADDENDUM: &str = "\
-STAGE NOTE: A CONVERSION PLAN produced by an Analyst is appended below as your section / language \
-map. Trust it and use xfa_search / xfa_page_text only to fill specific gaps rather than re-reading \
-the whole source. A separate Reviewer judges fidelity after you, so do not try to end the run; \
+STAGE NOTE: You inspect the source yourself (step 1), every language's PDF, and pair the \
+languages block by block: nobody has done it before you. A separate Reviewer judges fidelity after you, so do not try to end the run; \
 once you have authored the document with its page headers, in every language, compared every \
 rendered page against it and fixed the structural mismatches it showed (step 5), built it with \
 build_redacto_dump and verified it with redacto_verify_run, stop with a short summary — say in it \

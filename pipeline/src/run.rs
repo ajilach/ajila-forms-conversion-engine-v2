@@ -1,4 +1,4 @@
-//! The conversion controller: Analyst → Author → (Reviewer → Author-fix)* →
+//! The conversion controller: Author → (Reviewer → Author-fix)* →
 //! finalize, sequenced over one shared [`ConversionAgent`].
 //!
 //! Each stage runs as a real rig [`Agent`], driven through
@@ -62,11 +62,10 @@ pub struct RunConfig {
     pub context_budget: Arc<dyn ContextBudget>,
 }
 
-/// What starts a run: a fresh analysis, feedback on the previous result, or
+/// What starts a run: a fresh conversion, feedback on the previous result, or
 /// carrying on with what a previous run left behind.
 ///
-/// Only [`RunSeed::Fresh`] runs the Analyst. The other two resume a session
-/// whose working tree is already seeded, so there is nothing left to analyse:
+/// The other two resume a session whose working tree is already seeded:
 /// feedback becomes the first pinned review, and a continuation pins nothing at
 /// all — the Author simply picks the tree up where it was left.
 pub enum RunSeed {
@@ -92,15 +91,6 @@ impl RunSeed {
             Self::Feedback(feedback.to_string())
         }
     }
-
-    /// Whether this run starts with the Analyst.
-    ///
-    /// Only a fresh conversion does. The other two resume a session that already
-    /// holds an authored tree, and re-analysing the source would spend a stage's
-    /// whole budget producing a plan for work that is already done.
-    fn runs_analyst(&self) -> bool {
-        matches!(self, Self::Fresh)
-    }
 }
 
 /// Which message opens the Author stage.
@@ -108,7 +98,7 @@ impl RunSeed {
 /// Pinned review feedback wins over everything: whether it came from the user or
 /// from a Reviewer round, there is something concrete to apply. Failing that a
 /// continuation finishes the tree it was seeded with, and a fresh run begins
-/// from the Analyst's plan.
+/// from the source.
 fn author_seed_for(
     seed: &RunSeed,
     reviews: &[String],
@@ -171,7 +161,6 @@ async fn run_stages(
     let target = config.target;
     let extra = &config.extra_instructions;
     let stages = roles::roles_for(target);
-    let mut plan = String::new();
     let mut reviews: Vec<String> = Vec::new();
     // The whole run's running total — every stage folds its own spend into
     // this one accumulator, so the last `RunEvent::Spend` a run emits is the
@@ -184,30 +173,7 @@ async fn run_stages(
         reviews.push(format!("User feedback to apply to the form:\n{fb}"));
     }
 
-    // ── Stage 1: Analyst → conversion plan ──────────────────────────────────
-    if seed.runs_analyst() {
-        obs.emit(RunEvent::Stage {
-            role: "Analyst",
-            doing: "analysing the source and researching precedents".into(),
-        });
-        plan = run_stage(
-            shared_agent,
-            stages.analyst,
-            &roles::sys_analyst(target, extra),
-            "Analyse the source form and produce the detailed CONVERSION PLAN. \
-             Your final message is the plan.",
-            &config.abort,
-            config.model.clone(),
-            config.price.clone(),
-            config.max_tokens,
-            config.context_budget.clone(),
-            obs,
-            &mut spend,
-        )
-        .await?; // fatal API error or abort, already surfaced
-    }
-
-    // ── Stage 2: Author → build the artefact ────────────────────────────────
+    // ── Stage 1: Author → build the artefact ────────────────────────────────
     obs.emit(RunEvent::Stage {
         role: "Author",
         doing: stages.author_doing.into(),
@@ -216,7 +182,7 @@ async fn run_stages(
     run_stage(
         shared_agent,
         stages.author,
-        &roles::sys_author(target, extra, config.template_note, &plan, &reviews),
+        &roles::sys_author(target, extra, config.template_note, &reviews),
         author_seed,
         &config.abort,
         config.model.clone(),
@@ -228,7 +194,7 @@ async fn run_stages(
     )
     .await?;
 
-    // ── Stage 3: Reviewer → (Author fix)* ───────────────────────────────────
+    // ── Stage 2: Reviewer → (Author fix)* ───────────────────────────────────
     let mut approved = false;
     let mut warnings: Vec<String> = Vec::new();
     for round in 0..config.max_review_rounds {
@@ -239,9 +205,9 @@ async fn run_stages(
         run_stage(
             shared_agent,
             stages.reviewer,
-            &roles::sys_reviewer(target, extra, &plan, &reviews),
-            "Review the built form end to end against the source and the CONVERSION PLAN, \
-             then finish by calling submit_review.",
+            &roles::sys_reviewer(target, extra, &reviews),
+            "Review the built form end to end against the source, then finish by calling \
+             submit_review.",
             &config.abort,
             config.model.clone(),
             config.price.clone(),
@@ -272,7 +238,7 @@ async fn run_stages(
                 run_stage(
                     shared_agent,
                     stages.author,
-                    &roles::sys_author(target, extra, config.template_note, &plan, &reviews),
+                    &roles::sys_author(target, extra, config.template_note, &reviews),
                     stages.author_fix_seed,
                     &config.abort,
                     config.model.clone(),
@@ -1053,16 +1019,6 @@ pub(crate) fn summarize_input(input: &serde_json::Value) -> String {
 mod tests {
     use super::*;
 
-    /// Only a fresh conversion analyses the source. A resumed session already
-    /// holds an authored tree, and an Analyst stage there would spend its whole
-    /// budget planning work that is already done.
-    #[test]
-    fn only_a_fresh_run_analyses_the_source() {
-        assert!(RunSeed::Fresh.runs_analyst());
-        assert!(!RunSeed::Feedback("make it optional".into()).runs_analyst());
-        assert!(!RunSeed::Continue.runs_analyst());
-    }
-
     /// The Author's opening message decides whether it authors from scratch,
     /// applies something, or finishes what it was handed — so a continuation
     /// must not be told to begin, which would discard the seeded tree.
@@ -1442,8 +1398,7 @@ mod controller {
         }
     }
 
-    /// One scripted stage turn: plain text, the way the Analyst and Author
-    /// answer.
+    /// One scripted stage turn: plain text, the way an Author stage ends.
     fn text_turn(text: &str) -> Vec<MockStreamEvent> {
         vec![
             MockStreamEvent::text(text),
@@ -1544,7 +1499,6 @@ mod controller {
         // Approved.
         let agent = redacto_agent_with_verifier();
         let model = MockCompletionModel::from_stream_turns([
-            text_turn("PLAN"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
@@ -1556,7 +1510,6 @@ mod controller {
         // Unapproved: the review rounds run out.
         let agent = redacto_agent_with_verifier();
         let model = MockCompletionModel::from_stream_turns([
-            text_turn("PLAN"),
             text_turn("BUILT"),
             review_turn(false, "nope"),
             text_turn("FIXED"),
@@ -1581,7 +1534,7 @@ mod controller {
     /// `submit_review`, no natural end) must not finalize silently: the
     /// hand-rolled loop warned on every `AgentRun` step error, budget
     /// exhaustion included, and an operator who never sees this warning has
-    /// no way to know the Analyst's plan is a guess cut off mid-thought.
+    /// no way to know the review was cut off mid-way.
     #[tokio::test]
     async fn a_stage_that_exhausts_its_turn_budget_warns_rather_than_finishing_silently() {
         // A tool-free text turn is itself a natural end for a stage — the
@@ -1589,32 +1542,28 @@ mod controller {
         // every other controller test — so driving a stage all the way to
         // `MaxTurnsError` needs turns that keep the loop going instead: a
         // tool call, answered every time, never ends the stage on its own.
-        // Redacto's Analyst budget is 25 turns; script exactly that many
-        // (its `stuck_tool` is `None`, so the repeats never trip the stuck
-        // watch instead) so the 26th completion call is refused with
-        // `MaxTurnsError`, then one ordinary turn for the Author stage that
-        // follows it.
+        // One ordinary Author turn, then Redacto's Reviewer budget of 30
+        // turns (its `stuck_tool` is the dump build, so repeating
+        // `get_source_info` never trips the stuck watch instead); the 32nd
+        // completion call is refused with `MaxTurnsError`.
         let repeat_turn = || {
             vec![
                 MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
                 MockStreamEvent::final_response(Usage::new()),
             ]
         };
-        let mut turns: Vec<Vec<MockStreamEvent>> = std::iter::repeat_with(repeat_turn).take(25).collect();
-        turns.push(text_turn("BUILT"));
+        let mut turns = vec![text_turn("BUILT")];
+        turns.extend(std::iter::repeat_with(repeat_turn).take(30));
         let model = MockCompletionModel::from_stream_turns(turns);
         let (obs, rec) = recorder();
 
-        // No review rounds: the point of this test is the Analyst's budget,
-        // not the Reviewer, and this keeps the script to exactly one stage's
-        // overrun plus the Author's single ordinary turn.
-        let outcome = run(bare_agent(), config(AbortFlag::default(), 0, model.clone()), RunSeed::Fresh, obs).await;
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(
             outcome.is_some(),
             "a budget-exhausted stage still finalizes with whatever it built"
         );
-        assert_eq!(model.request_count(), 26);
+        assert_eq!(model.request_count(), 31);
         let warnings: Vec<String> = rec
             .lock()
             .unwrap()
@@ -1623,15 +1572,14 @@ mod controller {
             .map(|w| w.to_string())
             .collect();
         assert!(
-            warnings.iter().any(|w| w.contains("Analyst") && w.contains("25-turn budget")),
-            "the operator was never told the Analyst ran out of budget: {warnings:?}"
+            warnings.iter().any(|w| w.contains("Reviewer") && w.contains("30-turn budget")),
+            "the operator was never told the Reviewer ran out of budget: {warnings:?}"
         );
     }
 
     #[tokio::test]
-    async fn a_fresh_run_sequences_analyst_then_author_then_reviewer() {
+    async fn a_fresh_run_sequences_author_then_reviewer() {
         let model = MockCompletionModel::from_stream_turns([
-            text_turn("THE PLAN"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
@@ -1640,8 +1588,8 @@ mod controller {
         let outcome = run(bare_agent(), config(AbortFlag::default(), 2, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_some(), "an approved run produces a result");
-        assert_eq!(rec.lock().unwrap().stages(), ["Analyst", "Author", "Reviewer"]);
-        assert_eq!(model.request_count(), 3);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(model.request_count(), 2);
         // Approval means no "finalizing without a clean review" warning.
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(
@@ -1650,33 +1598,11 @@ mod controller {
         );
     }
 
-    /// The Analyst's plan has to reach the Author's prompt, or the second stage
-    /// re-derives everything the first one just worked out.
-    #[tokio::test]
-    async fn the_analysts_plan_is_pinned_into_the_authors_prompt() {
-        let model = MockCompletionModel::from_stream_turns([
-            text_turn("SECTION MAP: one heading, two fields"),
-            text_turn("BUILT"),
-            review_turn(true, ""),
-        ]);
-        let (obs, _) = recorder();
-
-        run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
-
-        let author_request = &model.requests()[1];
-        let author_system = turn_system(author_request);
-        assert!(
-            author_system.contains("SECTION MAP: one heading, two fields"),
-            "the Author never saw the plan: {author_system}"
-        );
-    }
-
     /// A rejected review sends the run back to the Author with the report
     /// pinned, then finalizes with a warning because it never got a clean pass.
     #[tokio::test]
     async fn a_rejected_review_drives_one_more_author_round() {
         let model = MockCompletionModel::from_stream_turns([
-            text_turn("THE PLAN"),
             text_turn("BUILT"),
             review_turn(false, "The footer is missing."),
             text_turn("FIXED"),
@@ -1686,8 +1612,8 @@ mod controller {
         let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_some());
-        assert_eq!(rec.lock().unwrap().stages(), ["Analyst", "Author", "Reviewer", "Author"]);
-        let fix_request = &model.requests()[3];
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer", "Author"]);
+        let fix_request = &model.requests()[2];
         let fix_system = turn_system(fix_request);
         assert!(
             fix_system.contains("The footer is missing."),
@@ -1706,15 +1632,12 @@ mod controller {
     /// observer.
     #[tokio::test]
     async fn a_full_runs_spend_sums_every_stage() {
-        let mut analyst_usage = Usage::new();
-        analyst_usage.input_tokens = 100;
         let mut author_usage = Usage::new();
-        author_usage.input_tokens = 50;
+        author_usage.input_tokens = 150;
         let mut reviewer_usage = Usage::new();
         reviewer_usage.input_tokens = 25;
 
         let model = MockCompletionModel::from_stream_turns([
-            vec![MockStreamEvent::text("THE PLAN"), MockStreamEvent::final_response(analyst_usage)],
             vec![MockStreamEvent::text("BUILT"), MockStreamEvent::final_response(author_usage)],
             vec![
                 MockStreamEvent::tool_call(
@@ -1755,10 +1678,9 @@ mod controller {
         );
     }
 
-    /// Feedback replaces the Analyst: the request becomes the first pinned
-    /// review and the Author starts from it.
+    /// Feedback becomes the first pinned review and the Author starts from it.
     #[tokio::test]
-    async fn a_feedback_run_skips_the_analyst() {
+    async fn a_feedback_run_pins_the_request() {
         let model = MockCompletionModel::from_stream_turns([text_turn("FIXED"), review_turn(true, "")]);
         let (obs, rec) = recorder();
 
@@ -1778,11 +1700,11 @@ mod controller {
         );
     }
 
-    /// Continuing a reopened session skips the Analyst too, and pins nothing:
-    /// the tree the previous run left is the whole brief, so an empty CONVERSION
-    /// PLAN or REVIEW FEEDBACK heading here would be an instruction to nothing.
+    /// Continuing a reopened session pins nothing: the tree the previous run
+    /// left is the whole brief, so an empty REVIEW FEEDBACK heading here would
+    /// be an instruction to nothing.
     #[tokio::test]
-    async fn a_continued_run_skips_the_analyst_and_pins_nothing() {
+    async fn a_continued_run_pins_nothing() {
         let model = MockCompletionModel::from_stream_turns([text_turn("FINISHED"), review_turn(true, "")]);
         let (obs, rec) = recorder();
 
@@ -1791,10 +1713,6 @@ mod controller {
         assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
         let author_request = &model.requests()[0];
         let author_system = turn_system(author_request);
-        assert!(
-            !author_system.contains("## CONVERSION PLAN"),
-            "a continuation has no plan to pin"
-        );
         assert!(
             !author_system.contains("## REVIEW FEEDBACK"),
             "a continuation has no feedback to pin"
@@ -1860,7 +1778,6 @@ mod controller {
     async fn retrying_re_sends_the_failed_turn() {
         let model = MockCompletionModel::from_stream_turns([
             error_turn("Anthropic API error (400 Bad Request)"),
-            text_turn("THE PLAN"),
             text_turn("BUILT"),
             review_turn(true, ""),
         ]);
@@ -1870,9 +1787,9 @@ mod controller {
 
         assert!(outcome.is_some(), "the retry should carry the run to completion");
         assert_eq!(rec.lock().unwrap().prompts, 1);
-        assert_eq!(model.request_count(), 4);
-        // The retried turn is the Analyst's, not a fresh stage.
-        assert_eq!(rec.lock().unwrap().stages(), ["Analyst", "Author", "Reviewer"]);
+        assert_eq!(model.request_count(), 3);
+        // The retried turn is the Author's, not a fresh stage.
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
     }
 
     /// A role with a turn budget tight enough to reach in two scripted turns,
@@ -1880,7 +1797,7 @@ mod controller {
     /// plausible.
     const TINY_BUDGET: Role = Role {
         name: "Test",
-        scope: agent::scope::AEM_ANALYST,
+        scope: agent::scope::AEM_AUTHOR,
         max_iterations: 2,
         stuck_tool: None,
         stuck_activity: "testing",
@@ -2036,7 +1953,7 @@ mod controller {
     #[tokio::test]
     async fn a_stage_that_runs_out_of_turns_is_stored() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
-        let role = &roles::roles_for(OutputTarget::Redacto).analyst;
+        let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
         let turns = std::iter::repeat_with(|| {
             vec![
                 MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),

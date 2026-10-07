@@ -25,20 +25,18 @@ pub mod target {
 pub mod scope {
     /// A set of pipeline stages, as a bitmask.
     pub type Mask = u8;
-    pub const AEM_ANALYST: Mask = 1 << 0;
-    pub const AEM_AUTHOR: Mask = 1 << 1;
-    pub const AEM_REVIEWER: Mask = 1 << 2;
-    pub const REDACTO_ANALYST: Mask = 1 << 3;
-    pub const REDACTO_AUTHOR: Mask = 1 << 4;
-    pub const REDACTO_REVIEWER: Mask = 1 << 5;
+    pub const AEM_AUTHOR: Mask = 1 << 0;
+    pub const AEM_REVIEWER: Mask = 1 << 1;
+    pub const REDACTO_AUTHOR: Mask = 1 << 2;
+    pub const REDACTO_REVIEWER: Mask = 1 << 3;
     /// An external MCP client, which drives the tools itself.
-    pub const MCP: Mask = 1 << 6;
+    pub const MCP: Mask = 1 << 4;
     /// The read-only pass that writes a reference form's description. Sees the
     /// source and the package; edits nothing.
-    pub const DESCRIBE: Mask = 1 << 7;
+    pub const DESCRIBE: Mask = 1 << 5;
 
-    pub const AEM_STAGES: Mask = AEM_ANALYST | AEM_AUTHOR | AEM_REVIEWER;
-    pub const REDACTO_STAGES: Mask = REDACTO_ANALYST | REDACTO_AUTHOR | REDACTO_REVIEWER;
+    pub const AEM_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER;
+    pub const REDACTO_STAGES: Mask = REDACTO_AUTHOR | REDACTO_REVIEWER;
     pub const ALL_STAGES: Mask = AEM_STAGES | REDACTO_STAGES;
     /// Every caller, the read-only describe pass included.
     pub const EVERYWHERE: Mask = ALL_STAGES | MCP | DESCRIBE;
@@ -161,7 +159,7 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
         ("json_search",                       target::BOTH,    EVERYWHERE),
         ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
         ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP),
-        ("rule_list",                         target::AEM,     AEM_ANALYST | AEM_AUTHOR | AEM_REVIEWER | MCP),
+        ("rule_list",                         target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
         ("rule_check",                        target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP),
         ("rule_autofix",                      target::AEM,     AEM_AUTHOR | MCP),
 
@@ -193,14 +191,14 @@ const SCOPING: &[(&str, target::Mask, scope::Mask)] = {
         // §7 references. The reference *forms* are AEM packages, so they are
         // pure token cost for a text-only Redacto document; only the reference
         // documentation is offered there.
-        ("list_reference_forms",              target::BOTH,    AEM_ANALYST | MCP),
-        ("search_references",                 target::BOTH,    AEM_ANALYST | AEM_AUTHOR | MCP),
-        ("grep_references",                   target::BOTH,    AEM_ANALYST | AEM_AUTHOR | MCP),
-        ("read_reference_file",               target::BOTH,    AEM_ANALYST | AEM_AUTHOR | MCP),
-        ("get_reference_package",             target::BOTH,    AEM_ANALYST | AEM_AUTHOR | MCP),
-        ("list_reference_docs",               target::BOTH,    AEM_ANALYST | REDACTO_ANALYST | MCP),
-        ("read_reference_doc",                target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP),
-        ("grep_reference_docs",               target::BOTH,    AEM_ANALYST | AEM_AUTHOR | REDACTO_ANALYST | REDACTO_AUTHOR | MCP),
+        ("list_reference_forms",              target::BOTH,    AEM_AUTHOR | MCP),
+        ("search_references",                 target::BOTH,    AEM_AUTHOR | MCP),
+        ("grep_references",                   target::BOTH,    AEM_AUTHOR | MCP),
+        ("read_reference_file",               target::BOTH,    AEM_AUTHOR | MCP),
+        ("get_reference_package",             target::BOTH,    AEM_AUTHOR | MCP),
+        ("list_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
+        ("read_reference_doc",                target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
+        ("grep_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP),
 
         // §8 meta.
         ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER | MCP),
@@ -497,13 +495,12 @@ mod catalog_guards {
         for constant in [
             SYSTEM_PROMPT,
             SHARED_PREAMBLE,
-            ANALYST_ADDENDUM,
             AUTHOR_ADDENDUM,
             REVIEWER_ADDENDUM,
             MCP_ADDENDUM,
+            REDACTO_MCP_ADDENDUM,
             REDACTO_SYSTEM_PROMPT,
             REDACTO_SHARED_PREAMBLE,
-            REDACTO_ANALYST_ADDENDUM,
             REDACTO_AUTHOR_ADDENDUM,
             REDACTO_REVIEWER_ADDENDUM,
         ] {
@@ -521,6 +518,54 @@ mod catalog_guards {
             "prompts or tool descriptions name tools that are not in the catalog: {unknown:?}\n\
              Either the tool is missing, the name is a typo, or the word belongs in \
              NON_TOOL_VOCABULARY."
+        );
+    }
+
+    /// A tool existing somewhere is not enough: a stage told to call a tool it
+    /// is not offered spends a turn on a refusal, or silently skips the step.
+    /// So every prompt may only name tools its own stage is offered under its
+    /// own target.
+    ///
+    /// Regression guard: the Author was told to start with list_reference_docs
+    /// and list_reference_forms, which only the retired Analyst was offered.
+    #[test]
+    fn each_stage_prompt_only_names_tools_that_stage_is_offered() {
+        let names: BTreeSet<&str> = catalog().iter().map(|t| t.name()).collect();
+        let stages: [(OutputTarget, scope::Mask, &str, Vec<&str>); 6] = [
+            (OutputTarget::Aem, scope::AEM_AUTHOR, "AEM Author", vec![SYSTEM_PROMPT, AUTHOR_ADDENDUM]),
+            (OutputTarget::Aem, scope::AEM_REVIEWER, "AEM Reviewer", vec![SHARED_PREAMBLE, REVIEWER_ADDENDUM]),
+            (OutputTarget::Aem, scope::MCP, "AEM MCP", vec![SYSTEM_PROMPT, MCP_ADDENDUM]),
+            (
+                OutputTarget::Redacto,
+                scope::REDACTO_AUTHOR,
+                "Redacto Author",
+                vec![REDACTO_SYSTEM_PROMPT, REDACTO_AUTHOR_ADDENDUM],
+            ),
+            (
+                OutputTarget::Redacto,
+                scope::REDACTO_REVIEWER,
+                "Redacto Reviewer",
+                vec![REDACTO_SHARED_PREAMBLE, REDACTO_REVIEWER_ADDENDUM],
+            ),
+            (OutputTarget::Redacto, scope::MCP, "Redacto MCP", vec![REDACTO_SYSTEM_PROMPT, REDACTO_MCP_ADDENDUM]),
+        ];
+
+        let mut problems = Vec::new();
+        for (target, stage, label, prompts) in stages {
+            let offered: BTreeSet<String> = tools_for(target, stage)
+                .iter()
+                .filter_map(|t| t["name"].as_str().map(str::to_string))
+                .collect();
+            let named = snake_case_words(&prompts.concat());
+            for tool in named.iter().filter(|w| names.contains(w.as_str())) {
+                if !offered.contains(tool) {
+                    problems.push(format!("{label} names {tool}"));
+                }
+            }
+        }
+        assert!(
+            problems.is_empty(),
+            "prompts name tools their stage is not offered: {problems:?}"
         );
     }
 
@@ -577,19 +622,15 @@ mod catalog_guards {
 
         // Only the Author edits the document; only the Reviewer terminates.
         for target in OutputTarget::ALL {
-            let (analyst, author, reviewer) = match target {
-                OutputTarget::Aem => (scope::AEM_ANALYST, scope::AEM_AUTHOR, scope::AEM_REVIEWER),
-                OutputTarget::Redacto => {
-                    (scope::REDACTO_ANALYST, scope::REDACTO_AUTHOR, scope::REDACTO_REVIEWER)
-                }
+            let (author, reviewer) = match target {
+                OutputTarget::Aem => (scope::AEM_AUTHOR, scope::AEM_REVIEWER),
+                OutputTarget::Redacto => (scope::REDACTO_AUTHOR, scope::REDACTO_REVIEWER),
             };
             assert!(has(target, author, "json_patch"));
-            assert!(!has(target, analyst, "json_patch"));
             assert!(!has(target, reviewer, "json_patch"));
             assert!(has(target, reviewer, "json_outline") && has(target, reviewer, "json_get"));
             assert!(has(target, reviewer, "submit_review"));
             assert!(!has(target, author, "submit_review"));
-            assert!(!has(target, analyst, "submit_review"));
         }
         assert!(has(OutputTarget::Aem, scope::AEM_AUTHOR, "rule_autofix"));
         assert!(!has(OutputTarget::Aem, scope::AEM_REVIEWER, "rule_autofix"));
@@ -606,30 +647,23 @@ mod catalog_guards {
 
         // Nobody is handed the engine's precomputed states any more: every
         // stage reads the source form through the u2s tools.
-        for scope in [scope::AEM_ANALYST, scope::REDACTO_ANALYST, scope::DESCRIBE] {
+        for scope in [scope::AEM_AUTHOR, scope::AEM_REVIEWER, scope::DESCRIBE] {
             assert!(has(OutputTarget::Aem, scope, "xfa_render_page"));
             assert!(has(OutputTarget::Aem, scope, "xfa_outline"));
         }
 
-        // The Analyst reads and never edits.
-        for stage in [scope::AEM_ANALYST, scope::REDACTO_ANALYST] {
-            let target = if stage == scope::AEM_ANALYST {
-                OutputTarget::Aem
-            } else {
-                OutputTarget::Redacto
-            };
-            for writer in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {
-                assert!(
-                    !has(target, stage, writer),
-                    "the Analyst must not have {writer}"
-                );
-            }
+        // The describe pass reads and never edits.
+        for writer in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {
+            assert!(
+                !has(OutputTarget::Aem, scope::DESCRIBE, writer),
+                "the describe pass must not have {writer}"
+            );
         }
     }
 
     /// Each verifier checks one target's artifact, so it reaches that target's
-    /// Author and Reviewer (and an MCP client), never the other target, a
-    /// read-only pass or the Analyst.
+    /// Author and Reviewer (and an MCP client), never the other target or a
+    /// read-only pass.
     #[test]
     fn each_verifier_reaches_only_its_own_targets_writers() {
         for (prefix, target) in [
@@ -643,7 +677,7 @@ mod catalog_guards {
             assert!(!family.is_empty(), "no {prefix}* tools in the catalog");
             for tool in family {
                 assert_eq!(tool.targets, target_mask(target), "{}", tool.name());
-                assert_eq!(tool.scopes & (scope::DESCRIBE | scope::AEM_ANALYST | scope::REDACTO_ANALYST), 0, "{}", tool.name());
+                assert_eq!(tool.scopes & scope::DESCRIBE, 0, "{}", tool.name());
                 assert_ne!(tool.scopes & scope::MCP, 0, "{}", tool.name());
             }
         }

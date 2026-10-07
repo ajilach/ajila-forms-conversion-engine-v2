@@ -94,7 +94,7 @@ pub struct ConvertArgs {
     aem_volume: Option<String>,
 
     /// Refine an earlier run instead of converting afresh: applies this feedback
-    /// to the result held in --session. Skips the Analyst.
+    /// to the result held in --session.
     #[arg(long, value_name = "TEXT", requires = "session")]
     feedback: Option<String>,
 
@@ -102,7 +102,7 @@ pub struct ConvertArgs {
     ///
     /// On its own it carries that session on with nothing to apply: the agent
     /// finishes the tree the earlier run left. Add --feedback to give it
-    /// something specific to change. Either way the Analyst is skipped.
+    /// something specific to change.
     #[arg(long, value_name = "ID")]
     session: Option<String>,
 

@@ -301,7 +301,7 @@ impl AgentHook for StageHook {
         self.completed_turns.fetch_add(1, Ordering::Relaxed);
 
         // The stage's visible text is reported live, turn by turn — not only
-        // on the stage's last one — so the Analyst's step-by-step reasoning
+        // on the stage's last one — so a stage's step-by-step reasoning
         // shows up in the timeline as it happens, the way the hand-rolled
         // loop's own per-turn `RunEvent::Thought` did.
         let text: String = event
@@ -623,9 +623,20 @@ mod tests {
     /// sources.
     const STUCK_ON_GET_SOURCE_INFO: Role = Role {
         name: "Test",
-        scope: agent::scope::AEM_ANALYST,
+        scope: agent::scope::AEM_AUTHOR,
         max_iterations: 10,
         stuck_tool: Some("get_source_info"),
+        stuck_activity: "testing",
+        max_tokens_nudge: "nudge incrementally",
+    };
+
+    /// A role with no stuck tool, so a test's repeated calls never trip the
+    /// stuck watch it is not about.
+    const PLAIN: Role = Role {
+        name: "Test",
+        scope: agent::scope::AEM_AUTHOR,
+        max_iterations: 25,
+        stuck_tool: None,
         stuck_activity: "testing",
         max_tokens_nudge: "nudge incrementally",
     };
@@ -698,7 +709,7 @@ mod tests {
         abort.abort();
 
         let obs = SharedObserver::new(crate::observer::NullObserver);
-        let hook = StageHook::new(&crate::roles::ANALYST, abort, obs, no_price(), Spend::default(), no_budget());
+        let hook = StageHook::new(&PLAIN, abort, obs, no_price(), Spend::default(), no_budget());
 
         let mut stream = agent.runner("go").add_hook(hook).max_turns(5).stream().await;
         let mut saw_error = false;
@@ -723,7 +734,7 @@ mod tests {
         ]]);
         let agent = agent_with(model);
         let hook = StageHook::new(
-            &crate::roles::ANALYST,
+            &PLAIN,
             AbortFlag::default(),
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
@@ -768,7 +779,7 @@ mod tests {
             ],
         ]);
         let agent = agent_with_tools(model, tools);
-        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, no_price(), Spend::default(), no_budget());
+        let hook = StageHook::new(&PLAIN, AbortFlag::default(), obs, no_price(), Spend::default(), no_budget());
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
 
@@ -818,7 +829,7 @@ mod tests {
         ]);
         let agent = agent_with_tools(model.clone(), tools);
         let hook = StageHook::new(
-            &crate::roles::ANALYST,
+            &PLAIN,
             AbortFlag::default(),
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
@@ -891,7 +902,7 @@ mod tests {
     }
 
     /// A turn's visible text has to reach the timeline as it happens, not only
-    /// once the stage ends — the Analyst's step-by-step reasoning is the whole
+    /// once the stage ends — a stage's step-by-step reasoning is the whole
     /// point of watching a run live, and `PromptResponse::output` only exists
     /// once the run is over (and never at all for a stage that stops early).
     #[tokio::test]
@@ -902,7 +913,7 @@ mod tests {
         ]]);
         let agent = agent_with(model);
         let (obs, log) = recorder();
-        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, no_price(), Spend::default(), no_budget());
+        let hook = StageHook::new(&PLAIN, AbortFlag::default(), obs, no_price(), Spend::default(), no_budget());
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
 
@@ -929,7 +940,7 @@ mod tests {
         let agent = agent_with(model);
         let (obs, log) = recorder();
         let price: PriceFn = Arc::new(|usage| Some(usage.input_tokens as f64 * 0.001));
-        let hook = StageHook::new(&crate::roles::ANALYST, AbortFlag::default(), obs, price, Spend::default(), no_budget());
+        let hook = StageHook::new(&PLAIN, AbortFlag::default(), obs, price, Spend::default(), no_budget());
 
         drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
 
@@ -974,7 +985,7 @@ mod tests {
         );
         let agent = agent_with(model.clone());
         let hook = StageHook::new(
-            &crate::roles::ANALYST,
+            &PLAIN,
             AbortFlag::default(),
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
@@ -1023,7 +1034,7 @@ mod tests {
         ]);
         let agent = agent_with(model.clone());
         let hook = StageHook::new(
-            &crate::roles::ANALYST,
+            &PLAIN,
             AbortFlag::default(),
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
@@ -1072,7 +1083,7 @@ mod tests {
         let budget: Arc<dyn ContextBudget> =
             Arc::new(RealBudget(Arc::new(rig_memory::SlidingWindowMemory::last_messages(2))));
         let hook = StageHook::new(
-            &crate::roles::ANALYST,
+            &PLAIN,
             AbortFlag::default(),
             SharedObserver::new(crate::observer::NullObserver),
             no_price(),
@@ -1110,7 +1121,7 @@ mod tests {
         let (obs, log) = recorder();
         let budget: Arc<dyn ContextBudget> = Arc::new(RealBudget(Arc::new(AlwaysFailsPolicy)));
         let hook = StageHook::new(
-            &crate::roles::ANALYST,
+            &PLAIN,
             AbortFlag::default(),
             obs,
             no_price(),

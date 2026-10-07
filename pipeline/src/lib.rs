@@ -1,5 +1,5 @@
 //! The conversion pipeline: the controller that sequences an
-//! [`agent::ConversionAgent`] through its Analyst → Author → Reviewer stages.
+//! [`agent::ConversionAgent`] through its Author → Reviewer stages.
 //!
 //! It sits between `agent` (the tools) and a consumer (the desktop app), and
 //! depends on neither a UI framework nor an LLM provider directly. It does

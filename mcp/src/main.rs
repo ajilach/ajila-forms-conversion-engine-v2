@@ -352,17 +352,16 @@ impl Blueprint {
         // The workflow guidance is repeated here, not just in the server
         // `instructions`, because many MCP clients drop `instructions` and the
         // tool result is the one surface every client delivers to the model.
-        let workflow = match target {
-            agent::OutputTarget::Aem => agent::SYSTEM_PROMPT,
-            agent::OutputTarget::Redacto => agent::REDACTO_SYSTEM_PROMPT,
+        let (workflow, mcp_addendum) = match target {
+            agent::OutputTarget::Aem => (agent::SYSTEM_PROMPT, agent::MCP_ADDENDUM),
+            agent::OutputTarget::Redacto => (agent::REDACTO_SYSTEM_PROMPT, agent::REDACTO_MCP_ADDENDUM),
         };
         CallToolResult::success(vec![Content::text(format!(
             "Loaded {count} PDF(s) [{label}] as a {kind} conversion (session {session}).\n\n\
              {workflow}\n\n\
-             {target_notes}{MCP_ADDENDUM}{teardown_note}\n\n{format}",
+             {target_notes}{mcp_addendum}{teardown_note}\n\n{format}",
             kind = target.label(),
             format = agent::conversion::document_format(target),
-            MCP_ADDENDUM = agent::MCP_ADDENDUM,
         ))])
     }
 

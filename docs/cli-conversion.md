@@ -1,6 +1,6 @@
 # Converting a form from the command line
 
-`blueprint convert` runs the same autonomous conversion the desktop app runs (Analyst → Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts land in an output directory instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
+`blueprint convert` runs the same autonomous conversion the desktop app runs (Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts land in an output directory instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
 This guide covers the `convert` subcommand and everything needed to get it running.
 
@@ -153,7 +153,7 @@ by file extension, so the `.pdf` suffix matters.
    leaves no session behind and spends no tokens.
 2. **Open the session.** Sources are hashed and stored content-addressed, a
    session row is created and an empty initial edit is recorded.
-3. **Analyst → Author → (Reviewer → Author fix)\*.** The review rounds are capped
+3. **Author → (Reviewer → Author fix)\*.** The review rounds are capped
    by `--max-review-rounds` (default 3). The Author and Reviewer drive the built
    form using the `aem_verify_*` (or `redacto_verify_*`) verification tools to
    interact with it, submit it, and verify the output.
@@ -226,9 +226,8 @@ cargo run --release -p blueprint-cli -- sessions
 One line per session, newest first: timestamp, session id, profile, edit count,
 label.
 
-**Continue** — carry the session on with nothing to apply. The Analyst is
-skipped; the Author finishes the tree the earlier run left and the outputs are
-rebuilt:
+**Continue** — carry the session on with nothing to apply. The Author finishes
+the tree the earlier run left and the outputs are rebuilt:
 
 ```sh
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
@@ -267,7 +266,7 @@ nothing.
 | `--retries <N>` | 2 | Operator-level retries after the controller's own |
 | `--aem-image <IMAGE>` | the app's setting | AEM Forms image (e.g. `ajila.azurecr.io/aemforms-arm:6.5.17.0`); AEM target only |
 | `--aem-volume <VOLUME>` | the app's setting (default `u2s-aem-ubs-data`) | Docker data volume with the UBS platform; AEM target only |
-| `--session <ID>` | — | Resume; skips the Analyst |
+| `--session <ID>` | — | Resume an earlier session |
 | `--feedback <TEXT>` | — | Requires `--session` |
 
 ---

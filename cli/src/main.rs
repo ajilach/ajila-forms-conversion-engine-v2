@@ -1,5 +1,5 @@
 //! The `blueprint` command line: the AI conversion the desktop app runs, headless
-//! (Analyst → Author → Reviewer, over the `pipeline` controller and the shared
+//! (Author → Reviewer, over the `pipeline` controller and the shared
 //! `runner` transport, which is why the app and this binary cannot drift apart),
 //! the sessions it can resume, and the verifiers it checks its output with.
 

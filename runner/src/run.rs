@@ -130,8 +130,7 @@ pub fn no_prior_state(session_id: &str) -> String {
 /// it is is the seed's business, and [`RunSeed::resuming`] is what converts the
 /// operator's typing into it.
 ///
-/// Always skips the Analyst: the session already holds an authored tree, so
-/// there is nothing left to analyse.
+/// The session already holds an authored tree, which the Author picks up.
 pub async fn resume(
     seed: RunSeed,
     pdfs: Vec<(String, Vec<u8>)>,

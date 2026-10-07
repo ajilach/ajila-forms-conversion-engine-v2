@@ -6,7 +6,7 @@
 //!
 //! Building the agent, opening the edit-history session and driving the
 //! controller live in [`runner::run`] — shared with the CLI, so both start a run
-//! the same way. The stage sequencing itself — Analyst → Author → (Reviewer →
+//! the same way. The stage sequencing itself — Author → (Reviewer →
 //! Author-fix)* — lives in `pipeline::run`, where it can be tested without a
 //! desktop runtime.
 
@@ -143,7 +143,7 @@ pub async fn run_agent(
 ///
 /// Which of the two is the seed's business — the app decides it once, where the
 /// user's typing arrives, rather than carrying an "empty feedback" case down
-/// into the run. Either way the Analyst is skipped.
+/// into the run.
 pub async fn run_agent_resume(
     seed: RunSeed,
     pdfs: Vec<(String, Vec<u8>)>,

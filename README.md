@@ -22,7 +22,7 @@ Decodes PDFs and extracts structured data for automated forms conversion.
 | `cli` | Command-line interface: the `convert` subcommand runs the AI conversion the app runs headless; `sessions` lists resumable conversions; `verify` checks setup. |
 | `app` | Dioxus desktop application: drag-and-drop upload driving the autonomous conversion agent. |
 | `agent` | Headless conversion-agent engine — the tool catalog/executor, edit-history store, reference store, and adapter over vendored u2s tools. No UI or LLM dependency, shared by the app, the pipeline and the MCP server. |
-| `pipeline` | The conversion controller: the Analyst → Author → Reviewer stage sequencing, retry recovery and abort handling. Depends on neither a UI framework nor an LLM provider — the consumer supplies a `TurnProvider` and a `RunObserver`. |
+| `pipeline` | The conversion controller: the Author → Reviewer stage sequencing, retry recovery and abort handling. Depends on neither a UI framework nor an LLM provider — the consumer supplies a `TurnProvider` and a `RunObserver`. |
 | `runner` | The host side of a run, shared by the app and the CLI: the two LLM transports (the Anthropic Messages API with prompt caching, and any OpenAI-compatible endpoint), history eviction, the operator settings, and the entry points that build the agent, open an edit-history session and record the result. |
 | `mcp` | Model Context Protocol (stdio) server that exposes the conversion tools so an external LLM client (Claude Desktop, Claude Code, Cursor) can drive a conversion. |
 
@@ -59,7 +59,7 @@ The CLI binary is defined in the `cli` crate. It has three subcommands: `convert
 
 ### AI conversion from the console
 
-`blueprint convert` runs the same autonomous conversion the desktop app runs (Analyst → Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts are written to `--out` instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
+`blueprint convert` runs the same autonomous conversion the desktop app runs (Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts are written to `--out` instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
 The API key, model, review-round cap, extra instructions and AEM credentials default to the app's settings; every one can be overridden per invocation.
 

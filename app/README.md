@@ -38,7 +38,7 @@ bundling — see `Dioxus.toml`.
 |---|---|
 | `src/main.rs` | App state and the three full-page views. |
 | `src/components/` | The agent flow, settings and reference-form manager. |
-| `src/agent_runner.rs` | Sequences the Analyst → Author → Reviewer stages over one agent. |
+| `src/agent_runner.rs` | Sequences the Author → Reviewer stages over one agent. |
 | `src/llm.rs` | Anthropic Messages-API client: streaming, prompt caching, context budget. |
 | `src/files.rs` | Saving artefacts to Downloads and showing them to the user. |
 | `design/` | Static HTML mockups. Not part of the build. |

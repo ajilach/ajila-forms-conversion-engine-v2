@@ -186,7 +186,7 @@ async fn a_streamed_openai_compatible_turn_reads_back_the_same_way() {
 /// turn on this dialect. Chat completions only lets a `tool` message carry
 /// text, so the image has to travel in the user message that follows the tool
 /// results, with a note in the tool message that ties the two together. rig
-/// refuses the request outright instead, which paused every run whose Analyst
+/// refuses the request outright instead, which paused every run whose stage
 /// looked at a page.
 #[tokio::test]
 async fn an_image_tool_result_travels_in_the_following_user_message() {

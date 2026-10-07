@@ -6,9 +6,8 @@
 //! and a stage here names a scope rather than carrying its own list.
 
 use agent::{
-    ANALYST_ADDENDUM, AUTHOR_ADDENDUM, REDACTO_ANALYST_ADDENDUM, REDACTO_AUTHOR_ADDENDUM,
-    REDACTO_REVIEWER_ADDENDUM, REDACTO_SHARED_PREAMBLE, REDACTO_SYSTEM_PROMPT, REVIEWER_ADDENDUM,
-    SHARED_PREAMBLE, SYSTEM_PROMPT,
+    AUTHOR_ADDENDUM, REDACTO_AUTHOR_ADDENDUM, REDACTO_REVIEWER_ADDENDUM, REDACTO_SHARED_PREAMBLE,
+    REDACTO_SYSTEM_PROMPT, REVIEWER_ADDENDUM, SHARED_PREAMBLE, SYSTEM_PROMPT,
 };
 
 use agent::OutputTarget;
@@ -63,8 +62,8 @@ individual call small. Proceed now.";
 
 /// A pipeline stage: a name, the subset of the agent's tools it may call, and a
 /// per-stage turn budget. The system prompt and seed message are supplied per
-/// invocation by [`Run::execute`] (so the Analyst's plan / Reviewer reports can
-/// be pinned into `system`).
+/// invocation by [`Run::execute`] (so the Reviewer reports can be pinned into
+/// `system`).
 pub(crate) struct Role {
     pub(crate) name: &'static str,
     /// Which catalog scope this stage is. The tools themselves are scoped in
@@ -81,15 +80,6 @@ pub(crate) struct Role {
     /// tools this role actually has, so it must be per target.
     pub(crate) max_tokens_nudge: &'static str,
 }
-
-pub(crate) const ANALYST: Role = Role {
-    name: "Analyst",
-    scope: agent::scope::AEM_ANALYST,
-    max_iterations: 25,
-    stuck_tool: None,
-    stuck_activity: "analysis",
-    max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
-};
 
 pub(crate) const AUTHOR: Role = Role {
     name: "Author",
@@ -116,15 +106,6 @@ pub(crate) const REVIEWER: Role = Role {
 //
 // A Redacto document is text only, so these stages never touch an AEM form.
 
-pub(crate) const REDACTO_ANALYST: Role = Role {
-    name: "Analyst",
-    scope: agent::scope::REDACTO_ANALYST,
-    max_iterations: 25,
-    stuck_tool: None,
-    stuck_activity: "analysis",
-    max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
-};
-
 pub(crate) const REDACTO_AUTHOR: Role = Role {
     name: "Author",
     scope: agent::scope::REDACTO_AUTHOR,
@@ -143,9 +124,8 @@ pub(crate) const REDACTO_REVIEWER: Role = Role {
     max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
 };
 
-/// The three stages for one output target.
+/// The two stages for one output target.
 pub(crate) struct TargetRoles {
-    pub(crate) analyst: &'static Role,
     pub(crate) author: &'static Role,
     pub(crate) reviewer: &'static Role,
     /// What the Author stage header says it is doing.
@@ -157,20 +137,19 @@ pub(crate) struct TargetRoles {
     /// Seed message for an Author stage carrying on from a previous run's tree.
     ///
     /// Distinct from [`Self::author_seed`], which tells the Author to *begin*
-    /// from a plan it has just been given: a continuation has no plan, and
-    /// authoring from scratch would throw away the tree it was seeded with.
+    /// from the source: authoring from scratch would throw away the tree a
+    /// continuation was seeded with.
     pub(crate) author_continue_seed: &'static str,
 }
 
 pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
     match target {
         OutputTarget::Aem => TargetRoles {
-            analyst: &ANALYST,
             author: &AUTHOR,
             reviewer: &REVIEWER,
             author_doing: "building the AEM form",
-            author_seed: "Begin building the form per your CONVERSION PLAN. Author the full form \
-                          in the document, then rule_check and build_aem_package.",
+            author_seed: "Inspect the source form, then author the full form in the document, \
+                          then rule_check and build_aem_package.",
             author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the document, then \
                               rule_check and build_aem_package.",
             author_continue_seed: "The document already holds what an earlier run built for this \
@@ -179,12 +158,11 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
                                    build_aem_package. Do not start over.",
         },
         OutputTarget::Redacto => TargetRoles {
-            analyst: &REDACTO_ANALYST,
             author: &REDACTO_AUTHOR,
             reviewer: &REDACTO_REVIEWER,
             author_doing: "building the Redacto document",
-            author_seed: "Begin building the document per your CONVERSION PLAN. Author the full \
-                          document, then build_redacto_dump.",
+            author_seed: "Inspect the source document, then author the full document, then \
+                          build_redacto_dump.",
             author_fix_seed: "Apply the REVIEW FEEDBACK in your instructions to the document, then \
                               build_redacto_dump.",
             author_continue_seed: "The document already holds what an earlier run built for this \
@@ -195,33 +173,21 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
     }
 }
 
-// ── Per-role system-prompt composition (plan + reviews pinned in `system`) ─────
-
-pub(crate) fn sys_analyst(target: OutputTarget, extra: &str) -> String {
-    let mut s = match target {
-        OutputTarget::Aem => format!("{SHARED_PREAMBLE}{extra}\n\n{ANALYST_ADDENDUM}"),
-        OutputTarget::Redacto => {
-            format!("{REDACTO_SHARED_PREAMBLE}{extra}\n\n{REDACTO_ANALYST_ADDENDUM}")
-        }
-    };
-    s.push_str(&format_note(target));
-    s
-}
+// ── Per-role system-prompt composition (reviews pinned in `system`) ──────────
 
 /// The document's format, pinned into every stage right after its role text
-/// and before the plan and reviews, so the part of the prompt that stays the
-/// same across rounds stays one prefix.
+/// and before the reviews, so the part of the prompt that stays the same across
+/// rounds stays one prefix.
 fn format_note(target: OutputTarget) -> String {
     format!("\n\n{}", agent::conversion::document_format(target))
 }
 
 /// The Author reuses the full [`SYSTEM_PROMPT`] authoring body, then the addendum,
-/// then the pinned CONVERSION PLAN and every accumulated REVIEW FEEDBACK round.
+/// then every accumulated REVIEW FEEDBACK round.
 pub(crate) fn sys_author(
     target: OutputTarget,
     extra: &str,
     template_note: &str,
-    plan: &str,
     reviews: &[String],
 ) -> String {
     let mut s = match target {
@@ -235,7 +201,6 @@ pub(crate) fn sys_author(
         }
     };
     s.push_str(&format_note(target));
-    append_plan(&mut s, plan);
     append_reviews(
         &mut s,
         "## REVIEW FEEDBACK — address every point across all rounds",
@@ -244,12 +209,7 @@ pub(crate) fn sys_author(
     s
 }
 
-pub(crate) fn sys_reviewer(
-    target: OutputTarget,
-    extra: &str,
-    plan: &str,
-    reviews: &[String],
-) -> String {
+pub(crate) fn sys_reviewer(target: OutputTarget, extra: &str, reviews: &[String]) -> String {
     let mut s = match target {
         OutputTarget::Aem => format!("{SHARED_PREAMBLE}{extra}\n\n{REVIEWER_ADDENDUM}"),
         OutputTarget::Redacto => {
@@ -257,22 +217,12 @@ pub(crate) fn sys_reviewer(
         }
     };
     s.push_str(&format_note(target));
-    append_plan(&mut s, plan);
     append_reviews(
         &mut s,
         "## PRIOR REVIEW FEEDBACK (verify each point is now fixed)",
         reviews,
     );
     s
-}
-
-/// Pin the Analyst's plan into a stage's system prompt.
-pub(crate) fn append_plan(s: &mut String, plan: &str) {
-    if plan.trim().is_empty() {
-        return;
-    }
-    s.push_str("\n\n## CONVERSION PLAN\n");
-    s.push_str(plan);
 }
 
 pub(crate) fn append_reviews(s: &mut String, heading: &str, reviews: &[String]) {
@@ -305,7 +255,7 @@ mod tests {
                 OutputTarget::Redacto,
             ] {
                 let roles = roles_for(target);
-                for role in [roles.analyst, roles.author, roles.reviewer] {
+                for role in [roles.author, roles.reviewer] {
                     let tools = agent::tools_for(target, role.scope);
                     assert!(
                         !tools.is_empty(),
@@ -326,7 +276,7 @@ mod tests {
                 OutputTarget::Redacto,
             ] {
                 let roles = roles_for(target);
-                for role in [roles.analyst, roles.author, roles.reviewer] {
+                for role in [roles.author, roles.reviewer] {
                     let Some(stuck) = role.stuck_tool else {
                         continue;
                     };
@@ -340,20 +290,17 @@ mod tests {
             }
             // Keyed off the role, not a hard-coded name.
             assert_eq!(AUTHOR.stuck_tool, Some("build_aem_package"));
-            assert_eq!(ANALYST.stuck_tool, None);
             assert_eq!(REDACTO_AUTHOR.stuck_tool, Some("build_redacto_dump"));
         }
 
     
-        /// The six stages must be six distinct scopes — pointing two stages at the
+        /// The four stages must be four distinct scopes — pointing two stages at the
         /// same scope would silently give one of them the other's tools.
         #[test]
-        fn the_six_stages_have_distinct_scopes() {
+        fn the_four_stages_have_distinct_scopes() {
             let scopes = [
-                ANALYST.scope,
                 AUTHOR.scope,
                 REVIEWER.scope,
-                REDACTO_ANALYST.scope,
                 REDACTO_AUTHOR.scope,
                 REDACTO_REVIEWER.scope,
             ];
@@ -371,9 +318,8 @@ mod tests {
         fn redacto_prompts_do_not_leak_aem_vocabulary() {
             let target = OutputTarget::Redacto;
             let prompts = [
-                sys_analyst(target, ""),
-                sys_author(target, "", "", "", &[]),
-                sys_reviewer(target, "", "", &[]),
+                sys_author(target, "", "", &[]),
+                sys_reviewer(target, "", &[]),
             ];
     
             for prompt in &prompts {
@@ -393,20 +339,20 @@ mod tests {
                 // …and must name its own vocabulary.
                 assert!(prompt.contains("Redacto"), "{prompt}");
             }
-            assert!(prompts[1].contains("json_patch"));
-            assert!(prompts[1].contains("xfa_page_text"));
-            assert!(prompts[1].contains("build_redacto_dump"));
+            assert!(prompts[0].contains("json_patch"));
+            assert!(prompts[0].contains("xfa_page_text"));
+            assert!(prompts[0].contains("build_redacto_dump"));
             // The Author must be told how a layout is expressed, or the columns
             // and footnotes are flattened into plain containers.
-            assert!(prompts[1].contains("layout-split"));
-            assert!(prompts[1].contains("styledPanel"));
+            assert!(prompts[0].contains("layout-split"));
+            assert!(prompts[0].contains("styledPanel"));
             // Every stage carries its format's schema.
             for prompt in &prompts {
                 assert!(prompt.contains("UBS Redacto document"), "{prompt}");
             }
 
             // The AEM prompts must be untouched by the split.
-            let aem = sys_author(OutputTarget::Aem, "", "", "", &[]);
+            let aem = sys_author(OutputTarget::Aem, "", "", &[]);
             assert!(aem.contains("AemNodeTranslated"));
             assert!(aem.contains("UBS AEM document"));
             assert!(!aem.contains("build_redacto_dump"));
@@ -426,10 +372,8 @@ mod tests {
                 roles.author_fix_seed,
                 roles.author_continue_seed,
                 roles.author.max_tokens_nudge,
-                roles.analyst.max_tokens_nudge,
                 roles.reviewer.max_tokens_nudge,
                 roles.author.stuck_activity,
-                roles.analyst.stuck_activity,
                 roles.reviewer.stuck_activity,
             ];
     
@@ -467,32 +411,20 @@ mod tests {
 
     
         #[test]
-        fn sys_author_pins_plan_and_reviews() {
+        fn sys_author_pins_reviews() {
             let s = sys_author(
                 OutputTarget::Aem,
                 "",
                 "",
-                "PLAN-BODY-MARKER",
                 &["FIRST-REVIEW".into(), "SECOND-REVIEW".into()],
             );
-            assert!(s.contains("## CONVERSION PLAN"));
-            assert!(s.contains("PLAN-BODY-MARKER"));
+            assert!(!s.contains("CONVERSION PLAN"));
             assert!(s.contains("## REVIEW FEEDBACK"));
             assert!(s.contains("FIRST-REVIEW"));
             assert!(s.contains("SECOND-REVIEW"));
             assert!(s.contains("Round 1") && s.contains("Round 2"));
             // The authoring body is still present.
             assert!(s.contains("AemNodeTranslated"));
-        }
-
-    
-        #[test]
-        fn sys_analyst_has_no_plan_section_by_default() {
-            let s = sys_analyst(OutputTarget::Aem, "");
-            // No pinned plan section (the addendum mentions the phrase, but the
-            // controller never appends a "## CONVERSION PLAN" block for the Analyst).
-            assert!(!s.contains("## CONVERSION PLAN"));
-            assert!(s.contains("Analyst"));
         }
 
     }
