@@ -1,0 +1,37 @@
+[package]
+name = "references-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "The reference-form store, its semantic matcher and the reference tools as an MCP server with typed arguments"
+
+[lib]
+name = "references_mcp"
+
+[[bin]]
+name = "references-mcp"
+path = "src/main.rs"
+
+[dependencies]
+chrono = { workspace = true }
+env_logger = { workspace = true }
+regex-lite = { workspace = true }
+rmcp = { version = "3.1", features = ["server", "transport-io"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.10"
+tokio = { workspace = true }
+zip = { workspace = true }
+# Reads a reference PDF's page count.
+lopdf = "0.34"
+# The sentence-embedding model behind semantic reference search (`semantic`).
+candle-core = "0.9"
+candle-nn = "0.9"
+candle-transformers = "0.9"
+tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+
+[dev-dependencies]
+rmcp = { version = "3.1", features = ["server", "client", "transport-async-rw"] }
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util"] }

@@ -82,7 +82,7 @@ pub struct ReviewResult {
 /// `.content.xml` (`dam:Asset`) validation. Returns `Ok(success message)` when
 /// the package is valid, or `Err(problem report)` listing every violation.
 pub fn validate_package_bytes(pkg: &[u8]) -> Result<String, String> {
-    let files = crate::references::unzip_package(pkg)
+    let files = references_mcp::unzip_package(pkg)
         .map_err(|e| format!("Could not read package: {e}"))?;
 
     let mut problems: Vec<String> = Vec::new();
@@ -192,7 +192,6 @@ enum Built {
 type SourceDocument = (String, Option<SourceContext>);
 
 pub struct ConversionAgent {
-    profile: Option<String>,
     target: OutputTarget,
     current_pdfs: Vec<(String, Vec<u8>)>,
     /// Each read source's documents, by source key (see [`Self::source_key`]).
@@ -212,9 +211,9 @@ pub struct ConversionAgent {
     built: Option<Built>,
     session: String,
 
-    /// Sentence-embedding model backing semantic `search_references`. Loaded
-    /// lazily on first use (~200ms) and reused for the rest of the run.
-    matcher: Option<crate::semantic::SemanticMatcher>,
+    /// The reference tools, scoped to this run's profile. Its sentence-embedding
+    /// model loads lazily on the first semantic search.
+    references: references_mcp::ReferencesServer,
 
     /// The Reviewer role's latest `submit_review` outcome, drained by the
     /// controller via [`take_review`](Self::take_review).
@@ -259,8 +258,11 @@ impl ConversionAgent {
             OutputTarget::Aem => u2s_aem_ubs_mcp::document_schema(),
             OutputTarget::Redacto => u2s_redacto_ubs_mcp::document_schema(),
         };
+        let references = references_mcp::ReferencesServer::new(
+            crate::references::store(),
+            profile.clone().unwrap_or_default(),
+        );
         Ok(Self {
-            profile,
             target,
             current_pdfs: pdfs,
             sources: HashMap::from([("current".to_string(), documents)]),
@@ -271,7 +273,7 @@ impl ConversionAgent {
             lint: None,
             built: None,
             session,
-            matcher: None,
+            references,
             review: None,
             u2s: None,
         })
@@ -439,7 +441,7 @@ impl ConversionAgent {
     fn source_pdfs(&self, input: &Value) -> Result<Vec<(String, Vec<u8>)>, String> {
         match input["source"]["reference"].as_str() {
             Some(id) => {
-                let bytes = crate::references::get_reference_pdf_bytes(id, 0)?;
+                let bytes = crate::references::store().get_reference_pdf_bytes(id, 0)?;
                 Ok(vec![(format!("{id}.pdf"), bytes)])
             }
             None => Ok(self.current_pdfs.clone()),
@@ -740,7 +742,7 @@ mod tests {
 
         let built = reply_text(agent.execute("build_aem_package", &json!({})).await);
         assert!(built.contains("Built package") && built.contains("Package valid"), "{built}");
-        let files = crate::references::unzip_package(&agent.package().unwrap()).unwrap();
+        let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
         assert!(files.iter().any(|(_, c)| c.contains("TXT_LastName")));
         assert!(agent.xsd().is_some() && agent.package_bound().is_some());
     }
@@ -764,7 +766,7 @@ mod tests {
         )
         .await;
         reply_text(agent.execute("build_aem_package", &json!({})).await);
-        let files = crate::references::unzip_package(&agent.package().unwrap()).unwrap();
+        let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
         assert!(
             files.iter().any(|(_, c)| c.contains("UBS Europe SE") && c.contains("(Succursale Italia)")),
             "the header is in no file of the package"

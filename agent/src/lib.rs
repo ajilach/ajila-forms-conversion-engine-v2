@@ -4,7 +4,7 @@
 //! through tools: the [`ConversionAgent`] (its tool catalog and executor over
 //! the run's one output document), the edit-history store ([`db`]) and the
 //! restore path that reads it back ([`session`]), the check rules and their
-//! sandbox ([`rules`]), the per-profile reference store ([`references`]), and
+//! sandbox ([`rules`]), the connection of the per-profile reference store (`references-mcp`) to the history database ([`references`]), and
 //! the vendored u2s tool servers run in-process ([`u2s`]: source-form reads and
 //! renders, PDF viewing, and the Docker-hosted AEM and Redacto verifiers).
 //!
@@ -15,13 +15,12 @@
 
 pub mod conversion;
 pub mod db;
+mod mcp_reply;
 mod output_target;
 pub mod outputs;
 pub mod profiles;
-pub mod reference_db;
 pub mod references;
 pub mod rules;
-pub mod semantic;
 pub mod session;
 pub mod source;
 pub mod u2s;

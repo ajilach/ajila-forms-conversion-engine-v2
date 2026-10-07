@@ -239,7 +239,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             })
         };
 
-        vec![
+        let mut specs = vec![
             // §1 extraction (source-parameterized)
             t(
                 "get_source_info",
@@ -275,72 +275,10 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 serde_json::json!({"path": {"type":"string"}, "offset": {"type":"integer"}, "limit": {"type":"integer"}}),
                 serde_json::json!(["path"]),
             ),
-            // §7 references
-            t(
-                "list_reference_forms",
-                "List the profile's reference forms (hand-built, known-good worked examples). \
-                 Consult references BEFORE building: they show the expected JCR structure, \
-                 dictionary setup and DoR conventions for this profile's forms.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "search_references",
-                "Semantic search for precedent forms by MEANING, not by name. The query must be a \
-                 natural-language DESCRIPTION of the input you are building — the form's (or the \
-                 current section's) purpose, the kinds of fields it contains and how they are \
-                 grouped — NOT a form name or a single keyword. References are matched by embedding \
-                 this description against each reference's stored description (a literal substring \
-                 fallback over descriptions + package XML is folded in). Run this first (before \
-                 building), section by section; each hit carries a ref_id to pass to \
-                 get_reference_package / read_reference_file. Optional top_k caps hits per signal \
-                 (default 3).",
-                serde_json::json!({"query": {"type":"string"}, "top_k": {"type":"integer"}}),
-                serde_json::json!(["query"]),
-            ),
-            t(
-                "grep_references",
-                "Literal/regex substring search over reference descriptions + AEM package XML — the \
-                 grep counterpart to search_references. Use it to find a specific string (a field \
-                 name, label, or AEM resource type) verbatim; use search_references when looking \
-                 for a form that resembles your input by meaning.",
-                serde_json::json!({"query": {"type":"string"}, "regex": {"type":"boolean"}}),
-                serde_json::json!(["query"]),
-            ),
-            t(
-                "read_reference_file",
-                "Read a reference's description ('description') or a package file by path (get the \
-                 path from get_reference_package). Use it to study how a known-good form was built \
-                 and mirror its structure.",
-                serde_json::json!({"ref_id": {"type":"string"}, "path": {"type":"string"}, "offset": {"type":"integer"}, "limit": {"type":"integer"}}),
-                serde_json::json!(["ref_id", "path"]),
-            ),
-            t(
-                "get_reference_package",
-                "List the package files (known-good output) of a reference by its ref_id (from \
-                 list_reference_forms / search_references), then read individual files with \
-                 read_reference_file.",
-                serde_json::json!({"ref_id": {"type":"string"}}),
-                serde_json::json!(["ref_id"]),
-            ),
-            t(
-                "list_reference_docs",
-                "List the profile's reference documentation (.md/.txt).",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
-                "read_reference_doc",
-                "Read a reference documentation doc by id.",
-                serde_json::json!({"doc_id": {"type":"string"}, "offset": {"type":"integer"}, "limit": {"type":"integer"}}),
-                serde_json::json!(["doc_id"]),
-            ),
-            t(
-                "grep_reference_docs",
-                "Regex/substring search over reference documentation.",
-                serde_json::json!({"query": {"type":"string"}, "regex": {"type":"boolean"}}),
-                serde_json::json!(["query"]),
-            ),
+        ];
+        // §7 references, specified by the references server.
+        specs.extend(references_mcp::specs::tool_specs());
+        specs.extend([
             // §8 control
             t(
                 "submit_review",
@@ -351,7 +289,8 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 }),
                 serde_json::json!(["approved"]),
             ),
-        ]
+        ]);
+        specs
     }
 }
 

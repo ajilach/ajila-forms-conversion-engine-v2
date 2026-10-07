@@ -105,7 +105,7 @@ pub fn ReferencesPage(
             let _ = refresh();
             profiles
                 .iter()
-                .flat_map(|p| crate::references::list_references(p))
+                .flat_map(|p| crate::references::store().list_references(p))
                 .collect::<Vec<_>>()
         }
     });
@@ -115,7 +115,7 @@ pub fn ReferencesPage(
             let _ = refresh();
             profiles
                 .iter()
-                .flat_map(|p| crate::references::list_docs(p))
+                .flat_map(|p| crate::references::store().list_docs(p))
                 .collect::<Vec<_>>()
         }
     });
@@ -334,7 +334,7 @@ fn AddReferenceForm(
 
                             status.set(Some(Status::Ok("Saving the reference…".into())));
                             let result = tokio::task::spawn_blocking(move || {
-                                    crate::references::ingest_reference(
+                                    crate::references::store().ingest_reference(
                                         &profile,
                                         pdf_data,
                                         &pkg_bytes,
@@ -418,7 +418,7 @@ fn ReferenceList(items: ReadSignal<Vec<ReferenceInfo>>, mut refresh: Signal<u32>
                                 onclick: {
                                     let ref_id = r.ref_id.clone();
                                     move |_| {
-                                        crate::references::delete_reference(&ref_id);
+                                        crate::references::store().delete_reference(&ref_id);
                                         refresh += 1;
                                     }
                                 },
@@ -482,7 +482,7 @@ fn AddDocumentation(
                         };
                         let label = name.trim_end_matches(".md").trim_end_matches(".txt").to_string();
                         let doc_id = crate::references::compute_doc_id(&content);
-                        match crate::references::add_doc(&profile, &doc_id, &label, &content) {
+                        match crate::references::store().add_doc(&profile, &doc_id, &label, &content) {
                             Ok(()) => {
                                 status.set(Some(Status::Ok("Documentation added.".into())));
                                 doc_file.set(None);
@@ -554,7 +554,7 @@ fn DocList(items: ReadSignal<Vec<ReferenceDocInfo>>, mut refresh: Signal<u32>) -
                                 onclick: {
                                     let doc_id = d.doc_id.clone();
                                     move |_| {
-                                        crate::references::delete_doc(&doc_id);
+                                        crate::references::store().delete_doc(&doc_id);
                                         refresh += 1;
                                     }
                                 },
@@ -625,7 +625,7 @@ fn ImportExport(
                                             format!("blueprint-ref-import-{}.db", std::process::id()),
                                         );
                                     std::fs::write(&tmp, &bytes).map_err(|e| e.to_string())?;
-                                    let r = crate::references::import_reference_db(
+                                    let r = crate::references::store().import_reference_db(
                                         &tmp.to_string_lossy(),
                                         &profile,
                                     );
@@ -678,7 +678,7 @@ fn ImportExport(
                             };
                             let out_str = out.to_string_lossy().to_string();
                             let res = tokio::task::spawn_blocking(move || {
-                                    crate::references::export_references(&out_str, Some(&profile))
+                                    crate::references::store().export_references(&out_str, Some(&profile))
                                 })
                                 .await
                                 .unwrap_or_else(|e| Err(e.to_string()));

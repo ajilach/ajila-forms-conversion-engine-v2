@@ -13,7 +13,7 @@ This guide covers the `convert` subcommand and everything needed to get it runni
 | Requirement | Why | Check |
 |---|---|---|
 | Rust 1.88+ (edition 2024) | Workspace `rust-version`; let-chains are used throughout | `rustc --version` |
-| Git LFS | `agent/models/` holds a 235 MB safetensors model and a 17 MB tokenizer, both `include_bytes!`-embedded into the binary at compile time | `git lfs version` |
+| Git LFS | `references-mcp/models/` holds a 235 MB safetensors model and a 17 MB tokenizer, both `include_bytes!`-embedded into the binary at compile time | `git lfs version` |
 
 Install both, then pull the large files. Without the LFS pull the build embeds
 LFS pointer text instead of the model and fails:
@@ -27,7 +27,7 @@ git lfs pull
 Verify the model is real and not a pointer — it must be hundreds of megabytes:
 
 ```sh
-ls -lh agent/models/model.safetensors
+ls -lh references-mcp/models/model.safetensors
 ```
 
 The Dioxus CLI is **not** needed. That is only for the desktop app.
@@ -306,7 +306,7 @@ cargo run --release -p blueprint-cli -- convert form.pdf \
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Build fails in `agent/src/semantic/` on `include_bytes!` | `agent/models/` holds LFS pointers | `git lfs install && git lfs pull` |
+| Build fails in `references-mcp/src/semantic/` on `include_bytes!` | `references-mcp/models/` holds LFS pointers | `git lfs install && git lfs pull` |
 | `No API key for the anthropic provider` | Nothing in `--api-key`, `$ANTHROPIC_API_KEY` or the app's settings | Set one of the three |
 | `Several profiles are installed (…) — pick one with --profile.` | More than one profile present | Name it explicitly |
 | `Verification is not possible, so the run cannot start:` | Preflight failed (Docker, images, pdfium, settings) | Run `blueprint verify check` to see what is missing; `blueprint verify prepare` pulls public images; see `docker/aem/README.md` for AEM image setup |

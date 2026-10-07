@@ -5,6 +5,7 @@ members = [
     "agent",
     "mcp",
     "pipeline",
+    "references-mcp",
     "runner",
     # Vendored from ajila-forms-conversion-engine-v3, see u2s/VENDORED.md.
     "u2s/crates/u2s-aem",

@@ -10,9 +10,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 dirs = { workspace = true }
 rusqlite = { version = "0.32", features = ["bundled"] }
-sha2 = "0.10"
 chrono = { workspace = true }
-zip = { workspace = true }
 regex-lite = { workspace = true }
 tokio = { version = "1", features = ["process", "io-util", "rt", "time"] }
 # Checks the AEM verifier's data volume exists; u2s-verify-core has no call for it.
@@ -21,11 +19,8 @@ bollard = { workspace = true }
 # rmcp3 names their result types; it is not a transport here.
 rmcp3 = { package = "rmcp", version = "3.1", default-features = false }
 tempfile = "3"
-# The sentence-embedding model behind semantic reference search (`semantic`).
-candle-core = "0.9"
-candle-nn = "0.9"
-candle-transformers = "0.9"
-tokenizers = { version = "0.21", default-features = false, features = ["onig"] }
+# The reference store, its semantic matcher and the reference tools.
+references-mcp = { path = "../references-mcp" }
 u2s-aem-ubs-verify-mcp = { path = "../u2s/crates/u2s-aem-ubs-verify-mcp" }
 u2s-aem-verify-core = { path = "../u2s/crates/u2s-aem-verify-core" }
 u2s-blob = { path = "../u2s/crates/u2s-blob" }
@@ -45,8 +40,6 @@ u2s-doc-tools = { path = "../u2s/crates/u2s-doc-tools" }
 u2s-jsondoc = { path = "../u2s/crates/u2s-jsondoc" }
 u2s-rules-host = { path = "../u2s/crates/u2s-rules-host" }
 include_dir = "0.7"
-# Reads a reference PDF's page count.
-lopdf = "0.34"
 
 [features]
 # Un-gates `db::set_db_path_for_test` for another crate's own tests (this

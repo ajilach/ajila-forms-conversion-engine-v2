@@ -1,2 +1,2 @@
-agent/models/** filter=lfs diff=lfs merge=lfs -text
+references-mcp/models/** filter=lfs diff=lfs merge=lfs -text
 forms/** filter=lfs diff=lfs merge=lfs -text

@@ -203,7 +203,7 @@ Two scripts regenerate checked-in assets. Neither runs as part of the build; run
 them by hand when the asset needs to change.
 
 ```sh
-# The quantized sentence-embedding model in agent/models/ (semantic matching).
+# The quantized sentence-embedding model in references-mcp/models/ (semantic matching).
 pip install torch transformers safetensors
 python3 scripts/download_model.py
 

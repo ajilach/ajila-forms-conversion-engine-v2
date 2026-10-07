@@ -50,7 +50,6 @@ pub fn format_timestamp(ts: &str) -> String {
 mod imp {
     use super::{EditInfo, SessionInfo};
     use rusqlite::{Connection, OptionalExtension};
-    use sha2::{Digest, Sha256};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
@@ -319,19 +318,12 @@ mod imp {
         // Reference-form tables (shared schema with the `reference-builder`
         // crate, so dataset exports import without drift). Stored in the same
         // `history.db`; only these tables are written by reference import/export.
-        conn.execute_batch(crate::reference_db::SCHEMA_SQL)?;
+        conn.execute_batch(references_mcp::reference_db::SCHEMA_SQL)?;
         Ok(())
     }
 
     fn now() -> String {
         chrono::Utc::now().to_rfc3339()
-    }
-
-    fn sha256_hex(bytes: &[u8]) -> String {
-        let mut hasher = Sha256::new();
-        hasher.update(bytes);
-        let digest = hasher.finalize();
-        digest.iter().map(|b| format!("{b:02x}")).collect()
     }
 
     // ── Settings ────────────────────────────────────────────────────────────
@@ -362,11 +354,10 @@ mod imp {
 
     // ── Documents & sessions ────────────────────────────────────────────────
 
+    /// The key a document's edit history is stored under; the same
+    /// content hash the reference store keys its references by.
     pub fn document_hash(files: &[(String, Vec<u8>)]) -> String {
-        // Order-independent: hash each file, sort the digests, hash the result.
-        let mut digests: Vec<String> = files.iter().map(|(_, bytes)| sha256_hex(bytes)).collect();
-        digests.sort();
-        sha256_hex(digests.join("").as_bytes())
+        references_mcp::document_hash(files)
     }
 
     pub fn upsert_document(doc_hash: &str, label: &str) {

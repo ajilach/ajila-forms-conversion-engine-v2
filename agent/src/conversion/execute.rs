@@ -169,7 +169,7 @@ impl ConversionAgent {
             "build_redacto_dump" => self.build_redacto_dump(),
             "get_package_info" => match self.package() {
                 Some(pkg) => {
-                    let files = crate::references::unzip_package(&pkg).unwrap_or_default();
+                    let files = references_mcp::unzip_package(&pkg).unwrap_or_default();
                     let paths: Vec<&String> = files.iter().map(|(p, _)| p).collect();
                     ToolReply::Text(format!(
                         "size: {} bytes\nfiles:\n{}",
@@ -187,7 +187,7 @@ impl ConversionAgent {
                 let offset = input["offset"].as_u64().unwrap_or(0) as usize;
                 let limit = input["limit"].as_u64().unwrap_or(0) as usize;
                 match self.package() {
-                    Some(pkg) => match crate::references::unzip_package(&pkg) {
+                    Some(pkg) => match references_mcp::unzip_package(&pkg) {
                         Ok(files) => match files.iter().find(|(p, _)| p == path) {
                             Some((_, content)) => {
                                 ToolReply::Text(cap_total(windowed_text(content, offset, limit)))
@@ -200,89 +200,12 @@ impl ConversionAgent {
                 }
             }
 
-            // §7 references
-            "list_reference_forms" => {
-                let profile = self.profile.clone().unwrap_or_default();
-                let list: Vec<_> = crate::references::list_references(&profile)
-                    .into_iter()
-                    .map(|r| serde_json::json!({"ref_id": r.ref_id, "label": r.label, "description": r.description, "pdf_count": r.pdf_count, "files": r.files}))
-                    .collect();
-                ToolReply::Text(serde_json::to_string_pretty(&list).unwrap_or_default())
-            }
-            "search_references" => {
-                let profile = self.profile.clone().unwrap_or_default();
-                let query = input["query"].as_str().unwrap_or_default().to_string();
-                if query.trim().is_empty() {
-                    return ToolReply::Error(
-                        "search_references requires a non-empty query — pass a description of the \
-                         input form/section, not an empty string."
-                            .into(),
-                    );
+            // §7 references: typed arguments, validated by the server itself.
+            other if references_mcp::specs::is_reference_tool(other) => {
+                match self.references.dispatch(other, input) {
+                    Ok(result) => crate::mcp_reply::reply_from_result(result, None),
+                    Err(e) => ToolReply::Error(e.to_string()),
                 }
-                let top_k = input["top_k"].as_u64().unwrap_or(3).max(1) as usize;
-                let matcher = match self.matcher() {
-                    Ok(m) => m,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                let hits: Vec<_> =
-                    crate::references::search_references(&profile, &query, matcher, top_k)
-                        .into_iter()
-                        .map(|h| serde_json::json!({"ref_id": h.ref_id, "label": h.label, "where": h.location, "matched": h.matched, "score": h.score, "snippet": h.snippet}))
-                        .collect();
-                ToolReply::Text(serde_json::to_string_pretty(&hits).unwrap_or_default())
-            }
-            "grep_references" => {
-                let profile = self.profile.clone().unwrap_or_default();
-                let query = input["query"].as_str().unwrap_or_default();
-                let regex = input["regex"].as_bool().unwrap_or(false);
-                let hits: Vec<_> = crate::references::grep_references(&profile, query, regex)
-                    .into_iter()
-                    .map(|h| serde_json::json!({"ref_id": h.ref_id, "label": h.label, "where": h.location, "snippet": h.snippet}))
-                    .collect();
-                ToolReply::Text(serde_json::to_string_pretty(&hits).unwrap_or_default())
-            }
-            "read_reference_file" => {
-                let ref_id = input["ref_id"].as_str().unwrap_or_default();
-                let path = input["path"].as_str().unwrap_or_default();
-                let offset = input["offset"].as_u64().unwrap_or(0) as usize;
-                let limit = input["limit"].as_u64().unwrap_or(0) as usize;
-                match crate::references::read_reference_file(ref_id, path, offset, limit) {
-                    Ok(t) => ToolReply::Text(t),
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "get_reference_package" => {
-                let ref_id = input["ref_id"].as_str().unwrap_or_default();
-                let files = crate::references::get_reference_package_files(ref_id);
-                let paths: Vec<&String> = files.iter().map(|(p, _)| p).collect();
-                ToolReply::Text(serde_json::to_string_pretty(&paths).unwrap_or_default())
-            }
-            "list_reference_docs" => {
-                let profile = self.profile.clone().unwrap_or_default();
-                let list: Vec<_> = crate::references::list_docs(&profile)
-                    .into_iter()
-                    .map(|d| serde_json::json!({"doc_id": d.doc_id, "label": d.label}))
-                    .collect();
-                ToolReply::Text(serde_json::to_string_pretty(&list).unwrap_or_default())
-            }
-            "read_reference_doc" => {
-                let doc_id = input["doc_id"].as_str().unwrap_or_default();
-                let offset = input["offset"].as_u64().unwrap_or(0) as usize;
-                let limit = input["limit"].as_u64().unwrap_or(0) as usize;
-                match crate::references::read_doc(doc_id, offset, limit) {
-                    Ok(t) => ToolReply::Text(t),
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
-            "grep_reference_docs" => {
-                let profile = self.profile.clone().unwrap_or_default();
-                let query = input["query"].as_str().unwrap_or_default();
-                let regex = input["regex"].as_bool().unwrap_or(false);
-                let hits: Vec<_> = crate::references::grep_docs(&profile, query, regex)
-                    .into_iter()
-                    .map(|(doc_id, label, snippet)| serde_json::json!({"doc_id": doc_id, "label": label, "snippet": snippet}))
-                    .collect();
-                ToolReply::Text(serde_json::to_string_pretty(&hits).unwrap_or_default())
             }
 
             // §8 control
@@ -496,12 +419,5 @@ impl ConversionAgent {
         });
         self.built = Some(Built::Redacto { dump });
         ToolReply::Text(report.to_string())
-    }
-
-    fn matcher(&mut self) -> Result<&crate::semantic::SemanticMatcher, String> {
-        if self.matcher.is_none() {
-            self.matcher = Some(crate::semantic::SemanticMatcher::new().map_err(|e| e.to_string())?);
-        }
-        Ok(self.matcher.as_ref().expect("just loaded"))
     }
 }

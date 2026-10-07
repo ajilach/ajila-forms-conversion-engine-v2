@@ -40,21 +40,16 @@ name = "agent"
 version = "0.1.0"
 dependencies = [
  "bollard",
- "candle-core",
- "candle-nn",
- "candle-transformers",
  "chrono",
  "dirs 5.0.1",
  "include_dir",
- "lopdf 0.34.0",
+ "references-mcp",
  "regex-lite",
  "rmcp 3.1.4",
  "rusqlite",
  "serde",
  "serde_json",
- "sha2 0.10.9",
  "tempfile",
- "tokenizers",
  "tokio",
  "u2s-aem-ubs-mcp",
  "u2s-aem-ubs-verify-mcp",
@@ -74,7 +69,6 @@ dependencies = [
  "u2s-xfa",
  "u2s-xfa-mcp",
  "uuid",
- "zip 2.4.2",
 ]
 
 [[package]]
@@ -6514,6 +6508,28 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "references-mcp"
+version = "0.1.0"
+dependencies = [
+ "candle-core",
+ "candle-nn",
+ "candle-transformers",
+ "chrono",
+ "env_logger",
+ "lopdf 0.34.0",
+ "regex-lite",
+ "rmcp 3.1.4",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokenizers",
+ "tokio",
+ "zip 2.4.2",
 ]
 
 [[package]]

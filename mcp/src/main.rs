@@ -306,7 +306,7 @@ impl Blueprint {
         // How many reference forms / docs are available for this profile. The
         // count distinguishes "no references exist" from a profile mismatch
         // returning an empty list.
-        let ref_count = agent::references::count(profile.as_deref().unwrap_or_default());
+        let ref_count = agent::references::store().count(profile.as_deref().unwrap_or_default());
         let new_agent = ConversionAgent::new(profile, pdfs, session.clone(), target).and_then(
             |new_agent| match target {
                 agent::OutputTarget::Aem => new_agent.with_aem_verify(&aem_verify),
