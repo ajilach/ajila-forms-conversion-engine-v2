@@ -21,6 +21,7 @@
 //! be exactly the "undocumented mechanism" CLAUDE.md warns against — add a
 //! port when its first concrete consumer does.
 
+pub mod agent_instructions;
 pub mod agent_role;
 pub mod base64;
 pub mod config;
@@ -30,6 +31,9 @@ mod label;
 pub mod slug;
 pub mod text;
 
+pub use agent_instructions::{
+    AgentInstructions, AgentInstructionsError, MAX_AGENT_INSTRUCTIONS_CHARS,
+};
 pub use agent_role::{AgentRole, AgentRoleError, TurnPhase};
 pub use config::{ConfigError, ConfigProblem, EnvSource, ProcessEnv};
 pub use format::{

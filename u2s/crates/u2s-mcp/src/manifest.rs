@@ -276,6 +276,13 @@ pub struct ToolManifest {
     /// capability that is not side-effecting could not be `dry_run: false`
     /// verification in the first place.
     pub verify: Option<VerifyCapability>,
+    /// Whether the tool is offered to the Conversion Agent on a dataset
+    /// whose admin has not configured it. Tools of a server that reads
+    /// source documents are on by default anyway; this is for a read that
+    /// every conversion should have although it reads no document, such as
+    /// the corpus search. Only a non-side-effecting `query` tool may
+    /// declare it. Defaults to `false`.
+    pub default_on: bool,
     pub scope: FormatScope,
 }
 
@@ -563,6 +570,20 @@ fn parse_tool(entry: &Value, index: usize) -> Result<ToolManifest, ManifestError
         }
     };
 
+    let default_on = match entry.get("default_on") {
+        None | Some(Value::Null) => false,
+        Some(raw) => raw.as_bool().ok_or_else(|| ManifestError::Invalid {
+            field: path("default_on"),
+            reason: "must be a boolean".to_owned(),
+        })?,
+    };
+    if default_on && (role != ToolRole::Query || side_effecting) {
+        return Err(ManifestError::Invalid {
+            field: path("default_on"),
+            reason: "only a query tool without side effects may be on by default".to_owned(),
+        });
+    }
+
     let scope_raw = entry.get("scope").ok_or_else(|| ManifestError::Missing {
         field: path("scope"),
     })?;
@@ -574,6 +595,7 @@ fn parse_tool(entry: &Value, index: usize) -> Result<ToolManifest, ManifestError
         ingest,
         side_effecting,
         verify,
+        default_on,
         scope,
     })
 }

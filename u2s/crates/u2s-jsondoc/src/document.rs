@@ -71,6 +71,14 @@ impl Document {
         self.value
     }
 
+    /// Replaces the whole value and advances the revision, so an edit
+    /// prepared against the old value is refused as stale rather than
+    /// applied to a document it was never meant for.
+    pub fn replace(&mut self, value: Value) {
+        self.value = value;
+        self.advance();
+    }
+
     pub(crate) fn advance(&mut self) {
         self.revision = self.revision.next();
     }
@@ -98,6 +106,15 @@ mod tests {
         doc.advance();
         assert_eq!(doc.revision().get(), 1);
         doc.advance();
+        assert_eq!(doc.revision().get(), 2);
+    }
+
+    #[test]
+    fn replacing_the_value_advances_the_revision() {
+        let mut doc = Document::new(json!({ "a": 1 }));
+        doc.advance();
+        doc.replace(json!({ "b": 2 }));
+        assert_eq!(doc.value(), &json!({ "b": 2 }));
         assert_eq!(doc.revision().get(), 2);
     }
 

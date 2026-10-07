@@ -87,15 +87,14 @@ uuid_id!(
 uuid_id!(
     /// A stored input's identity — `inputs.id`. One row per distinct
     /// document, deduped by content hash within a dataset; this identity,
-    /// not the hash, is what `runs.input_id` and `input_vectors.input_id`
-    /// key on.
+    /// not the hash, is what `runs.input_id` keys on.
     InputId
 );
 
 uuid_id!(
     /// One uploaded file within an input — `input_files.id`. Kept distinct
     /// from [`InputId`]: an input is the logical submission a run converts
-    /// (and the corpus/retrieval unit), a file is one of the bytes blobs
+    /// (and the corpus unit), a file is one of the bytes blobs
     /// that make it up, and `input_pages` keys on this identity rather than
     /// on `InputId` because two files can each have a page 1.
     InputFileId

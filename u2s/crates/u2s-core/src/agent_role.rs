@@ -19,7 +19,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One of the two agents in PLAN.md: the Conversion Agent and the Rule Agent.
+/// One of the agents in PLAN.md: the Conversion Agent, the Rule Agent and
+/// the description agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
@@ -27,27 +28,31 @@ pub enum AgentRole {
     /// Off the conversion path and interactive (PLAN.md). Calls one native
     /// tool, `rule_try`, and no MCP tool.
     Rule,
+    /// Writes the text description of one input. Calls no tool.
+    Describe,
 }
 
-/// A role name that is not one of the two.
+/// A role name that is not one of the agents.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error(
-    "unknown agent role {value:?}: expected one of conversion, rule"
+    "unknown agent role {value:?}: expected one of conversion, rule, describe"
 )]
 pub struct AgentRoleError {
     pub value: String,
 }
 
 impl AgentRole {
-    /// Every role, including [`AgentRole::Rule`]. This is the vocabulary
-    /// `agent_turns.agent_role` records, because a Rule Agent call is still a
-    /// model call worth auditing and costing.
-    pub const ALL: &'static [AgentRole] = &[AgentRole::Conversion, AgentRole::Rule];
+    /// Every role, including [`AgentRole::Rule`] and [`AgentRole::Describe`].
+    /// This is the vocabulary `agent_turns.agent_role` records, because a
+    /// call by either is still a model call worth auditing and costing.
+    pub const ALL: &'static [AgentRole] =
+        &[AgentRole::Conversion, AgentRole::Rule, AgentRole::Describe];
 
     /// The roles a tool enablement may name. Excludes [`AgentRole::Rule`],
-    /// which calls no *enableable* (MCP) tool — enabling a tool "for the
-    /// Rule Agent" would be a row that can never be read, which is worse
-    /// than a row that cannot be written.
+    /// which calls no *enableable* (MCP) tool, and [`AgentRole::Describe`],
+    /// which calls no tool at all: enabling a tool for either would be a row
+    /// that can never be read, which is worse than a row that cannot be
+    /// written.
     pub const TOOL_USING: &'static [AgentRole] = &[AgentRole::Conversion];
 
     /// The wire and database spelling. Must stay in step with the Postgres
@@ -56,6 +61,7 @@ impl AgentRole {
         match self {
             AgentRole::Conversion => "conversion",
             AgentRole::Rule => "rule",
+            AgentRole::Describe => "describe",
         }
     }
 
@@ -168,10 +174,11 @@ mod tests {
     /// to a comment, because `TOOL_USING` is what the enablement API
     /// validates against.
     #[test]
-    fn the_rule_agent_is_not_tool_using() {
+    fn only_the_conversion_agent_is_tool_using() {
         assert!(!AgentRole::Rule.is_tool_using());
+        assert!(!AgentRole::Describe.is_tool_using());
         assert!(AgentRole::Conversion.is_tool_using());
-        assert_eq!(AgentRole::TOOL_USING.len(), AgentRole::ALL.len() - 1);
+        assert_eq!(AgentRole::TOOL_USING.len(), AgentRole::ALL.len() - 2);
     }
 
     #[test]

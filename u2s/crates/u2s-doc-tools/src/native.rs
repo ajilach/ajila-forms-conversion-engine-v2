@@ -95,6 +95,7 @@ pub enum NativeJsonTool {
     GetFact,
     ProposeFact,
     Verify,
+    AdoptReference,
 }
 
 /// Where a native tool's body actually runs.
@@ -127,6 +128,10 @@ pub enum Route {
     /// facts live in the store and extracting one needs a model, the page
     /// renders and the sandbox.
     FactWorkbench,
+    /// Answered by the application through `u2s_agent`'s `ReferenceAdopter`,
+    /// because the reference's output and its rule verdicts live in the
+    /// store; the bridge then replaces the working document with it.
+    ReferenceAdopter,
     /// Answered by the application through `u2s_agent`'s `OutputVerifier`,
     /// because verifying encodes the document and installs it on a real
     /// target system, which takes the encoder, the verifier server and the
@@ -150,6 +155,7 @@ impl NativeJsonTool {
         NativeJsonTool::GetFact,
         NativeJsonTool::ProposeFact,
         NativeJsonTool::Verify,
+        NativeJsonTool::AdoptReference,
     ];
 
     /// What a conversion is always offered: every tool except the fact
@@ -170,6 +176,7 @@ impl NativeJsonTool {
         NativeJsonTool::Autofix,
         NativeJsonTool::Propose,
         NativeJsonTool::TryRule,
+        NativeJsonTool::AdoptReference,
     ];
 
     pub fn name(self) -> &'static str {
@@ -188,6 +195,7 @@ impl NativeJsonTool {
             NativeJsonTool::GetFact => "fact_get",
             NativeJsonTool::ProposeFact => "fact_propose",
             NativeJsonTool::Verify => "verify_output",
+            NativeJsonTool::AdoptReference => "reference_adopt",
         }
     }
 
@@ -288,6 +296,14 @@ impl NativeJsonTool {
                  number of calls per run is capped, so call it once the document is complete \
                  and validates, and again only after you fixed what it reported."
             }
+            NativeJsonTool::AdoptReference => {
+                "Replace the whole working document with the accepted output of a reference \
+                 found by corpus_search, and continue editing from there. Use it only when the \
+                 reference is the same form as your source (same form number and edition): \
+                 every value in it belongs to another document and must still be replaced \
+                 from your source. Discards every edit made so far. Returns the new revision \
+                 and the rules the reference is known to fail, which you must fix."
+            }
         }
     }
 
@@ -310,6 +326,7 @@ impl NativeJsonTool {
                 | NativeJsonTool::Propose
                 | NativeJsonTool::ProposeFact
                 | NativeJsonTool::Verify
+                | NativeJsonTool::AdoptReference
         )
     }
 
@@ -322,6 +339,7 @@ impl NativeJsonTool {
             NativeJsonTool::Propose => Route::Proposer,
             NativeJsonTool::TryRule => Route::DryRunner,
             NativeJsonTool::Verify => Route::Verifier,
+            NativeJsonTool::AdoptReference => Route::ReferenceAdopter,
             NativeJsonTool::ListFacts | NativeJsonTool::GetFact | NativeJsonTool::ProposeFact => {
                 Route::FactWorkbench
             }
@@ -421,6 +439,17 @@ impl NativeJsonTool {
             NativeJsonTool::Verify => json!({
                 "type": "object",
                 "properties": {},
+                "additionalProperties": false
+            }),
+            NativeJsonTool::AdoptReference => json!({
+                "type": "object",
+                "properties": {
+                    "reference_id": {
+                        "type": "string",
+                        "description": "A reference_id from corpus_search"
+                    }
+                },
+                "required": ["reference_id"],
                 "additionalProperties": false
             }),
             NativeJsonTool::Propose => json!({
@@ -542,6 +571,13 @@ pub enum NativeToolError {
     NoFactWorkbench,
     #[error("{detail}")]
     FactToolFailed { detail: String },
+    #[error(
+        "reference_adopt is unavailable because this agent has no reference adopter wired; \
+         the document was not changed"
+    )]
+    NoAdopter,
+    #[error("the reference was not adopted and the document was not changed: {detail}")]
+    AdoptRefused { detail: String },
 }
 
 /// A tool call's result plus whether it changed the document, so a caller
@@ -734,6 +770,10 @@ pub fn dispatch(
         }
         NativeJsonTool::Verify => Err(NativeToolError::PatchRejected {
             detail: "verify_output is dispatched through the output verifier, not here".to_owned(),
+        }),
+        NativeJsonTool::AdoptReference => Err(NativeToolError::PatchRejected {
+            detail: "reference_adopt is dispatched through the reference adopter, not here"
+                .to_owned(),
         }),
     }
 }
@@ -1114,6 +1154,7 @@ mod tests {
                     | NativeJsonTool::Propose
                     | NativeJsonTool::ProposeFact
                     | NativeJsonTool::Verify
+                    | NativeJsonTool::AdoptReference
             );
             assert_eq!(tool.is_idempotent(), !mutates, "{}", tool.name());
         }
