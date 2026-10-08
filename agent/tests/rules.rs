@@ -1397,7 +1397,7 @@ fn a_language_script_is_written_into_the_package() {
         .expect("the package holds the form");
     let start = xml.find("name=\"PN_Execution_bc1928b0\"").expect("the gated panel is written");
     let element = &xml[xml[..start].rfind('<').unwrap()..];
-    let tag = element[1..].split([' ', '>']).next().unwrap();
+    let tag = element[1..].split(|c: char| c.is_whitespace() || c == '>').next().unwrap();
     let end = element.find(&format!("</{tag}>")).expect("the panel closes");
     let panel = &element[..end];
     // What follows the panel's own `items` is the panel's own children: layout, responsive, and
