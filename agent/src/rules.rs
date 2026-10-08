@@ -1,18 +1,28 @@
-//! The check rules a run's document is held to, and the sandbox they run in.
+//! The rules a run's document is held to, and the sandbox their scripts run in.
 //!
-//! The AEM rules are the UBS ones under `rules/aem/` at the repository root,
-//! one directory per rule (`rule.toml`, `check.js`, optionally `fix.js`),
-//! compiled in; the Redacto format has none yet. They live here rather than
-//! in the vendored UBS layer, which keeps the templates, the writer and the
-//! normalize passes: `specs/feedback/rule-coverage.md` says which of the
-//! feedback guard's problems each one stands for. Every rule runs in a worker process with a
-//! memory and time ceiling (see `u2s-rules-host`), so a runaway script fails its
-//! own rule rather than the conversion. That process is the running executable
-//! itself, started with the worker flag (see [`runner`]).
+//! Each target's rules live under `rules/<target>/` at the repository root
+//! (`rules/aem/`, `rules/redacto/`), one directory per rule, compiled in. A rule
+//! is one of two kinds, by what its directory holds:
+//!
+//! - **scripted**: `rule.toml` and `check.js` (optionally `fix.js`). Its script
+//!   decides it; it runs on every edit and in `rule_check`.
+//! - **judged**: `rule.toml` alone. No script can decide it, so `rule_check`
+//!   hands its description to a judge agent (the pipeline's, see
+//!   `pipeline::judge`); without one it is reported unchecked.
+//!
+//! They live here rather than in the vendored UBS layer, which keeps the
+//! templates, the writer and the normalize passes: `specs/feedback/rule-coverage.md`
+//! says which of the feedback guard's problems each one stands for. Every script
+//! runs in a worker process with a memory and time ceiling (see `u2s-rules-host`),
+//! so a runaway script fails its own rule rather than the conversion. That
+//! process is the running executable itself, started with the worker flag (see
+//! [`runner`]).
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use serde::Deserialize;
+use serde_json::{Value, json};
 use u2s_doc_tools::native::RuleForCheck;
 use u2s_doc_tools::rules_dir::RuleFiles;
 use u2s_rules_host::runner::RuleRunner;
@@ -67,34 +77,158 @@ pub fn runner() -> Result<RuleRunner, String> {
 }
 
 static AEM_RULES: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../rules/aem");
+static REDACTO_RULES: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../rules/redacto");
 
-/// The AEM rules under `rules/aem/`, compiled in, one per rule directory.
-pub fn aem_rule_files() -> Vec<RuleFiles> {
-    AEM_RULES
+fn rule_dir(target: OutputTarget) -> &'static include_dir::Dir<'static> {
+    match target {
+        OutputTarget::Aem => &AEM_RULES,
+        OutputTarget::Redacto => &REDACTO_RULES,
+    }
+}
+
+/// A `rule.toml`, the same fields the vendored loader reads for a scripted
+/// rule; parsed here too, for the judged rules it never sees.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RuleToml {
+    id: String,
+    title: String,
+    description: String,
+    #[serde(default)]
+    #[allow(dead_code)] // validated, as the vendored loader does
+    output_formats: Vec<String>,
+}
+
+/// A rule no script decides: a judge agent checks the document against its
+/// description.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JudgedRule {
+    /// The id `rule_list` and `rule_check` use, from the same scheme as a
+    /// scripted rule's (`derive_rule_id` over the `rule.toml` id).
+    pub id: String,
+    /// The `rule.toml` id, e.g. `ubs-aem-option-dependent-fields`.
+    pub name: String,
+    pub title: String,
+    pub description: String,
+}
+
+/// Every rule of a target, by kind.
+#[derive(Debug, Default)]
+pub struct Rules {
+    pub scripted: Vec<RuleForCheck>,
+    pub judged: Vec<JudgedRule>,
+}
+
+fn text(dir: &include_dir::Dir<'_>, name: &str) -> Option<String> {
+    dir.get_file(dir.path().join(name))
+        .map(|f| f.contents_utf8().expect("a rule file is UTF-8").to_string())
+}
+
+/// The scripted rules of `target`, compiled in: the rule directories with a
+/// `check.js`.
+pub fn rule_files(target: OutputTarget) -> Vec<RuleFiles> {
+    rule_dir(target)
         .dirs()
-        .map(|dir| {
+        .filter_map(|dir| {
             let slug = dir.path().to_string_lossy().into_owned();
-            let text = |name: &str| {
-                dir.get_file(dir.path().join(name))
-                    .map(|f| f.contents_utf8().expect("a rule file is UTF-8").to_string())
-            };
-            RuleFiles {
-                rule_toml: text("rule.toml").unwrap_or_else(|| panic!("rule {slug} has a rule.toml")),
-                check_js: text("check.js").unwrap_or_else(|| panic!("rule {slug} has a check.js")),
-                fix_js: text("fix.js"),
+            Some(RuleFiles {
+                check_js: text(dir, "check.js")?,
+                rule_toml: text(dir, "rule.toml").unwrap_or_else(|| panic!("rule {slug} has a rule.toml")),
+                fix_js: text(dir, "fix.js"),
                 slug,
-            }
+            })
         })
         .collect()
 }
 
-/// The rules `target`'s documents are checked against.
-pub fn rules_for(target: OutputTarget) -> Result<Vec<RuleForCheck>, String> {
-    match target {
-        OutputTarget::Aem => u2s_doc_tools::rules_dir::load_rules(aem_rule_files())
-            .map_err(|e| format!("the UBS AEM rules do not load: {e}")),
-        OutputTarget::Redacto => Ok(Vec::new()),
+/// The rules `target`'s documents are held to. A rule directory without a
+/// `rule.toml`, a judged rule with a `fix.js`, and two rules with one id are
+/// errors: a rule that silently drops out is a rule nobody decided to stop.
+pub fn rules_for(target: OutputTarget) -> Result<Rules, String> {
+    let fail = |e: String| format!("the {} rules do not load: {e}", target.label());
+    let mut names = std::collections::BTreeSet::new();
+    let mut judged = Vec::new();
+    for dir in rule_dir(target).dirs() {
+        let slug = dir.path().to_string_lossy().into_owned();
+        let toml_text = text(dir, "rule.toml").ok_or_else(|| fail(format!("{slug} has no rule.toml")))?;
+        let toml: RuleToml = toml::from_str(&toml_text).map_err(|e| fail(format!("{slug}/rule.toml: {e}")))?;
+        if !names.insert(toml.id.clone()) {
+            return Err(fail(format!("two rules have the id {}", toml.id)));
+        }
+        if text(dir, "check.js").is_none() {
+            if text(dir, "fix.js").is_some() {
+                return Err(fail(format!("{slug} has a fix.js but no check.js")));
+            }
+            judged.push(JudgedRule {
+                id: u2s_doc_tools::rules_dir::derive_rule_id(&toml.id).to_string(),
+                name: toml.id,
+                title: toml.title,
+                description: toml.description,
+            });
+        }
     }
+    let scripted = u2s_doc_tools::rules_dir::load_rules(rule_files(target)).map_err(|e| fail(e.to_string()))?;
+    Ok(Rules { scripted, judged })
+}
+
+/// What `rule_list` adds for the judged rules, and the `check` it marks every
+/// rule with: `script` for a rule its script decides, `agent` for one a judge
+/// does.
+pub fn list_with_judged(mut listed: Value, judged: &[JudgedRule]) -> Value {
+    if let Some(rules) = listed.get_mut("rules").and_then(Value::as_array_mut) {
+        for rule in rules.iter_mut() {
+            rule["check"] = json!("script");
+        }
+        rules.extend(judged.iter().map(|r| {
+            json!({ "id": r.id, "title": r.title, "description": r.description, "check": "agent" })
+        }));
+    }
+    listed
+}
+
+/// A judge's verdict on one rule.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct RuleVerdict {
+    pub pass: bool,
+    #[serde(default)]
+    pub violations: Vec<Value>,
+}
+
+/// One `rule_check` report from the scripts' verdicts and the judged rules':
+/// a judged rule with a verdict reads like a scripted one (`positive` or
+/// `negative` with its violations), one without is `unchecked` with the
+/// reason. Every verdict says which kind of check made it.
+pub fn merge_rule_report(mut scripted: Value, judged: &[(JudgedRule, Result<RuleVerdict, String>)]) -> Value {
+    let verdicts = scripted
+        .as_object_mut()
+        .map(|o| o.entry("verdicts").or_insert_with(|| json!([])))
+        .and_then(Value::as_array_mut);
+    let Some(verdicts) = verdicts else {
+        return scripted;
+    };
+    for verdict in verdicts.iter_mut() {
+        verdict["check"] = json!("script");
+    }
+    for (rule, outcome) in judged {
+        verdicts.push(match outcome {
+            Ok(v) => json!({
+                "rule_id": rule.id,
+                "title": rule.title,
+                "check": "agent",
+                "verdict": if v.pass { "positive" } else { "negative" },
+                "violations": v.violations,
+            }),
+            Err(reason) => json!({
+                "rule_id": rule.id,
+                "title": rule.title,
+                "check": "agent",
+                "verdict": "unchecked",
+                "violations": [],
+                "unchecked_reason": reason,
+            }),
+        });
+    }
+    scripted
 }
 
 /// Check that `target`'s rules load and their sandbox starts, before a run
@@ -102,11 +236,17 @@ pub fn rules_for(target: OutputTarget) -> Result<Vec<RuleForCheck>, String> {
 /// conversion to start. Reports what it checked.
 pub fn readiness(target: OutputTarget) -> Result<String, String> {
     let rules = rules_for(target)?;
-    if rules.is_empty() {
-        return Ok("no check rules for this format".into());
+    if rules.scripted.is_empty() && rules.judged.is_empty() {
+        return Ok("no rules for this format".into());
     }
-    runner()?;
-    Ok(format!("{} check rules, each run in a sandboxed worker process", rules.len()))
+    if !rules.scripted.is_empty() {
+        runner()?;
+    }
+    Ok(format!(
+        "{} scripted rules, each run in a sandboxed worker process, and {} judged by an agent",
+        rules.scripted.len(),
+        rules.judged.len()
+    ))
 }
 
 #[cfg(test)]
@@ -114,8 +254,47 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_aem_rules_load_and_redacto_has_none() {
-        assert!(!rules_for(OutputTarget::Aem).unwrap().is_empty());
-        assert!(rules_for(OutputTarget::Redacto).unwrap().is_empty());
+    fn every_targets_rules_load() {
+        assert!(!rules_for(OutputTarget::Aem).unwrap().scripted.is_empty());
+        rules_for(OutputTarget::Redacto).unwrap();
+    }
+
+    fn judged(name: &str) -> JudgedRule {
+        JudgedRule {
+            id: format!("id-{name}"),
+            name: name.into(),
+            title: format!("Title {name}"),
+            description: format!("Description {name}"),
+        }
+    }
+
+    #[test]
+    fn rule_list_holds_both_kinds_and_says_which() {
+        let listed = list_with_judged(
+            json!({"rules": [{"id": "s", "title": "Scripted", "description": "d"}]}),
+            &[judged("a")],
+        );
+        let rules = listed["rules"].as_array().unwrap();
+        assert_eq!(rules[0]["check"], "script");
+        assert_eq!(rules[1], json!({"id": "id-a", "title": "Title a", "description": "Description a", "check": "agent"}));
+    }
+
+    #[test]
+    fn a_judged_rule_reads_like_a_scripted_one_or_says_why_it_is_unchecked() {
+        let merged = merge_rule_report(
+            json!({"verdicts": [{"rule_id": "s", "verdict": "positive", "violations": []}], "package_findings": []}),
+            &[
+                (judged("a"), Ok(RuleVerdict { pass: false, violations: vec![json!({"pointer": "/form", "message": "m"})] })),
+                (judged("b"), Ok(RuleVerdict { pass: true, violations: vec![] })),
+                (judged("c"), Err("no judge in this run".into())),
+            ],
+        );
+        let v = merged["verdicts"].as_array().unwrap();
+        assert_eq!(v[0]["check"], "script");
+        assert_eq!((v[1]["verdict"].as_str(), v[1]["check"].as_str()), (Some("negative"), Some("agent")));
+        assert_eq!(v[1]["violations"][0]["pointer"], "/form");
+        assert_eq!(v[2]["verdict"], "positive");
+        assert_eq!((v[3]["verdict"].as_str(), v[3]["unchecked_reason"].as_str()), (Some("unchecked"), Some("no judge in this run")));
+        assert_eq!(merged["package_findings"], json!([]));
     }
 }

@@ -31,10 +31,14 @@ fn check(rule: &str, doc: &Value) -> CheckOutcome {
     .unwrap_or_else(|e| panic!("{rule} breaks: {e:?}"))
 }
 
+/// The scripted rules: the rule directories with a `check.js` (a judged rule
+/// has none, and an agent decides it).
 fn rules() -> Vec<String> {
     let mut rules: Vec<String> = std::fs::read_dir(rules_dir())
         .unwrap()
-        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .map(|e| e.unwrap().path())
+        .filter(|dir| dir.join("check.js").is_file())
+        .map(|dir| dir.file_name().unwrap().to_string_lossy().into_owned())
         .collect();
     rules.sort();
     rules
@@ -248,8 +252,18 @@ fn a_visual_editor_rule_in_passthrough_is_reported() {
 /// rule directories.
 #[test]
 fn the_compiled_rules_are_the_rule_directories() {
-    let from_dir = u2s_doc_tools::rules_dir::load_rules_dir(&rules_dir()).expect("the rules load");
-    let compiled = u2s_doc_tools::rules_dir::load_rules(agent::rules::aem_rule_files())
+    let read = |slug: &str, name: &str| std::fs::read_to_string(rules_dir().join(slug).join(name)).ok();
+    let files = rules()
+        .iter()
+        .map(|slug| u2s_doc_tools::rules_dir::RuleFiles {
+            rule_toml: read(slug, "rule.toml").unwrap(),
+            check_js: read(slug, "check.js").unwrap(),
+            fix_js: read(slug, "fix.js"),
+            slug: slug.clone(),
+        })
+        .collect();
+    let from_dir = u2s_doc_tools::rules_dir::load_rules(files).expect("the rules load");
+    let compiled = u2s_doc_tools::rules_dir::load_rules(agent::rules::rule_files(agent::OutputTarget::Aem))
         .expect("the compiled rules load");
     assert_eq!(from_dir.len(), rules().len());
     let ids = |rules: &[u2s_doc_tools::native::RuleForCheck]| {

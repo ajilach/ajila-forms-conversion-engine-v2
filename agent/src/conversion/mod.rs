@@ -205,7 +205,10 @@ pub struct ConversionAgent {
     /// The run's output document, and the schema and rules it is held to.
     document: Document,
     schema: Value,
+    /// The rules a script decides, run on every edit and by `rule_check`.
     rules: Vec<RuleForCheck>,
+    /// The rules a judge agent decides (see [`crate::rules`]).
+    judged: Vec<crate::rules::JudgedRule>,
     /// The rule sandbox, started on the first rule call.
     runner: Option<RuleRunner>,
     /// Each rule's verdict at the last check, so an edit reports what it
@@ -263,6 +266,7 @@ impl ConversionAgent {
             OutputTarget::Aem => u2s_aem_ubs_mcp::document_schema(),
             OutputTarget::Redacto => u2s_redacto_ubs_mcp::document_schema(),
         };
+        let rules = crate::rules::rules_for(target)?;
         let references = references_mcp::ReferencesServer::new(
             crate::references::store(),
             profile.clone().unwrap_or_default(),
@@ -273,7 +277,8 @@ impl ConversionAgent {
             sources: HashMap::from([("current".to_string(), documents)]),
             document: Document::new(document),
             schema,
-            rules: crate::rules::rules_for(target)?,
+            rules: rules.scripted,
+            judged: rules.judged,
             runner: None,
             lint: None,
             built: None,
@@ -769,6 +774,40 @@ mod tests {
         let through = reply_text(agent.execute("xfa_packets", &input).await);
         assert_eq!(beside, through);
         assert!(beside.contains("template"), "{beside}");
+    }
+
+    /// rule_list holds every rule and says which kind each is; rule_check
+    /// runs the scripts and, with no judge agent here, reports a judged rule
+    /// unchecked; an id no rule has is refused.
+    #[tokio::test]
+    async fn rule_tools_cover_scripted_and_judged_rules() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let judged = crate::rules::JudgedRule {
+            id: "judged-id".into(),
+            name: "ubs-aem-test".into(),
+            title: "A judged rule".into(),
+            description: "Judge me.".into(),
+        };
+        agent.judged = vec![judged.clone()];
+
+        let listed: Value = serde_json::from_str(&reply_text(agent.execute("rule_list", &json!({})).await)).unwrap();
+        let rules = listed["rules"].as_array().unwrap();
+        assert!(rules.iter().any(|r| r["check"] == "script"));
+        assert!(rules.iter().any(|r| r["id"] == "judged-id" && r["check"] == "agent"));
+
+        let checked: Value = serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({})).await)).unwrap();
+        let verdicts = checked["verdicts"].as_array().unwrap();
+        assert!(verdicts.iter().any(|v| v["check"] == "script"));
+        let unjudged = verdicts.iter().find(|v| v["rule_id"] == "judged-id").expect("the judged rule is reported");
+        assert_eq!(unjudged["verdict"], "unchecked");
+
+        let only: Value =
+            serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({"rule_ids": ["judged-id"]})).await))
+                .unwrap();
+        assert_eq!(only["verdicts"].as_array().unwrap().len(), 1);
+
+        let refused = agent.execute("rule_check", &json!({"rule_ids": ["nope"]})).await;
+        assert!(matches!(refused, ToolReply::Error(e) if e.contains("nope")));
     }
 
     /// coverage_check compares the run's own source PDFs with its document: a

@@ -90,6 +90,18 @@ pub(super) fn cap_total(text: String) -> String {
     )
 }
 
+/// Why `rule_check` leaves a judged rule unchecked where no judge agent runs
+/// (the MCP server, whose client judges for itself).
+const NO_JUDGE: &str = "no judge agent runs here: check the document against this rule's \
+                        description (rule_list) yourself";
+
+/// Which rules one `rule_check` covers: the scripted ones (`None` for all of
+/// them), and the judged ones.
+pub struct RuleCheckPlan {
+    scripted: Option<Vec<String>>,
+    pub judged: Vec<crate::rules::JudgedRule>,
+}
+
 /// A read's remaining work, which owns everything it touches.
 pub type ReadWork = std::pin::Pin<Box<dyn std::future::Future<Output = ToolReply> + Send>>;
 
@@ -132,6 +144,68 @@ impl ConversionAgent {
         })
     }
 
+    /// Resolves `rule_check`'s `rule_ids` (none or empty: every rule) into the
+    /// scripted and the judged rules. An id no rule has is an error, not a
+    /// silently empty check.
+    pub fn rule_check_plan(&self, input: &Value) -> Result<RuleCheckPlan, String> {
+        let requested: Vec<String> = match input.get("rule_ids") {
+            None | Some(Value::Null) => Vec::new(),
+            Some(Value::Array(ids)) => ids
+                .iter()
+                .map(|id| id.as_str().map(str::to_string).ok_or("rule_ids holds only strings"))
+                .collect::<Result<_, _>>()?,
+            Some(_) => return Err("rule_ids is a list of rule ids from rule_list".into()),
+        };
+        if requested.is_empty() {
+            return Ok(RuleCheckPlan { scripted: None, judged: self.judged.clone() });
+        }
+        let scripted: Vec<String> = self
+            .rules
+            .iter()
+            .map(|r| r.id.to_string())
+            .filter(|id| requested.contains(id))
+            .collect();
+        let judged: Vec<_> = self.judged.iter().filter(|r| requested.contains(&r.id)).cloned().collect();
+        let unknown: Vec<&String> = requested
+            .iter()
+            .filter(|id| !scripted.contains(id) && !judged.iter().any(|r| &r.id == *id))
+            .collect();
+        if !unknown.is_empty() {
+            return Err(format!("no rule has the id {unknown:?}; rule_list lists them"));
+        }
+        Ok(RuleCheckPlan { scripted: Some(scripted), judged })
+    }
+
+    /// The scripted part of a `rule_check`: the scripts' verdicts, and the
+    /// package checks of the current build when there is one.
+    pub async fn check_scripted(&mut self, plan: &RuleCheckPlan) -> Result<Value, String> {
+        let nothing_to_run = self.rules.is_empty() || plan.scripted.as_ref().is_some_and(Vec::is_empty);
+        let mut report = if nothing_to_run {
+            json!({ "verdicts": [] })
+        } else {
+            self.runner()?;
+            let runner = self.runner.as_ref().expect("started above");
+            let input = match &plan.scripted {
+                Some(ids) => json!({ "rule_ids": ids }),
+                None => json!({}),
+            };
+            u2s_doc_tools::native::check_rules(&input, self.document.value(), Some(&self.schema), &self.rules, runner)
+                .await
+                .map_err(|e| e.to_string())?
+                .value
+        };
+        // The document's build, when it has a current one, is checked too:
+        // what the writer made of the document.
+        if let (Some(package), Some(object)) = (self.package(), report.as_object_mut()) {
+            let findings = match crate::package_checks::check_package(&package) {
+                Ok(findings) => json!(findings),
+                Err(e) => json!({ "error": e }),
+            };
+            object.insert("package_findings".into(), findings);
+        }
+        Ok(report)
+    }
+
     pub async fn execute(&mut self, name: &str, input: &Value) -> ToolReply {
         if let Some(refusal) = self.target_refusal(name) {
             return ToolReply::Error(refusal);
@@ -167,32 +241,20 @@ impl ConversionAgent {
 
             // §2 the document
             "rule_check" => {
-                if let Err(e) = self.runner() {
-                    return ToolReply::Error(e);
-                }
-                let runner = self.runner.as_ref().expect("started above");
-                match u2s_doc_tools::native::check_rules(
-                    input,
-                    self.document.value(),
-                    Some(&self.schema),
-                    &self.rules,
-                    runner,
-                )
-                .await
-                {
-                    Ok(mut outcome) => {
-                        // The document's build, when it has a current one, is
-                        // checked too: what the writer made of the document.
-                        if let (Some(package), Some(object)) = (self.package(), outcome.value.as_object_mut()) {
-                            let findings = match crate::package_checks::check_package(&package) {
-                                Ok(findings) => json!(findings),
-                                Err(e) => json!({ "error": e }),
-                            };
-                            object.insert("package_findings".into(), findings);
-                        }
-                        ToolReply::Text(outcome.value.to_string())
+                let plan = match self.rule_check_plan(input) {
+                    Ok(plan) => plan,
+                    Err(e) => return ToolReply::Error(e),
+                };
+                match self.check_scripted(&plan).await {
+                    Ok(scripted) => {
+                        let judged: Vec<_> = plan
+                            .judged
+                            .into_iter()
+                            .map(|rule| (rule, Err(NO_JUDGE.to_string())))
+                            .collect();
+                        ToolReply::Text(crate::rules::merge_rule_report(scripted, &judged).to_string())
                     }
-                    Err(e) => ToolReply::Error(e.to_string()),
+                    Err(e) => ToolReply::Error(e),
                 }
             }
             "rule_autofix" => self.autofix(input).await,
@@ -211,6 +273,10 @@ impl ConversionAgent {
                     &self.rules,
                 ) {
                     Ok(outcome) if outcome.mutated => self.edited(name, outcome.value).await,
+                    // One list holds every rule, the judged ones too.
+                    Ok(outcome) if tool == NativeJsonTool::ListRules => {
+                        ToolReply::Text(crate::rules::list_with_judged(outcome.value, &self.judged).to_string())
+                    }
                     Ok(outcome) => ToolReply::Text(outcome.value.to_string()),
                     Err(e) => ToolReply::Error(e.to_string()),
                 }

@@ -698,7 +698,9 @@ mod tests {
 
         let redacto = catalog_names(agent::OutputTarget::Redacto);
         assert!(redacto.iter().any(|n| n == "build_redacto_dump"));
-        assert!(!redacto.iter().any(|n| n == "rule_check"), "{redacto:?}");
+        // Redacto has rules (judged ones) but no scripted fixes.
+        assert!(redacto.iter().any(|n| n == "rule_check"), "{redacto:?}");
+        assert!(!redacto.iter().any(|n| n == "rule_autofix"), "{redacto:?}");
         assert!(!redacto.iter().any(|n| n == "build_aem_package"), "{redacto:?}");
 
         // The MCP-only bootstrap tools are offered whatever the target.

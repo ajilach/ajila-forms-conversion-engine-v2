@@ -185,8 +185,8 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("json_search",                       target::BOTH,    EVERYWHERE, Write),
         ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Write),
         ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
-        ("rule_list",                         target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
-        ("rule_check",                        target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("rule_list",                         target::BOTH,     AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
+        ("rule_check",                        target::BOTH,     AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
         ("rule_autofix",                      target::AEM,     AEM_AUTHOR | MCP, Write),
 
         // §3 building the output through the UBS encoders.
@@ -239,10 +239,33 @@ fn document_tool_specs() -> impl Iterator<Item = serde_json::Value> {
     crate::conversion::DOCUMENT_TOOLS.iter().map(|tool| {
         serde_json::json!({
             "name": tool.name(),
-            "description": tool.description(),
+            "description": rule_tool_description(*tool).unwrap_or(tool.description()),
             "input_schema": tool.input_schema(),
         })
     })
+}
+
+/// The rule tools' descriptions here, where a rule is scripted or judged (see
+/// `crate::rules`): the vendored ones know only scripts.
+fn rule_tool_description(tool: u2s_doc_tools::native::NativeJsonTool) -> Option<&'static str> {
+    use u2s_doc_tools::native::NativeJsonTool;
+    match tool {
+        NativeJsonTool::ListRules => Some(
+            "List every rule the document is held to, by id, title and description. Read them all \
+             before you author: the description says what is required and how to fix a break. \
+             `check` says how a rule is checked: `script` (its script decides it, on every edit \
+             too) or `agent` (a judge agent reads the document against the description).",
+        ),
+        NativeJsonTool::CheckRules => Some(
+            "Check the document against its rules and return each rule's verdict and violations \
+             (a JSON Pointer and what to fix). A scripted rule runs its script; a judged rule is \
+             handed to a judge agent, several in parallel, which takes longer and costs a model \
+             run per rule, so name the rules you need with rule_ids when you do not need them all. \
+             Where no judge runs, a judged rule comes back `unchecked`. When the document has a \
+             current build, `package_findings` lists what its package breaks. Read-only.",
+        ),
+        _ => None,
+    }
 }
 
 fn tool_specs() -> Vec<serde_json::Value> {

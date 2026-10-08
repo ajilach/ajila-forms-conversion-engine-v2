@@ -40,6 +40,8 @@ u2s-doc-tools = { path = "../u2s/crates/u2s-doc-tools" }
 u2s-jsondoc = { path = "../u2s/crates/u2s-jsondoc" }
 u2s-rules-host = { path = "../u2s/crates/u2s-rules-host" }
 include_dir = "0.7"
+# Reads a judged rule's rule.toml, which the vendored loader never sees.
+toml = "0.8"
 
 [features]
 # Un-gates `db::set_db_path_for_test` for another crate's own tests (this

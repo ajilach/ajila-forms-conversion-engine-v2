@@ -51,6 +51,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "tokio",
+ "toml",
  "u2s-aem-ubs-mcp",
  "u2s-aem-ubs-verify-mcp",
  "u2s-aem-verify-core",

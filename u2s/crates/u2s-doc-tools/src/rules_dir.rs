@@ -86,8 +86,10 @@ fn rule_id_namespace() -> Uuid {
 
 /// Derives a file-based rule's [`RuleId`] from its stable `rule.toml` `id`
 /// string. See the module doc for why this is UUIDv5 over a fixed
-/// namespace rather than a raw UUID the file must spell out.
-fn derive_rule_id(id: &str) -> RuleId {
+/// namespace rather than a raw UUID the file must spell out. Public so a host
+/// that keeps rules of its own beside these (one judged by an agent rather
+/// than a script, say) gives them ids from the same scheme.
+pub fn derive_rule_id(id: &str) -> RuleId {
     RuleId::from(Uuid::new_v5(&rule_id_namespace(), id.as_bytes()))
 }
 

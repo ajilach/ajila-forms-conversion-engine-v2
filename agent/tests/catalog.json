@@ -356,7 +356,7 @@
     "name": "json_validate"
   },
   {
-    "description": "List this dataset's active rules by id, title and description. Read-only. Use this to see what a rule_check verdict is checking before you call it.",
+    "description": "List every rule the document is held to, by id, title and description. Read them all before you author: the description says what is required and how to fix a break. `check` says how a rule is checked: `script` (its script decides it, on every edit too) or `agent` (a judge agent reads the document against the description).",
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
@@ -365,7 +365,7 @@
     "name": "rule_list"
   },
   {
-    "description": "Run the current document through active rules' check scripts, the same checks that run after you finish. Omit rule_ids to check every active rule, or name a subset. Returns each rule's verdict and violations. Read-only -- this never replaces the deterministic pass that actually records the run's verdicts. Every json_patch result already tells you what changed, so you rarely need to call this yourself -- it is here for a check you want without editing anything.",
+    "description": "Check the document against its rules and return each rule's verdict and violations (a JSON Pointer and what to fix). A scripted rule runs its script; a judged rule is handed to a judge agent, several in parallel, which takes longer and costs a model run per rule, so name the rules you need with rule_ids when you do not need them all. Where no judge runs, a judged rule comes back `unchecked`. When the document has a current build, `package_findings` lists what its package breaks. Read-only.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
