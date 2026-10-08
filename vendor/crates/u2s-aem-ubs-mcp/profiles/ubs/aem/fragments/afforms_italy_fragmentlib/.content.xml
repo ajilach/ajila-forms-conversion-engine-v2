@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0"
+    jcr:mixinTypes="[]"
+    jcr:primaryType="sling:OrderedFolder">
+    <affrg_italy_footnote/>
+    <affrg_italy_client_signature_place_date_name/>
+    <affrg_italy_authorized_representative_signature_place_date_name/>
+    <affrg_italy_internal_bank_use_cognome_luogo_data_visto/>
+    <affrg_italy_infobox/>
+    <affrg_italy_personal_details/>
+    <affrg_italy_PersonalDetails_Name/>
+    <affrg_italy_AddressBlock_CountryDD/>
+    <affrg_italy_Client_Signature/>
+    <affrg_italy_Form_Address/>
+    <affrg_italy_PersonalDetails_Indvidual_Company/>
+    <affrg_italy_PersonalDetails_CompanyName/>
+    <affrg_italy_ClientAdvisorSignature_Signature_Place_Date_Name/>
+    <affrg_UBSEuropeSignature1/>
+    <affrg_ClientSignature1/>
+    <affrg_Sign_authorizedsignatory/>
+    <affrg_EntityBasic2/>
+    <affrg_EntityBasic1/>
+    <affrg_addressclientid/>
+    <affrg_LegalGuardianSignature1/>
+    <affrg_ClientBasic1/>
+    <affrg_IndividualBasic1/>
+    <affrg_ClienteRepeatingPanel/>
+    <affrg_accountHolderSignature/>
+    <affrg_LegalRepreseRepeating/>
+    <affrg_signatureLegalRepresen/>
+    <affrg_italiy_BankingRelationship/>
+    <affrg_italy_internalbankuse_ouref/>
+    <affrg_LegalRepresentativeSignature1/>
+    <affrg_Address1/>
+    <affrg_LegalRepresentative/>
+    <affrg_italy_internalbankuse/>
+</jcr:root>

@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2024-04-30T12:31:08.169+02:00"
+        cq:lastModifiedBy="t647287"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        jcr:mixinTypes="[]"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="EFORMS-50198 Italy Personal Details (Company/Entity name)"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <panel_copy_copy_copy
+                        jcr:created="Wed Jul 22 2020 11:39:20 GMT+0200"
+                        jcr:createdBy="t649798"
+                        jcr:lastModified="{Date}2021-04-30T07:28:38.970+02:00"
+                        jcr:lastModifiedBy="t649798"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        completionExpReq="{Boolean}false"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        guideNodeClass="guidePanel"
+                        name="PN_Names"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="2"
+                            dorLayoutType="columnar"
+                            dorNumCols="1"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout">
+                            <textbox_copy
+                                jcr:created="Tue Jul 21 2020 12:55:28 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-04T07:07:44.710+01:00"
+                                jcr:lastModifiedBy="t649798"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Company/Entity name"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                colspan="2"
+                                css="widget_ajila-forms-ubs-textbox"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_CompanyName"
+                                textIsRich="[true,true,true]">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:enabled="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_Names.TXT_CompanyName&quot;\,&quot;event&quot;:&quot;Enabled&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.com.ajila.forms.ubs.components.setMandatory(this\, true);\\ntrue;&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_copy>
+                        </items>
+                    </panel_copy_copy_copy>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+            <assets jcr:primaryType="nt:unstructured">
+                <dictionary jcr:primaryType="nt:unstructured">
+                    <it-ch/>
+                    <it/>
+                </dictionary>
+            </assets>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

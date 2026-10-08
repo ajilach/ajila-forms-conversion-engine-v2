@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="tc"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1/jcr:content/guideContainer/assets/dictionary">
+    <_x0034_0069a6b-1ab6-4f55-9623-5779ce567896
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Banking Relationship 1"
+        sling:message="UBS Fragment - Banking Relationship 1"/>
+    <f967f96e-30bb-4023-8c3b-114a266ed836
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>銀行服務帳戶&lt;/b>&lt;/p>"/>
+    <_x0034_9ee58b8-8eb1-43e0-88c8-922493338056
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Clearing no."
+        sling:message="結算編號"/>
+    <_x0036_335ceff-7710-46cb-81dd-ec024e35a1c8
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_XXXX"
+        sling:message="XXXX"/>
+    <_x0030_78c1977-52a1-4b9a-be37-12582fc11b8f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account no."
+        sling:message="帳戶號碼"/>
+    <_x0033_28b0499-4ada-4433-8a43-15fe807d95b6
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_XXXXXXXX"
+        sling:message="XXXXXXXX"/>
+    <_x0038_85eba30-56e2-441f-a7a2-c965285f9b5c
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship for Bound Data XSD"
+        sling:message="Banking relationship for Bound Data XSD"/>
+</jcr:root>

@@ -1,0 +1,286 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2025-11-04T08:47:10.563+01:00"
+        cq:lastModifiedBy="t653607"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{&quot;jcr:title&quot;:&quot;jcr:title##6691&quot;}"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="CH Fragment - For Internal Bank Use (Opening) 1"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <panel_copy_copy_copy
+                        fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##jcr:title##8389&quot;}"
+                        jcr:lastModified="Fri Jun 13 2025 07:41:18 GMT+0200"
+                        jcr:lastModifiedBy="t653607"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="For internal bank use only"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        dorExcludeDescription="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guidePanel"
+                        name="PN_ForInternalBankUse"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false"
+                        visible="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            dorNumCols="6"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                            <checkbox
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##checkbox##jcr:title##4745&quot;,&quot;options&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##checkbox##options##8263&quot;}"
+                                jcr:lastModified="Fri May 23 2025 16:50:26 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Opening of new business relationship: Identification of the contracting partner"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/checkbox"
+                                alignment="guideFieldVerticalAlignment"
+                                colspan="2"
+                                css="widget_ajila_forms_checkbox"
+                                dorColspan="6"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideCheckBox"
+                                name="CB_Opening1"
+                                options="[1=by correspondence,2=in a personal meeting,3=done by a third party (e.g. FIM) based on the present Delegation Agreement]"
+                                textIsRich="[true,true,true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="12"/>
+                                </cq:responsive>
+                            </checkbox>
+                            <checkbox_copy
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##checkbox_copy##jcr:title##3967&quot;,&quot;options&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##checkbox_copy##options##7611&quot;}"
+                                jcr:lastModified="Fri May 23 2025 16:50:10 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Opening of additional business relationship within BC CH"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/checkbox"
+                                alignment="guideFieldVerticalAlignment"
+                                colspan="2"
+                                css="widget_ajila_forms_checkbox"
+                                dorColspan="6"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideCheckBox"
+                                name="CB_Opening2"
+                                options="[1=by correspondence,2=in a personal meeting]"
+                                textIsRich="[true,true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="12"/>
+                                </cq:responsive>
+                            </checkbox_copy>
+                            <textdraw_1898254180_
+                                jcr:lastModified="Fri Jun 13 2025 07:24:53 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                colspan="2"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_FormatCorrectness"
+                                textIsRich="true">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textdraw_1898254180_>
+                            <textbox_834822554_co
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##textbox_834822554_co##jcr:title##6970&quot;}"
+                                jcr:lastModified="Fri Jun 13 2025 07:42:41 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="OU-Ref."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                maxChars="8"
+                                name="TXT_OUCA"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textbox_834822554_co>
+                            <textbox_834822554_co_1168382315
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##textbox_834822554_co_1168382315##jcr:title##8022&quot;}"
+                                jcr:lastModified="Fri Jun 13 2025 07:42:54 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Customer Adviser's signature"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                maxChars="8"
+                                name="TXT_OUCA_Sign"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textbox_834822554_co_1168382315>
+                            <textdraw_copy_copy
+                                fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##textdraw_copy_copy##_value##901&quot;}"
+                                jcr:lastModified="Fri Jun 13 2025 07:25:45 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>Signature of the supervisor required for Multinationals, Recovery and all GESM/GEM clients outside Switzerland.&lt;/p>"
+                                colspan="2"
+                                dorColspan="6"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_SignSupervisor"
+                                textIsRich="true">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textdraw_copy_copy>
+                            <textdraw_1898254180__1900610355
+                                jcr:lastModified="Fri Jun 13 2025 07:25:21 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                colspan="2"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_FormatCorrectness1"
+                                textIsRich="true">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textdraw_1898254180__1900610355>
+                            <textbox_834822554_co_1191882222
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##textbox_834822554_co_1191882222##jcr:title##14&quot;}"
+                                jcr:lastModified="Fri Jun 13 2025 07:23:59 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="OU-Ref."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                maxChars="8"
+                                name="TXT_OUSupervisor"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textbox_834822554_co_1191882222>
+                            <textbox_834822554_co_991956423
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel1746177077902##items##panel_199065413##items##panel_copy_copy_copy##items##textbox_834822554_co_991956423##jcr:title##9848&quot;}"
+                                jcr:lastModified="Fri Jun 13 2025 07:24:26 GMT+0200"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Supervisor's signature"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                maxChars="8"
+                                name="TXT_OUCA_SuperSign"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textbox_834822554_co_991956423>
+                        </items>
+                    </panel_copy_copy_copy>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

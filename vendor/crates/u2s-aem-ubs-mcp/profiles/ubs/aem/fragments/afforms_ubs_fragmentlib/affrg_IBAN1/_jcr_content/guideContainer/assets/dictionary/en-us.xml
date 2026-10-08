@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="en-us"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_ubs_fragmentlib/affrg_IBAN1/jcr:content/guideContainer/assets/dictionary">
+    <_x0032_6620c62-2702-4ac4-8405-fd0da6279a57
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (DoR) Custody number"
+        sling:message="IBAN (DoR) Custody number"/>
+    <_x0032_6d8721a-af17-4467-8b96-f2cae2bcdfa7
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - IBAN 1"
+        sling:message="UBS Fragment - IBAN 1"/>
+    <_x0033_08c317b-0e03-4f6f-a2e1-31cf159dded1
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (DoR) Banking relationship"
+        sling:message="IBAN (DoR) Banking relationship"/>
+    <_x0033_f2d7e0d-d224-489f-8879-d230f3cbe133
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>IBAN&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>IBAN&lt;/b>&lt;/p>&#xa;"/>
+    <_x0037_0a15d13-036a-4221-9f9d-9f24f57e1fb7
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment#2 Banking Relationship Custody Account"
+        sling:message="Fragment#2 Banking Relationship Custody Account"/>
+    <_x0037_4237321-a2e1-4deb-b44b-59c87c99953d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (XSD)"
+        sling:message="IBAN (XSD)"/>
+    <bfdb5bd5-286e-49ea-9312-5727481372ca
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN"
+        sling:message="IBAN"/>
+    <dcf217cc-07fc-405f-b9a1-a387fa038f07
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (DoR)"
+        sling:message="IBAN (DoR)"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Bank-355201254
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Cust1303051581
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Custody account no.&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Custody account no.&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_no-1762489862
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account no."
+        sling:message="Account no."/>
+    <fd_Banking_x0020_re-1793830894
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship"
+        sling:message="Banking relationship"/>
+    <fd_Clearing_x0020_n419850882
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Clearing no."
+        sling:message="Clearing no."/>
+    <fd_Custody_x0020_ac857515627
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Custody account no."
+        sling:message="Custody account no."/>
+    <fd_EFORMS-801-1673372809
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-8013 Banking Relationship and Custody Account No"
+        sling:message="EFORMS-8013 Banking Relationship and Custody Account No"/>
+    <fd_Object_x0020_no.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Object no."
+        sling:message="Object no."/>
+</jcr:root>

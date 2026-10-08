@@ -1,0 +1,114 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFFragments/BankingRelationship.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Partner.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Address.xsd"/>
+	<xs:element name="FIMBasic" type="FIMBasicType"/>
+	<xs:element name="FIM" type="FIMType"/>
+	<xs:element name="ControllingPersonBasic" type="ControllingPersonBasicType"/>
+	<xs:element name="ControllingPerson" type="ControllingPersonType"/>
+	<xs:element name="ConnectedPartyBasic" type="ConnectedPartyBasicType"/>
+	<xs:element name="ConnectedParty" type="ConnectedPartyType"/>
+	<xs:element name="AuthRepBasic" type="AuthRepBasicType"/>
+	<xs:element name="AuthRep" type="AuthRepType"/>
+	<xs:element name="FIMAuthRepBasic" type="FIMAuthRepBasicType"/>
+	<xs:element name="FIMAuthRep" type="FIMAuthRepType"/>
+	<xs:complexType name="ConnectedPartyBasicType">
+		<xs:complexContent>
+			<xs:extension base="PartnerType">
+				<xs:sequence>
+					<xs:element name="IdentityType" type="xs:string" minOccurs="0"/>
+					<xs:element name="IdentityNumber" type="xs:string" minOccurs="0"/>
+					<xs:element name="ExecutiveRole" type="xs:string" minOccurs="0"/>
+					<xs:element name="Specification" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ConnectedPartyType">
+		<xs:complexContent>
+			<xs:extension base="ConnectedPartyBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="AuthRepBasicType">
+		<xs:complexContent>
+			<xs:extension base="PartnerType">
+				<xs:sequence>
+					<xs:element name="IdentityType" type="xs:string" minOccurs="0"/>
+					<xs:element name="IdentityNumber" type="xs:string" minOccurs="0"/>
+					<xs:element name="ExecutiveRole" type="xs:string" minOccurs="0"/>
+					<xs:element name="ExecutiveRoleOther" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="AuthRepType">
+		<xs:complexContent>
+			<xs:extension base="AuthRepBasicType">
+				<xs:sequence>
+					<xs:element name="ResidenceAddress" type="AddressType" minOccurs="0"/>
+					<xs:element name="PreferredNotificationChannel" type="xs:string" minOccurs="0"/>
+					<xs:element ref="Phone" minOccurs="0"/>
+					<xs:element ref="Email" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ControllingPersonBasicType">
+		<xs:complexContent>
+			<xs:extension base="PartnerType"/>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ControllingPersonType">
+		<xs:complexContent>
+			<xs:extension base="ControllingPersonBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="FIMBasicType">
+		<xs:complexContent>
+			<xs:extension base="PartnerType">
+				<xs:sequence>
+					<xs:element ref="BankingRelationship" minOccurs="0"/>
+					<xs:element name="FIMCode" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="FIMType">
+		<xs:complexContent>
+			<xs:extension base="FIMBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="FIMAuthRepBasicType">
+		<xs:complexContent>
+			<xs:extension base="PartnerType">
+				<xs:sequence>
+					<xs:element name="AuthorizationType" type="xs:string" minOccurs="0"/>
+					<xs:element name="UBSConnectContractNumber" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="FIMAuthRepType">
+		<xs:complexContent>
+			<xs:extension base="FIMAuthRepBasicType">
+				<xs:sequence>
+					<xs:element ref="Address" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+</xs:schema>

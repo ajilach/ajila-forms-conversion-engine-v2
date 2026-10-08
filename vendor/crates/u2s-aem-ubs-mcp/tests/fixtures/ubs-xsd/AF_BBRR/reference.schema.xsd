@@ -1,0 +1,181 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" version="01.01.01" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
+	<xs:include schemaLocation="../AFFragments/BankingRelationship.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Products.xsd"/>
+	<xs:include schemaLocation="../AFFragments/ContractualPartnerGeneric.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Signature.xsd"/>
+	<xs:element name="UBSAF_BBRR">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element ref="BankingRelationship"/>
+				<xs:element ref="CustodyAccount"/>
+				<xs:element ref="AccountHolderPartnerClass" minOccurs="0"/>
+				<xs:element ref="AccountHolder" minOccurs="0" maxOccurs="50"/>
+				<xs:element name="MarketSelection" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="MarketList" type="xs:string"/>
+							<xs:element name="Bulgaria" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="IsNonResidentOfTaxHaven" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Croatia" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="CroatiaOrADRGDR" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Finland" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="FinlandOrADRGDR" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Israel" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="IsraelUserType" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Japan" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="JapanOrADR" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Malaysia" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="MalaysiaUserType" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Norway" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="NorwayUserType" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="SouthKorea" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="IsIndividual" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="InvestorDisclosure" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="Croatia" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="PersonalIdentificationNumber" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Japan" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="JapanTaxPreference" type="xs:string" minOccurs="0"/>
+										<xs:element name="ADRTaxPreference" type="xs:string" minOccurs="0"/>
+										<xs:element name="ADRTaxID" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Spain" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="SpainTaxID" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="SubAccountOpening" minOccurs="0">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="Australia" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="TaxFileNumber" type="xs:string" minOccurs="0"/>
+										<xs:element name="AustralianBusinessNumber" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Chile" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="CompanyName" type="xs:string" minOccurs="0"/>
+										<xs:element name="TIN" type="xs:string" minOccurs="0"/>
+										<xs:element name="DateOfIncorporation" type="xs:date" minOccurs="0"/>
+										<xs:element name="AuthorizeOrHaveRUT" type="xs:string" minOccurs="0"/>
+										<xs:element name="RUT" type="xs:string" minOccurs="0"/>
+										<xs:element name="ConfirmInstitutionalInvestor" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Croatia" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="PersonalIdentificationNumber" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Italy" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="Type" type="xs:string" minOccurs="0"/>
+										<xs:element name="TaxRegimeResident" type="xs:string" minOccurs="0"/>
+										<xs:element name="TaxRegimeNonResident" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Mexico" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="CountryOfDomicile" type="xs:string" minOccurs="0"/>
+										<xs:element name="Nationality" type="xs:string" minOccurs="0"/>
+										<xs:element name="MexicanTaxID" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="SouthKorea" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="IRCorLEI" type="xs:string" minOccurs="0"/>
+										<xs:element name="IRCNumber" type="xs:string" minOccurs="0"/>
+										<xs:element name="LEI" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+							<xs:element name="Vietnam" minOccurs="0">
+								<xs:complexType>
+									<xs:sequence>
+										<xs:element name="AuthorizeOrHaveSTC" type="xs:string" minOccurs="0"/>
+										<xs:element name="STC" type="xs:string" minOccurs="0"/>
+									</xs:sequence>
+								</xs:complexType>
+							</xs:element>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="AccountHolderSignature" type="SignatureType" minOccurs="0" maxOccurs="50"/>
+				<xs:element name="AuthRepSignature" type="SignatureType" minOccurs="0" maxOccurs="50"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

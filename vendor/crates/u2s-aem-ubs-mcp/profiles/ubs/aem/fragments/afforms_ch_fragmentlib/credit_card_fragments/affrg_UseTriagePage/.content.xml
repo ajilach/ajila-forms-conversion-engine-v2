@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2025-10-24T16:52:39.011+02:00"
+        cq:lastModifiedBy="t406261"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{&quot;jcr:title&quot;:&quot;jcr:title##7920&quot;}"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="CH Fragment - CC PP - Use Triage Page"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <messagebox_copy_copy
+                        fd:translationIds="\{&quot;messageboxBody&quot;:&quot;guideContainer##rootPanel##items##panel1737975620619##items##messagebox_copy##messageboxBody##2496&quot;,&quot;messageboxTitle&quot;:&quot;guideContainer##rootPanel##items##messagebox_copy_copy##messageboxTitle##8746&quot;}"
+                        jcr:created="{Date}2025-01-27T12:03:25.964+01:00"
+                        jcr:createdBy="admin"
+                        jcr:lastModified="{Date}2025-05-22T09:46:24.843+02:00"
+                        jcr:lastModifiedBy="t541512"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/messagebox"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        messageboxBody="&lt;p>To ensure an accurate and customer-oriented product selection, kindly complete the triage page in full.&lt;/p>"
+                        messageboxTitle="Please use the &lt;a href=&quot;https://whs-shared.ubs.net/app/AU3/FormsKiosk/forms/search?code=BBDW&amp;displayLanguage=en&amp;mandator=001&quot; target=&quot;_blank&quot;>triage page&lt;/a> before utilizing this form."
+                        messageboxType="2"
+                        name="MB_NavigateToTriagePage">
+                        <fd:scripts
+                            fd:init="[{&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_TriageCheck.MB_NavigateToTriagePage&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;content&quot;:&quot;com.ajila.forms.control.messagebox.initialize(this)&quot;}\,&quot;version&quot;:0}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </messagebox_copy_copy>
+                </items>
+                <fd:rules jcr:primaryType="nt:unstructured"/>
+                <fd:scripts jcr:primaryType="nt:unstructured"/>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

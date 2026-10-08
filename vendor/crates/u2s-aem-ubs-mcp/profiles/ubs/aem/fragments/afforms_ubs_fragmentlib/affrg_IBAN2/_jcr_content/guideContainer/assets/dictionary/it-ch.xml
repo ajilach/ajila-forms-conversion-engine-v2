@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="it-ch"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_ubs_fragmentlib/affrg_IBAN2/jcr:content/guideContainer/assets/dictionary">
+    <_x0031_4f7d505-8ba1-4106-b86f-efb8b4d26430
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN"
+        sling:message="N. di conto"/>
+    <_x0036_b4a0296-bcfd-41df-918d-65fcac9da191
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (DoR)"
+        sling:message="IBAN (DoR)"/>
+    <_x0037_6cba383-b70b-4af9-8518-f372d8bd391d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>IBAN&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>IBAN&lt;/b>&lt;/p>&#xa;"/>
+    <_x0039_8289d48-6e4d-4168-8f4d-3042208179b0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (DoR) Custody DoR"
+        sling:message="IBAN (DoR) Custody DoR"/>
+    <b6c87765-b241-4f34-8982-ed33d1f6e79c
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (DoR) Banking relationship"
+        sling:message="IBAN (DoR) Banking relationship"/>
+    <c465d078-cb28-4e93-ba83-3ea8ce2cec6e
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (XSD)"
+        sling:message="IBAN (XSD)"/>
+    <c4df1e31-f422-4ab8-b861-13ba9c3d403e
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IBAN (DoR) Custody number"
+        sling:message="IBAN (DoR) Custody number"/>
+    <c7df8f17-d164-4192-bdb1-d62d0b123934
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Custody Account 1"
+        sling:message="UBS Fragment - Custody Account 1"/>
+    <cf5d4deb-bc15-4511-b1fc-59cabf69ae0e
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - IBAN 1"
+        sling:message="UBS Fragment - IBAN 1"/>
+    <db5990ef-b55b-467d-aff1-d51ea18a5605
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - IBAN 2"
+        sling:message="UBS Fragment - IBAN 2"/>
+    <dfc74eb1-a080-4818-a3b1-63874da80cff
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment#2 Banking Relationship Custody Account"
+        sling:message="Fragment#2 Banking Relationship Custody Account"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Bank-355201254
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Relazione bancaria&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Cust1303051581
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Custody account no.&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>N. di deposito&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_no-1762489862
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account no."
+        sling:message="N. di conto"/>
+    <fd_Banking_x0020_re-1793830894
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship"
+        sling:message="Relazione bancaria"/>
+    <fd_Clearing_x0020_n419850882
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Clearing no."
+        sling:message="Numero di clearing"/>
+    <fd_Custody_x0020_ac857515627
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Custody account no."
+        sling:message="N. di deposito"/>
+    <fd_EFORMS-801-1673372809
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-8013 Banking Relationship and Custody Account No"
+        sling:message="EFORMS-8013 Relazione bancaria e n. di deposito"/>
+    <fd_Object_x0020_no.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Object no."
+        sling:message="Numero di oggetto"/>
+</jcr:root>

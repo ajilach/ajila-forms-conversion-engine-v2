@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="en-gb"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_germany_fragmentlib/affrg_IndividualBasic1/jcr:content/guideContainer/assets/dictionary">
+    <_x0031_4d9febd-7245-47a1-ba06-ffa116c0efab
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_DE Fragment - Individual Basic 1"
+        sling:message="DE Fragment - Individual Basic 1"/>
+    <_x0030_ac988e5-e2b1-4381-876d-9a320e62385f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Last name"
+        sling:message="Last name"/>
+    <c05c34a1-f557-4273-b000-1cfd551113dd
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_First name(s)"
+        sling:message="First name(s)"/>
+</jcr:root>

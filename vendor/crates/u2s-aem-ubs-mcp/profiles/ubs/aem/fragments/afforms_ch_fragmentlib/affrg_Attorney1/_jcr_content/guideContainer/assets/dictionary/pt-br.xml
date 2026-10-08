@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="pt-br"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_ch_fragmentlib/affrg_Attorney1/jcr:content/guideContainer/assets/dictionary">
+    <_x0033_30f51f5-d0f0-4c5b-94d3-3cfe35056fbe
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_CH Fragment - Attorney 1"
+        sling:message="CH Fragment - Attorney 1"/>
+    <d9fff6c6-7852-42ae-9405-a0d7555f9008
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="guideContainer##rootPanel##items##textdraw_copy_copy_c##_value##4417"
+        sling:message="&lt;p>&lt;b>Details of attorney&lt;/b>&lt;/p>"/>
+    <_x0030_4487ad8-eddf-4aa0-aa19-3726a8b6089a
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="guideContainer##rootPanel##items##textdraw_copy_copy##_value##2919"
+        sling:message="&lt;p>&lt;b>Details of attorney 1&lt;/b>&lt;/p>"/>
+    <_x0037_1aeba93-62cf-4e3c-a1cd-0417651968d9
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="guideContainer##rootPanel##items##textdraw_1552857560_##_value##6598"
+        sling:message="&lt;p>&lt;b>Details of attorney&amp;nbsp;2&lt;/b>&lt;/p>"/>
+    <b1156d2b-09d9-46e8-8683-a7e6baca9ad4
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="guideContainer##rootPanel##items##textdraw_1552857560__498997986##_value##1747"
+        sling:message="&lt;p>&lt;b>Details of attorney&amp;nbsp;3&lt;/b>&lt;/p>"/>
+    <_x0034_be3fc11-52de-4f94-a7d3-8c5250e46d5d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="guideContainer##rootPanel##items##textdraw_1552857560__2090584198##_value##1595"
+        sling:message="&lt;p>&lt;b>Details of attorney&amp;nbsp;4&lt;/b>&lt;/p>"/>
+    <cf49ff7d-7480-4b59-ba37-cffe00f961e7
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date of birth (dd.mm.yyyy)"
+        sling:message="Date of birth (dd.mm.yyyy)"/>
+    <cb9d866f-ea60-4008-94ee-fec651321129
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+        sling:message="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"/>
+    <_x0033_163d3b1-2405-4dcb-bbd1-9308253ca715
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Nationality"
+        sling:message="Nationality"/>
+    <aac9e01d-c74e-49ec-ba9b-3b3e0e3299df
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date of incorporation (dd.mm.yyyy)"
+        sling:message="Date of incorporation (dd.mm.yyyy)"/>
+    <_x0030_5dab83c-7c5f-453d-a66b-d6890ed7d3ce
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country of incorporation"
+        sling:message="Country of incorporation"/>
+    <_x0035_9eb757d-71a4-4122-a541-ce0b612b43bb
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature"
+        sling:message="Signature"/>
+</jcr:root>

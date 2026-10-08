@@ -1,0 +1,346 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2025-11-06T13:53:20.947+01:00"
+        cq:lastModifiedBy="t647287"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{&quot;jcr:title&quot;:&quot;jcr:title##9646&quot;}"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="CH Fragment - Signature (Authorized Representative/Order entered by) 1"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            fragmentModelRoot="/SignatureType"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1"
+            schemaType="xmlschema"
+            xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFFragments/Signature.xsd">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <removebutton
+                        jcr:created="{Date}2024-10-09T12:21:05.041+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-01-13T10:16:42.577+01:00"
+                        jcr:lastModifiedBy="t653607"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/removebutton"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideButton"
+                        name="BT_RemoveARSignature"
+                        textIsRich="[true,true,true]"
+                        type="Button"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:click="[{&quot;script&quot;:{&quot;content&quot;:&quot;this.parent.instanceManager.removeInstance(this.parent.instanceIndex);&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveARSignature&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;var lenARRP = this.parent.instanceManager.instances.length;\\nfor(var i = 0; i &lt; lenARRP; i++){\\n  this.parent.instanceManager.instances[i].BT_RemoveARSignature.visible =  (i === (lenARRP-1) &amp;&amp; lenARRP > 1 ) ? true : false;\\n}\\n\\nBT_AddARSignature.visible = true;\\n\\nif(lenARRP === 1) {     \\n  this.parent.instanceManager.instances[0].ST_AR0.visible = true;\\n  this.parent.instanceManager.instances[0].ST_AR0.dorExclusion = false;\\n  this.parent.instanceManager.instances[0].ST_AR1.visible = false;\\n  this.parent.instanceManager.instances[0].ST_AR1.dorExclusion = true;\\n\\n} &quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveARSignature&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </removebutton>
+                    <textdraw
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw##_value##9534&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-03-26T09:52:19.043+01:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Authorized representative /&amp;nbsp;Order entered by&lt;/b>&lt;/p>&#xa;"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_AR0"
+                        textIsRich="true">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR0&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length === 1) ? window.com.ajila.forms.ubs.showAFShowDor(this) : window.com.ajila.forms.ubs.hideAFHideDor(this);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw>
+                    <textdraw_copy
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy##_value##5232&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-03-26T09:52:40.993+01:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Authorized representative /&amp;nbsp;Order entered by&amp;nbsp;1&lt;/b>&lt;/p>&#xa;"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_AR1"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length > 1) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy>
+                    <textdraw_copy_copy
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy##_value##3207&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-03-26T09:52:52.842+01:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Authorized representative /&amp;nbsp;Order entered by&amp;nbsp;2&lt;/b>&lt;/p>&#xa;"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_AR2"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 1) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy>
+                    <textdraw_copy_copy_c
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy_c##_value##4122&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-03-26T09:53:03.723+01:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Authorized representative /&amp;nbsp;Order entered by&amp;nbsp;3&lt;/b>&lt;/p>&#xa;"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_AR3"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 2) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR3&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy_c>
+                    <textdraw_copy_copy_c_1889176628
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy_c_1889176628##_value##2165&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-03-26T09:53:14.355+01:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Authorized representative /&amp;nbsp;Order entered by&amp;nbsp;4&lt;/b>&lt;/p>&#xa;"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_AR4"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 3) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR4&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy_c_1889176628>
+                    <panel_copy_copy_copy
+                        jcr:lastModified="{Date}2025-01-13T10:16:24.224+01:00"
+                        jcr:lastModifiedBy="t653607"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        completionExpReq="{Boolean}false"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        guideNodeClass="guidePanel"
+                        name="PN_AuthRepSignature"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="3"
+                            dorLayoutType="columnar"
+                            dorNumCols="6"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout">
+                            <signature
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##signature##jcr:title##1015&quot;}"
+                                jcr:lastModified="{Date}2025-03-26T09:54:26.478+01:00"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Signature of authorized representative / order entered by"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="6"
+                                dorFieldStyling="DoR right aligned"
+                                guideNodeClass="guideScribble"
+                                name="SIGN_AuthorizedRepresentative"
+                                textIsRich="[true,true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="12"/>
+                                </cq:responsive>
+                            </signature>
+                            <textbox
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##textbox##jcr:title##8945&quot;}"
+                                jcr:lastModified="{Date}2024-12-17T12:44:00.692+01:00"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Place"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SignatureType/Place"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Place_AuthorizedRepresentative"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textbox>
+                            <datepicker
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##datepicker##jcr:title##2899&quot;,&quot;validatePictureClauseMessage&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##datepicker##validatePictureClauseMessage##8804&quot;}"
+                                jcr:lastModified="{Date}2024-12-17T12:44:13.338+01:00"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Date (dd.mm.yyyy)"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/datepicker"
+                                bindRef="/SignatureType/Date"
+                                css="widget_ajila_forms_datepicker"
+                                dorColspan="1"
+                                guideNodeClass="guideDatePicker"
+                                name="DATE_Sign_AuthorizedRepresentative"
+                                textIsRich="[true,true,true]"
+                                validatePictureClause="date{YYYY-MM-DD}"
+                                validatePictureClauseMessage="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+                                validationPatternType="custom"
+                                yearRangeFrom="100"
+                                yearRangeTo="10">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="3"/>
+                                </cq:responsive>
+                            </datepicker>
+                            <textbox_504497449
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##textbox_504497449##jcr:title##8739&quot;}"
+                                jcr:lastModified="{Date}2025-03-26T09:55:04.653+01:00"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Name of authorized representative / order entered by"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SignatureType/Name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_AuthorizedRepresentative"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_AuthRepSignature.TXT_Name_AuthorizedRepresentative&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.com.ajila.forms.ubs.components.setMandatory(this\, true);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449>
+                            <textdraw_82504054_co
+                                jcr:lastModified="Fri Apr 30 2021 09:53:24 GMT+0200"
+                                jcr:lastModifiedBy="t649798"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                dorColspan="3"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_Whitespace"
+                                textIsRich="true"
+                                visible="{Boolean}true">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="7"/>
+                                </cq:responsive>
+                            </textdraw_82504054_co>
+                            <textbox_1321199468
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##textbox_1321199468##jcr:title##6510&quot;}"
+                                jcr:created="{Date}2025-03-26T09:58:14.082+01:00"
+                                jcr:createdBy="t654865"
+                                jcr:lastModified="{Date}2025-03-26T09:58:14.082+01:00"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Function/Role of authorized representative / order entered by"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SignatureType/Role"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Function_AuthorizedRepresentative"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </textbox_1321199468>
+                        </items>
+                    </panel_copy_copy_copy>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2025-11-16T09:55:35.103+01:00"
+        cq:lastModifiedBy="t770543"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{&quot;jcr:title&quot;:&quot;jcr:title##6273&quot;}"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="CH Fragment - Signature (Third party pledgor/guarantor)"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            fragmentModelRoot="/SignatureType"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1"
+            schemaType="xmlschema"
+            xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFFragments/Signature.xsd">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <removebutton
+                        jcr:created="{Date}2024-10-09T12:21:05.041+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-06-24T09:50:02.043+02:00"
+                        jcr:lastModifiedBy="t770543"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/removebutton"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideButton"
+                        name="BT_RemoveThirdPartySignature"
+                        textIsRich="[true,true,true]"
+                        type="Button"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:click="[{&quot;script&quot;:{&quot;content&quot;:&quot;this.parent.instanceManager.removeInstance(this.parent.instanceIndex);&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveThirdPartySignature&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;var lenTP = this.parent.instanceManager.instances.length;\\nfor(var i = 0; i &lt; lenTP; i++){\\n  this.parent.instanceManager.instances[i].BT_RemoveThirdPartySignature.visible =  (i === (lenTP-1) &amp;&amp; lenTP > 1 ) ? true : false;\\n}\\n\\nif(lenTP === 1) { \\n  window.forms.ubs.showAFShowDor(this.parent.instanceManager.instances[0].ST_ThirdParty0);\\n  window.forms.ubs.hideAFHideDor(this.parent.instanceManager.instances[0].ST_ThirdParty1);\\n} \\n \\n  try{ BT_AddTPSignature.visible = true; } catch(e){} \\n&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveThirdPartySignature&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </removebutton>
+                    <textdraw
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw##_value##552&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-11-10T13:25:11.030+01:00"
+                        jcr:lastModifiedBy="t770543"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Third party pledgor/guarantor&lt;/b>&lt;/p>&#xa;"
+                        dorColspan="3"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_ThirdParty0"
+                        textIsRich="true">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR0&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length === 1) ? window.forms.ubs.showAFShowDor(this) : window.forms.ubs.hideAFHideDor(this);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw>
+                    <textdraw_copy
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy##_value##440&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-07-28T09:15:16.360+02:00"
+                        jcr:lastModifiedBy="t771303"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Third party pledgor/guarantor&amp;nbsp;1&lt;/b>&lt;/p>&#xa;"
+                        dorColspan="3"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_ThirdParty1"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR1&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length > 1) ? window.forms.ubs.showAFShowDor(this) : window.forms.ubs.hideAFHideDor(this);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy>
+                    <textdraw_copy_copy
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy##_value##80&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-07-28T09:14:57.130+02:00"
+                        jcr:lastModifiedBy="t771303"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Third party pledgor/guarantor&amp;nbsp;2&lt;/b>&lt;/p>&#xa;"
+                        dorColspan="3"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_ThirdParty2"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 1) window.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy>
+                    <textdraw_copy_copy_c
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy_c##_value##7975&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-07-28T09:16:10.387+02:00"
+                        jcr:lastModifiedBy="t771303"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Third party pledgor/guarantor&amp;nbsp;3&lt;/b>&lt;/p>&#xa;"
+                        dorColspan="3"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_ThirdParty3"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 2) window.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR3&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy_c>
+                    <textdraw_copy_copy_c_1889176628
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy_c_1889176628##_value##8192&quot;}"
+                        jcr:created="{Date}2024-10-09T12:12:29.745+02:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-07-28T09:17:10.350+02:00"
+                        jcr:lastModifiedBy="t771303"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Third party pledgor/guarantor&amp;nbsp;4&lt;/b>&lt;/p>&#xa;"
+                        dorColspan="3"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_ThirdParty4"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 3) window.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AR4&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy_c_1889176628>
+                    <signature
+                        fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##signature##jcr:title##6564&quot;}"
+                        jcr:lastModified="{Date}2025-06-24T09:55:50.286+02:00"
+                        jcr:lastModifiedBy="t770543"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Signature of third party pledgor/guarantor"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                        aspectRatio="6.8888"
+                        dorColspan="6"
+                        dorFieldStyling="DoR right aligned"
+                        guideNodeClass="guideScribble"
+                        name="SIGN_ThirdPartyPledgor"
+                        textIsRich="[true,true,true]"
+                        visible="{Boolean}false">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="12"/>
+                        </cq:responsive>
+                    </signature>
+                    <textbox
+                        fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##textbox##jcr:title##8945&quot;}"
+                        jcr:lastModified="{Date}2025-06-24T10:00:30.377+02:00"
+                        jcr:lastModifiedBy="t770543"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Place"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        autofillFieldKeyword="name"
+                        bindRef="/SignatureType/Place"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorColspan="2"
+                        guideNodeClass="guideTextBox"
+                        name="TXT_Place_ThirdPartyPledgor"
+                        textIsRich="[true,true,true,true]">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="4"/>
+                        </cq:responsive>
+                    </textbox>
+                    <datepicker
+                        fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##datepicker##jcr:title##2899&quot;,&quot;validatePictureClauseMessage&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##datepicker##validatePictureClauseMessage##8804&quot;}"
+                        jcr:lastModified="{Date}2025-06-24T10:00:49.390+02:00"
+                        jcr:lastModifiedBy="t770543"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Date (dd.mm.yyyy)"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/datepicker"
+                        bindRef="/SignatureType/Date"
+                        css="widget_ajila_forms_datepicker"
+                        dorColspan="1"
+                        guideNodeClass="guideDatePicker"
+                        name="DATE_Sign_ThirdPartyPledgor"
+                        textIsRich="[true,true,true]"
+                        validatePictureClause="date{YYYY-MM-DD}"
+                        validatePictureClauseMessage="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+                        validationPatternType="custom"
+                        yearRangeFrom="100"
+                        yearRangeTo="10">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="3"/>
+                        </cq:responsive>
+                    </datepicker>
+                    <textbox_504497449
+                        fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##textbox_504497449##jcr:title##6783&quot;}"
+                        jcr:lastModified="{Date}2025-06-24T09:59:47.829+02:00"
+                        jcr:lastModifiedBy="t770543"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Name of third party pledgor/guarantor"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        autofillFieldKeyword="name"
+                        bindRef="/SignatureType/Name"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorColspan="3"
+                        guideNodeClass="guideTextBox"
+                        name="TXT_Name_ThirdParty"
+                        textIsRich="[true,true,true,true]">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="5"/>
+                        </cq:responsive>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_AuthRepSignature.TXT_Name_AuthorizedRepresentative&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.forms.ubs.components.setMandatory(this\, true);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textbox_504497449>
+                    <textdraw_82504054_co
+                        jcr:lastModified="Fri Apr 30 2021 09:53:24 GMT+0200"
+                        jcr:lastModifiedBy="t649798"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        dorColspan="3"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Whitespace"
+                        textIsRich="true"
+                        visible="{Boolean}true">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="7"/>
+                        </cq:responsive>
+                    </textdraw_82504054_co>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

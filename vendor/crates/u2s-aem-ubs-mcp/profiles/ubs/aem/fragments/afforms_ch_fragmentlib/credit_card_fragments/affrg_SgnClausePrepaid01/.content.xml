@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2025-10-24T16:52:40.707+02:00"
+        cq:lastModifiedBy="t541512"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{&quot;jcr:title&quot;:&quot;jcr:title##2349&quot;}"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="CH Fragment - CC PP - SGN-Clause-Prepaid-01"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <textdraw_copy
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##panel1730787511532##items##panel_1690835423##items##panel_2051137349##items##textdraw##_value##7243&quot;}"
+                        jcr:created="{Date}2024-11-05T07:37:01.326+01:00"
+                        jcr:createdBy="t771303"
+                        jcr:lastModified="{Date}2025-06-05T13:38:32.793+02:00"
+                        jcr:lastModifiedBy="t541512"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>The applicant¹ confirms that the information provided in this application is true and correct.&amp;nbsp;&lt;b>Furthermore, they declare that they have received the General Terms and Conditions for the Use of UBS Prepaid Cards (&amp;quot;GTC&amp;quot;; viewable at&amp;nbsp;&lt;a title=&quot;ubs.com/cards-gtc&quot; href=&quot;http://www.ubs.com/cards-gtc&quot; data-clickable-id=&quot;clickable-85&quot; target=&quot;_blank&quot;>ubs.com/cards-gtc&lt;/a>) and accepted their content.&lt;/b>&amp;nbsp;In particular, the applicant authorizes UBS Switzerland AG (&amp;quot;UBS&amp;quot;)&amp;nbsp;&lt;b>to outsource business areas and services to group companies and third parties in Switzerland and abroad&lt;/b>&amp;nbsp;(as explained in the GTC under section 11 &amp;quot;Outsourcing of business areas and services&amp;quot;). Unless otherwise stated in the GTC, where a service provider is based abroad, UBS or the group companies engaged by UBS will only transmit data that cannot be used to identify the cardholder.&amp;nbsp;&lt;b>For this purpose, the cardholder releases UBS from its obligation of banking secrecy.&lt;/b>&lt;/p>&#xa;"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Signature_Clause_Prepaid_Card_01"
+                        textIsRich="true"/>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

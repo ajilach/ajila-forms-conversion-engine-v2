@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="de-ch"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1/jcr:content/guideContainer/assets/dictionary">
+    <_x0031_39f0448-5d9d-434e-837e-2385efd4a4e6
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account number"
+        sling:message="Account number"/>
+    <_x0033_941788b-a43e-4d39-8451-b5d3e7689a00
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_XXXXXXXX"
+        sling:message="XXXXXXXX"/>
+    <_x0036_f12204c-363e-48ef-a561-1e24f948929f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Master number"
+        sling:message="Master-Nummer"/>
+    <_x0038_d45d1be-0f5b-4660-a18d-9ce890e04be3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Branch code"
+        sling:message="Code für Zweigstellen"/>
+    <_x0039_6955679-9a8a-48b4-a308-f17f4d96a4be
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Banking Relationship 1"
+        sling:message="UBS Fragment - Banking Relationship 1"/>
+    <_x0039_a371015-a2b2-4cc8-a516-61ed47cc0069
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Clearing number"
+        sling:message="Clearing number"/>
+    <ba309545-2181-4c61-9986-71cc9ce37ab3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship for Unbound Data / DoR"
+        sling:message="Banking relationship for Unbound Data / DoR"/>
+    <f263422b-25b4-43a7-b0e0-ff8613ed130a
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship for Bound Data XSD"
+        sling:message="Banking relationship for Bound Data XSD"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Bank-355201254
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Bankbeziehung&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Cust1303051581
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Custody account no.&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Depotnummer&lt;/b>&lt;/p>&#xa;"/>
+    <fd_Account_x0020_no-1762489862
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account no."
+        sling:message="Konto-Nr."/>
+    <fd_Banking_x0020_re-1793830894
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship"
+        sling:message="Bankbeziehung"/>
+    <fd_Clearing_x0020_n419850882
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Clearing no."
+        sling:message="Clearing-Nr."/>
+    <fd_Custody_x0020_ac857515627
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Custody account no."
+        sling:message="Depotnummer"/>
+    <fd_EFORMS-801-1673372809
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-8013 Banking Relationship and Custody Account No"
+        sling:message="EFORMS-8013 Bankbeziehung und Depotnummer"/>
+    <fd_Object_x0020_no.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Object no."
+        sling:message="Objektnummer"/>
+    <fde62071-bb45-4dcd-8637-e12decc054f0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment#1 Banking Relationship"
+        sling:message="Fragment#1 Banking Relationship"/>
+    <feb2127e-d643-4810-8fac-7dc88e70adf0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_XXXX"
+        sling:message="XXXX"/>
+</jcr:root>

@@ -1,0 +1,158 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2025-05-27T07:35:55.120+02:00"
+        cq:lastModifiedBy="t771340"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{&quot;jcr:title&quot;:&quot;jcr:title##8347&quot;}"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="CH Fragment - Contracting Partner Basic 1"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            fragmentModelRoot="/ContractingPartnerBasicType"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1"
+            schemaType="xmlschema"
+            xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFFragments/ContractualPartner.xsd">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <removebutton_copy
+                        jcr:created="{Date}2020-08-31T09:48:34.924+02:00"
+                        jcr:createdBy="admin"
+                        jcr:lastModified="{Date}2025-05-08T09:19:30.200+02:00"
+                        jcr:lastModifiedBy="t771340"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/removebutton"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideButton"
+                        name="BT_RemoveCPBasic"
+                        textIsRich="[true,true,true]"
+                        type="Button"
+                        visible="{Boolean}false">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="12"/>
+                        </cq:responsive>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:click="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveCPBasic&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;PN_CPRP.instanceManager.removeInstance(PN_CPRP.instanceIndex);\\ntry{\\n  PN_Sign_CPRP.instanceManager.removeInstance(PN_Sign_CPRP.instanceIndex);\\n} catch(e){}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;var lenAHRP = PN_CPRP.instanceManager.instances.length;\\n\\nif(lenAHRP === 1) {\\n  // Signature section handling\\n  try{\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP0.visible = true;\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP0.dorExclusion = false;\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP1.visible = false;\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP1.dorExclusion = true;\\n  } catch(e){}\\n  try{\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP0.visible = true;\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP0.dorExclusion = false;\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP1.visible = false;\\n    PN_Sign_CPRP.instanceManager.instances[0].ST_CP1.dorExclusion = true;\\n  } catch(e){}\\n} \\n\\nBT_AddCP.visible = true;&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveCPBasic&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            fd:visible="[{&quot;script&quot;:{&quot;content&quot;:&quot;this.parent.instanceIndex+1 == this.parent.instanceManager.instances.length &amp;&amp; this.parent.instanceManager.instances.length > 1; &quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveCPBasic&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:false}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </removebutton_copy>
+                    <panel_copy_copy
+                        jcr:created="{Date}2025-01-07T12:00:47.411+01:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-05-08T09:18:51.486+02:00"
+                        jcr:lastModifiedBy="t771340"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        bindRef="/ContractingPartnerBasicType/LegalEntityBasic"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        dorFieldStyling="Default"
+                        enabled="{Boolean}true"
+                        fragRef="/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_EntityBasic1"
+                        guideNodeClass="guidePanel"
+                        name="PN_EntityBasic"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false"
+                        visible="{Boolean}true">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(RB_CP_Type.value === \\&quot;1\\&quot;){\\n  this.visible = false;\\n  this.dorExclusion = true;\\n}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_EntityBasic&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </panel_copy_copy>
+                    <panel_copy
+                        jcr:created="{Date}2025-01-07T12:00:47.411+01:00"
+                        jcr:createdBy="t653607"
+                        jcr:lastModified="{Date}2025-05-08T09:19:06.128+02:00"
+                        jcr:lastModifiedBy="t771340"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        bindRef="/ContractingPartnerBasicType/IndividualBasic"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        dorFieldStyling="Default"
+                        enabled="{Boolean}true"
+                        fragRef="/content/dam/formsanddocuments/afforms_ch_fragmentlib/affrg_IndividualBasic1"
+                        guideNodeClass="guidePanel"
+                        name="PN_IndividualBasic"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false"
+                        visible="{Boolean}true">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(RB_CP_Type.value === \\&quot;2\\&quot;){\\n  this.visible = false;\\n  this.dorExclusion = true;\\n}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_IndividualBasic&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </panel_copy>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="en-us"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_germany_fragmentlib/affrg_german_ClientAdvisorSignature_Signature_Place_Date_Name/jcr:content/guideContainer/assets/dictionary">
+    <_x0031_57fcb09-1b68-4f8d-a62f-56d5a1b6cf73
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_DE Fragment - Client Advisor Signature (Signature, Place, Date, Name)"
+        sling:message="DE Fragment - Client Advisor Signature (Signature, Place, Date, Name)"/>
+    <_x0036_9e99eff-3120-4734-9c00-359c044080bc
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client advisor"
+        sling:message="Signature of client advisor"/>
+    <_x0032_0adcfbf-2525-4e0d-99a9-db2630177430
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Place"
+        sling:message="Place"/>
+    <_x0036_60478db-85a5-4059-8ead-7bbf6d8ae211
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date (dd.mm.yyyy)"
+        sling:message="Date (dd.mm.yyyy)"/>
+    <_x0030_c65ce3f-a81c-4dbc-87df-2175bdc847e5
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+        sling:message="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"/>
+    <_x0031_4d09517-6f9e-4e68-88c5-9a776fb0b4b9
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client advisor"
+        sling:message="Name of client advisor"/>
+</jcr:root>

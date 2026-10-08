@@ -1,0 +1,692 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="fr-ch"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_ch_fragmentlib/affrg_Applicant1/jcr:content/guideContainer/assets/dictionary">
+    <_x0030_1f09ac9-accf-4814-9573-424d72358d94
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_AFC"
+        sling:message="AFC"/>
+    <_x0031_357d8b7-0b88-4ef4-ad38-5b3bc88bf19b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_The text will appear here"
+        sling:message="The text will appear here"/>
+    <_x0034_c8e9e23-ebc2-4588-b8b3-daea2d9ecfb9
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Previous"
+        sling:message="Retour"/>
+    <_x0034_df0297c-e720-40a5-ad14-3a8012087c6f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_granite/ui/components/coral/foundation/form/textarea"
+        sling:message="granite/ui/components/coral/foundation/form/textarea"/>
+    <_x0036_c3b3da0-bccd-4554-aa26-e6ebf8d30380
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_formTitle"
+        sling:message="formTitle"/>
+    <_x0036_fcde604-cea1-44b1-acb6-c6db91161add
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EN"
+        sling:message="EN"/>
+    <_x0038_6bfcfd4-84c9-4ddb-96e4-bbfc0aa7c733
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_001"
+        sling:message="001"/>
+    <a1ccb738-2d17-4c41-a350-1611d857c1b4
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_headerText"
+        sling:message="headerText"/>
+    <ab33e90a-755c-40e8-a12b-12ff280ec589
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_63097"
+        sling:message="63097"/>
+    <b8063fc0-1d8c-4fb8-a887-15d7aa33712f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_true"
+        sling:message="true"/>
+    <fd__x0025_20
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_ "
+        sling:message=" "/>
+    <fd_01_x0020_.01.202559701018
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_01 .01.2020"
+        sling:message="01 .01.2020"/>
+    <fd_15.06.2015
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_15.06.2015"
+        sling:message="15.06.2015"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Bank-355201254
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Relation bancaire&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Erro-1986159268
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Error while generating the preview&lt;/b>&lt;/p>&#xa;&lt;p>Please try again later.&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Erreur lors de la création de l'aperçu&lt;/b>&lt;/p>&#xa;&lt;p>Veuillez réessayer ultérieurement.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Form-1031858495
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Form of address&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Formule d'appel&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Issu-1557752809
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Issuing client&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Requérant&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Lang-2017176204
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Language&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Langue&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Safe1611776926
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Safekeeping account no.&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>N° de dépôt&lt;/b>&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e__x003c_b_x003e_Subm-214020947
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Submission failed&lt;/b>&lt;/p>&#xa;&lt;p>The form could not be sent. Please try again later.&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Échec de la soumission&lt;/b>&lt;/p>&#xa;&lt;p>Le formulaire n'a pas pu être envoyé. Veuillez réessayer ultérieurement.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Authori1416637773
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Authorization for inspection&lt;/p>&#xa;"
+        sling:message="&lt;p>Droit de regard&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_By_x0020_clic-2118826380
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p>&lt;p>After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p>"
+        sling:message="&lt;p>By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p>&lt;p>After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p>"/>
+    <fd__x003c_p_x003e_By_x0020_clic-587780994
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p>&lt;p>After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p>"
+        sling:message="&lt;p>En cliquant sur «Aperçu», vous pouvez consulter votre document avant de le soumettre.&lt;/p>&#xa;&lt;p>Après avoir cliqué sur «Soumettre», vous ne pouvez plus modifier le document et le PDF sera créé pour pouvoir être signé.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Corresp-1949864038
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Correspondence by the company is required in&lt;/p>&#xa;"
+        sling:message="&lt;p>La correspondance des sociétés est désirée en&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Deferre-618645131
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Deferred printing of securities/securities in book entry form&lt;/p>&#xa;"
+        sling:message="&lt;p>Impression différée/supprimée des titres&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_General1837768320
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>General authorization for registration&amp;nbsp;of registered shares for individuals&lt;/p>&#xa;"
+        sling:message="&lt;p>Autorisation générale d'inscription&amp;nbsp;pour les personnes physiques&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_I_x0020_ackno1358648414
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>I acknowledge that the companies concerned may refuse, in whole or in part, to accept me as a voting shareholder, based on the&amp;nbsp;legal restrictions on registration. I declare that I am registering the shares for my own account and as my legal and economic property and not on a fiduciary basis or otherwise for any third party.&lt;/p>&#xa;"
+        sling:message="&lt;p>Je suis informé du fait que, sur la base de restrictions statutaires d'inscription, la société peut refuser totalement ou partiellement mon inscription au registre des actions comme actionnaire avec droit de vote. Je déclare acquérir ces actions pour mon propre compte, tant juridiquement qu'économiquement, et non pas à titre fiduciaire ou de quelque autre manière pour le compte de tiers.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_I_x0020_ackno222260058
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>I acknowledge that the order to transfer uncertified registered shares as well as to print and to deliver certificates can only be granted&amp;nbsp;through UBS. Shares of various companies are available in uncertified form only (securities in book entry form). In such cases the&amp;nbsp;shareholder may not claim to print or to deliver such registered share certificates. However, upon request companies would be prepared to confirm the registered position of the shareholder in writing.&lt;/p>&#xa;"
+        sling:message="&lt;p>Je prends connaissance qu'un ordre de transfert d'actions nominatives dématérialisées, respectivement d'impression et de livraison de certificats d'actions nominatives, ne doit être donné qu'à UBS exclusivement. Les actions de certaines sociétés sont disponibles uniquement sous forme dématérialisée (impression des titres supprimée). Dans ce cas, je ne peux exiger ni l'impression, ni la livraison de certificats d'actions nominatives. Toutefois, je peux, à tout moment, exiger de la société concernée l'établissement d'une attestation pour les actions nominatives inscrites à mon nom.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_I_x0020_hereb1788479617
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>I hereby instruct and authorize UBS Switzerland AG (hereinafter &amp;quot;UBS&amp;quot;) to arrange for the registration of registered shares of companies,&amp;nbsp;acquired and to be acquired by me in the future, in the Share Register of the company concerned, provided that this is effected in Switzerland &lt;b>in my name&lt;/b>.&lt;/p>&#xa;"
+        sling:message="&lt;p>Par la présente, je mandate et autorise UBS Switzerland AG (ci-après «UBS») à demander l'inscription, à mon nom, au registre des actions&#xa;des sociétés concernées, si celui-ci est en Suisse, pour les actions nominatives acquises ou que j'acquerrai à l'avenir.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_I_x0020_herew1441471195
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>I herewith authorize the company concerned to endorse or transfer my shares in my name in the event of subsequent sale. This power&amp;nbsp;of attorney also applies to shares previously registered in my name. This power of attorney does not expire upon my death or incapacity&amp;nbsp;and can only be refused by written memorandum and physical submission of the certificates to the company.&lt;/p>&#xa;"
+        sling:message="&lt;p>Par la présente, j'habilite la société concernée, lors de toute aliénation à venir, à endosser ou à céder en mon nom mes actions. Cette procuration est également valable pour les actions inscrites jusqu'ici à mon nom et ne s'éteint pas avec mon décès ou la déclaration de mon incapacité civile. Cette procuration ne peut être révoquée que par écrit et avec transmission des certificats d'action y relatifs.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_I_x0020_herew902334013
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>I herewith authorize UBS to make this application available to the companies concerned, or to advise them of the information furnished here as well as subsequent changes. This also applies to changes which UBS learns of by virtue of my banking relations.&lt;/p>&#xa;"
+        sling:message="&lt;p>UBS est habilitée à tenir la présente requête à la disposition des sociétés concernées ou à leur communiquer les indications y figurant ainsi que toute modification ultérieure. Cela est également valable pour les modifications dont UBS aura connaissance dans le cadre des relations bancaires me concernant.&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Instruc1603503162
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Instructions and application for registration of registered shares&lt;/p>&#xa;"
+        sling:message="&lt;p>Mandat et autorisation d'inscription d'actions nominatives&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Power_x0020_o-1822795071
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Power of attorney to transfer (only for registered shares, not affected by the Swiss &amp;quot;Bucheffektengesetz&amp;quot;)&lt;/p>&#xa;"
+        sling:message="&lt;p>Procuration de transfert (uniquement pour les actions nominatives qui ne sont pas des titres intermédiés)&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Registr1352996636
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Registration requirements&lt;/p>&#xa;"
+        sling:message="&lt;p>Conditions d'inscription au registre des actions&lt;/p>&#xa;"/>
+    <fd__x003c_p_x003e_Signatu949896441
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>Signature(s)&lt;/p>&#xa;"
+        sling:message="&lt;p>Signature(s)&lt;/p>&#xa;"/>
+    <fd_AAZG
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_AAZG"
+        sling:message="fd_AAZG"/>
+    <fd_Account_x0020_no-1762489862
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account no."
+        sling:message="N° de compte"/>
+    <fd_Acknowledg772473306
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Acknowledgement"
+        sling:message="Reconnaissance"/>
+    <fd_Additional-353888195
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Complément d'adresse"/>
+    <fd_APPCode
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_APPCode"
+        sling:message="APPCode"/>
+    <fd_Authorizat-266105902
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Authorization for inspection"
+        sling:message="Droit de regard"/>
+    <fd_Authorizat-586608551
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Authorization"
+        sling:message="Autorisation"/>
+    <fd_Availabili142609868
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Availability of application"
+        sling:message="Disponibilité de la requête"/>
+    <fd_Back
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Back"
+        sling:message="Retour"/>
+    <fd_Banking_x0020_re-1793830894
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship"
+        sling:message="Relation bancaire"/>
+    <fd_BankingRel1264296286
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_BankingRelationship"
+        sling:message="Relation bancaire"/>
+    <fd_Canton_x0025_2FSta-100100326
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message="Canton/État/Province"/>
+    <fd_Canton_x0025_2Fsta837248730
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/state/province"
+        sling:message="Canton/État/Province"/>
+    <fd_City
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="Localité"/>
+    <fd_Clearing_x0020_n419850882
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Clearing no."
+        sling:message="N° de clearing"/>
+    <fd_code
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_code"
+        sling:message="code"/>
+    <fd_Container_x0020_1990100165
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Container for branding components"
+        sling:message="Container for branding components"/>
+    <fd_Content_x0020_De224758107
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Content Details"
+        sling:message="fd_Content Details"/>
+    <fd_Correspond1563074917
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Correspondence by the company is required in"
+        sling:message="La correspondance des sociétés est désirée en"/>
+    <fd_Country
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Pays"/>
+    <fd_Custody_x0020_ac857515627
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Custody account no."
+        sling:message="N° de dépôt"/>
+    <fd_CustodyAcc-1525415459
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_CustodyAccountNo"
+        sling:message="N° de dépôt"/>
+    <fd_Date
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date"
+        sling:message="Date"/>
+    <fd_Date_x0020_Of_x0020_Bi-213826071
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date Of Birth(dd.mm.yyyy)"
+        sling:message="Date de naissance"/>
+    <fd_Date_x0020_of_x0020_bi-405067655
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date of birth (dd.mm.yyyy)"
+        sling:message="Date de naissance"/>
+    <fd_Declaratio-360637094
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Declaration"
+        sling:message="Déclaration"/>
+    <fd_Deferred_x0020_p-1281092226
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Deferred printing of securities/securities in book entry form"
+        sling:message="Impression différée/supprimée des titres"/>
+    <fd_displayLan1486237242
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_displayLanguage"
+        sling:message="fd_displayLanguage"/>
+    <fd_Dr
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Dr"
+        sling:message="Dr"/>
+    <fd_English
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_English"
+        sling:message="Anglais"/>
+    <fd_footerForm-1101562996
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerFormCode"
+        sling:message="footerFormCode"/>
+    <fd_footerForm-2085829081
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerFormVersionDate"
+        sling:message="footerFormVersionDate"/>
+    <fd_footerFree1181878388
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerFreeText"
+        sling:message="footerFreeText"/>
+    <fd_footerNumb-790192956
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerNumber"
+        sling:message="footerNumber"/>
+    <fd_footerPage
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerPage"
+        sling:message="footerPage"/>
+    <fd_footerVers-669021507
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_footerVersion"
+        sling:message="footerVersion"/>
+    <fd_For_x0020_intern-1853188803
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_For internal bank use only"
+        sling:message="Partie réservée à la banque"/>
+    <fd_Form_x0020_of_x0020_ad1368760167
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Form of address"
+        sling:message="Formule d'appel"/>
+    <fd_FORM_x0020_TITLE
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_FORM TITLE"
+        sling:message="FORM TITLE"/>
+    <fd_Form_x0020_Title
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Form Title"
+        sling:message="Form Title"/>
+    <fd_formId
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_formId"
+        sling:message="formId"/>
+    <fd_FormType
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_FormType"
+        sling:message="FormType"/>
+    <fd_French
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_French"
+        sling:message="Français"/>
+    <fd_Further_x0020_co-2070867998
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Further configurations for the document of record"
+        sling:message="Further configurations for the document of record"/>
+    <fd_German
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_German"
+        sling:message="Allemand"/>
+    <fd_Header_x0020_tex-1501132096
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Header text"
+        sling:message="Header text"/>
+    <fd_Header_x0020_Tex-1502085408
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Header Text"
+        sling:message="Header Text"/>
+    <fd_Informatio915396134
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Information on the applicant"
+        sling:message="Indications concernant le client/l'actionaire"/>
+    <fd_Instructio399649861
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Instructions and application for registration of registered shares"
+        sling:message="Mandat et autorisation d'inscription d'actions nominatives"/>
+    <fd_Italian
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Italian"
+        sling:message="Italien"/>
+    <fd_K
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_K"
+        sling:message="K"/>
+    <fd_Language
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Language"
+        sling:message="Langue"/>
+    <fd_language
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_language"
+        sling:message="language"/>
+    <fd_Logo_x0020_Image-292851516
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Logo Image (width: 29mm, height: 10.6mm) "
+        sling:message="Logo Image (width: 29mm, height: 10.6mm) "/>
+    <fd_Logo_x0020_Image188226314
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Logo Image (width: 28.955mm, height: 10.475mm) "
+        sling:message="Logo Image (width: 28.955mm, height: 10.475mm) "/>
+    <fd_mandator
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_mandator"
+        sling:message="mandator"/>
+    <fd_Master_x0020_Pag-1407007290
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Master Page Properties"
+        sling:message="Master Page Properties"/>
+    <fd_Message
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Message"
+        sling:message="Message"/>
+    <fd_Metadata
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Metadata"
+        sling:message="Metadata"/>
+    <fd_Mr
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Mr"
+        sling:message="Monsieur"/>
+    <fd_Mrs
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Mrs"
+        sling:message="Madame"/>
+    <fd_N1
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_N1"
+        sling:message="N1"/>
+    <fd_N3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_N3"
+        sling:message="N3"/>
+    <fd_Name_x0020_of_x0020_cl-1199352065
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client"
+        sling:message="Nom du client"/>
+    <fd_Nationalit1760716188
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Nationality"
+        sling:message="Nationalité"/>
+    <fd_Next
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Next"
+        sling:message="Suivant"/>
+    <fd_No.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="N°"/>
+    <fd_Object_x0020_no.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Object no."
+        sling:message="N° de l'objet"/>
+    <fd_Other_x0020_Titl-1519329016
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Other Title"
+        sling:message="Autre titre"/>
+    <fd_Page
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Page"
+        sling:message="Page"/>
+    <fd_Place
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Place"
+        sling:message="Lieu"/>
+    <fd_Please_x0020_ent1338578760
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+        sling:message="Veuillez saisir la date au format jj.mm.aaaa (p.ex. 01.01.2020)"/>
+    <fd_Postal_x0020_cod-443576318
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="NPA"/>
+    <fd_Power_x0020_of_x0020_a168582070
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Power of attorney to transfer (only for registered shares, not affected by the Swiss &quot;Bucheffektengesetz&quot;)"
+        sling:message="Procuration de transfert (uniquement pour les actions nominatives qui ne sont pas des titres intermédiés)"/>
+    <fd_Preview
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Preview"
+        sling:message="Aperçu"/>
+    <fd_Preview_x0020_Ca-1895840008
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Preview Carousel"
+        sling:message="Preview Carousel"/>
+    <fd_Print_x0020_blan-142308863
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Print blank"
+        sling:message="Print blank"/>
+    <fd_Prof
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Prof"
+        sling:message="Prof."/>
+    <fd_QRCode
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_QRCode"
+        sling:message="QRCode"/>
+    <fd_Radio_x0020_Butt-2044554885
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Radio Button Other Address"
+        sling:message="Radio Button Other Address"/>
+    <fd_Registrati-14309257
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Registration requirements"
+        sling:message="Conditions d'inscription au registre des actions"/>
+    <fd_Root_x0020_Panel
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Root Panel"
+        sling:message="Root Panel"/>
+    <fd_Safekeepin2112284650
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Safekeeping account no."
+        sling:message="N° de dépôt"/>
+    <fd_Section
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Section"
+        sling:message="Section"/>
+    <fd_Signature_x0020_-1017094996
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client"
+        sling:message="Signature du client"/>
+    <fd_Signature_x0020_689269465
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature Container"
+        sling:message="Signature Container"/>
+    <fd_Signature_x0028_-1306852186
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature(s)"
+        sling:message="Signature(s)"/>
+    <fd_Street
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Rue"/>
+    <fd_Submit
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Submit"
+        sling:message="Soumettre"/>
+    <fd_Thank_x0020_you_x0020_-1692159921
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Thank you for submitting the form."
+        sling:message="Merci d'avoir soumis le formulaire."/>
+    <fd_Title
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Title"
+        sling:message="Titre"/>
+    <fd_to_x0020_the_x0020_abo1163793053
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_to the above address"
+        sling:message="to the above address"/>
+    <fd_to_x0020_the_x0020_above_x0020_address
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_to the above address"
+        sling:message="à l'adresse ci-dessus"/>
+    <fd_to_x0020_the_x0020_fol1032173457
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_to the following address"
+        sling:message="à l'adresse suivante"/>
+    <fd_to_x0020_the_x0020_following_x0020_address
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_to the following address"
+        sling:message="à l'adresse suivante"/>
+    <fd_Toolbar
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Toolbar"
+        sling:message="Toolbar"/>
+    <fd_txtBanking486303982
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_txtBankingRelationship"
+        sling:message="txtBankingRelationship"/>
+    <fd_txtCustody-2019367859
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_txtCustodyAccountNo"
+        sling:message="txtCustodyAccountNo"/>
+    <fd_Upload
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Upload"
+        sling:message="Upload"/>
+    <fd_V1
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_V1"
+        sling:message="V1"/>
+    <fd_V2
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_V2"
+        sling:message="V2"/>
+    <fee005e6-f9b9-4e66-8f0d-4ddb7b6a93ac
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_logoImage"
+        sling:message="logoImage"/>
+</jcr:root>

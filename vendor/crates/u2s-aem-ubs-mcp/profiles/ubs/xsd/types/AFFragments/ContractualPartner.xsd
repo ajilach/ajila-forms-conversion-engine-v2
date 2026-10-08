@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFFragments/BankingRelationship.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Partner.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Address.xsd"/>
+	<xs:element name="AccountHolderBasic" type="AccountHolderBasicType"/>
+	<xs:element name="AccountHolder" type="AccountHolderType"/>
+	<xs:element name="ContractingPartnerBasic" type="ContractingPartnerBasicType"/>
+	<xs:element name="ContractingPartner" type="ContractingPartnerType"/>
+	<xs:element name="CoOwnerBasic" type="CoOwnerBasicType"/>
+	<xs:element name="CoOwner" type="CoOwnerType"/>
+	<xs:element name="LesseeBasic" type="LesseeBasicType"/>
+	<xs:element name="Lessee" type="LesseeType"/>
+	<xs:complexType name="ContractualPartnerType">
+		<xs:complexContent>
+			<xs:extension base="PartnerType">
+				<xs:sequence>
+					<xs:element ref="BankingRelationship" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="AccountHolderBasicType">
+		<xs:complexContent>
+			<xs:extension base="ContractualPartnerType">
+				<xs:sequence>
+					<xs:element name="ClientSegment" type="xs:string" minOccurs="0"/>
+					<xs:element name="LegalForm" type="xs:string" minOccurs="0"/>
+					<xs:element name="Sector" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="AccountHolderType">
+		<xs:complexContent>
+			<xs:extension base="AccountHolderBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="CoOwnerBasicType">
+		<xs:complexContent>
+			<xs:extension base="ContractualPartnerType">
+				<xs:sequence>
+					<xs:element name="TypeOfRelationship" type="xs:string" minOccurs="0"/>
+					<xs:element name="ClientSegment" type="xs:string" minOccurs="0"/>
+					<xs:element name="LegalForm" type="xs:string" minOccurs="0"/>
+					<xs:element name="Sector" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="CoOwnerType">
+		<xs:complexContent>
+			<xs:extension base="CoOwnerBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="LesseeBasicType">
+		<xs:complexContent>
+			<xs:extension base="ContractualPartnerType">
+				<xs:sequence>
+					<xs:element name="CQUE" type="xs:string" minOccurs="0"/>
+					<xs:element name="BranchCode" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ContractingPartnerBasicType">
+		<xs:complexContent>
+			<xs:extension base="ContractualPartnerType">
+				<xs:sequence>
+					<xs:element name="ClientSegment" type="xs:string" minOccurs="0"/>
+					<xs:element name="LegalForm" type="xs:string" minOccurs="0"/>
+					<xs:element name="Sector" type="xs:string" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="ContractingPartnerType">
+		<xs:complexContent>
+			<xs:extension base="ContractingPartnerBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="LesseeType">
+		<xs:complexContent>
+			<xs:extension base="LesseeBasicType">
+				<xs:sequence>
+					<xs:element name="DomicileAddress" type="AddressType" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+</xs:schema>

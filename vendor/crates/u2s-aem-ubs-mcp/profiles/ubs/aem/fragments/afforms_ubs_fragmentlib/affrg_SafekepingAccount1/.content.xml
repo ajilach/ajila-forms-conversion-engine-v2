@@ -1,0 +1,277 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2026-02-23T10:29:29.953+01:00"
+        cq:lastModifiedBy="t518977"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="UBS Fragment - Safekeeping Account 1"
+        sling:resourceType="fd/af/components/page/basePageForFragment">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            fragmentModelRoot="/SafeKeepingAccountType"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1"
+            schemaType="xmlschema"
+            xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFFragments/Products.xsd">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <panel_1441876810
+                        jcr:created="Thu Aug 27 2020 10:34:41 GMT+0200"
+                        jcr:createdBy="t649798"
+                        jcr:lastModified="{Date}2025-03-19T11:31:49.825+01:00"
+                        jcr:lastModifiedBy="t647287"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        dorExclusion="true"
+                        guideNodeClass="guidePanel"
+                        name="PN_SafeAccountNo"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false"
+                        visible="{Boolean}true">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            dorNumCols="1"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                            <textdraw
+                                jcr:created="Thu Aug 27 2020 10:38:12 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2025-03-19T11:32:26.042+01:00"
+                                jcr:lastModifiedBy="t647287"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;b>Safekeeping account no.&lt;/b>&lt;/p>&#xa;"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_CustodyAccountNo"
+                                textIsRich="true"/>
+                            <textbox_copy
+                                jcr:created="Thu Aug 27 2020 10:36:03 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2025-03-19T11:37:45.650+01:00"
+                                jcr:lastModifiedBy="t647287"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Clearing no."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SafeKeepingAccountType/BranchCode"
+                                css="widget_ajila-forms-ubs-textbox"
+                                enabled="{Boolean}true"
+                                guideNodeClass="guideTextBox"
+                                mandatory="true"
+                                maxChars="4"
+                                name="TXT_CustodyAccount1"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="3"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_CustodyAccountNo.TXT_CustodyAccount1&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;CALC_EXPRESSION&quot;}\,&quot;content&quot;:&quot;if(this.mandatory){\\n  TXT_BankingRelationship1.value;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;var numSize = 4;\\nif(this.value.length &lt;numSize ) {\\n  var val = \\&quot;000\\&quot; + this.value;\\n  this.value = val.substr(-numSize);\\n} else {\\n  this.value = this.value;\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_CustodyAccountNo.TXT_CustodyAccount1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_CustodyAccountNo.TXT_CustodyAccount1&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if( [true\, false].indexOf(window.forms.ubs.printpartial.isPrintPartialActive()) != -1){\\n  if(!window.forms.ubs.printpartial.isPrintPartialActive() || (this.value &amp;&amp; this.value!== \\&quot;\\&quot;) || (TXT_CustodyAccount2.value &amp;&amp; TXT_CustodyAccount2.value!==\\&quot;\\&quot;) || (TXT_CustodyAccount3.value &amp;&amp; TXT_CustodyAccount3.value.value!==\\&quot;\\&quot;)   ){\\n    window.forms.ubs.printpartial.setControlElement(this);\\n    window.forms.ubs.printpartial.setControlElement(TXT_CustodyAccount2);\\n    window.forms.ubs.printpartial.setControlElement(TXT_CustodyAccount3.value); \\n  } else{\\n    window.forms.ubs.printpartial.removeControlElement(this);\\n    window.forms.ubs.printpartial.removeControlElement(TXT_CustodyAccount2);\\n    window.forms.ubs.printpartial.removeControlElement(TXT_CustodyAccount3.value);\\n  }\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_copy>
+                            <textbox_966647679_co
+                                jcr:created="Thu Aug 27 2020 10:36:08 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2025-03-19T11:37:54.855+01:00"
+                                jcr:lastModifiedBy="t647287"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Account no."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SafeKeepingAccountType/MasterNumber"
+                                css="widget_ajila-forms-ubs-textbox"
+                                enabled="{Boolean}true"
+                                guideNodeClass="guideTextBox"
+                                mandatory="true"
+                                maxChars="8"
+                                name="TXT_CustodyAccount2"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_CustodyAccountNo.TXT_CustodyAccount2&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;CALC_EXPRESSION&quot;}\,&quot;content&quot;:&quot;if(this.mandatory){\\n  TXT_BankingRelationship2.value;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_CustodyAccountNo.TXT_CustodyAccount2&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var numSize = 8;\\nif(this.value.length &lt;numSize ) {\\n  var val = \\&quot;0000000\\&quot; + this.value;\\n  this.value = val.substr(-numSize);\\n} else {\\n  this.value = this.value;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;if([true\, false].indexOf(window.forms.ubs.printpartial.isPrintPartialActive()) != -1){\\n  if(!window.forms.ubs.printpartial.isPrintPartialActive() || (this.value &amp;&amp; this.value!== \\&quot;\\&quot;) || (TXT_CustodyAccount1.value &amp;&amp; TXT_CustodyAccount1.value!==\\&quot;\\&quot;) || (TXT_CustodyAccount3.value &amp;&amp; TXT_CustodyAccount3.value!==\\&quot;\\&quot;)){\\n    window.forms.ubs.printpartial.setControlElement(this);\\n    window.forms.ubs.printpartial.setControlElement(TXT_CustodyAccount1); \\n    window.forms.ubs.printpartial.setControlElement(TXT_CustodyAccount3); \\n  } else{\\n    window.forms.ubs.printpartial.removeControlElement(this);\\n    window.forms.ubs.printpartial.removeControlElement(TXT_CustodyAccount1);\\n    window.forms.ubs.printpartial.removeControlElement(TXT_CustodyAccount3);\\n  }\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_CustodyAccountNo.TXT_CustodyAccount2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_966647679_co>
+                            <textbox_966647679_co_1811555828
+                                jcr:created="Thu Aug 27 2020 10:36:08 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2025-03-19T11:38:03.832+01:00"
+                                jcr:lastModifiedBy="t647287"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Object no."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SafeKeepingAccountType/ObjectNumber"
+                                css="widget_ajila-forms-ubs-textbox"
+                                guideNodeClass="guideTextBox"
+                                mandatory="true"
+                                maxChars="3"
+                                name="TXT_CustodyAccount3"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="3"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if([true\, false].indexOf(window.forms.ubs.printpartial.isPrintPartialActive()) != -1){\\n  if(!window.forms.ubs.printpartial.isPrintPartialActive() || (this.value &amp;&amp; this.value!== \\&quot;\\&quot;) || (TXT_CustodyAccount2.value &amp;&amp; TXT_CustodyAccount2.value!==\\&quot;\\&quot;) || (TXT_CustodyAccount1.value &amp;&amp; TXT_CustodyAccount1.value!==\\&quot;\\&quot;)){\\n    window.forms.ubs.printpartial.setControlElement(this);\\n    window.forms.ubs.printpartial.setControlElement(TXT_CustodyAccount2); \\n    window.forms.ubs.printpartial.setControlElement(TXT_CustodyAccount1); \\n  } else{ \\n    window.forms.ubs.printpartial.removeControlElement(this);\\n    window.forms.ubs.printpartial.removeControlElement(TXT_CustodyAccount2);\\n    window.forms.ubs.printpartial.removeControlElement(TXT_CustodyAccount1);\\n  }\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_CustodyAccountNo.TXT_CustodyAccount3&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_966647679_co_1811555828>
+                        </items>
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="8"/>
+                            <tablet
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="12"/>
+                        </cq:responsive>
+                    </panel_1441876810>
+                    <textbox_94032281
+                        jcr:created="Wed Aug 26 2020 07:17:59 GMT+0200"
+                        jcr:createdBy="t649798"
+                        jcr:lastModified="{Date}2025-03-19T11:35:53.611+01:00"
+                        jcr:lastModifiedBy="t647287"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Safekeeping account no."
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        autofillFieldKeyword="name"
+                        bindRef="/SafeKeepingAccountType/AccountNumber"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorExclusion="true"
+                        guideNodeClass="guideTextBox"
+                        maxChars="15"
+                        name="txtCustodyAccountNo1"
+                        textIsRich="[true,true,true,true]"
+                        visible="{Boolean}false">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="6"/>
+                        </cq:responsive>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:calc="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.TXT_CustodyAccountNo&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var myClearingNo = TXT_CustodyAccount1.value;\\nvar myAccountNo = TXT_CustodyAccount2.value;\\nvar myObjectNo = TXT_CustodyAccount3.value;\\n\\nthis.value = \\&quot;\\&quot;;\\nif(myClearingNo &amp;&amp; myAccountNo &amp;&amp; myObjectNo) {\\n    this.value = myClearingNo + \\&quot; \\&quot; + myAccountNo + \\&quot;.\\&quot; + myObjectNo;\\n}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textbox_94032281>
+                    <textbox_94032281_cop
+                        jcr:created="Wed Aug 26 2020 07:17:59 GMT+0200"
+                        jcr:createdBy="t649798"
+                        jcr:lastModified="{Date}2025-03-19T15:01:05.269+01:00"
+                        jcr:lastModifiedBy="t647287"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Safekeeping account no. DOR"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        autofillFieldKeyword="name"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorExclusion="true"
+                        guideNodeClass="guideTextBox"
+                        maxChars="15"
+                        name="txtCustodyAccountNo"
+                        textIsRich="[true,true,true,true]"
+                        visible="{Boolean}false">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="6"/>
+                        </cq:responsive>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:calc="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.TXT_CustodyAccountNo&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var myClearingNo = TXT_CustodyAccount1.value;\\nvar myAccountNo = TXT_CustodyAccount2.value;\\nvar myObjectNo = TXT_CustodyAccount3.value;\\n\\nthis.value = \\&quot;\\&quot;;\\nif(myClearingNo &amp;&amp; myAccountNo &amp;&amp; myObjectNo) {\\n    this.value = myClearingNo + \\&quot; \\&quot; + myAccountNo + \\&quot;.\\&quot; + myObjectNo;\\n}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textbox_94032281_cop>
+                </items>
+            </rootPanel>
+            <assets jcr:primaryType="nt:unstructured">
+                <dictionary jcr:primaryType="nt:unstructured">
+                    <de/>
+                    <it/>
+                    <fr/>
+                    <es/>
+                    <de-ch/>
+                    <es-es/>
+                    <fr-ch/>
+                    <it-ch/>
+                    <en-us/>
+                    <de-de/>
+                    <zh-tw/>
+                    <zh-hk/>
+                    <ko-kr/>
+                    <pt/>
+                </dictionary>
+            </assets>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

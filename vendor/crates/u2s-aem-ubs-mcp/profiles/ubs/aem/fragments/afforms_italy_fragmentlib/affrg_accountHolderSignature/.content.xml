@@ -1,0 +1,307 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2026-02-25T12:17:33.172+01:00"
+        cq:lastModifiedBy="t831552"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{}"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="EFORMS - Account Holder Sign Repeating Panel"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            fragmentModelRoot="/AccountHolderBasicType"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1"
+            schemaType="xmlschema"
+            xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFFragments/ContractualPartner.xsd">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <textbox_copy_copy jcr:primaryType="nt:unstructured"/>
+                    <fragment_a1438cc3_52
+                        jcr:created="{Date}2025-12-17T10:33:27.267+01:00"
+                        jcr:createdBy="admin"
+                        jcr:lastModified="{Date}2026-01-06T11:40:53.613+01:00"
+                        jcr:lastModifiedBy="t831640"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guidePanel"
+                        maxOccur="4"
+                        minOccur="1"
+                        name="PN_Sign_Individual"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            dorNumCols="1"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;var pnIndividual = PN_ClienteDetails_Individual.instanceManager.instances[this.parent.instanceIndex].PN_PersonalDetails_Panel.PN_affrg_italy_personal_details.PN_Personal_Details.PN_Names; \\nvar lastName = pnIndividual.TXT_Last_Name.value;\\nvar firstName = pnIndividual.TXT_First_Name.value;\\nif(lastName &amp;&amp; firstName){\\n  this.value = ((firstName ? firstName : \\&quot;\\&quot;) + \\&quot; \\&quot; + (lastName ? lastName : \\&quot;\\&quot;)).trim();\\n}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_Signature.PN_Accountholder.PN_Sign_Individual&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;len = this.instanceManager.instances.length;\\n\\nif(len === 2 &amp;&amp; len > 1) {\\n  window.forms.ubs.showAFShowDor(BT_RemoveClient.parent.instanceManager.instances[0].ST_Client1);\\n  window.forms.ubs.hideAFHideDor(BT_RemoveClient.parent.instanceManager.instances[0].ST_Client);\\n} \\n\\n&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_Signature.PN_Accountholder.PN_Sign_Individual&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                            <removebutton_copy
+                                jcr:lastModified="{Date}2025-01-13T07:49:30.227+01:00"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/removebutton"
+                                dorExclusion="true"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideButton"
+                                name="BT_RemoveAHSignature"
+                                textIsRich="[true,true,true]"
+                                type="Button"
+                                visible="{Boolean}false">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:click="[{&quot;script&quot;:{&quot;content&quot;:&quot;this.parent.instanceManager.removeInstance(this.parent.instanceIndex);&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveAHSignature&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;var lenRP = this.parent.instanceManager.instances.length;\\n\\nfor(var i = 0; i &lt; lenRP; i++){\\n  this.parent.instanceManager.instances[i].BT_RemoveAHSignature.visible =  (i === (lenRP-1) &amp;&amp; lenRP > 1 ) ? true : false;\\n}\\n\\nif(lenRP === 1) {     \\n  this.parent.instanceManager.instances[0].ST_AH0.visible = true;\\n  this.parent.instanceManager.instances[0].ST_AH0.dorExclusion = false;\\n  this.parent.instanceManager.instances[0].ST_AH1.visible = false;\\n  this.parent.instanceManager.instances[0].ST_AH1.dorExclusion = true;\\n} \\n\\nBT_AddAHSignature.visible = true;&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_RemoveAHSignature&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </removebutton_copy>
+                            <textdraw_copy_copy
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:22:30.475+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;b>Titolare del conto&lt;/b>&lt;/p>&#xa;"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_AH0"
+                                textIsRich="true">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length === 1) ? window.com.ajila.forms.ubs.showAFShowDor(this) : window.com.ajila.forms.ubs.hideAFHideDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AH0&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textdraw_copy_copy>
+                            <textdraw_copy_copy_c
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:22:49.411+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;b>Titolare del conto&amp;nbsp;1&lt;/b>&lt;/p>&#xa;"
+                                dorExclusion="true"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_AH1"
+                                textIsRich="true"
+                                visible="{Boolean}false">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.ST_AH1&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length > 1) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textdraw_copy_copy_c>
+                            <textdraw_copy_copy_c_518619026
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:23:00.551+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;b>Titolare del conto&amp;nbsp;2&lt;/b>&lt;/p>&#xa;"
+                                dorExclusion="true"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_AH2"
+                                textIsRich="true"
+                                visible="{Boolean}false">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 1) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AH2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textdraw_copy_copy_c_518619026>
+                            <textdraw_copy_copy_c_1015120883
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:23:10.973+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;b>Titolare del conto&amp;nbsp;3&lt;/b>&lt;/p>&#xa;"
+                                dorExclusion="true"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_AH3"
+                                textIsRich="true"
+                                visible="{Boolean}false">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 2) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AH3&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textdraw_copy_copy_c_1015120883>
+                            <textdraw_copy_copy_c_289153957
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:23:21.205+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;b>Titolare del conto&amp;nbsp;4&lt;/b>&lt;/p>&#xa;"
+                                dorExclusion="true"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_AH4"
+                                textIsRich="true"
+                                visible="{Boolean}false">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(this.parent.instanceIndex === 3) window.com.ajila.forms.ubs.showAFShowDor(this);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_AH4&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textdraw_copy_copy_c_289153957>
+                            <signature
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:25:16.862+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title=" Firma del titolare del conto"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="6"
+                                dorFieldStyling="DoR right aligned"
+                                guideNodeClass="guideScribble"
+                                name="SIGN_AccountHolder"
+                                textIsRich="[true,true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="12"/>
+                                </cq:responsive>
+                            </signature>
+                            <textbox
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:26:26.601+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Luogo"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SignatureType/Place"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Place_AccountHolder"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textbox>
+                            <datepicker
+                                fd:translationIds="\{&quot;validatePictureClauseMessage&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##datepicker##validatePictureClauseMessage##2897&quot;}"
+                                jcr:lastModified="{Date}2026-01-13T07:26:40.734+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Data"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/datepicker"
+                                bindRef="/SignatureType/Date"
+                                css="widget_ajila_forms_datepicker"
+                                dorColspan="1"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideDatePicker"
+                                name="DATE_Sign_AccountHolder"
+                                textIsRich="[true,true,true]"
+                                validatePictureClause="date{YYYY-MM-DD}"
+                                validatePictureClauseMessage="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+                                validationPatternType="custom"
+                                yearRangeFrom="100"
+                                yearRangeTo="10">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="3"/>
+                                </cq:responsive>
+                            </datepicker>
+                            <textbox_504497449
+                                fd:translationIds="\{}"
+                                jcr:lastModified="{Date}2026-01-13T07:26:10.311+01:00"
+                                jcr:lastModifiedBy="t831640"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title=" Nome del titolare del conto"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                bindRef="/SignatureType/Name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_AccountHolder"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_Sign_Individual.TXT_Name_AccountHolder&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;var pnIndividual = PN_ClienteDetails_Individual.instanceManager.instances[this.parent.instanceIndex].PN_PersonalDetails_Panel.PN_affrg_italy_personal_details.PN_Personal_Details.PN_Names; \\nvar lastName = pnIndividual.TXT_Last_Name.value;\\nvar firstName = pnIndividual.TXT_First_Name.value;\\nif(lastName &amp;&amp; firstName){\\n  this.value = ((firstName ? firstName : \\&quot;\\&quot;) + \\&quot; \\&quot; + (lastName ? lastName : \\&quot;\\&quot;)).trim();\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_Sign_Individual.TXT_Name_AccountHolder&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.forms.ubs.components.setMandatory(this\, true);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449>
+                        </items>
+                    </fragment_a1438cc3_52>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

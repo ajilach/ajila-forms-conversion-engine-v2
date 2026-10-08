@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="de"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_italy_fragmentlib/affrg_addressclientid/jcr:content/guideContainer/assets/dictionary">
+    <f0b51931-6235-4c91-b999-b0261ee7000b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_DE Fragment - Address Client Id 1"
+        sling:message="DE Fragment - Address Client Id 1"/>
+    <_x0033_c37f0a9-6c06-4b93-a235-0af10f4e12b9
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Straße"/>
+    <dbe829f8-b1e3-46ba-b4d5-de3d704f2dc2
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="Nr."/>
+    <e7fb819e-bbb3-4079-ba1c-c2b8bdd9bef2
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Adresszusatz"/>
+    <_x0038_b8a48c9-2f50-4427-859f-e8c7438b8cb5
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="PLZ"/>
+    <_x0032_2cc47f2-ab77-4d97-9021-e681145c8ed1
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_CH Fragment - Address 1"
+        sling:message="CH Fragment - Address 1"/>
+    <_x0034_f4c1d7b-48ec-42d7-af19-b2dcced1bc76
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="Stadt"/>
+    <_x0037_49e4805-e422-4615-bb20-37c8cbe0797b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message="Kanton/Staat/Provinz"/>
+    <d89eb2b2-ebc1-4710-a30a-284bf24b485b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Province/State/District/Region"
+        sling:message="Province/State/District/Region"/>
+    <_x0038_b1fae25-b3b7-4f03-8080-adc5cfc737b3
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Land"/>
+    <_x0030_4eedddc-f104-4b86-b394-6cea4699b131
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Client ID (to be completed by UBS)"
+        sling:message="Kunden-ID (durch UBS auszufüllen)"/>
+    <_x0034_810f502-9af6-49e9-bc73-8d1c895dbc3f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"/>
+</jcr:root>

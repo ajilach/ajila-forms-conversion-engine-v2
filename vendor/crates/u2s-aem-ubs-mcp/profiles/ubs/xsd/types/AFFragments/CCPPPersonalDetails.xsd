@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:include schemaLocation="ContractualPartner.xsd"/>
+	<xs:include schemaLocation="Address.xsd"/>
+	<xs:include schemaLocation="Partner.xsd"/>
+	<xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
+	<xs:complexType name="CCPPPersonalDetailsType">
+		<xs:sequence>
+			<xs:element name="PersonalDetails" type="ContractualPartnerType"/>
+			<xs:element name="DomicileAdress" type="AddressType"/>
+			<xs:element name="CorrespondenceLanguage" type="xs:string" minOccurs="0"/>
+			<xs:element name="MaritalStatus" type="xs:string" minOccurs="0"/>
+			<xs:element name="PersonalCodeword" type="xs:string" minOccurs="0"/>
+			<xs:element name="ActualHomeAddress" type="xs:string" minOccurs="0"/>
+			<xs:element name="MobilePhone" type="xs:string" minOccurs="0"/>
+			<xs:element name="Type" type="xs:string" minOccurs="0"/>
+			<xs:element name="ValidUntil" type="xs:date" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+	<xs:element name="CCPPPersonalDetails" type="CCPPPersonalDetailsType"/>
+</xs:schema>

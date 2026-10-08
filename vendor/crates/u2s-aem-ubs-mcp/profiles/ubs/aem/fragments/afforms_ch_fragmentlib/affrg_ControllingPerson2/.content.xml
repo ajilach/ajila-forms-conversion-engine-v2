@@ -1,0 +1,562 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2025-10-10T06:02:17.676+02:00"
+        cq:lastModifiedBy="t770543"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        fd:translationIds="\{&quot;jcr:title&quot;:&quot;jcr:title##4231&quot;}"
+        jcr:language="en"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="CH Fragment - Controlling Person 2"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            fragmentModelRoot="/ControllingPersonType"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1"
+            schemaType="xmlschema"
+            xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFFragments/PartnerToPartner.xsd">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <removebutton_copy
+                        jcr:lastModified="{Date}2025-04-10T12:34:13.825+02:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/removebutton"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideButton"
+                        name="BT_Removecontrollingperson1"
+                        textIsRich="[true,true,true]"
+                        type="Button"
+                        visible="{Boolean}false">
+                        <cq:responsive jcr:primaryType="nt:unstructured">
+                            <default
+                                jcr:primaryType="nt:unstructured"
+                                offset="0"
+                                width="12"/>
+                        </cq:responsive>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:click="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.BT_Removecontrollingperson1&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;  this.parent.instanceManager.removeInstance(this.parent.instanceIndex);\\n\\n//PN_ControllingPersonRP1.instanceManager.removeInstance(PN_ControllingPersonRP1.instanceIndex);\\n//PN_ControllingPersonRP2.instanceManager.removeInstance(PN_ControllingPersonRP2.instanceIndex);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true},{&quot;script&quot;:{&quot;content&quot;:&quot;var lenRP = this.parent.instanceManager.instances.length;\\n\\nif(lenRP === 1) {     \\n  this.parent.instanceManager.instances[0].ST_Subtitle0.visible = true;\\n  //this.parent.instanceManager.instances[0].ST_Subtitle0.dorExclusion = false;  \\n  this.parent.instanceManager.instances[0].ST_Subtitle1.visible = false;\\n  //this.parent.instanceManager.instances[0].ST_Subtitle1.dorExclusion = true;\\n} \\n\\ntry{BT_AddCP1.visible = true;}catch(e){}\\ntry{BT_AddCP2.visible = true;}catch(e){}&quot;\,&quot;event&quot;:&quot;Click&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_Removecontrollingperson1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.BT_Removecontrollingperson1&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;PN_EntityBasic.visible = false;\\nPN_EntityBasic.dorExclusion = true;&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:false}]"
+                            fd:visible="[{&quot;script&quot;:{&quot;content&quot;:&quot;this.parent.instanceIndex+1 == this.parent.instanceManager.instances.length &amp;&amp; this.parent.instanceManager.instances.length > 1; &quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.BT_Removecontrollingperson1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </removebutton_copy>
+                    <textdraw_copy_copy_c
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy_c##_value##928&quot;}"
+                        jcr:lastModified="{Date}2025-05-12T14:48:53.405+02:00"
+                        jcr:lastModifiedBy="t491198"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Controlling person&amp;nbsp;&lt;/b>&lt;/p>"
+                        colspan="2"
+                        dorColspan="2"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Subtitle0"
+                        textIsRich="true"
+                        visible="{Boolean}true">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.ST_Subtitle0&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;//(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length === 1) ? window.forms.ubs.showAFShowDor(this) : window.forms.ubs.hideAFHideDor(this);\\n\\nif (this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length === 1) {\\n  this.visible = true;\\n} else {\\n  this.visible = false;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy_c>
+                    <textdraw_copy_copy
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_copy_copy##_value##3947&quot;}"
+                        jcr:lastModified="Tue Mar 25 2025 14:58:51 GMT+0100"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Controlling person&amp;nbsp;1&lt;/b>&lt;/p>"
+                        colspan="2"
+                        dorColspan="2"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Subtitle1"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;//if(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length > 1) window.forms.ubs.showAFShowDor(this);\\n\\nif(this.parent.instanceIndex === 0 &amp;&amp; this.parent.instanceManager.instances.length > 1){\\n  this.visible = true;\\n} &quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_Subtitle1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_copy_copy>
+                    <textdraw_1552857560_
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_1552857560_##_value##5438&quot;}"
+                        jcr:lastModified="Tue Mar 25 2025 14:59:02 GMT+0100"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Controlling person&amp;nbsp;2&lt;/b>&lt;/p>"
+                        colspan="2"
+                        dorColspan="2"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Subtitle2"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;//if(this.parent.instanceIndex === 1) window.forms.ubs.showAFShowDor(this);\\n\\n\\nif(this.parent.instanceIndex === 1) {\\n  this.visible = true;\\n} &quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_Subtitle2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_1552857560_>
+                    <textdraw_1552857560__498997986
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_1552857560__498997986##_value##7157&quot;}"
+                        jcr:lastModified="Tue Mar 25 2025 14:59:10 GMT+0100"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Controlling person&amp;nbsp;3&lt;/b>&lt;/p>"
+                        colspan="2"
+                        dorColspan="2"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Subtitle3"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;//if(this.parent.instanceIndex === 2) window.forms.ubs.showAFShowDor(this);\\n\\nif(this.parent.instanceIndex === 2){\\n  this.visible = true;\\n} &quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_Subtitle3&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_1552857560__498997986>
+                    <textdraw_1552857560__2090584198
+                        fd:translationIds="\{&quot;_value&quot;:&quot;guideContainer##rootPanel##items##textdraw_1552857560__2090584198##_value##3072&quot;}"
+                        jcr:lastModified="Tue Mar 25 2025 14:59:19 GMT+0100"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>&lt;b>Controlling person&amp;nbsp;4&lt;/b>&lt;/p>"
+                        colspan="2"
+                        dorColspan="2"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Subtitle4"
+                        textIsRich="true"
+                        visible="{Boolean}false">
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;//if(this.parent.instanceIndex === 3) window.forms.ubs.showAFShowDor(this);\\n\\nif(this.parent.instanceIndex === 3) {\\n  this.visible = true;\\n} \\n&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.ST_Subtitle4&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </textdraw_1552857560__2090584198>
+                    <panel_copy_copy_copy_109943560
+                        jcr:lastModified="{Date}2025-04-10T12:34:28.919+02:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        bindRef="/ControllingPersonType/LegalEntityBasic"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        dorFieldStyling="Default"
+                        enabled="{Boolean}true"
+                        fragRef="/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_EntityBasic1"
+                        guideNodeClass="guidePanel"
+                        name="PN_EntityBasic1"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false"
+                        visible="{Boolean}true">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout">
+                            <textbox_copy
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##textbox_copy##jcr:title##1638&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:08:34 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Company/Entity name"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                colspan="2"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_CompanyName"
+                                textIsRich="[true,true,true,true]"
+                                visible="{Boolean}true">
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:enabled="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_Names.TXT_CompanyName&quot;\,&quot;event&quot;:&quot;Enabled&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.com.ajila.forms.ubs.components.setMandatory(this\, true);\\ntrue;&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_copy>
+                        </items>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;try {\\n  if(RB_Controllingperson1.value === \\&quot;2\\&quot;){\\n    this.visible = false;\\n    this.dorExclusion = true;\\n  } \\n} catch(e){}\\n\\ntry{\\n  if(RB_Controllingperson2.value === \\&quot;2\\&quot;){\\n    this.visible = false;\\n    this.dorExclusion = true;\\n  }\\n} catch(e){}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_EntityBasic1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:false},{&quot;script&quot;:{&quot;content&quot;:&quot;\\nif(RB_Controllingperson2.value === \\&quot;1\\&quot;){\\n  this.visible = false;\\n  this.dorExclusion = true;\\n}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_EntityBasic1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </panel_copy_copy_copy_109943560>
+                    <panel_copy_copy_copy_1478872866
+                        jcr:lastModified="{Date}2025-04-10T12:34:49.575+02:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        bindRef="/ControllingPersonType/IndividualBasic"
+                        completionExpReq="{Boolean}false"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        dorFieldStyling="Default"
+                        fragRef="/content/dam/formsanddocuments/afforms_ch_fragmentlib/affrg_IndividualBasic1"
+                        guideNodeClass="guidePanel"
+                        name="PN_Name_Individual1"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="2"
+                            dorLayoutType="columnar"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout">
+                            <textbox_456141956
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##textbox_456141956##jcr:title##6800&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:08:43 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Last name"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                displayIsSameAsValidate="true"
+                                displayPatternType="custom"
+                                displayPictureClause="^([^0-9]*)$"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_LastName"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;window.com.ajila.forms.ubs.components.setMandatory(this\, true);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_Name_Individual.TXT_LastName&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_456141956>
+                            <textbox
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##textbox##jcr:title##7298&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:08:53 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="First name(s)"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                displayIsSameAsValidate="true"
+                                displayPatternType="custom"
+                                displayPictureClause="^([^0-9]*)$"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_FirstName"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;window.com.ajila.forms.ubs.components.setMandatory(this\, true);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_Name_Individual.TXT_FirstName&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox>
+                        </items>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;try {\\n  if(RB_Controllingperson1.value === \\&quot;2\\&quot;){\\n    this.visible = false;\\n    this.dorExclusion = true;\\n  } \\n} catch(e){}\\n\\ntry{\\n  if(RB_Controllingperson2.value === \\&quot;2\\&quot;){\\n    this.visible = false;\\n    this.dorExclusion = true;\\n  }\\n} catch(e){}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_Name_Individual1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:false},{&quot;script&quot;:{&quot;content&quot;:&quot;\\nif(RB_Controllingperson2.value === \\&quot;2\\&quot;){\\n  this.visible = false;\\n  this.dorExclusion = true;\\n}&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_Name_Individual1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </panel_copy_copy_copy_1478872866>
+                    <panel_copy_copy_copy
+                        jcr:lastModified="{Date}2025-04-10T12:35:00.361+02:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        bindRef="/ControllingPersonType/DomicileAddress"
+                        completionExpReq="{Boolean}false"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        dorFieldStyling="Default"
+                        fragRef="/content/dam/formsanddocuments/afforms_ch_fragmentlib/affrg_Address1"
+                        guideNodeClass="guidePanel"
+                        name="PN_AddressBlock1"
+                        textIsRich="[true]"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="2"
+                            dorLayoutType="columnar"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout">
+                            <textbox_copy
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy_1103619714##items##textbox_copy##jcr:title##3761&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:09:03 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Street"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="1"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Street_AddressBlock"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                            </textbox_copy>
+                            <textbox_1670023831_c
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy_1103619714##items##textbox_1670023831_c##jcr:title##2872&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:09:13 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="No."
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_StreetNo_AddressBlock"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                            </textbox_1670023831_c>
+                            <textbox_547590052_co
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy_1103619714##items##textbox_547590052_co##jcr:title##3563&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:10:56 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Additional address details"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_AdditionalDetails_AddressBlock"
+                                textIsRich="[true,true,true,true]"/>
+                            <textbox_copy_copy_76
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy_1103619714##items##textbox_copy_copy_76##jcr:title##3579&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:11:15 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Postal code"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="1"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_PostalCode_AddressBlock"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                            </textbox_copy_copy_76>
+                            <textbox_copy_copy_76_1545673901
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy_1103619714##items##textbox_copy_copy_76_1545673901##jcr:title##547&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:11:25 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="City"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="1"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_City_AddressBlock"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;window.com.ajila.forms.ubs.components.setMandatory(this\, true);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_AddressBlock.TXT_City_AddressBlock&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_copy_copy_76_1545673901>
+                            <textbox_1259885548_c
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy_1103619714##items##textbox_1259885548_c##jcr:title##5893&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:11:32 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Canton/State/Province"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="1"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_State_AddressBlock"
+                                textIsRich="[true,true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                            </textbox_1259885548_c>
+                            <dropdownlist_copy_co
+                                fd:translationIds="\{&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy_1103619714##items##dropdownlist_copy_co##jcr:title##2773&quot;}"
+                                jcr:lastModified="Tue Mar 25 2025 15:11:42 GMT+0100"
+                                jcr:lastModifiedBy="t654865"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Country"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/dropdownlist"
+                                css="widget_ajila_forms_dropdownlist"
+                                dorFieldStyling="Default"
+                                enabled="{Boolean}true"
+                                filteringAllowed="true"
+                                guideNodeClass="guideDropDownList"
+                                name="DD_Country_AddressBlock"
+                                sort="value_asc"
+                                textIsRich="[true,true,true]"
+                                visible="{Boolean}true">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_AddressBlock.DD_Country_AddressBlock&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;window.forms.ubs.components.setMandatory(this\, true);&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </dropdownlist_copy_co>
+                        </items>
+                    </panel_copy_copy_copy>
+                    <panel_1637194592_cop
+                        jcr:created="{Date}2025-04-08T08:39:39.041+02:00"
+                        jcr:createdBy="t654865"
+                        jcr:lastModified="{Date}2025-04-16T05:23:45.310+02:00"
+                        jcr:lastModifiedBy="t654865"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        bindRef="/ControllingPersonType/IndividualBasic"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guidePanel"
+                        name="PN_Dateofbirth1"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="1"
+                            dorLayoutType="columnar"
+                            dorNumCols="2"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                            <datepicker_copy
+                                fd:translationIds="\{&quot;validatePictureClauseMessage&quot;:&quot;guideContainer##rootPanel##items##panel_copy_copy_copy##items##datepicker##validatePictureClauseMessage##8804&quot;,&quot;jcr:title&quot;:&quot;guideContainer##rootPanel##items##panel_1637194592_cop##items##datepicker_copy##jcr:title##2968&quot;}"
+                                jcr:lastModified="{Date}2025-05-12T15:53:59.446+02:00"
+                                jcr:lastModifiedBy="t770543"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Date of birth¹ (dd.mm.yyyy)"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/datepicker"
+                                bindRef="/ControllingPersonType/IndividualBasic/DateOfBirth"
+                                css="widget_ajila_forms_datepicker"
+                                dorColspan="1"
+                                dorFieldStyling="Default"
+                                guideNodeClass="guideDatePicker"
+                                name="DATE_Dateofbirth"
+                                textIsRich="[true,true,true]"
+                                validatePictureClause="date{YYYY-MM-DD}"
+                                validatePictureClauseMessage="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+                                validationPatternType="custom"
+                                yearRangeFrom="100"
+                                yearRangeTo="10">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="6"/>
+                                </cq:responsive>
+                            </datepicker_copy>
+                        </items>
+                    </panel_1637194592_cop>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

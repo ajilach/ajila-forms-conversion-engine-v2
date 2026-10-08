@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:element name="IsNumberedClient" type="xs:string"/>
+	<xs:element name="IsDomiciledInGermany" type="xs:string"/>
+	<xs:element name="PartnerClass" type="xs:string"/>
+	<xs:element name="AccountHolderPartnerClass" type="xs:string"/>
+	<xs:element name="ContractingPartnerClass" type="xs:string"/>
+	<xs:element name="BOPartnerClass" type="xs:string"/>
+	<xs:element name="POAPartnerClass" type="xs:string"/>
+	<xs:element name="PToPPartnerClass" type="xs:string"/>
+	<xs:element name="FIMPartnerClass" type="xs:string"/>
+	<xs:element name="RecipientPartnerClass" type="xs:string"/>
+	<xs:element name="PayeePartnerClass" type="xs:string"/>
+	<xs:element name="PreviewLanguage" type="xs:string">
+		<xs:annotation>
+			<xs:documentation>preview language</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="IBAN" type="xs:string"/>
+	<xs:element name="UBSFisca3ANumber" type="xs:string"/>
+	<xs:element name="Branch" type="xs:string"/>
+	<xs:element name="GPN" type="xs:string"/>
+	<xs:element name="CardSelection" type="xs:string">
+		<xs:annotation>
+			<xs:documentation>CardBankingRelatedForms</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="CardPayment" type="xs:string">
+		<xs:annotation>
+			<xs:documentation>CardBankingRelatedForms</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="CardTopUp" type="xs:string">
+		<xs:annotation>
+			<xs:documentation>CardBankingRelatedForms</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="CardTopUpAmount" type="xs:decimal">
+		<xs:annotation>
+			<xs:documentation>CardBankingRelatedForms</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="CardIssuePrepaid" type="xs:string">
+		<xs:annotation>
+			<xs:documentation>CardBankingRelatedForms</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="CardMailingFrequency" type="xs:string">
+		<xs:annotation>
+			<xs:documentation>CardBankingRelatedForms</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+	<xs:element name="CardAccount" type="xs:string">
+		<xs:annotation>
+			<xs:documentation>CardBankingRelatedForms</xs:documentation>
+		</xs:annotation>
+	</xs:element>
+</xs:schema>

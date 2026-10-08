@@ -1,0 +1,631 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2026-01-29T08:24:46.839+01:00"
+        cq:lastModifiedBy="t831640"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        jcr:isCheckedOut="{Boolean}true"
+        jcr:language="en"
+        jcr:mixinTypes="[mix:versionable]"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="EFORMS-32526 Client Signature (Signature, Place, Date, Name)"
+        jcr:uuid="17d96802-2ade-4cfd-8857-d91fc2df6c7e"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:lastModified="{Date}2021-10-29T12:12:56.126+02:00"
+                jcr:lastModifiedBy="t654720"
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable"
+                validateOnStepCompletion="{Boolean}false"
+                visible="{Boolean}true">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <panel_copy_copy_copy_1822456258 jcr:primaryType="nt:unstructured"/>
+                    <textdraw
+                        jcr:created="{Date}2021-11-18T05:23:57.560+01:00"
+                        jcr:createdBy="t654720"
+                        jcr:lastModified="{Date}2021-11-29T09:09:47.664+01:00"
+                        jcr:lastModifiedBy="t654720"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                        _value="&lt;p>Letto, confermato e sottoscritto.&lt;/p>&#xa;"
+                        guideNodeClass="guideTextDraw"
+                        name="ST_Letto"
+                        textIsRich="true"/>
+                    <panel_copy_copy_copy
+                        jcr:created="Mon Jul 27 2020 11:32:32 GMT+0200"
+                        jcr:createdBy="t649798"
+                        jcr:lastModified="{Date}2021-10-29T10:54:39.109+02:00"
+                        jcr:lastModifiedBy="t654720"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        completionExpReq="{Boolean}false"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        guideNodeClass="guidePanel"
+                        maxOccur="6"
+                        minOccur="1"
+                        name="PN_Signature_Client"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="3"
+                            dorLayoutType="columnar"
+                            dorNumCols="6"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout">
+                            <removebutton_copy
+                                jcr:created="{Date}2020-08-31T09:48:34.924+02:00"
+                                jcr:createdBy="admin"
+                                jcr:lastModified="{Date}2021-10-29T11:29:49.142+02:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/removebutton"
+                                dorExclusion="true"
+                                guideNodeClass="guideButton"
+                                name="BT_RemoveInd"
+                                textIsRich="[true,true]"
+                                type="Button">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="12"/>
+                                </cq:responsive>
+                                <fd:rules
+                                    fd:click="[{&quot;nodeName&quot;:&quot;ROOT&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;EVENT_CONDITION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_SignatureIndividual.PN_Signature_Client.BT_RemoveInd&quot;\,&quot;type&quot;:&quot;BUTTON|AFCOMPONENT&quot;\,&quot;name&quot;:&quot;BT_RemoveInd&quot;}}\,{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON_OPERATOR&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;is clicked&quot;\,&quot;value&quot;:null}}\,{&quot;nodeName&quot;:&quot;PRIMITIVE_EXPRESSION&quot;\,&quot;choice&quot;:null}]}\,&quot;nested&quot;:false}\,{&quot;nodeName&quot;:&quot;Then&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;BLOCK_STATEMENTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;BLOCK_STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;REMOVE_INSTANCE&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;of&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;REPEATABLE_COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.step_3.PN_SignatureIndividual.PN_Signature_Client&quot;\,&quot;displayName&quot;:&quot;PN_Signature_Client&quot;\,&quot;type&quot;:&quot;PANEL&quot;\,&quot;displayPath&quot;:&quot;FORM/Root Panel/Firma/e/PN_SignatureIndividual/PN_Signature_Client/&quot;\,&quot;name&quot;:&quot;PN_Signature_Client&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel.step_3.PN_SignatureIndividual&quot;}}]}}]}]}}]\,&quot;isValid&quot;:true\,&quot;enabled&quot;:true\,&quot;version&quot;:1\,&quot;script&quot;:&quot;/**\\n *  WHEN Aggiungere firma is changed  AND  (Aggiungere firma)  THEN \\n *\\n * This is a machine-generated code for the rule.\\n * If you modify it in the code editor\, you will not be able to view and edit the rule in the visual editor.\\n */\\n\\nPN_Signature_Client.instanceManager.removeInstance(PN_Signature_Client.instanceIndex);\\n\\n&quot;\,&quot;eventName&quot;:&quot;Click&quot;\,&quot;ruleType&quot;:&quot;&quot;\,&quot;description&quot;:&quot;&quot;}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:visible="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsRepeatingPanelClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  this.parent.instanceManager.instanceCount == 1 ? false : this.parent.instanceIndex+1 == this.parent.instanceManager.instanceCount;\\n}else{\\n  false;\\n}&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_SignatureIndividual.PN_Signature_Client.BT_RemoveInd&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </removebutton_copy>
+                            <textdraw_82504054
+                                jcr:created="Mon Jul 27 2020 11:33:59 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-08T05:29:21.526+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp;&lt;br>&#xa;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp;&lt;br>&#xa;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp;&lt;br>&#xa;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp;&lt;br>&#xa;&amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp; &amp;nbsp;&amp;nbsp;&lt;/p>&#xa;"
+                                dorColspan="3"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_Whitespace"
+                                textIsRich="true"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="7"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:visible="[{&quot;script&quot;:{&quot;content&quot;:&quot;var containerCount = PN_Signature_Client.instanceManager.instanceCount;\\n\\nfor(i=0;i&lt;containerCount;i++){\\n  var component = PN_Signature_Client.instanceManager.instances[i];\\n  var nameArray = [];\\n  var signatureArray = [];\\n  \\n  component._children.forEach((value)=>{\\n    if(value.jsonModel.name.includes(\\&quot;TXT_Name_Client\\&quot;)){\\n      nameArray.push(value);\\n    }\\n  });\\n  \\n  component._children.forEach((value)=>{\\n    if(value.jsonModel.name.includes(\\&quot;TXT_Signature_Client\\&quot;)){\\n      signatureArray.push(value);\\n    }\\n  });\\n  \\n  nameArray.forEach((value\,i2)=>{\\n    var instanceCtr = i;\\n    \\n    if(containerCount!==1){\\n       instanceCtr = i+1;\\n    }\\n    \\n    if(instanceCtr==i2){\\n      value.visible = true;\\n      window.com.ajila.forms.ubs.components.setMandatory(value\, true);\\n      value.dorExclusion = false;\\n    }else{\\n      \\n      value.visible = false;\\n      window.com.ajila.forms.ubs.components.setMandatory(value\, false);\\n      value.dorExclusion = true;\\n    }\\n    \\n  });\\n   \\n  signatureArray.forEach((value\,i2)=>{\\n    var instanceCtr = i;\\n    \\n    if(containerCount!==1){\\n       instanceCtr = i+1;\\n    }\\n    \\n    if(instanceCtr==i2){\\n      value.dorExclusion = false;\\n    }else{\\n      value.dorExclusion = true;\\n    }\\n    \\n  });\\n} \\n\\nfalse;&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.ST_Whitespace&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textdraw_82504054>
+                            <signature_copy
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2023-01-18T14:01:09.393+01:00"
+                                jcr:lastModifiedBy="t353355"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Firma del cliente"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client0"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature_copy>
+                            <signature_copy_1480204024
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-12T10:30:36.001+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Firma del cliente 1"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client1"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature_copy_1480204024>
+                            <signature_copy_2102689656
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-12T10:30:49.801+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Firma del cliente 2"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client2"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature_copy_2102689656>
+                            <signature_copy_1686220085
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-12T10:31:00.673+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Firma del cliente 3"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client3"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature_copy_1686220085>
+                            <signature_copy_1149351024
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-12T10:31:13.039+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Firma del cliente 4"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client4"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature_copy_1149351024>
+                            <signature_copy_1832965054
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-12T10:32:53.376+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Firma del cliente 5"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client5"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature_copy_1832965054>
+                            <signature
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-12T10:33:10.778+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Firma del cliente 6"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client6"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        behavior="none"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature>
+                            <textbox
+                                jcr:created="Mon Jul 27 2020 11:33:20 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-05T08:14:22.376+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Località"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Place_Client"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:enabled="[{&quot;script&quot;:{&quot;content&quot;:&quot;//not mandatory anymore based on feedback 5 for AAOX\, therefore disabling this rule\\nwindow.com.ajila.forms.ubs.components.setMandatory(this\, true);\\ntrue;&quot;\,&quot;event&quot;:&quot;Enabled&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Place_Client&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:false}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox>
+                            <datepicker
+                                jcr:created="Mon Jul 27 2020 11:33:36 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-19T10:17:46.221+01:00"
+                                jcr:lastModifiedBy="t653607"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Data (gg.mm.aaaa)"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/datepicker"
+                                css="widget_ajila_forms_datepicker"
+                                dorColspan="1"
+                                guideNodeClass="guideDatePicker"
+                                name="DATE_IssuedBy_Client"
+                                textIsRich="[true,true]"
+                                validatePictureClause="date{YYYY-MM-DD}"
+                                validatePictureClauseMessage="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+                                validationPatternType="custom"
+                                yearRangeFrom="100"
+                                yearRangeTo="10">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="3"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:enabled="[{&quot;script&quot;:{&quot;content&quot;:&quot;//not mandatory and no prefilling anymore based on feedback 5 for AAOX\, therefore disabling this rule\\nwindow.com.ajila.forms.ubs.components.setMandatory(this\, true);\\ntrue;&quot;\,&quot;event&quot;:&quot;Enabled&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.DATE_IssuedBy_Client&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:false}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </datepicker>
+                            <textbox_504497449
+                                jcr:created="{Date}2020-08-03T07:05:39.818+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2025-12-18T08:26:20.261+01:00"
+                                jcr:lastModifiedBy="t831552"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Nome del cliente"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_Client0"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    if(radiobuttonClientType.value !== \\&quot;0\\&quot;){\\n      this.pristine = true;\\n    }\\n    if(this.value === null || (this.pristine === null || this.pristine === true)){\\n      var personalDetailsContainer = PN_Name.instanceManager.instances[0];\\n      this.pristine = true;\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n        this.value = personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value;\\n      }\\n    }\\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client0&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  TXT_Name_Client1.value = this.value;\\n  try{\\n    var personalDetailsContainer = PN_Name.instanceManager.instances[0];\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n      if(this.value == personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value){\\n        this.pristine = true;\\n      }else{\\n        this.pristine = false;\\n      }\\n    }  \\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client0&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449>
+                            <textbox_504497449_co
+                                jcr:created="{Date}2020-08-03T07:05:39.818+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-11T07:56:41.087+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Nome del cliente 1"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_Client1"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    if(radiobuttonClientType.value !== \\&quot;0\\&quot;){\\n      this.pristine = true;\\n    }\\n    if(this.value === null || (this.pristine === null || this.pristine === true)){\\n      var personalDetailsContainer = PN_Name.instanceManager.instances[0];\\n      this.pristine = true;\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n        this.value = personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value;\\n      }\\n    }\\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  TXT_Name_Client0.value = this.value;\\n  try{\\n    var personalDetailsContainer = PN_Name.instanceManager.instances[0];\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n      if(this.value == personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value){\\n        this.pristine = true;\\n      }else{\\n        this.pristine = false;\\n      }\\n    }  \\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client1&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449_co>
+                            <textbox_504497449_co_505672879
+                                jcr:created="{Date}2020-08-03T07:05:39.818+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-11T07:56:50.777+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Nome del cliente 2"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_Client2"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    if(radiobuttonClientType.value !== \\&quot;0\\&quot;){\\n      this.pristine = true;\\n    }\\n    if(this.value === null || (this.pristine === null || this.pristine === true)){\\n      var personalDetailsContainer = PN_Name.instanceManager.instances[1];\\n      this.pristine = true;\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n        this.value = personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value;\\n      }\\n    }\\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    var personalDetailsContainer = PN_Name.instanceManager.instances[1];\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n      if(this.value == personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value){\\n        this.pristine = true;\\n      }else{\\n        this.pristine = false;\\n      }\\n    }  \\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client2&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449_co_505672879>
+                            <textbox_504497449_co_2136808515
+                                jcr:created="{Date}2020-08-03T07:05:39.818+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-11T07:56:58.145+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Nome del cliente 3"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_Client3"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    if(radiobuttonClientType.value !== \\&quot;0\\&quot;){\\n      this.pristine = true;\\n    }\\n    if(this.value === null || (this.pristine === null || this.pristine === true)){\\n      var personalDetailsContainer = PN_Name.instanceManager.instances[2];\\n      this.pristine = true;\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n        this.value = personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value;\\n      }\\n    }\\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client3&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    var personalDetailsContainer = PN_Name.instanceManager.instances[2];\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n      if(this.value == personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value){\\n        this.pristine = true;\\n      }else{\\n        this.pristine = false;\\n      }\\n    }  \\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client3&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449_co_2136808515>
+                            <textbox_504497449_co_658431746
+                                jcr:created="{Date}2020-08-03T07:05:39.818+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-11T07:57:08.033+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Nome del cliente 4"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_Client4"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    if(radiobuttonClientType.value !== \\&quot;0\\&quot;){\\n      this.pristine = true;\\n    }\\n    if(this.value === null || (this.pristine === null || this.pristine === true)){\\n      var personalDetailsContainer = PN_Name.instanceManager.instances[3];\\n      this.pristine = true;\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n        this.value = personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value;\\n      }\\n    }\\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client4&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    var personalDetailsContainer = PN_Name.instanceManager.instances[3];\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n      if(this.value == personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value){\\n        this.pristine = true;\\n      }else{\\n        this.pristine = false;\\n      }\\n    }  \\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client4&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449_co_658431746>
+                            <textbox_504497449_co_1142478040
+                                jcr:created="{Date}2020-08-03T07:05:39.818+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-11T07:57:16.841+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Nome del cliente 5"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_Client5"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    if(radiobuttonClientType.value !== \\&quot;0\\&quot;){\\n      this.pristine = true;\\n    }\\n    if(this.value === null || (this.pristine === null || this.pristine === true)){\\n      var personalDetailsContainer = PN_Name.instanceManager.instances[4];\\n      this.pristine = true;\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n        this.value = personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value;\\n      }\\n    }\\n  }catch(err){}\\n}\\n&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client5&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    var personalDetailsContainer = PN_Name.instanceManager.instances[4];\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n      if(this.value == personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value){\\n        this.pristine = true;\\n      }else{\\n        this.pristine = false;\\n      }\\n    }  \\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client5&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449_co_1142478040>
+                            <textbox_504497449_co_21581518
+                                jcr:created="{Date}2020-08-03T07:05:39.000+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-11T07:57:28.000+01:00"
+                                jcr:lastModifiedBy="t654720"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Nome del cliente 6"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Name_Client6"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    if(radiobuttonClientType.value !== \\&quot;0\\&quot;){\\n      this.pristine = true;\\n    }\\n    if(this.value === null || (this.pristine === null || this.pristine === true)){\\n      var personalDetailsContainer = PN_Name.instanceManager.instances[5];\\n      this.pristine = true;\\n      if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n        this.value = personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value;\\n      }\\n    }\\n  }catch(err){}\\n}\\n&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client6&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    fd:valueCommit="[{&quot;script&quot;:{&quot;content&quot;:&quot;if(TXT_IsAutoFillClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  try{\\n    var personalDetailsContainer = PN_Name.instanceManager.instances[5];\\n    if(personalDetailsContainer.TXT_ClientFirstName.value !== null &amp;&amp; personalDetailsContainer.TXT_ClientLastName.value !== null){\\n      if(this.value == personalDetailsContainer.TXT_ClientFirstName.value + \\&quot; \\&quot; + personalDetailsContainer.TXT_ClientLastName.value){\\n        this.pristine = true;\\n      }else{\\n        this.pristine = false;\\n      }\\n    }  \\n  }catch(err){}\\n}&quot;\,&quot;event&quot;:&quot;Value Commit&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client.TXT_Name_Client6&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449_co_21581518>
+                        </items>
+                        <fd:rules jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:init="[{&quot;script&quot;:{&quot;content&quot;:&quot;var nameArray = [];\\nvar signatureArray = [];\\n\\nthis._children.forEach((value)=>{\\n  if(value.jsonModel.name.includes(\\&quot;TXT_Name_Client\\&quot;)){\\n    nameArray.push(value);\\n  }\\n});\\n\\nthis._children.forEach((value)=>{\\n  if(value.jsonModel.name.includes(\\&quot;TXT_Signature_Client\\&quot;)){\\n    signatureArray.push(value);\\n  }\\n});\\n\\nnameArray.forEach((value\,i2)=>{\\n  if(i2===0){\\n    value.visible = true;\\n    window.com.ajila.forms.ubs.components.setMandatory(value\, true);\\n    value.dorExclusion = false;\\n  }else{\\n    value.visible = false;\\n    window.com.ajila.forms.ubs.components.setMandatory(value\, false);\\n    value.dorExclusion = true;\\n  }\\n\\n});\\n \\nsignatureArray.forEach((value\,i2)=>{\\n  if(i2===0){\\n    value.dorExclusion = false;\\n  }else{\\n    value.dorExclusion = true;\\n  }\\n});&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_Signature_Client&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </panel_copy_copy_copy>
+                    <tertiarybutton
+                        jcr:created="{Date}2021-10-29T10:49:37.260+02:00"
+                        jcr:createdBy="t654720"
+                        jcr:lastModified="{Date}2021-10-29T10:53:24.136+02:00"
+                        jcr:lastModifiedBy="t654720"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Aggiungere firma"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/tertiarybutton"
+                        dorExclusion="true"
+                        guideNodeClass="guideButton"
+                        name="BTN_AddSignatureInd"
+                        textIsRich="[true,true]"
+                        type="Button">
+                        <fd:rules
+                            fd:click="[{&quot;nodeName&quot;:&quot;ROOT&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;EVENT_CONDITION&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_SignatureIndividual.BTN_AddSignatureInd&quot;\,&quot;type&quot;:&quot;BUTTON|AFCOMPONENT&quot;\,&quot;name&quot;:&quot;BTN_AddSignatureInd&quot;}}\,{&quot;nodeName&quot;:&quot;EVENT_AND_COMPARISON_OPERATOR&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;is clicked&quot;\,&quot;value&quot;:null}}\,{&quot;nodeName&quot;:&quot;PRIMITIVE_EXPRESSION&quot;\,&quot;choice&quot;:null}]}\,&quot;nested&quot;:false}\,{&quot;nodeName&quot;:&quot;Then&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;BLOCK_STATEMENTS&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;BLOCK_STATEMENT&quot;\,&quot;choice&quot;:{&quot;nodeName&quot;:&quot;ADD_INSTANCE&quot;\,&quot;items&quot;:[{&quot;nodeName&quot;:&quot;of&quot;\,&quot;value&quot;:null}\,{&quot;nodeName&quot;:&quot;REPEATABLE_COMPONENT&quot;\,&quot;value&quot;:{&quot;id&quot;:&quot;guide.guideRootPanel.step_3.PN_SignatureIndividual.PN_Signature_Client&quot;\,&quot;displayName&quot;:&quot;PN_Signature_Client&quot;\,&quot;type&quot;:&quot;PANEL&quot;\,&quot;displayPath&quot;:&quot;FORM/Root Panel/Firma/e/PN_SignatureIndividual/PN_Signature_Client/&quot;\,&quot;name&quot;:&quot;PN_Signature_Client&quot;\,&quot;parent&quot;:&quot;guide.guideRootPanel.step_3.PN_SignatureIndividual&quot;}}]}}]}]}}]\,&quot;isValid&quot;:true\,&quot;enabled&quot;:true\,&quot;version&quot;:1\,&quot;script&quot;:&quot;/**\\n\\n * This is a machine-generated code for the rule.\\n * If you modify it in the code editor\, you will not be able to view and edit the rule in the visual editor.\\n */\\n\\n_PN_Signature_Client.addInstance();\\n\\n&quot;\,&quot;eventName&quot;:&quot;Click&quot;\,&quot;ruleType&quot;:&quot;&quot;\,&quot;description&quot;:&quot;&quot;}]"
+                            jcr:primaryType="nt:unstructured"/>
+                        <fd:scripts
+                            fd:visible="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_ItalyClientSignature.PN_SignatureIndividual.BTN_AddSignatureInd&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if(TXT_IsRepeatingPanelClient.value.toLowerCase().trim() === \\&quot;true\\&quot;){\\n  PN_Signature_Client.maxOccur == PN_Signature_Client.instanceManager.instanceCount ? false:true;\\n}else{\\n  false;\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                            jcr:primaryType="nt:unstructured"/>
+                    </tertiarybutton>
+                    <textbox_copy
+                        jcr:created="{Date}2021-10-29T12:00:16.624+02:00"
+                        jcr:createdBy="t654720"
+                        jcr:lastModified="{Date}2021-10-29T12:02:53.604+02:00"
+                        jcr:lastModifiedBy="t654720"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Is Repeating Panel?"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        _value="false"
+                        autofillFieldKeyword="name"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorExclusion="true"
+                        guideNodeClass="guideTextBox"
+                        hideTitle="true"
+                        name="TXT_IsRepeatingPanelClient"
+                        textIsRich="[true,true,true]"
+                        visible="{Boolean}false"/>
+                    <textbox_copy_copy_co
+                        jcr:created="{Date}2021-10-29T12:00:16.624+02:00"
+                        jcr:createdBy="t654720"
+                        jcr:lastModified="{Date}2021-11-24T11:45:41.198+01:00"
+                        jcr:lastModifiedBy="t654720"
+                        jcr:primaryType="nt:unstructured"
+                        jcr:title="Is Auto Fill?"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        _value="false"
+                        autofillFieldKeyword="name"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorExclusion="true"
+                        guideNodeClass="guideTextBox"
+                        hideTitle="true"
+                        name="TXT_IsAutoFillClient"
+                        textIsRich="[true,true,true]"
+                        visible="{Boolean}false"/>
+                </items>
+            </rootPanel>
+            <assets jcr:primaryType="nt:unstructured">
+                <dictionary jcr:primaryType="nt:unstructured">
+                    <fr-ch/>
+                    <it-ch/>
+                    <de-ch/>
+                    <es-es/>
+                    <es/>
+                    <en-us/>
+                    <zh-tw/>
+                    <zh-hk/>
+                    <ko-kr/>
+                    <it/>
+                    <fr/>
+                    <ja/>
+                    <pt/>
+                </dictionary>
+            </assets>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

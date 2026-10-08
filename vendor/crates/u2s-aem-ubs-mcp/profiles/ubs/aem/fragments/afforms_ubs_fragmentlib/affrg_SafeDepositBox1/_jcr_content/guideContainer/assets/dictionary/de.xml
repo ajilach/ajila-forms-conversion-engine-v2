@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="de"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_ubs_fragmentlib/affrg_SafeDepositBox1/jcr:content/guideContainer/assets/dictionary">
+    <_x0038_0d33c8d-598c-4cea-81f9-9ee28f65cfdd
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Safe Deposit Box 1  "
+        sling:message="UBS Fragment - Safe Deposit Box 1  "/>
+    <e14fc3f6-e4a8-4bce-92b8-c539df5c28ce
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Safe deposit box&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>Safe deposit box&lt;/b>&lt;/p>&#xa;"/>
+    <ebedc99a-df06-4116-9b91-cdb9e00643d4
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_BC no."
+        sling:message="BC no."/>
+    <b80705b2-7385-4d6e-8423-2be115b50abe
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Agency code"
+        sling:message="Agency code"/>
+    <e763a73b-c34d-4567-9142-cb0a91b493f9
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Safe-deposit box no."
+        sling:message="Safe-deposit box no."/>
+    <_x0031_4c4bb8c-f8b9-4d0c-bdb5-3c89974d2fc5
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Size"
+        sling:message="Size"/>
+</jcr:root>

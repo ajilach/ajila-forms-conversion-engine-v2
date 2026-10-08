@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="fr"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_italy_fragmentlib/affrg_Address1/jcr:content/guideContainer/assets/dictionary">
+    <_x0031_bb29f81-0714-459e-abec-524188aba857
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_IT Fragment - Address 1"
+        sling:message="IT Fragment - Address 1"/>
+    <fd_Street
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Rue"/>
+    <fd_No.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="N°"/>
+    <fd_Additional-353888195
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Complément d'adresse"/>
+    <fd_Postal_x0020_cod-443576318
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="NPA"/>
+    <fd_City
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="Localité"/>
+    <fd_Canton_x0025_2FSta-100100326
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message="Canton/État/Province"/>
+    <fd_Country
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Pays"/>
+    <fd_EFORMS-2211198933138
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"/>
+</jcr:root>

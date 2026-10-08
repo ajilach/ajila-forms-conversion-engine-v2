@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="sc"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1/jcr:content/guideContainer/assets/dictionary">
+    <_x0039_046abaa-d76d-4c13-85d8-2bddd2b0c8f8
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Banking Relationship 1"
+        sling:message="UBS Fragment - Banking Relationship 1"/>
+    <_x0037_28fe285-0264-440b-b611-5db1511d55e0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;b>Banking relationship&lt;/b>&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;b>银行服务账户&lt;/b>&lt;/p>"/>
+    <_x0031_efc5f93-e037-4b94-a126-e10e97d6ea46
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Clearing no."
+        sling:message="结算编号"/>
+    <_x0038_4e0e1e9-4695-4b61-a51f-fe52719c4a85
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_XXXX"
+        sling:message="XXXX"/>
+    <c0f2098b-ab0e-41ca-adc6-21fc25365154
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Account no."
+        sling:message="账户号码"/>
+    <_x0039_2de57a3-7008-48b8-b4c9-693afc2947bd
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_XXXXXXXX"
+        sling:message="XXXXXXXX"/>
+    <_x0039_1025af7-3345-4992-932d-ae98e6d6871a
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Banking relationship for Bound Data XSD"
+        sling:message="Banking relationship for Bound Data XSD"/>
+</jcr:root>

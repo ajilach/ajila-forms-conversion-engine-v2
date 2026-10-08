@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="it-ch"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_italy_fragmentlib/affrg_IndividualBasic1/jcr:content/guideContainer/assets/dictionary">
+    <_x0031_f29d4e9-75fb-4705-8b13-cc94fcbeee7c
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Individual Basic 1"
+        sling:message="UBS Fragment - Individual Basic 1"/>
+    <_x0036_898e08f-f985-4cfd-84da-e11b673bd43b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment#3 Name (Individual)"
+        sling:message="Fragment#3 Name (Individual)"/>
+    <_x0038_c54e305-3998-4ad3-a6d6-5f722e228901
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment - Individual Basic 1"
+        sling:message="Fragment - Individual Basic 1"/>
+    <a771900f-386d-4019-b9c5-ff6ebbbffd5d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Fragment#2 Personal Details (Last Name, First Name)"
+        sling:message="Fragment#2 Personal Details (Last Name, First Name)"/>
+    <fd_Company_x0025_2FEntity
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Company/Entity"
+        sling:message="Ragione sociale"/>
+    <fd_EFORMS-6371218812666
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-6377 Personal Details (Last Name, First Name, Company)"
+        sling:message="EFORMS-6377 Dettagli personali (cognome, nome, ragione sociale)"/>
+    <fd_EFORMS-927141783508
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-9276 Personal Details (Last Name, First Name)"
+        sling:message="EFORMS-9276 Dettagli personali (cognome, nome)"/>
+    <fd_First_x0020_name-61863869
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_First name(s)"
+        sling:message="Nome/i"/>
+    <fd_Individual
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Individual"
+        sling:message="Persona"/>
+    <fd_Last_x0020_name
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Last name"
+        sling:message="Cognome"/>
+    <fd_Last_x0020_name_x0028_36480617
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Last name(s)"
+        sling:message="Last name(s)"/>
+    <fd_Name
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name"
+        sling:message="Nome"/>
+</jcr:root>

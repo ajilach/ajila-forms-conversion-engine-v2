@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFFragments/Address.xsd"/>
+	<xs:element name="Individual" type="IndividualType"/>
+	<xs:element name="IndividualBasic" type="IndividualBasicType"/>
+	<xs:complexType name="IndividualType">
+		<xs:complexContent>
+			<xs:extension base="IndividualBasicType">
+				<xs:sequence>
+					<xs:element ref="Address" minOccurs="0"/>
+				</xs:sequence>
+			</xs:extension>
+		</xs:complexContent>
+	</xs:complexType>
+	<xs:complexType name="IndividualBasicType">
+		<xs:sequence>
+			<xs:element name="FormOfAddress" type="xs:string" minOccurs="0"/>
+			<xs:element name="FOAOthers" type="xs:string" minOccurs="0"/>
+			<xs:element name="Title" type="xs:string" minOccurs="0"/>
+			<xs:element name="TitleOthers" type="xs:string" minOccurs="0"/>
+			<xs:element name="LastName" type="xs:string" minOccurs="0"/>
+			<xs:element name="FirstName" type="xs:string" minOccurs="0"/>
+			<xs:element name="FullName" type="xs:string" minOccurs="0"/>
+			<xs:element name="ChineseName" type="xs:string" minOccurs="0"/>
+			<xs:element name="FormerName" type="xs:string" minOccurs="0"/>
+			<xs:element name="Aliases" type="xs:string" minOccurs="0"/>
+			<xs:element name="DateOfBirth" type="xs:date" minOccurs="0"/>
+			<xs:element name="Nationality" type="xs:string" minOccurs="0"/>
+			<xs:element name="Domicile" type="xs:string" minOccurs="0"/>
+			<xs:element name="Gender" type="xs:string" minOccurs="0"/>
+			<xs:element name="NCI" type="xs:string" minOccurs="0"/>
+			<xs:element name="EducationalBackground" type="xs:string" minOccurs="0"/>
+			<xs:element name="MaritalStatus" type="xs:string" minOccurs="0"/>
+			<xs:element name="OtherIdentityCard" type="xs:string" minOccurs="0"/>
+			<xs:element name="AHVSSSNumber1" type="xs:string" minOccurs="0"/>
+			<xs:element name="AHVSSSNumber2" type="xs:string" minOccurs="0"/>
+			<xs:element name="AHVSSSNumber3" type="xs:string" minOccurs="0"/>
+			<xs:element name="AHVSSSNumber4" type="xs:string" minOccurs="0"/>
+			<xs:element name="AHVSSSNumber" type="xs:string" minOccurs="0"/>
+			<xs:element name="IdentityPassportNumber" type="xs:string" minOccurs="0"/>
+			<xs:element name="IdentityPassportExpiry" type="xs:date" minOccurs="0"/>
+		</xs:sequence>
+	</xs:complexType>
+</xs:schema>

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="sc"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_italy_fragmentlib/affrg_IndividualBasic1/jcr:content/guideContainer/assets/dictionary">
+    <_x0035_7976ea0-17ca-4a61-be30-fe1e75302f6d
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_UBS Fragment - Individual Basic 1"
+        sling:message="UBS Fragment - Individual Basic 1"/>
+    <f1762f9b-5adf-4183-a73f-0ec659848a6c
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-9276 Personal Details (Last Name, First Name)"
+        sling:message="EFORMS-9276 Personal Details (Last Name, First Name)"/>
+    <af4ac505-1ef2-4a4b-b2aa-d2e9c0012cea
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Last name"
+        sling:message="Last name"/>
+    <bbad6fd9-6f5c-4a8b-b2d5-2f0e6118c89b
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_First name(s)"
+        sling:message="First name(s)"/>
+</jcr:root>

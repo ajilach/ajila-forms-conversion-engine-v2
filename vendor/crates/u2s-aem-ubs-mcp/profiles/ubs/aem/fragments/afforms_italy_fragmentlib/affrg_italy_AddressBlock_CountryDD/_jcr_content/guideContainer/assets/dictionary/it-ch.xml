@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="it-ch"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_italy_fragmentlib/affrg_italy_AddressBlock_CountryDD/jcr:content/guideContainer/assets/dictionary">
+    <_x0036_3621d43-4b66-437c-b651-7f13677c4a93
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-49214 IT Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="EFORMS-49214 IT Address Block (Street, Postal code, City, State, Country dropdown)"/>
+    <fd_Additional-353888195
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message="Supplemento indirizzo"/>
+    <fd_Canton_x0025_2FSta-100100326
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message="Cantone/Stato/Provincia"/>
+    <fd_Canton_x0025_2Fsta837248730
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/state/province"
+        sling:message="Cantone/Stato/Provincia"/>
+    <fd_City
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message="Località"/>
+    <fd_Country
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message="Paese"/>
+    <fd_EFORMS-2211198933138
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message="EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"/>
+    <fd_No.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message="N."/>
+    <fd_Postal_x0020_cod-443576318
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message="NPA"/>
+    <fd_Street
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message="Via"/>
+</jcr:root>

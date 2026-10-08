@@ -1,0 +1,416 @@
+{
+  "sources": {
+    "de": {
+      "variables": {
+        "Footer_Line_APPCode": "",
+        "Footer_Line_MANCode": "019",
+        "Footer_Line_txtformid": "63138",
+        "Footer_Line_txtjversion": "N1",
+        "Footer_Line_txtlanguage": "DE",
+        "Footer_Line_txtversiondate": "31.10.2019",
+        "Footer_Line_txtvversion": "V0",
+        "formrange_cdokinfo": "63138",
+        "formrange_code": "AABF",
+        "formrange_entity": "019",
+        "formrange_formsetready": "false",
+        "formrange_htmlready": "false",
+        "formrange_language": "DE",
+        "formrange_partnerlevel": "No",
+        "formrange_releasedate": "31.10.2019",
+        "formrange_version": "V0"
+      },
+      "header": "0319 00\nUBS Europe SE"
+    },
+    "en": {
+      "variables": {
+        "Footer_Line_APPCode": "",
+        "Footer_Line_MANCode": "019",
+        "Footer_Line_txtformid": "63138",
+        "Footer_Line_txtjversion": "N1",
+        "Footer_Line_txtlanguage": "EN",
+        "Footer_Line_txtversiondate": "31.10.2019",
+        "Footer_Line_txtvversion": "V0",
+        "formrange_cdokinfo": "63138",
+        "formrange_code": "AABF",
+        "formrange_entity": "019",
+        "formrange_formsetready": "false",
+        "formrange_htmlready": "false",
+        "formrange_language": "EN",
+        "formrange_partnerlevel": "No",
+        "formrange_releasedate": "31.10.2019",
+        "formrange_version": "V0"
+      },
+      "header": "0319 00\nUBS Europe SE"
+    },
+    "es": {
+      "variables": {
+        "Footer_Line_APPCode": "",
+        "Footer_Line_MANCode": "019",
+        "Footer_Line_txtformid": "63138",
+        "Footer_Line_txtjversion": "N1",
+        "Footer_Line_txtlanguage": "SP",
+        "Footer_Line_txtversiondate": "31.10.2019",
+        "Footer_Line_txtvversion": "V0",
+        "formrange_cdokinfo": "63138",
+        "formrange_code": "AABF",
+        "formrange_entity": "019",
+        "formrange_formsetready": "false",
+        "formrange_htmlready": "false",
+        "formrange_language": "SP",
+        "formrange_partnerlevel": "No",
+        "formrange_releasedate": "31.10.2019",
+        "formrange_version": "V0"
+      },
+      "header": "0319 00\nUBS Europe SE"
+    }
+  },
+  "assets": [
+    {
+      "key": "ab60eba70edad411f",
+      "kind": "text",
+      "content": {
+        "de": "<h1>Dauerauftrag</h1>",
+        "en": "<h1>Standing Order</h1>",
+        "es": "<h1>Orden permanente</h1>"
+      }
+    },
+    {
+      "key": "ae5709e74fbf64fd4",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Form configurator</h2>",
+        "en": "<h2>Form configurator</h2>",
+        "es": "<h2>Form configurator</h2>"
+      }
+    },
+    {
+      "key": "a00aacfc7ea354b4b",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Auftraggeber</h2>",
+        "en": "<h2>Ordering Customer</h2>",
+        "es": "<h2>Ordenante</h2>"
+      }
+    },
+    {
+      "key": "ad238327b5f5d4a50",
+      "kind": "text",
+      "content": {
+        "de": "<h3>Vertretungsberechtigte(r)</h3>",
+        "en": "<h3>Authorized representative(s)</h3>",
+        "es": "<h3>Representante(s) autorizado(s)</h3>"
+      }
+    },
+    {
+      "key": "a4b28679fce294631",
+      "kind": "text",
+      "content": {
+        "de": "<h3>Vertretungsberechtigte(r)</h3>",
+        "en": "<h3>Authorized representative(s)</h3>",
+        "es": "<h3>Representante(s) autorizado(s)</h3>"
+      }
+    },
+    {
+      "key": "aac2538bce2b34c1f",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Dauerauftrag</h2>",
+        "en": "<h2>Standing Order</h2>",
+        "es": "<h2>Orden permanente</h2>"
+      }
+    },
+    {
+      "key": "a98a6f670123140d6",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Ausführung</h2>",
+        "en": "<h2>Execution</h2>",
+        "es": "<h2>Detalles de ejecución de la orden</h2>"
+      }
+    },
+    {
+      "key": "ad07244505ce543f1",
+      "kind": "text",
+      "content": {
+        "de": "<h3>Ausführungstag</h3>",
+        "en": "<h3>Execution day</h3>",
+        "es": "<h3>Día de ejecución</h3>"
+      }
+    },
+    {
+      "key": "a747d4068a0924432",
+      "kind": "text",
+      "content": {
+        "de": "<p>(Tag, Monat, Jahr)</p>",
+        "en": "<p>(day, month, year)</p>",
+        "es": "<p>(día, mes, año)</p>"
+      }
+    },
+    {
+      "key": "a821630a9a7e74bc6",
+      "kind": "text",
+      "content": {
+        "de": "<p>(Tag, Monat, Jahr)</p>",
+        "en": "<p>(day, month, year)</p>",
+        "es": "<p>(día, mes, año)</p>"
+      }
+    },
+    {
+      "key": "adbd0ba87ced94b81",
+      "kind": "text",
+      "content": {
+        "de": "<p>(Tag, Monat, Jahr)</p>",
+        "en": "<p>(day, month, year)</p>",
+        "es": "<p>(día, mes, año)</p>"
+      }
+    },
+    {
+      "key": "afddf178b8f6f4dd0",
+      "kind": "text",
+      "content": {
+        "de": "<p>(Tag, Monat, Jahr)</p>",
+        "en": "<p>(day, month, year)</p>",
+        "es": "<p>(día, mes, año)</p>"
+      }
+    },
+    {
+      "key": "a6057b5e4ef024143",
+      "kind": "text",
+      "content": {
+        "de": "<p>(Tag, Monat, Jahr)</p>",
+        "en": "<p>(day, month, year)</p>",
+        "es": "<p>a partir del (día, mes, año)</p>"
+      }
+    },
+    {
+      "key": "a9164d736d47840d2",
+      "kind": "text",
+      "content": {
+        "de": "<h3>Wochenende/Feiertage</h3>",
+        "en": "<h3>Weekend/holiday</h3>",
+        "es": "<h3>Fin de semana/festivos</h3>"
+      }
+    },
+    {
+      "key": "a8773646642744bb6",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Begünstigter</h2>",
+        "en": "<h2>Beneficiary</h2>",
+        "es": "<h2>Beneficiario</h2>"
+      }
+    },
+    {
+      "key": "aa6a5b5824aee484f",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Bank des Begünstigten</h2>",
+        "en": "<h2>Bank of beneficiary</h2>",
+        "es": "<h2>Banco del beneficiario</h2>"
+      }
+    },
+    {
+      "key": "a88c2a99dba91424c",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Kosten</h2>",
+        "en": "<h2>Costs</h2>",
+        "es": "<h2>Costes</h2>"
+      }
+    },
+    {
+      "key": "a8007df6299e24157",
+      "kind": "text",
+      "content": {
+        "de": "<h3>Kosten Ausland</h3>",
+        "en": "<h3>Costs abroad</h3>",
+        "es": "<h3>Costes en el extranjero</h3>"
+      }
+    },
+    {
+      "key": "a102f2c7b8bc742ed",
+      "kind": "text",
+      "content": {
+        "de": "<p>Alle Kosten zu Lasten:</p>",
+        "en": "<p>All costs to be borne by the:</p>",
+        "es": "<p>Todos los costes a cargo de</p>"
+      }
+    },
+    {
+      "key": "a1445245545224995",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Unterschrift(en)</h2>",
+        "en": "<h2>Signature(s)</h2>",
+        "es": "<h2>Firma(s)</h2>"
+      }
+    },
+    {
+      "key": "a6c8c4c5b0a5c4cbf",
+      "kind": "text",
+      "content": {
+        "de": "<p><strong>Neuerfassung und Änderungswünsche </strong>müssen <strong>spätestens 1 Bankwerktag </strong>vor Fälligkeit bei UBS Europe SE eingegangen sein, andernfalls kann die fristgerechte Ausführung des Auftrages nicht gewährleistet werden.</p>",
+        "en": "<p><strong>New editions and requests for changes </strong>must reach UBS Europe SE <strong>at least 1 business day before execution, </strong>otherwise timely execution can no longer be guaranteed.</p>",
+        "es": "<p><strong>El nuevo registro y los deseos de modificación </strong>Debe llegar a UBS Europe SE <strong>no más tarde de 1 día bancarios hábiles </strong>antes del vencimiento, de lo contrario no será posible garantizar la ejecución de la orden dentro del plazo.</p>"
+      }
+    },
+    {
+      "key": "acd888b16d30a44c6",
+      "kind": "text",
+      "content": {
+        "de": "<p>Alle Kosten zu Lasten:</p>",
+        "en": "<p>All costs to be borne by the:</p>",
+        "es": "<p>Todos los costes a cargo de</p>"
+      }
+    },
+    {
+      "key": "aacb4f7a4822e4962",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Unterschrift(en)</h2>",
+        "en": "<h2>Signature(s)</h2>",
+        "es": "<h2>Firma(s)</h2>"
+      }
+    },
+    {
+      "key": "aee9251f5a5dd460a",
+      "kind": "text",
+      "content": {
+        "de": "<p><strong>Neuerfassung und Änderungswünsche </strong>müssen <strong>spätestens 1 Bankwerktag </strong>vor Fälligkeit bei UBS Europe SE eingegangen sein, andernfalls kann die fristgerechte Ausführung des Auftrages nicht gewährleistet werden.</p>",
+        "en": "<p><strong>New editions and requests for changes </strong>must reach UBS Europe SE <strong>at least 1 business day before execution, </strong>otherwise timely execution can no longer be guaranteed.</p>",
+        "es": "<p><strong>El nuevo registro y los deseos de modificación </strong>Debe llegar a UBS Europe SE <strong>no más tarde de 1 día bancarios hábiles </strong>antes del vencimiento, de lo contrario no será posible garantizar la ejecución de la orden dentro del plazo.</p>"
+      }
+    },
+    {
+      "key": "a4e2666570a2746ff",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Unterschrift(en)</h2>",
+        "en": "<h2>Signature(s)</h2>",
+        "es": "<h2>Firma(s)</h2>"
+      }
+    },
+    {
+      "key": "a2371d7764abf47f3",
+      "kind": "text",
+      "content": {
+        "de": "<p>Alle Kosten zu Lasten:</p>",
+        "en": "<p>All costs to be borne by the:</p>",
+        "es": "<p>Todos los costes a cargo de</p>"
+      }
+    },
+    {
+      "key": "a1b11169967f249a5",
+      "kind": "text",
+      "content": {
+        "de": "<p><strong>Neuerfassung und Änderungswünsche </strong>müssen <strong>spätestens 1 Bankwerktag </strong>vor Fälligkeit bei UBS Europe SE eingegangen sein, andernfalls kann die fristgerechte Ausführung des Auftrages nicht gewährleistet werden.</p>",
+        "en": "<p><strong>New editions and requests for changes </strong>must reach UBS Europe SE <strong>at least 1 business day before execution, </strong>otherwise timely execution can no longer be guaranteed.</p>",
+        "es": "<p><strong>El nuevo registro y los deseos de modificación </strong>Debe llegar a UBS Europe SE <strong>no más tarde de 1 día bancarios hábiles </strong>antes del vencimiento, de lo contrario no será posible garantizar la ejecución de la orden dentro del plazo.</p>"
+      }
+    },
+    {
+      "key": "a49644aaee72f4c69",
+      "kind": "text",
+      "content": {
+        "de": "<p>Unterschrift </p>",
+        "en": "<p>Signature </p>",
+        "es": "<p>Firma </p>"
+      }
+    },
+    {
+      "key": "abf3ebf254aff4459",
+      "kind": "text",
+      "content": {
+        "de": "<h2>Unterschrift(en)</h2>",
+        "en": "<h2>Signature(s)</h2>",
+        "es": "<h2>Firma(s)</h2>"
+      }
+    },
+    {
+      "key": "a7565ad1a2a4b41ea",
+      "kind": "text",
+      "content": {
+        "de": "<p>Alle Kosten zu Lasten:</p>",
+        "en": "<p>All costs to be borne by the:</p>",
+        "es": "<p>Todos los costes a cargo de</p>"
+      }
+    },
+    {
+      "key": "a8b9ddcfdc41b4d06",
+      "kind": "text",
+      "content": {
+        "de": "<p><strong>Neuerfassung und Änderungswünsche </strong>müssen <strong>spätestens 1 Bankwerktag </strong>vor Fälligkeit bei UBS Europe SE eingegangen sein, andernfalls kann die fristgerechte Ausführung des Auftrages nicht gewährleistet werden.</p>",
+        "en": "<p><strong>New editions and requests for changes </strong>must reach UBS Europe SE <strong>at least 1 business day before execution, </strong>otherwise timely execution can no longer be guaranteed.</p>",
+        "es": "<p><strong>El nuevo registro y los deseos de modificación </strong>Debe llegar a UBS Europe SE <strong>no más tarde de 1 día bancarios hábiles </strong>antes del vencimiento, de lo contrario no será posible garantizar la ejecución de la orden dentro del plazo.</p>"
+      }
+    },
+    {
+      "key": "aa7ad6b5a71e04874",
+      "kind": "text",
+      "content": {
+        "de": "<p>Unterschrift </p>",
+        "en": "<p>Signature </p>",
+        "es": "<p>Firma </p>"
+      }
+    },
+    {
+      "key": "acb626f6707fb44bb",
+      "kind": "text",
+      "content": {
+        "de": "<p class=\"screen-only-notice\">Der unterschriebene Scan des Dokuments muss an SEC-SH-Dauerauftrag-DE gemailt werden. Das Original wird dann an Operations CAT Deutschland in Frankfurt übermittelt (Postfach 26).</p>",
+        "en": "<p class=\"screen-only-notice\">Der unterschriebene Scan des Dokuments muss an SEC-SH-Dauerauftrag-DE gemailt werden. Das Original wird dann an Operations CAT Deutschland in Frankfurt übermittelt (Postfach 26).</p>",
+        "es": "<p class=\"screen-only-notice\">Der unterschriebene Scan des Dokuments muss an SEC-SH-Dauerauftrag-DE gemailt werden. Das Original wird dann an Operations CAT Deutschland in Frankfurt übermittelt (Postfach 26).</p>"
+      }
+    }
+  ],
+  "body": [
+    {
+      "type": "assetContainer",
+      "assets": [
+        "ab60eba70edad411f",
+        "ae5709e74fbf64fd4",
+        "a00aacfc7ea354b4b",
+        "ad238327b5f5d4a50",
+        "a4b28679fce294631",
+        "aac2538bce2b34c1f",
+        "a98a6f670123140d6",
+        "ad07244505ce543f1",
+        "a747d4068a0924432",
+        "a821630a9a7e74bc6",
+        "adbd0ba87ced94b81",
+        "afddf178b8f6f4dd0",
+        "a6057b5e4ef024143",
+        "a9164d736d47840d2",
+        "a8773646642744bb6"
+      ]
+    },
+    {
+      "type": "assetContainer",
+      "assets": [
+        "aa6a5b5824aee484f"
+      ]
+    },
+    {
+      "type": "assetContainer",
+      "assets": [
+        "a88c2a99dba91424c",
+        "a8007df6299e24157",
+        "a102f2c7b8bc742ed",
+        "a1445245545224995",
+        "a6c8c4c5b0a5c4cbf",
+        "acd888b16d30a44c6",
+        "aacb4f7a4822e4962",
+        "aee9251f5a5dd460a",
+        "a4e2666570a2746ff",
+        "a2371d7764abf47f3",
+        "a1b11169967f249a5",
+        "a49644aaee72f4c69",
+        "abf3ebf254aff4459",
+        "a7565ad1a2a4b41ea",
+        "a8b9ddcfdc41b4d06",
+        "aa7ad6b5a71e04874",
+        "acb626f6707fb44bb"
+      ]
+    }
+  ]
+}

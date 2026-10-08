@@ -1,0 +1,242 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- edited with XMLSpy v2021 rel. 3 (x64) (http://www.altova.com) by  (UBS Business Solutions UK) -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:vc="http://www.w3.org/2007/XMLSchema-versioning" elementFormDefault="qualified" attributeFormDefault="unqualified" version="01.01.01" vc:minVersion="1.1">
+	<xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
+	<xs:include schemaLocation="../AFFragments/BankingRelationship.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Products.xsd"/>
+	<xs:include schemaLocation="../AFFragments/ContractualPartner.xsd"/>
+	<xs:include schemaLocation="../AFFragments/Signature.xsd"/>
+	<xs:element name="UBSAF">
+		<xs:complexType>
+			<xs:sequence>
+				<xs:element ref="BankingRelationship"/>
+				<xs:element ref="CustodyAccount"/>
+				<xs:element ref="AccountHolderPartnerClass"/>
+				<xs:element ref="AccountHolder" maxOccurs="50"/>
+				<xs:element name="CDOKList">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTCdokList" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="DDMarkets" type="xs:string"/>
+				<xs:element name="Bulgaria">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="BGSELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Croatia">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="HRSELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Finland">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="FISELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Israel">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="ILSELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Japan">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="JPSELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Malaysia">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="MYSELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Norway">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="NOSELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="SouthKorea">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="KRSELECTION" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="PersonalIdentificationNumberOsobniIdentifikacijskibrojOIB">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTCroatiaPID" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TaxPrefecture">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="JapanIndividualResidentTaxPrefecture" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TaxPrefecture">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="JapanAdrTaxPrefecture" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TaxID">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="JapanAdrTaxId" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TaxIDNMeroDeIdentificaciNFiscal">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTSpainTaxID" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TaxFileNumberNaturalPersonOnly">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="AustraliaTaxFileNumber" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="AustralianBusinessNumberCompanyOnly">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TextboxAustraliaBusinessNumber" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="CompanyOrEntityName">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTChileCompanyName" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TaxIdentificationNumberTINAtInvestorSOrAccountHolderSJurisdiction">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTTINJurisdiction" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="DATEIncorporation" type="xs:date"/>
+				<xs:element name="RBChile">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="RBChile" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="RUT">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTRUTChile" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="CBFinancialMarkets">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="CBFinancialMarkets" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="PersonalIdentificationNumberOsobniIdentifikacijskibrojOIB">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTSubaccountCroatiaPID" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="Italy">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="ItalyMarket" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TheTaxRegimeToBeAppliedToTheSegregatedSubAccountIs">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="Radiobutton14840399991599049883956" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="TheTaxRegimeToBeAppliedToTheSegregatedSubAccountIs">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="Radiobutton1599050198227" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="DDLCountryDomicile" type="xs:string"/>
+				<xs:element name="DDMexicoNationalilty" type="xs:string"/>
+				<xs:element name="MexicanTaxIDToBeConfirmedWithCopyOfCDulaDeIdentificaciNFiscal">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTMexicanTaxID" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="LtBGtSouthKoreaLtOrBGtInstitutionalInvestorNonResidentOrNonNationalOfSouthKoreaLtBGt63627V20LtOrBGt">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="RBIRCorLEI" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="IRCNumberAccountHolderWithExistingIRC">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTIRCNumber" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="LegalEntityIdentifierLEIAccountHolderWithoutExistingIRC">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTLEINumber" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="LtBGtVietnamLtOrBGtNonResidentOrNonNationalOfVietnamLtBGt67356V0LtOrBGt">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="RBVietnam" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="SecuritiesTradingCode">
+					<xs:complexType>
+						<xs:sequence>
+							<xs:element name="TXTSTC" type="xs:string"/>
+						</xs:sequence>
+					</xs:complexType>
+				</xs:element>
+				<xs:element name="AccountHolderSignature" type="SignatureType" maxOccurs="50"/>
+				<xs:element name="AuthRepSignature" type="SignatureType" maxOccurs="50"/>
+			</xs:sequence>
+		</xs:complexType>
+	</xs:element>
+</xs:schema>

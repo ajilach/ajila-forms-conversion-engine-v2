@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="pt"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:Folder"
+    sling:basename="/content/forms/af/afforms_italy_fragmentlib/affrg_italy_AddressBlock_CountryDD/jcr:content/guideContainer/assets/dictionary">
+    <fd_Additional-353888195
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Additional address details"
+        sling:message=""/>
+    <fd_Canton_x0025_2FSta-100100326
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/State/Province"
+        sling:message=""/>
+    <fd_Canton_x0025_2Fsta837248730
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Canton/state/province"
+        sling:message=""/>
+    <fd_City
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_City"
+        sling:message=""/>
+    <fd_Country
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Country"
+        sling:message=""/>
+    <fd_EFORMS-2211198933138
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-22186 Address Block (Street, Postal code, City, State, Country dropdown)"
+        sling:message=""/>
+    <fd_No.
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_No."
+        sling:message=""/>
+    <fd_Postal_x0020_cod-443576318
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Postal code"
+        sling:message=""/>
+    <fd_Street
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Street"
+        sling:message=""/>
+</jcr:root>

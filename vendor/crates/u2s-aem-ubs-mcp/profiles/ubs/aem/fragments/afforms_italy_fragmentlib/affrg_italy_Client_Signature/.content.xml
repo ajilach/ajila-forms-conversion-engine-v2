@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:primaryType="cq:Page">
+    <jcr:content
+        cq:designPath="/libs/settings/wcm/designs/fd/af/default"
+        cq:deviceGroups="mobile/groups/responsive"
+        cq:lastModified="{Date}2026-03-18T06:37:47.775+01:00"
+        cq:lastModifiedBy="t831640"
+        cq:template="/libs/fd/af/templateForFragment/defaultFragmentTemplate"
+        jcr:mixinTypes="[]"
+        jcr:primaryType="cq:PageContent"
+        jcr:title="EFORMS-49220 IT Client Signature (Signature, Place, Date, Name) (Single)"
+        sling:resourceType="fd/af/components/page/basePageForFragment"
+        ignoreTranslationInvalidation="{Boolean}true">
+        <guideContainer
+            fd:version="1.1"
+            jcr:primaryType="nt:unstructured"
+            sling:resourceType="fd/af/components/guideFragmentContainer"
+            guideCss="guideContainer"
+            guideNodeClass="guideContainerNode"
+            name="fragment1">
+            <layout
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/layouts/defaultGuideLayout"
+                toolbarPosition="Bottom"/>
+            <rootPanel
+                jcr:primaryType="nt:unstructured"
+                sling:resourceType="fd/af/components/rootPanel"
+                guideNodeClass="rootPanelNode"
+                name="guideRootPanel"
+                panelSetType="Navigable">
+                <layout
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                    nonNavigable="{Boolean}true"
+                    toolbarPosition="Bottom"/>
+                <items
+                    jcr:primaryType="nt:unstructured"
+                    sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <panel_copy_copy_copy
+                        jcr:created="Mon Jul 27 2020 11:32:32 GMT+0200"
+                        jcr:createdBy="t649798"
+                        jcr:lastModified="{Date}2021-04-30T08:36:29.867+02:00"
+                        jcr:lastModifiedBy="t649798"
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
+                        completionExpReq="{Boolean}false"
+                        dorExcludeDescription="true"
+                        dorExcludeTitle="true"
+                        guideNodeClass="guidePanel"
+                        name="PN_Signature_Client"
+                        textIsRich="true"
+                        validateOnStepCompletion="{Boolean}false">
+                        <layout
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout2"
+                            columns="3"
+                            dorLayoutType="columnar"
+                            dorNumCols="6"
+                            nonNavigable="{Boolean}true"
+                            toolbarPosition="Bottom"/>
+                        <items
+                            jcr:primaryType="nt:unstructured"
+                            sling:resourceType="fd/af/layouts/gridFluidLayout">
+                            <textdraw_82504054
+                                jcr:created="Mon Jul 27 2020 11:33:59 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-05T11:37:26.842+01:00"
+                                jcr:lastModifiedBy="t649798"
+                                jcr:primaryType="nt:unstructured"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
+                                _value="&lt;p>&lt;br>&#xa;&amp;nbsp;&lt;/p>&#xa;"
+                                dorColspan="3"
+                                guideNodeClass="guideTextDraw"
+                                name="ST_Whitespace"
+                                textIsRich="true"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="7"/>
+                                </cq:responsive>
+                            </textdraw_82504054>
+                            <signature
+                                jcr:created="{Date}2020-09-01T13:37:49.146+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-04-30T08:37:19.272+02:00"
+                                jcr:lastModifiedBy="t649798"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Signature of client"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/signature"
+                                aspectRatio="6.8888"
+                                dorColspan="3"
+                                guideNodeClass="guideScribble"
+                                name="TXT_Signature_Client"
+                                textIsRich="[true,true]"
+                                visible="{Boolean}false">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                            </signature>
+                            <textbox
+                                jcr:created="Mon Jul 27 2020 11:33:20 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-17T09:37:13.600+01:00"
+                                jcr:lastModifiedBy="t649798"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Place"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="2"
+                                guideNodeClass="guideTextBox"
+                                name="TXT_Place_Client"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="4"/>
+                                </cq:responsive>
+                            </textbox>
+                            <datepicker
+                                jcr:created="Mon Jul 27 2020 11:33:36 GMT+0200"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-11-17T09:37:19.254+01:00"
+                                jcr:lastModifiedBy="t649798"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Date (dd.mm.yyyy)"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/datepicker"
+                                css="widget_ajila_forms_datepicker"
+                                dorColspan="1"
+                                guideNodeClass="guideDatePicker"
+                                name="DATE_IssuedBy_Client"
+                                textIsRich="[true,true]"
+                                validatePictureClause="date{YYYY-MM-DD}"
+                                validatePictureClauseMessage="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+                                validationPatternType="custom"
+                                yearRangeFrom="100"
+                                yearRangeTo="10">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="3"/>
+                                </cq:responsive>
+                            </datepicker>
+                            <textbox_504497449
+                                jcr:created="{Date}2020-08-03T07:05:39.818+02:00"
+                                jcr:createdBy="t649798"
+                                jcr:lastModified="{Date}2021-07-09T05:18:51.769+02:00"
+                                jcr:lastModifiedBy="t649798"
+                                jcr:primaryType="nt:unstructured"
+                                jcr:title="Name of client"
+                                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                                autofillFieldKeyword="name"
+                                css="widget_ajila-forms-ubs-textbox"
+                                dorColspan="3"
+                                guideNodeClass="guideTextBox"
+                                mandatory="true"
+                                name="TXT_Name_Client"
+                                textIsRich="[true,true,true]">
+                                <cq:responsive jcr:primaryType="nt:unstructured">
+                                    <default
+                                        jcr:primaryType="nt:unstructured"
+                                        offset="0"
+                                        width="5"/>
+                                </cq:responsive>
+                                <fd:rules jcr:primaryType="nt:unstructured"/>
+                                <fd:scripts
+                                    fd:calc="[{&quot;script&quot;:{&quot;field&quot;:&quot;guide.guideRootPanel.PN_Signature_Client.TXT_Name_Client&quot;\,&quot;event&quot;:&quot;Calculate&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\,&quot;content&quot;:&quot;if(TXT_Last_Name.visible &amp;&amp; TXT_First_Name.visible) {\\n  var lastName = ([null\,undefined].indexOf(TXT_Last_Name.value) == -1) ? TXT_Last_Name.value : \\&quot;\\&quot;;\\n  var firstName = ([null\,undefined].indexOf(TXT_First_Name.value) == -1) ? TXT_First_Name.value : \\&quot;\\&quot;;\\n  \\n  (firstName + \\&quot; \\&quot; + lastName).trim();\\n}&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"
+                                    jcr:primaryType="nt:unstructured"/>
+                            </textbox_504497449>
+                        </items>
+                    </panel_copy_copy_copy>
+                </items>
+            </rootPanel>
+            <signerInfo
+                jcr:primaryType="nt:unstructured"
+                firstSignerFormFiller="{Boolean}false"
+                workflowType="SEQUENTIAL">
+                <signer0
+                    jcr:primaryType="nt:unstructured"
+                    signerTitle="Signer One"/>
+            </signerInfo>
+            <assets jcr:primaryType="nt:unstructured">
+                <dictionary jcr:primaryType="nt:unstructured">
+                    <it/>
+                    <en-us/>
+                </dictionary>
+            </assets>
+        </guideContainer>
+        <cq:responsive jcr:primaryType="nt:unstructured">
+            <breakpoints jcr:primaryType="nt:unstructured">
+                <smallScreen
+                    jcr:primaryType="nt:unstructured"
+                    title="Smaller Screen"
+                    width="{Decimal}479"/>
+                <phone
+                    jcr:primaryType="nt:unstructured"
+                    title="Phone"
+                    width="{Decimal}767"/>
+                <tablet
+                    jcr:primaryType="nt:unstructured"
+                    title="Tablet"
+                    width="{Decimal}991"/>
+            </breakpoints>
+        </cq:responsive>
+    </jcr:content>
+</jcr:root>

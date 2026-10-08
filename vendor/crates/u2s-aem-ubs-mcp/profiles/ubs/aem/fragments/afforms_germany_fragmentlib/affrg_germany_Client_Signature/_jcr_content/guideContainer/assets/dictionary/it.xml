@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<jcr:root xmlns:sling="http://sling.apache.org/jcr/sling/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0"
+    jcr:language="it"
+    jcr:mixinTypes="[mix:language]"
+    jcr:primaryType="sling:OrderedFolder"
+    sling:basename="/content/forms/af/afforms_germany_fragmentlib/affrg_germany_Client_Signature/jcr:content/guideContainer/assets/dictionary">
+    <fde4dbe0-da50-44a0-b01e-162b0489bd20
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_EFORMS-48685 CLIENT SIGNATURE (SIGNATURE, PLACE, DATE, NAME)"
+        sling:message="EFORMS-48685 CLIENT SIGNATURE (SIGNATURE, PLACE, DATE, NAME)"/>
+    <_x0033_7156ad8-76a8-47da-9130-15b0982562cf
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_&lt;p>&lt;br>&#xa;&amp;nbsp;&lt;/p>&#xa;"
+        sling:message="&lt;p>&lt;br>&#xa;&amp;nbsp;&lt;/p>&#xa;"/>
+    <_x0039_1624cd6-4299-445e-a46e-db737aa431cb
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Signature of client"
+        sling:message="Signature of client"/>
+    <_x0032_6ef4172-4461-4a76-b3b3-20801597315f
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Place"
+        sling:message="Place"/>
+    <b2bfc561-cc26-4fa3-9f95-b4ee3a3ac1a0
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Date (dd.mm.yyyy)"
+        sling:message="Date (dd.mm.yyyy)"/>
+    <dbe47fb0-01fa-429f-9da1-a633393c8861
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"
+        sling:message="Please enter the date using the format dd.mm.yyyy (e.g., 01.01.2020)"/>
+    <e51d4c7d-7b81-47d4-9d7a-2d113b9da9e2
+        jcr:mixinTypes="[sling:Message]"
+        jcr:primaryType="nt:folder"
+        sling:key="fd_Name of client"
+        sling:message="Name of client"/>
+</jcr:root>
