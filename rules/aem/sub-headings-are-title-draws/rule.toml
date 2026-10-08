@@ -1,0 +1,21 @@
+id = "ubs-aem-sub-headings-are-title-draws"
+title = "Sub-headings inside a page are drawn, not left in a panel title"
+output_formats = ["aem-ubs"]
+description = """
+A Panel `title` renders as a visible heading only for a page (`is_page: true`). Below page level
+it does not render, so each sub-heading the source shows inside a page must be an explicit
+`TitleDraw` carrying that text; a source heading that exists only as a nested Panel's `title` is
+missing from the printed form. (Each TitleDraw belongs where the page shows the heading, and a page
+heading itself is the page's `title`, never a draw: see ubs-aem-step-titles.)
+
+How to judge: walk each page of the source (xfa_page_text, xfa_render_pages) and list its
+sub-headings, the headings that sit inside a page below its own heading. For each, find its text in
+the document (json_search) and check that a TitleDraw carries it, once, in every language, and not
+only the `title` of a nested Panel. Also look for nested Panels (`is_page: false`) whose `title` is
+non-empty and ask whether that title is a heading the page shows.
+
+A break is a source sub-heading carried only by a nested Panel's `title`, or by no node at all.
+
+Fix: add a TitleDraw before the section's fields with the heading text in every language (name
+`TTL_...`), and clear the nested Panel's title if it only duplicated the heading.
+"""

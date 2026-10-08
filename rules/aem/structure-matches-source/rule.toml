@@ -1,0 +1,22 @@
+id = "ubs-aem-structure-matches-source"
+title = "The tree has the structure of the source pages"
+output_formats = ["aem-ubs"]
+description = """
+For each region of each source page, decide from the PAGE what it is (a table, a list, a
+multi-column region, a panel, a heading at some level, a repeatable) and confirm the tree says the
+same: section order, grouping, heading levels, field layout and overall appearance. No tool checks
+this: a table whose cells were authored as loose text carries the same text as the table, so only a
+comparison with the page catches it. Where the tree and the page disagree, the PAGE wins.
+
+How to judge: render each source page (xfa_render_pages; xfa_set first for a conditional page) and
+walk the tree section by section (json_outline, json_get). Check the order of the sections, which
+fields share a row (`colspan`), which texts are headings and at what level (`heading_level` of a
+TitleDraw, `title` of a page), where a group opens and closes, and where a repeatable is.
+
+A break is a region whose structure in the tree differs from the page: sections in another order,
+a heading at another level, fields grouped differently, a list or table flattened into plain
+paragraphs, or a repeated block authored once or as copies.
+
+Fix: json_patch the tree to match the page. Tables are covered by the
+ubs-aem-tables-are-html-tables rule.
+"""

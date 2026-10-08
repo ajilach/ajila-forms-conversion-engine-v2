@@ -1,0 +1,24 @@
+id = "ubs-aem-repeatable-add-label"
+title = "A party repeatable's title yields a recognisable Add button"
+output_formats = ["aem-ubs"]
+description = """
+A party repeatable's `title` also becomes its Add button (`Add <title>`). The feedback guard
+(PROBLEM-repeatable-add-label) accepts a title whose wording it knows (client, account holder,
+beneficial owner, legal guardian, and the like) as its English master, with the translations
+beside it. So on a form that ships English, title each party Repeatable in English as the standard
+noun phrase, and carry the source's own wording for the other languages beside it. On a form that
+ships NO English the guard may fail; that is an accepted exception, and the summary should say
+which party titles the guard may relabel.
+
+How to judge: for each party Repeatable (one wrapping a partner generic: json_search for
+`frag_ref` values containing `Generic`), read its `title`. If `/languages` has `en`, check that
+`title/en` is a standard noun phrase for the party and that every other language carries the
+source's wording for it. If the form ships no English, do not report the title.
+
+A break is a party Repeatable on a form that ships English whose `title/en` is missing, is not a
+standard noun phrase (a sentence, a section heading, the node's own name) or is a translation of
+the source's wording rather than the standard phrase, or whose other languages are missing.
+
+Fix: set `title/en` to the standard noun phrase and keep the source's wording in the other
+languages.
+"""

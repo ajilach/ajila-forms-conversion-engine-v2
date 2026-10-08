@@ -1,0 +1,24 @@
+id = "ubs-aem-no-untranslated-stubs"
+title = "A non-master language carries its own wording, not a copy of the master"
+output_formats = ["aem-ubs"]
+description = """
+A text of a non-master language whose wording merely repeats the master-language text is an
+untranslated stub, not a translation: AEM then silently falls back to the master language for that
+string and the form reads as a mix of languages. Each language's text comes from that language's
+own PDF.
+
+Exempt are a text that is identical in the source in every language (a proper noun, a code, a
+number, an acronym, an address, a form code), and a packager-derived synonym locale (`de-ch` from
+`de`, `es` from `sp`), which must match its base language and is correct, so never report it.
+
+How to judge: the master language is English when the form ships it, otherwise the first language
+of `/languages`. For each other language, list the texts that are equal to the master text (json_search
+for the master wording and look at the sibling language keys of every hit: titles, labels, contents
+and option labels) and check each against that language's PDF with xfa_search or xfa_page_text. A
+text that the source also writes identically in that language passes.
+
+A break is a text of a non-master language that equals the master text although the source's own
+wording in that language differs.
+
+Fix: replace the copy with the source's wording for that language, read from that language's PDF.
+"""

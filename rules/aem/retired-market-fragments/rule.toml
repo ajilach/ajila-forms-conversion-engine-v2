@@ -10,5 +10,8 @@ Fields with XSD List", 2026-08-20). A person block uses `affrg_ContractualPartne
 `affrg_SignatureGeneric1`.
 
 The market families that stay are internal bank use, footnote, infobox, banking relationship and
-the form configurator.
+the form configurator. Never reference a germany or italy person or signature fragment: every
+violation is an authorable defect, so name the panel and the UBS generic that replaces it. A
+partner generic in a form with no configurator is a defect too, and a name pair that merely
+identifies the form's subject stays plain `TXT_` text boxes (see ubs-aem-account-holder-cluster).
 """

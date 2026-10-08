@@ -1,0 +1,30 @@
+# Mirrors `collect_panel_visibility` and the panel context of the UBS writer (`xml_writer.rs`):
+# a conditional panel is written with its visibility hook only when it is `is_conditional`.
+id = "ubs-aem-condition-targets"
+title = "A condition shows a conditional Panel that exists"
+output_formats = ["aem-ubs"]
+description = """
+A `ConditionRule` on a Dropdown, Checkbox or RadioButton (`conditions`: `target_panel_name`,
+`value`, `show`) shows or hides a Panel by its `name`. Two things are required, and one without
+the other silently fails: the rule on the trigger, AND `is_conditional: true` on the target Panel.
+Only a conditional Panel is written with the visibility hook (a Visibility script plus an
+Initialize twin calling `window.forms.ubs.showAFShowDor` and `hideAFHideDor`); a Panel left
+`is_conditional: false` gets no hook, so authoring it `visible: false` and pointing a condition at
+it yields a panel that is invisible forever (and a repeatable inside it renders one instance).
+Renaming a panel without renaming the conditions that name it leaves a rule that looks right in
+the editor and never fires.
+
+Reported:
+
+- a `target_panel_name` that is not the name of exactly one node of the form, or of a node that is
+  not a Panel;
+- a target Panel that is not `is_conditional` (pointer: that Panel's `is_conditional`);
+- a text `value` that is none of the trigger's option values (conditions with a number or boolean
+  value, and triggers with no options, are not compared).
+
+A hidden Panel that no condition targets (hidden metadata, an always-in-PDF panel) is fine.
+
+Set `is_conditional: true` on the target Panel; correct `target_panel_name` to the Panel's current
+`name` (or rename the Panel back); if the target is another node type, wrap it in a Panel; set the
+condition's `value` to the `value` of one of the trigger's options.
+"""

@@ -8,6 +8,10 @@ hint such as `(optional)`, or when it carries markup: labels are plain text.
 
 A checkbox whose options carry the text may leave its own label empty.
 
+The check decides empty, parenthetical-only and marked-up labels. Whether the text is the real
+question is for you to judge against the source page: a caption that merely sits near a field in the
+XFA (a parenthetical aside, a rich-text paragraph) is not its label. Check each field against the
+source page, put the real question into the label, and leave any hint as its own static text.
 Use the question the source asks next to the field. A hint in brackets belongs to the question,
 not in its place.
 """

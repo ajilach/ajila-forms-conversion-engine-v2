@@ -1,0 +1,20 @@
+id = "ubs-aem-no-handwritten-reset"
+title = "The configurator's reset-on-change block is the engine's"
+output_formats = ["aem-ubs"]
+description = """
+The form configurator's reset-on-change block is written by the writer for a choice wired as the
+ubs-aem-configurator-panels rule describes: the template preselects the individual option, and when
+the choice changes the panels it decides are emptied. Do not add reset logic of your own beside it,
+whatever its shape: a script, a `passthrough` fragment or an extra rule that clears the driven
+panels, or a second condition that does the same.
+
+How to judge: find the configurator choice (a RadioButton or Dropdown whose `conditions` show two or
+more panels) and the panels it drives (json_get). Look in their `passthrough` (`raw_attributes`
+and `raw_children`) and in any other node's `passthrough` for scripts that clear, reset or empty
+fields or panels (`resetData`, `.value = null`, `clearItems`, `fd:valueCommit` handlers, `fd:rules`),
+and at `conditions` entries with `show: false` that appear to do the clearing.
+
+A break is any reset logic of the author's next to the writer's.
+
+Fix: delete the reset logic and make the wiring satisfy ubs-aem-configurator-panels.
+"""

@@ -1,0 +1,19 @@
+id = "ubs-aem-header-from-master-page"
+title = "`/header` is the source's master-page header"
+output_formats = ["aem-ubs"]
+description = """
+`/header` holds the text the source's master page draws top of page: the validity line and the
+legal entity, one line each. The entity line is printed in the Document of Record header (the
+writer puts it into the DoR header slot below the banking relationship; the validity line does not
+reach it). A source with no such text leaves `/header` unset.
+
+How to judge: read the first page of the source with xfa_page_text and xfa_render_pages and compare
+what the master page draws at the top with `/header` (json_get on `/header`). The header is not a
+text of the form body: do not look for it in the pages.
+
+A break is a `/header` that is missing although the source draws a header, is set although the
+source draws none, or differs from the source's lines (a different entity, a paraphrase, lines
+joined or reordered).
+
+Fix: replace `/header` with the source's lines, one per drawn line, or remove it.
+"""

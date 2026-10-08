@@ -1,0 +1,23 @@
+id = "ubs-aem-verbatim-source-text"
+title = "Text is the source's own, never written by the author"
+output_formats = ["aem-ubs"]
+description = """
+Every label, option, help text, title, paragraph and footnote is taken verbatim from the XFA
+(xfa_read, xfa_search, xfa_page_text); the source is the only authority for content. Copy of the
+author's own, a paraphrase, a shortened text or a gap filled with plausible wording is a defect.
+The option labels, values and codes of a cascading dropdown come verbatim from the `addItem` and
+`rawValue` lines of its change script. The text the writer or a fragment renders itself (the step
+title built from a page `title`, the banking relationship, a fragment's own fields, the Add button)
+is not authored and is not judged.
+
+How to judge: walk the document with json_outline and sample the texts it carries: every heading,
+every paragraph of static text, every label and option of the first pages and of each page that
+differs in kind (a table, a declaration, a signature page), plus every text a finding or an unusual
+wording points at. Look each one up in the source in that language (xfa_search for a distinctive
+phrase, xfa_page_text for the page).
+
+A break is a text that does not exist in the source in that language: invented, paraphrased or
+shortened.
+
+Fix: replace the text with the source's wording, or delete the node if the source has none.
+"""

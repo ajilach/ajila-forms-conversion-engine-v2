@@ -2,8 +2,15 @@ id = "ubs-aem-legacy-table-panels"
 title = "Tables are HTML components, not panels of static text"
 output_formats = ["aem-ubs"]
 description = """
-A table belongs in an `HtmlDisplayer` named `TBL_...`, whose content is the table's HTML in each
-language. A panel named `TBL_` holding nothing but static and title draws is the old workaround
-from before AEM had a table component: it loses the table's structure on screen and in the
-Document of Record.
+A table belongs in ONE `HtmlDisplayer` named `TBL_...`, whose content is a real `<table>` in each
+language (`<thead>` and `<th>` for the header, `<tbody>`, `<tr>` and `<td>` for the body, one `<tr>`
+per source row). A panel named `TBL_` holding nothing but static and title draws is the old
+workaround from before AEM had a table component: it loses the table's structure on screen and in
+the Document of Record.
+
+Fixing one means REPLACING the loose draws with one HtmlDisplayer: not grouping them into a panel
+and not building a grid of draws. A table whose cells hold INPUT FIELDS is the one legitimate
+exception: markup is static, so it stays a Panel named `TBL_` holding the fields as real
+components. The check only reports a `TBL_` panel whose children are all text and title draws;
+loose draws with no panel are caught by the ubs-aem-tables-are-html-tables rule.
 """

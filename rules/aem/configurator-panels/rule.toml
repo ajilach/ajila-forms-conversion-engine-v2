@@ -6,6 +6,9 @@ id = "ubs-aem-configurator-panels"
 title = "A form configurator choice drives two or more conditional panels it can reset"
 output_formats = ["aem-ubs"]
 description = """
+The template preselects the individual option and empties the panels a choice decides when it
+changes; that reset-on-change block is the writer's, so do not add reset logic of your own.
+
 A radio button or dropdown whose option labels are exactly one of the reviewed configurator
 wordings (`Individual` / `Company/Entity`, `Private Person` / `Minderjährige` / `Firma` (/
 `GbR`), `Individuo` / `Entità giuridica`, `Persona` / `Persona giuridica`, `For financial

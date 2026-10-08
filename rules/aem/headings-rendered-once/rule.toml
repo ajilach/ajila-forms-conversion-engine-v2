@@ -1,0 +1,25 @@
+id = "ubs-aem-headings-rendered-once"
+title = "Each heading of the source is rendered exactly once"
+output_formats = ["aem-ubs"]
+description = """
+A page Panel (`is_page: true`) renders its heading from its own `title`: the writer wraps it in a
+panel named `<panel name>Title` holding one level-2 TitleDraw (on the first page, the one that
+carries the banking relationship, as a subtitle text). Give every page its heading as `title` and
+do not author a TitleDraw or TextDraw for it: a drawn copy renders the heading twice. Likewise two
+neighbouring TitleDraws or TextDraws that carry the same text render it twice. Below page level a
+Panel `title` does not render, so a sub-heading is an authored TitleDraw (and never both a titled
+sub-panel and a TitleDraw with the same text next to it as one heading).
+
+Reported:
+
+- a TitleDraw or TextDraw among the direct children of a page, or among the direct children of the
+  page's first Panel child, whose text (markup, case and a trailing colon ignored, in the master
+  language) is the page's `title`;
+- two consecutive siblings, each a TitleDraw or TextDraw, with the same non-empty text.
+
+A TextDraw carrying the css class `subtitle-after-form-title` is the first page's subtitle and is
+not reported.
+
+Delete the duplicate draw and keep the page `title`. If the heading really belongs in a draw (a
+sub-heading), clear the panel's title instead.
+"""

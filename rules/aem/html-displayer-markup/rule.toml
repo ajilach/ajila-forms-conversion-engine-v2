@@ -1,0 +1,25 @@
+# The writer emits an HtmlDisplayer's markup verbatim into its `localeContent` (htmldisplayer.xml)
+# and sanitizes nothing, so what the markup holds is the author's to get right.
+id = "ubs-aem-html-displayer-markup"
+title = "HtmlDisplayer markup is a table, chart or image that survives into the printed document"
+output_formats = ["aem-ubs"]
+description = """
+An `HtmlDisplayer` is the AEM HTML component. Its `content` is HTML markup per language, and it is
+the only node whose content is markup you write yourself. Name it for what its markup shows:
+`TBL_` holds a real `<table>` (`<thead>` and `<th>` for the header row, `<tbody>`, `<tr>` and
+`<td>` for the body, one `<tr>` per source row), `CRT_` holds an inline `<svg>`, `IMG_` holds an
+`<img>` whose `src` is a `data:` URI. Inline `style` attributes for widths, padding and alignment
+are fine.
+
+These do not survive into the printed document, or do not load, and are reported: a `<script>`,
+`<link>`, `<style>`, `<iframe>`, `<object>` or `<embed>` element, form controls (`<form>`,
+`<input>`, `<select>`, `<textarea>`, `<button>`), a `src` that is not a `data:` URI, and an `href`
+that runs script (`javascript:`). A `TBL_` HtmlDisplayer without a `<table>` and a `<tr>`, a
+`CRT_` without an `<svg>` and an `IMG_` without a `data:` `<img>` is named for something it does
+not hold. Every language's markup is held to this.
+
+Rewrite `content` in every language to markup of the allowed shape, or rename the node to the
+prefix its markup matches. A table whose cells hold input fields cannot be an HtmlDisplayer at all
+(static markup would lose the fields): make it a Panel named `TBL_` holding the fields as real
+components.
+"""

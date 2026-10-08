@@ -177,7 +177,7 @@ mod tests {
         }
     }
 
-    /// A Redacto agent (no scripted rules) holding `rules` as its judged ones.
+    /// A Redacto agent holding `rules` as its judged ones.
     fn agent_with(rules: Vec<JudgedRule>) -> SharedAgent {
         let mut agent = agent::ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
             .expect("an agent without sources starts");
@@ -196,6 +196,17 @@ mod tests {
             obs: SharedObserver::new(crate::observer::NullObserver),
             spend: Arc::default(),
         }
+    }
+
+    /// The verdicts of the judged rules in `report`: the Redacto target has scripted rules too,
+    /// whose verdicts stand beside them.
+    fn judged(report: &serde_json::Value) -> Vec<&serde_json::Value> {
+        report["verdicts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|v| v["check"] == "agent")
+            .collect()
     }
 
     fn report(reply: ToolReply) -> serde_json::Value {
@@ -223,7 +234,7 @@ mod tests {
         let ctx = context(model.clone(), AbortFlag::default());
         let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
 
-        let verdict = &report["verdicts"][0];
+        let verdict = judged(&report)[0];
         assert_eq!(verdict["rule_id"], "id-a");
         assert_eq!(verdict["check"], "agent");
         assert_eq!(verdict["verdict"], "negative");
@@ -259,7 +270,7 @@ mod tests {
         let ctx = context(model.clone(), AbortFlag::default());
         let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
         assert_eq!(model.request_count(), 3, "the two refused verdicts each cost the judge a turn");
-        assert_eq!(report["verdicts"][0]["verdict"], "positive");
+        assert_eq!(judged(&report)[0]["verdict"], "positive");
     }
 
     /// A judge whose model fails gives up, and its rule says why.
@@ -270,7 +281,7 @@ mod tests {
         )]]);
         let ctx = context(model, AbortFlag::default());
         let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
-        let reason = report["verdicts"][0]["unchecked_reason"].as_str().unwrap();
+        let reason = judged(&report)[0]["unchecked_reason"].as_str().unwrap();
         assert!(reason.starts_with("the judge failed") && reason.contains("400"), "{reason}");
     }
 
@@ -283,7 +294,7 @@ mod tests {
         ]]);
         let ctx = context(model, AbortFlag::default());
         let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
-        let verdict = &report["verdicts"][0];
+        let verdict = judged(&report)[0];
         assert_eq!(verdict["verdict"], "unchecked");
         assert_eq!(verdict["unchecked_reason"], "the judge ended without a verdict");
     }
@@ -297,7 +308,9 @@ mod tests {
         let ctx = context(model.clone(), abort);
         let report = report(rule_check(&agent_with(vec![rule("a"), rule("b")]), &ctx, &serde_json::json!({})).await);
         assert_eq!(model.request_count(), 0);
-        for verdict in report["verdicts"].as_array().unwrap() {
+        let stopped = judged(&report);
+        assert_eq!(stopped.len(), 2);
+        for verdict in stopped {
             assert_eq!(verdict["unchecked_reason"], "the judge was stopped before it gave a verdict");
         }
     }

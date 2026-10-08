@@ -1,0 +1,22 @@
+id = "ubs-redacto-structure-matches-source"
+title = "The document has the structure of the source pages"
+output_formats = ["redacto-ubs"]
+description = """
+For each region of each source page, decide from the PAGE what it is (a table, a list, a
+multi-column region, a heading at some level, plain paragraphs) and confirm that the document says
+the same: section order, heading levels, lists, tables and multi-column layout. No tool checks this:
+a table whose cells ship as one paragraph each carries the same text as the table. Where the document
+and the page disagree, the PAGE wins.
+
+How to judge: render the source pages (xfa_render_pages) and walk them against the document section
+by section (json_outline, json_get on `/body` and `/assets`). Look at the order of the sections, the
+`h1` to `h6` level of each heading, lists (`ul`, `ol`) against paragraphs, and tables against runs of
+paragraphs.
+
+A break is a region whose structure in the document differs from the page: sections in another
+order, a heading at another level, a list flattened into paragraphs, or a table authored as
+paragraphs. Tables are also covered by ubs-redacto-tables-are-html-tables, headings by
+ubs-redacto-heading-levels-and-inline, columns and footnotes by ubs-redacto-layout-panels.
+
+Fix: json_patch the assets and the body to match the page.
+"""

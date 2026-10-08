@@ -1,0 +1,29 @@
+id = "ubs-aem-source-languages"
+title = "The form ships every source language and only those"
+output_formats = ["aem-ubs"]
+description = """
+The final form contains EVERY language that `get_source_info` lists, each written from that
+language's own PDF, and ONLY those. Never drop a language the source contains (the document's
+`languages` and the texts must agree), never invent a translation for a language it does not have,
+and never author a regional variant such as `de-ch`: the packager derives the profile's synonym
+locales (`de-ch` from `de`, `es` from `sp`) from their base language, so the deployed package
+legitimately carries more locales than the document does. Use the language codes that
+`get_source_info` reports. Where a content package was uploaded as a template and its own
+`languages` list a language the source does not have, that language and its texts are removed.
+
+The hidden metadata control's language fields (`formrange_language`, `formrange_afmasterlanguage`)
+are template output and are not judged.
+
+How to judge: compare `/languages` with the languages `get_source_info` reports for each source
+PDF. Then open at least one text of every language (json_search for a distinctive source phrase) and
+confirm it is that language's wording as read from that language's PDF, not the master text or
+another language's.
+
+A break is a language the source has that is missing from `/languages`, a language in `/languages`
+that the source lacks, a regional variant authored as a language of its own, or texts that carry
+one language's wording under another's key.
+
+Fix: add the missing language to `/languages` and write its text everywhere (the
+ubs-aem-text-languages-complete rule lists the gaps); delete a language the source lacks together
+with all its texts.
+"""

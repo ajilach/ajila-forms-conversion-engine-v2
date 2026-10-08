@@ -1,0 +1,20 @@
+id = "ubs-redacto-verbatim-text"
+title = "Text is the source's own, never written by the author"
+output_formats = ["redacto-ubs"]
+description = """
+Headings, paragraphs, list items, table cells and footnotes are taken verbatim from the source
+(xfa_read, xfa_search, xfa_page_text); the source is the only authority for content. Copy of the
+author's own, a paraphrase, a shortened text or a gap filled with plausible wording is a defect. The
+page header and footer that the document's furniture derives from `sources` are not authored text
+and are not judged.
+
+How to judge: walk the assets (json_outline, json_get) and sample the texts they carry: every
+heading, every paragraph of the first pages and of each region that differs in kind (a table, a
+list, footnotes), plus every text a finding or an unusual wording points at. Look each one up in the
+source in that language (xfa_search for a distinctive phrase, xfa_page_text for the page).
+
+A break is a text that does not exist in the source in that language: invented, paraphrased or
+shortened.
+
+Fix: replace it with the source's wording, or delete the asset if the source has no such text.
+"""

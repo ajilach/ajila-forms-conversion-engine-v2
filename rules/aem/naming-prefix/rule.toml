@@ -11,8 +11,18 @@ repeatable may also use the repeatable family (`RCP_`, `RCHP_`, `RCBP_`, `RCHT_`
 
 Fragments, the preface and footnote placeholders, message boxes and
 the profile's own fixed panels are named by the profile and are not checked. Only the prefix
-is checked; the rest of the name is free.
+is checked; the rest of the name is free. The prefix is the one of the node's TYPE: an
+`EML_`, `TEL_` or `TXTM_` name reported as the wrong prefix is a real defect, because the writer
+writes the dedicated email, telephone and multi-line component for a TextField of that `kind`
+(set `kind` and the name together). An HtmlDisplayer takes whichever of `TBL_`, `CRT_` and `IMG_`
+names what its markup shows.
+
+This governs the component's `name` property, NOT the JCR node name: the writer generates node
+names like `textbox_<uuid>`, and that is correct and expected. Names are not cosmetic: with no
+`bind_ref` the `name` IS the binding, so scripts, conditions and fragments resolve panels and
+fields by it.
 
 Rename the node. A panel's name is also what conditions target (`target_panel_name`), so rename
-those references with it.
+those references with it. A repeatable named `RP_...` or `PN_...` is one authorable rename too:
+the writer derives its inner panels from the name you give it.
 """

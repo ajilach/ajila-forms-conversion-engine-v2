@@ -1,0 +1,27 @@
+id = "ubs-aem-tables-are-html-tables"
+title = "A source table is one HtmlDisplayer holding a real table"
+output_formats = ["aem-ubs"]
+description = """
+A grid of aligned rows on the page is a table even when only some rules are drawn, even when it
+has a single column, and even when one of its columns is empty on every row. A source table is ONE
+`HtmlDisplayer` named `TBL_...` whose `content` is a real HTML `<table>` per language: `<thead>`
+carries the header cells (a header row drawn without rules is easily mistaken for separate
+headings), `<tbody>` one `<tr>` per source row. Two shapes betray a missed table: a run of
+consecutive one-line TextDraws where the page shows a ruled grid, and header cells authored as
+separate headings above data cells. The one exception is a table whose cells hold INPUT FIELDS:
+markup is static, so it stays a Panel named `TBL_` holding the fields as real components (the
+ubs-aem-legacy-table-panels rule flags a `TBL_` panel that holds only static text).
+
+How to judge: render the source pages (xfa_render_pages) and find every region that is a table.
+For each, find its HtmlDisplayer (json_search for a cell's text) and check that its markup has the
+header row in `<thead>`, one `<tr>` per source row and the source's columns, in every language.
+Then look at every run of consecutive TextDraws or TitleDraws of a page (json_outline) and check
+the page: a run that the page shows as a grid is a missed table.
+
+A break is a table region that is not one HtmlDisplayer with a real table, a run of loose draws
+standing for a table, or an HtmlDisplayer whose table lacks rows, columns or a header the page
+shows.
+
+Fix: `remove` the loose draws and `add` one HtmlDisplayer named `TBL_...` with the markup in every
+language. Replace; never group the draws into a panel and never build a grid of draws.
+"""

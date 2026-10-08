@@ -1,0 +1,38 @@
+id = "ubs-aem-account-holder-cluster"
+title = "An addressee-driven form carries its complete party and signature cluster"
+output_formats = ["aem-ubs"]
+description = """
+Parties and signatures (account holder or client, representative, legal guardian, beneficial owner,
+power of attorney, and their signatures) form the account-holder cluster, which a form has only when
+it is addressee-driven: it carries a configurator choice (Formular Adressat / Form addressee in
+Germany, Tipo in Italy) that decides who the parties are. In such a form the cluster is complete:
+
+- THE CHOICE is a `RadioButton` on the form configurator's page (`RB_FormularAdressat` in
+  Germany, `RB_GroupTipo` in Italy) with the source's options in every language, the individual
+  option (Private Person, Individual) first with the key `1`. Its `conditions` show one conditional
+  Panel (`is_conditional: true`, `visible: false`) per option among the parties and one among the
+  signatures.
+- THE PARTIES sit on the configurator's page, in each option's panel, each a Repeatable wrapping
+  one partner generic (naming and wrapping: ubs-aem-account-holder-wiring). A minor who holds the
+  account is the contracting party (`PN_CPGRP`), not a partner, even though a guardian signs.
+  `init_hide` lists the sub-panels a party does not show.
+- THE SIGNATURES sit on a last page of their own, in each option's panel, one signature
+  Repeatable per party that signs. Count the signers the source shows against what the form
+  collects: a summary that says "two signature blocks" is not evidence of two.
+
+In a form with NO configurator a partner generic is a defect: the form has no parties to
+configure, so use plain `TXT_` fields.
+
+How to judge: read the source's configurator and signature pages (xfa_open, xfa_set for each
+option, xfa_render_pages) and compare with the tree's configurator, party panels and signature
+panels per option (json_outline). Check the options, their keys and order, the conditions, and for
+each option the parties and signers the source shows.
+
+A break is a missing party or signature for an option, a wrong or missing option or condition, a
+minor modelled as a partner, a signature count that differs from the source, or a partner generic
+in a form with no configurator.
+
+Fix: add the missing party or signature Repeatable inside the option's panel; correct the options
+or conditions; remove a partner generic from a form with no configurator and use plain `TXT_`
+fields.
+"""

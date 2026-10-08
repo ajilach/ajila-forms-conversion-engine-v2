@@ -1,0 +1,25 @@
+# Part one replays `collect_add_subjects` and `sane_subject` of the UBS writer (`xml_writer.rs`):
+# the same resolution that decides the subject of the row heading and the Add button.
+id = "ubs-aem-repeatable-title"
+title = "A Repeatable is named once: a title that says what repeats, and no heading that repeats it"
+output_formats = ["aem-ubs"]
+description = """
+A repeatable's `title` is the one string that becomes the row heading, the Add button's label and
+the Document of Record heading, so make it the short noun phrase of the thing that repeats
+(`Client`, `Beneficial owner`), in every language. Left empty, the writer falls back to the
+nearest TitleDraw above the repeatable among its siblings, then to the title of the enclosing
+panel; a title it cannot use (longer than 4 words or 42 characters, a sentence ending in a full
+stop, "Condition: ...", or just `name`, `number`, `details`, `data`) counts as empty. If nothing
+names the repeatable, the panel ships the visible placeholder `(Repeatable name)`.
+
+The UBS client library numbers the rows and builds `{title} {n}` itself, so a heading inside the
+repeatable that names the row (`Client`, `Client 1`, `Client 2`) renders the name twice.
+
+Reported: a Repeatable for which that resolution finds no subject (pointer `<node>/title`), and a
+TitleDraw inside the repeatable (not inside a repeatable nested in it) whose text in a language is
+that language's title or the title followed by a number.
+
+Set `title` in the master language and every other language, as a short noun phrase from the
+source's own wording; delete a heading inside the repeatable that is the title or the title
+followed by a number.
+"""

@@ -1,0 +1,23 @@
+id = "ubs-aem-field-fidelity"
+title = "Each field is the source's control with its options, default, required state and width"
+output_formats = ["aem-ubs"]
+description = """
+Every fillable source field has the right control type (text box, number box, date, dropdown, radio
+buttons, checkbox, telephone, email, multi-line text), options with their real labels AND values,
+the source's default, the source's required state (`mandatory`), its visible state (`visible`), and
+a column width `colspan` that matches the layout (12 is full width, 6 only where two fields share a
+row in the source; the range itself is checked by ubs-aem-grid-widths).
+
+How to judge: for each field of the document (json_outline), compare it with its control in
+xfa_controls and with the rendered page (xfa_render_pages): its type, its options (labels and
+values, in every language), its default, whether it is required, whether it is shown, and whether
+it shares a row with its neighbour. Read the source's own values with xfa_read where the labels
+alone do not show them.
+
+A break is a control of the wrong type (a text box for a date, a dropdown for radio buttons), options
+missing, reordered or with invented values, a default or required state that differs from the
+source, a field hidden that the source shows (or the reverse), or a width that does not match the
+page.
+
+Fix: change the node's type (replace the node), `mandatory`, `options`, `visible` or `colspan`.
+"""

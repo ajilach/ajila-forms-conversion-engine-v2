@@ -1,0 +1,23 @@
+id = "ubs-aem-banking-relationship-present"
+title = "Every form carries the banking relationship Preface once, and no separate entity line"
+output_formats = ["aem-ubs"]
+description = """
+Every form on this profile carries the banking relationship, whatever the source shows, and
+nothing adds it for you: author a single `Preface` node among the first page's children (the
+first `Panel` under `form` that is a wizard step), not a hand-built Fragment or Panel. The
+template renders it as the standard `PN_BR` wrapper (excluded from the Document of Record and the
+summary) around the UBS fragment `affrg_BankingRelationship1`, so you supply neither the fragment
+path nor the exclusion flags, and never a germany, italy or global variant or a dam-path reference
+(the ubs-aem-banking-relationship rule holds the hand-built shapes to the canonical one).
+
+The fragment renders the "UBS Europe SE" line itself, so a standalone TextDraw, TitleDraw or
+MessageBox whose text is exactly "UBS Europe SE" in any language duplicates it. The legal-entity
+line reaches the Document of Record header from `/header`.
+
+Reported: no `Preface` at all (pointer `/form`), a second `Preface`, a `Preface` outside the first
+page, and a draw that is only "UBS Europe SE".
+
+Add `{"type": "Preface", "name": "PN_BR"}` as the first of the first page's `children` (copy the
+shape from a reference form with get_reference_package), and delete any draw whose text is "UBS
+Europe SE".
+"""

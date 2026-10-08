@@ -1,0 +1,20 @@
+id = "ubs-redacto-page-header-per-language"
+title = "Each language carries the source's page header in its own wording"
+output_formats = ["redacto-ubs"]
+description = """
+Where the rendered pages show a page header, every language's `/sources/<language>/header` carries
+it: the text the source's master page draws top of page (the validity line and the legal entity), one
+line per drawn line, in that language's own wording. The document's page header itself is derived
+from these entries when the dump is built, so the entries are all there is to author. A source that
+draws no header leaves `header` unset.
+
+How to judge: read the top of the first page of each language's PDF (xfa_page_text,
+xfa_render_pages) and compare it with `header` of each `/sources/<language>` entry (json_get).
+
+A break is a language whose `header` is missing although its pages draw one, is set although they
+draw none, or differs from that language's lines (another language's wording, a paraphrase, lines
+joined or reordered).
+
+Fix: set `/sources/<language>/header` to the source's lines in that language, one per drawn line, or
+remove it.
+"""

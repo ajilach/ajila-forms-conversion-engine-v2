@@ -7,5 +7,7 @@ Nobody can tell them apart: not on screen, not in the summary, not in the Docume
 It happens when a group of uncaptioned source fields each gets the same stand-in (seven date
 pickers all labelled "Date").
 
-Give each input what it actually asks for, from the source's column headings or surrounding text.
+A group of uncaptioned source fields that each got the same stand-in is the usual cause: read the
+column headings or the surrounding text of the source page (xfa_page_text, xfa_render_pages) and
+give each input what it actually asks for.
 """

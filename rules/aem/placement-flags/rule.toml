@@ -1,0 +1,26 @@
+# The other half of this problem is guaranteed: every template writes `summaryExclusion` for a
+# node with `dor_exclude` (`{% if dor_exclude or summary_exclude %}`), so `dor_exclude` alone still
+# keeps the node out of the summary. `normalize.rs` repairs the flags of the internal-bank-use
+# fragments only; every other node keeps what the document says.
+id = "ubs-aem-placement-flags"
+title = "A node kept for the printed document does not also carry dor_exclude"
+output_formats = ["aem-ubs"]
+description = """
+Where a node shows up is decided by separate switches. `dor_exclude` is Adobe's own and is not
+read on the UBS path at all; the UBS Document of Record is rendered by Redacto from the summary
+data, so `summary_exclude` is what actually keeps content out of it (the writer sets it whenever
+`dor_exclude` is set, so a node with `dor_exclude` is out of the summary as well). `always_in_pdf`
+puts a node that is hidden or summary-excluded back into the printed document, and that is how an
+infobox copy, an internal-bank-use block or the legal-entity line reaches the reader.
+
+To keep something off the screen and out of the summary but IN the printed document, use
+`always_in_pdf` together with `summary_exclude` and leave `dor_exclude` off: `dor_exclude` drops
+the node from the printed document again, and nothing in the writer takes it back off (only the
+internal-bank-use fragments are repaired). `dor_exclude_title` excludes a panel's heading only, not
+the panel.
+
+Reported: a node with both `always_in_pdf` and `dor_exclude` (pointer `<node>/dor_exclude`).
+
+Delete `dor_exclude` from the node and keep `always_in_pdf` and `summary_exclude`; or, if the node
+should not print, delete `always_in_pdf`.
+"""

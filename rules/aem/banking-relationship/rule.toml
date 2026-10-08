@@ -11,6 +11,11 @@ canonical fragment `/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelat
 a `PN_BR` wrapper that is excluded from the Document of Record and the summary and carries the
 class `ubs-margin-20`. Prefer the `Preface` node.
 
+The `Preface` renders the standard `PN_BR` wrapper, which carries both the DoR and the summary
+exclusion; a hand-built wrapper missing either flag is a defect, not a pass. Never use a germany,
+italy or global variant of the fragment or a dam-path reference. (That the form has one `Preface`,
+and no separate "UBS Europe SE" line, is the ubs-aem-banking-relationship-present rule.)
+
 Two shapes of a hand-authored block are reported:
 
 - A node whose `frag_ref` names a banking relationship fragment (anything containing

@@ -1,0 +1,19 @@
+id = "ubs-aem-unique-node-names"
+title = "A node name is used once in the form"
+output_formats = ["aem-ubs"]
+description = """
+The `name` of a node is its binding, and the name that scripts and conditions refer to, so two
+nodes with the same name collide: a condition or a configurator reset that names a panel reaches
+whichever one AEM finds first. Where content differs by configurator selection, include each
+variant once and keep shared content shared; do not copy a field, a heading or a panel into a
+second place under the same name.
+
+Exempt are the names the profile fixes for repeated party and signature blocks (the partner
+generic panels `PN_CPGRP`, `PN_AHGRP`, `PN_AHGRP_AR`, `PN_BOGRP`, `PN_PAGRP` and the signature
+names `RCP_SGN_*`, `PN_SGN_*`, `RCP_Sign_*`, `PN_Sign_*`, with the repeatables `RCP_CPGRP`, ...
+that wrap them), which repeat across the option panels of a configurator by design, and the nodes
+the profile names itself: fragments, the preface and footnote placeholders.
+
+Rename one of the nodes (a panel's name is also the target of `conditions`, so rename
+`target_panel_name` with it), or delete the duplicate copy.
+"""

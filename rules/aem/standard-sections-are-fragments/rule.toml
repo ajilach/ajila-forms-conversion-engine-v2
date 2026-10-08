@@ -1,0 +1,39 @@
+id = "ubs-aem-standard-sections-are-fragments"
+title = "Standard sections are the bank's fragments, none lost and none invented"
+output_formats = ["aem-ubs"]
+description = """
+Recurring standard sections that the bank ships as reusable fragments (address, signature, account
+holder, contractual partner, beneficial owner, power of attorney, banking relationship, IBAN,
+individual or entity basics, internal bank use, and the like) are one `Fragment` node each, which
+references the fragment by its JCR path (`frag_ref`) exactly as the reference forms do. Never
+hand-build such a section's inner fields, and never recreate a fragment's fields as children or
+edit inside it: a fragment is OPAQUE, its fields are supplied by AEM at runtime, so recreating them
+duplicates the section. Keep the Fragment's `bind_ref`. For a section repeated per party, emit one
+Fragment per party inside a Repeatable. Never replace a conditional Panel (one with show and hide
+behaviour) with a fragment.
+
+A fragment path is `/content/dam/formsanddocuments/<library>/<fragment>` (the banking relationship
+alone is `/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1`, which the Preface
+node writes). Pick the library the fragment documentation and the reference packages show for the
+form's entity. A person's address is part of that person's partner generic, never a separate
+fragment; only a loose address that belongs to no person block is its own `affrg_AddressGeneric1`
+or `affrg_Address1` reference, and its "Additional address details" line and Country dropdown are
+standard and stay. Never hand-build Street, No., postcode, City and Country fields. A fragment for
+a block the source does not have is a rule applied out of place. For a form with no configurator, a
+name pair that merely identifies the form's subject (a questionnaire's "Last name / First name(s)")
+is NOT a party section: it stays plain `TXT_` text boxes, unless a reference form of the same kind
+uses a small building-block fragment (`affrg_IndividualBasic1`, `affrg_EntityBasic1`).
+
+How to judge: compare the Fragment nodes of the document (json_search for `frag_ref`) with the
+sections of the source (xfa_render_pages, xfa_controls), and read the fragment documentation
+(grep_reference_docs "AF Fragments and Common Fields") and a reference package of the same kind
+(get_reference_package). Check each standard-looking region of loose fields (address, signature,
+person block, IBAN) and each Fragment against the source.
+
+A break is a standard section built from loose fields where a fragment exists, a Fragment (or a
+Fragment's children) for a block the source does not have, a fragment whose path does not exist in
+the library, or a person block that is not a partner generic.
+
+Fix: replace the hand-built section with a Fragment of the matching path; delete a Fragment for a
+block the source does not have; delete the children a Fragment was given.
+"""

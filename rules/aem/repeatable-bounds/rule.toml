@@ -1,0 +1,20 @@
+id = "ubs-aem-repeatable-bounds"
+title = "A repeatable's bounds come from the source"
+output_formats = ["aem-ubs"]
+description = """
+Take `min_occur` and `max_occur` of each Repeatable from the source where it states them (a numbered
+list of rows, "up to four", a fixed number of signature blocks). Where it does not, prefer the
+small bounds the corpus favours (commonly 1 and 4). `max_occur` is never below `min_occur`. A
+conditional repeatable materialises its `min_occur` instances through the show hook (see
+ubs-aem-condition-targets), so a repeatable that renders only one instance is usually a visibility
+problem, not a wrong `min_occur`.
+
+How to judge: for each Repeatable (json_search for `"type":"Repeatable"`), read its bounds and look at
+the section in the source (xfa_page_text, xfa_render_pages, xfa_controls: the number of repeated
+rows or instances it shows or allows). Check that `max_occur >= min_occur`.
+
+A break is a `max_occur` below `min_occur`, or bounds that contradict what the source states for
+that section (fewer rows than the source shows, one signature block where the source has two).
+
+Fix: replace `min_occur` and `max_occur`.
+"""

@@ -1,0 +1,26 @@
+id = "ubs-aem-source-coverage"
+title = "Nothing the source says or asks is missing"
+output_formats = ["aem-ubs"]
+description = """
+Every heading, label, option, paragraph and footnote text of the source reaches the tree, in
+EVERY language, each read from that language's own PDF. Every fillable source field (text boxes,
+numeric boxes, dates, dropdowns, checkboxes, radio and choice groups, signatures) has a counterpart
+in the output; a lost field is data the form can no longer capture. Sections that only appear under
+a configurator choice are included: a hidden section exists in the output only if the author
+revealed it with xfa_set. A text that a referenced fragment renders itself, or that only scripts
+use, is an expected miss and is not a break.
+
+How to judge: run coverage_check, which lists per language the source texts the document does not
+carry. It is a lead, not a verdict: look each entry up on the rendered page. Count the controls in
+xfa_controls against the fillable nodes of the document (json_outline) and resolve each
+difference. Then walk the source with xfa_page_text and xfa_search for every language and every
+configurator variant (xfa_open with xfa_set for each option) and confirm that what each page says
+and asks is in the document.
+
+A break is a source text (in any language) or a fillable source field with no counterpart in the
+document, a configurator variant that was never revealed and so is missing, or a count of controls
+that differs without an explanation.
+
+Fix: add the missing node or text in the place the page shows it; where a count differs, find the
+lost control and add it.
+"""

@@ -6,5 +6,7 @@ UBS writes every rule in AEM's code editor, as a script on `fd:scripts`; `fd:rul
 A node loaded from a package can carry a visual-editor rule (`fd:visible`, `fd:enabled`,
 `fd:click`, `fd:valueCommit`, `fd:init`, `fd:calc`, `fd:validate` or `fd:navigationChange` on
 `fd:rules`) in its `passthrough`. Express it as the node's own condition or script instead, and drop it from the
-passthrough.
+passthrough. Rules are code-editor JavaScript; the visual rule editor's own storage (a rule tree on
+`fd:rules`) is not used. When fixing a deployed package, edit the document's fields rather than
+re-authoring the form.
 """

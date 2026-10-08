@@ -136,6 +136,27 @@ function check(output, ctx) {
     }
   }
 
+  // Only the panels directly under the form are wizard steps. A panel below one that is marked
+  // as a page builds a step-title panel of its own in the middle of the step above it.
+  function nested(node, pointer) {
+    const children = node.children || [];
+    for (let i = 0; i < children.length; i++) {
+      const child = children[i];
+      const childAt = pointer + "/children/" + i;
+      if (child.type === "Panel" && child.is_page === true) {
+        violations.push({
+          pointer: childAt + "/is_page",
+          message:
+            "`" + child.name + "` is not directly under the form, so it is not a wizard step: set " +
+            "is_page to false (an inner grouping, column wrapper or conditional panel never is one), or " +
+            "move it up under the form if it is a section of its own",
+        });
+      }
+      nested(child, childAt);
+    }
+  }
+  for (let i = 0; i < top.length; i++) nested(top[i], "/form/children/" + i);
+
   // A marker anywhere but under a step.
   function stray(node, pointer) {
     if (tokens(node).indexOf(STEP_TITLE_CSS) >= 0) {

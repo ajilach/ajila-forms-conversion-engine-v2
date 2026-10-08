@@ -1,0 +1,18 @@
+id = "ubs-aem-option-fields-after-group"
+title = "A checkbox or radio list is one component, and an option's field follows the group"
+output_formats = ["aem-ubs"]
+description = """
+A checkbox or radio list is ONE component with several options. A field that belongs to an option
+(an "Other: ____" line) goes AFTER the group, shown by a rule on that option, never between the
+options, which would break the group into several lists.
+
+How to judge: look at every run of neighbouring Checkbox or RadioButton nodes (json_outline) and
+at every input that sits between two of them, and compare with the page (xfa_render_pages): does
+the page show one list with a field after it, or several separate lists?
+
+A break is a list the page shows as one that is authored as several Checkbox or RadioButton
+nodes, or an input that sits between the lines of a list.
+
+Fix: merge the pieces into one node with all options; move the field after it, inside a
+conditional Panel, and add a `ConditionRule` on the option that reveals it.
+"""

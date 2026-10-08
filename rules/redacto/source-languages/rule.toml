@@ -1,0 +1,20 @@
+id = "ubs-redacto-source-languages"
+title = "The document ships every source language and only those"
+output_formats = ["redacto-ubs"]
+description = """
+The document carries EVERY language that `get_source_info` lists, and ONLY those: never drop a
+language the source contains, and never invent a translation for a language it does not have. The
+keys of `/sources` are the document's languages, and each asset carries its text in each of them.
+
+How to judge: compare the keys of `/sources` with the languages `get_source_info` reports for each
+source PDF. Then open one asset per language (json_get on `/assets`, json_search for a distinctive
+source phrase) and confirm that the text is that language's own wording, as read from that
+language's PDF, and not the master text or another language's.
+
+A break is a language of the source that is missing from `/sources`, a language in `/sources`
+that the source lacks, or an asset that carries one language's wording under another's key.
+
+Fix: add the missing `/sources/<language>` entry (with its `variables` and `header`) and the language
+to every asset (the ubs-redacto-assets-carry-every-language rule lists the gaps); delete a language
+the source lacks together with its texts.
+"""

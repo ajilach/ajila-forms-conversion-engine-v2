@@ -1,0 +1,28 @@
+id = "ubs-aem-cascading-dropdowns-static-variants"
+title = "A dependent dropdown is a set of static, visibility-gated variants"
+output_formats = ["aem-ubs"]
+description = """
+When one dropdown's options or value depend on another field's selection (in the XFA a change-event
+script drives it with `clearItems`, `addItem` and `rawValue`), do not make a single dropdown mutate
+its options at runtime, and do not gate the variants with a value-commit or change rule (for
+visibility that shape validates but does not fire in this profile). Model it as static variants:
+one dropdown per parent selection, each in its own Panel holding ONLY that selection's options,
+authored `visible: false` AND `is_conditional: true`, shown by a `ConditionRule` on the TRIGGER
+field (its `conditions`: one rule per parent value, targeting that variant panel's `name` with
+`show: true`). Gate a third-level variant on BOTH the level-1 and level-2 selections so that a stale
+upstream value cannot keep it visible. Every option label, value and code comes verbatim from the
+change function's `addItem` and `rawValue` lines. (That the targets exist and are `is_conditional`
+is checked by ubs-aem-condition-targets.)
+
+How to judge: find the dependent fields in the source (xfa_controls, xfa_read of the change-event
+script of each trigger) and list the branches of every script. Then compare with the tree: one
+variant Panel and dropdown per branch, with exactly that branch's options, and a condition on the
+trigger per branch.
+
+A break is a dependent dropdown modelled as one dropdown, a branch with no variant, a variant whose
+options differ from its branch, a variant not gated on the trigger, or a deeper level gated on only
+one of its parents.
+
+Fix: add the missing variant panel with its own dropdown; add the condition on the trigger; gate a
+deeper level on both parents.
+"""

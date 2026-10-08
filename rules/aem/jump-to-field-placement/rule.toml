@@ -1,0 +1,27 @@
+# Mirrors `panel.xml`: a wizard step with a title gets a step-title panel that carries the button
+# itself (when the step holds an input, no repeatable, and is not the configurator), and a
+# repeatable on a page with an input carries one per row. An authored `jump_to_field` on a Panel is
+# written on that panel as well, which is the second or the misplaced button. A TitleDraw's flag is
+# not written by its template, so it needs no rule.
+id = "ubs-aem-jump-to-field-placement"
+title = "The Edit button sits where the summary needs it"
+output_formats = ["aem-ubs"]
+description = """
+The summary's Edit button (`jump_to_field`) jumps back to something a person filled in. The writer
+places it itself: on the step-title panel of a wizard step that holds an input and no repeatable,
+and on each row of a repeatable on a page that holds an input. It never goes on a step with nothing
+to fill in, and never on the form configurator. A `jump_to_field` you set on a Panel is written on
+that panel in addition, which is a second button or one in the wrong place.
+
+Reported, for a Panel with `jump_to_field: true`:
+
+- the Panel is a page (`is_page: true`) with a title: the step already has a step-title panel that
+  carries the button, so AEM would render two above one heading;
+- the Panel holds nothing to fill in (no text field, number field, date, dropdown, checkbox, radio
+  button, fragment or repeatable anywhere below it): a text-only step has nothing to jump to;
+- the Panel is the form configurator (its name starts with `PN_FormConfigurator`): it would also
+  appear in the summary's jump list.
+
+Delete `jump_to_field` from the Panel the finding names. A page with repeatables gets the buttons
+on its rows from the writer, and a page without a title keeps the one the writer places.
+"""

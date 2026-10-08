@@ -1,0 +1,30 @@
+id = "ubs-aem-account-holder-wiring"
+title = "A party is a Repeatable around its partner generic, named the way UBS pairs it with its signature"
+output_formats = ["aem-ubs"]
+description = """
+The UBS general-fragments directive models a party and its signature from ordinary nodes. A party
+is a `Repeatable` named `RCP_<stem>` wrapping exactly ONE `Fragment` of a partner generic, the
+fragment named by its role: `affrg_ContractualPartnerGeneric1` as `PN_CPGRP`;
+`affrg_PartnertoPartnerGeneric1` as `PN_AHGRP` (a second one `PN_AHGRP_AR`);
+`affrg_BeneficialOwnerGeneric1` as `PN_BOGRP`; `affrg_PowerofAttorneyGeneric1` as `PN_PAGRP`.
+`init_hide` lists the sub-panels the party does not show (a private person:
+`["PN_EntityBasic", "PN_Address"]`); it is the fragment's one Initialize rule, and only a partner
+generic takes it.
+
+A signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, both named after the party:
+`RCP_SGN_CPGRP` wrapping `PN_SGN_CPGRP` for `PN_CPGRP`; `RCP_Sign_AHGRP` wrapping `PN_Sign_AHGRP`
+for `PN_AHGRP` (`RCP_Sign_AHGRP_AR` and `PN_Sign_AHGRP_AR` for `PN_AHGRP_AR`); `RCP_SGN_BOGRP` and
+`PN_SGN_BOGRP`; `RCP_SGN_PAGRP` and `PN_SGN_PAGRP`. The name is the pairing: the writer makes the
+party's Add and Remove buttons add and remove the signature row too, and gives the signature
+repeatable no buttons of its own, so a misspelled name silently unpairs them.
+
+The check decides the wrapping: a Fragment of a partner generic (`affrg_ContractualPartnerGeneric`,
+`affrg_PartnertoPartnerGeneric`, `affrg_BeneficialOwnerGeneric`, `affrg_PowerofAttorneyGeneric`)
+must be a child of a Repeatable, because a party that is not repeatable has no Add and Remove and
+no signature twin. The naming, the one-fragment-per-repeatable shape and `init_hide` are the
+directive's: a misplaced `init_hide` is refused when the package is built, and the signature half
+is held by the review.
+
+Wrap the bare Fragment in a Repeatable named `RCP_<stem>` (title, `min_occur` and `max_occur` from
+the source), and give the Fragment the role's name.
+"""

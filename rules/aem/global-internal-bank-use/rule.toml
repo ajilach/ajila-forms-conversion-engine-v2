@@ -6,5 +6,7 @@ The internal-bank-use block references
 `/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature`,
 in every market. The deployed corpus migrated to it (57 of the 78 Italian packages issued
 2026-09-01, and the German reference AABF_019); a market internal-bank-use fragment is the old
-shape.
+shape. The internal-bank-use block is the exception to the choice of a market library: it is the
+global fragment in every market. The writer makes the block PDF-only (hidden, summary-excluded,
+`always_in_pdf`), so do not author those flags yourself.
 """

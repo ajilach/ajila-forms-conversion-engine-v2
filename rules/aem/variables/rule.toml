@@ -19,5 +19,10 @@ several of the feedback guard's detectors skip the form silently, which reads as
   directory).
 
 They come from the source form's template variables; keep them as the source has them and do not
-shorten, lower-case or pad them.
+shorten, lower-case or pad them. `variables` name the form, its repository path and its metadata,
+and are already filled in from the source, so leave them as they are. The hidden metadata control's
+`formrange_language` and `formrange_afmasterlanguage` are template output: the first lists the
+source languages under the codes the platform files them by (Spanish as `sp`), and the second is
+the language the form was ISSUED in for its market (Germany `DE`, Italy `IT`, elsewhere `EN`),
+deliberately not the authoring master. No tool changes them and they are not defects.
 """

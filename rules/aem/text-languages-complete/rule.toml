@@ -1,0 +1,29 @@
+# The first half (no language outside `languages`) is also refused when the package is built
+# (`validate` in the UBS layer's `document.rs`); the second half (no language missing) is not, so
+# AEM silently falls back to the master text for that string.
+id = "ubs-aem-text-languages-complete"
+title = "Every text is written in every language of the form, and in no other"
+output_formats = ["aem-ubs"]
+description = """
+Every user-visible text of the form is a map from language code to text: the `title` of a page
+Panel (`is_page: true`, which the writer renders as the heading), the `label` of an input, the
+`content` of a TextDraw, MessageBox, TitleDraw and HtmlDisplayer, and the `label` of each option of
+a Dropdown, Checkbox or RadioButton. The document's `languages` lists the languages the form
+ships. (The title of a Panel below page level does not render, a Fragment's title is never written
+and a Repeatable's title is judged against the source, so none of those is held to a language
+here.) A text that is
+written in at least one language must be written, non-empty, in every language of `languages`,
+and its keys must all be in `languages`.
+
+A missing language is not a harmless gap: AEM silently falls back to the master language for that
+string, so the reader sees a mixed-language form. A key outside `languages` is refused when the
+package is built. A text that is empty in every language (a deliberately empty title, a
+checkbox label left to its options) is fine and is not reported.
+
+Fix a missing or empty entry with `add` or `replace` on the pointer the finding names, using the
+source's own wording for that language: read that language's PDF (xfa_search, xfa_page_text), pair
+the text by meaning and layout position, and never copy the master text or invent a translation.
+For a key that is not in `languages`, delete it, unless the language belongs in the form, in which
+case it is a source language that was left out of `languages` (add it there and write the form in
+it).
+"""

@@ -17,4 +17,11 @@ drop it again.
 The writer adds that copy by itself when a form has a visible infobox and no hidden one, so do
 not author it. This rule reports a hidden infobox fragment already in the document that does not
 have the shape: set the missing flags, clear `dor_exclude`, or move it into the last page.
+
+The same shape keeps any node off the screen and out of the summary but IN the printed document:
+`always_in_pdf` together with `summary_exclude`, with `dor_exclude` off, since it would undo them.
+That is the shape of the internal-bank-use block (including one that a signature-verification
+checkbox governs), of the DoR copy of the Italy infobox and of the legal-entity line printed in the
+DoR header (see ubs-aem-placement-flags). The writer wraps adjacent static texts under a
+DoR-excluded titled panel in a content panel itself.
 """

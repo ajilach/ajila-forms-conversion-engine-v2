@@ -50,14 +50,26 @@ fn rules() -> Vec<String> {
 /// review reported the same inputs as `missing`.
 #[test]
 fn the_golden_documents_pass_every_rule_but_the_labels_they_lack() {
-    let expected_label_findings = [("AAOS_033_IT", 7), ("AAEV_019_EN", 0), ("AABF_019", 63)];
-    for (form, labels) in expected_label_findings {
+    // What the retired engine's output still breaks, which these rules found in it:
+    // - `input-labels`: the inputs it left without a label (see above);
+    // - `text-languages-complete`: AABF_019's `TTL_AccountHolder` heading, which it wrote in
+    //   English only into a form that ships German and Spanish too (two findings, one per language);
+    // - `repeatable-title`: AAOS_033_IT's `RCP_df94f111`, which has no title, no heading above it
+    //   and an enclosing panel title too long to be a subject, so its package ships the
+    //   placeholder `(Repeatable name)`.
+    let known = |form: &str, rule: &str| match (form, rule) {
+        ("AAOS_033_IT", "input-labels") => 7,
+        ("AABF_019", "input-labels") => 63,
+        ("AABF_019", "text-languages-complete") => 2,
+        ("AAOS_033_IT", "repeatable-title") => 1,
+        _ => 0,
+    };
+    for form in ["AAOS_033_IT", "AAEV_019_EN", "AABF_019"] {
         for rule in rules() {
             let outcome = check(&rule, &golden(form));
-            let expected = if rule == "input-labels" { labels } else { 0 };
             assert_eq!(
                 outcome.violations.len(),
-                expected,
+                known(form, &rule),
                 "{form} {rule}: {:?}",
                 outcome.violations.iter().take(3).collect::<Vec<_>>()
             );
@@ -796,4 +808,449 @@ fn footnote_references_and_the_placeholder_go_together() {
     accordion["css"] = json!("ubsAccordionFootnote");
     let doc = doc_with(vec![page("PN_A", "A", vec![draw("TextDraw", "ST_A", reference), accordion])]);
     assert!(violations("footnotes", &doc).is_empty());
+}
+
+// ---- The rules that stand for what the prompts used to ask for ----
+
+fn repeatable(name: &str, title: &str, children: Vec<Value>) -> Value {
+    json!({
+        "type": "Repeatable", "uuid": UUID, "name": name, "title": {"en": title}, "children": children,
+        "min_occur": 1, "max_occur": 4, "visible": true, "bind_ref": null
+    })
+}
+
+fn dropdown(name: &str, values: &[&str]) -> Value {
+    json!({
+        "type": "Dropdown", "uuid": UUID, "name": name, "label": {"en": "Choice"},
+        "options": values.iter().map(|v| json!({"label": {"en": "Option"}, "value": v})).collect::<Vec<_>>(),
+        "mandatory": false, "visible": true, "colspan": 12, "dor_colspan": null, "conditions": [],
+        "bind_ref": null
+    })
+}
+
+fn html(name: &str, markup: &str) -> Value {
+    json!({
+        "type": "HtmlDisplayer", "uuid": UUID, "name": name, "content": {"en": markup},
+        "visible": true, "colspan": 12, "dor_colspan": null
+    })
+}
+
+fn preface() -> Value {
+    json!({"type": "Preface", "uuid": UUID, "name": "PN_BR"})
+}
+
+#[test]
+fn a_text_is_written_in_every_language_of_the_form_and_no_other() {
+    let doc = |label_de: Value, extra: Value| {
+        let mut name = text_field("TXT_Name", "Name", None);
+        name["label"] = json!({"en": "Name", "de": label_de});
+        let mut city = text_field("TXT_City", "City", None);
+        city["label"] = json!({"en": "City", "de": "Ort", "fr": extra});
+        let mut a_page = page("PN_A", "Account", vec![name, city, draw("TextDraw", "ST_Note", "Note")]);
+        a_page["title"] = json!({"en": "Account", "de": "Konto"});
+        let mut doc = doc_with(vec![a_page]);
+        doc["languages"] = json!(["en", "de"]);
+        doc
+    };
+    let p = "/form/children/0/children";
+    // A blank entry, an unlisted language, and a text with no entry for the second language.
+    assert_eq!(
+        violations("text-languages-complete", &doc(json!(" "), json!("Ville"))),
+        vec![format!("{p}/0/label/de"), format!("{p}/1/label/fr"), format!("{p}/2/content")]
+    );
+    let mut fixed = doc(json!("Name"), json!(""));
+    fixed["form"]["children"][0]["children"][1]["label"].as_object_mut().unwrap().remove("fr");
+    fixed["form"]["children"][0]["children"][2]["content"] = json!({"en": "Note", "de": "Hinweis"});
+    assert!(violations("text-languages-complete", &fixed).is_empty());
+    // A page title missing a language is reported at the title; a text empty in every language is not.
+    let mut untitled = fixed.clone();
+    untitled["form"]["children"][0]["title"] = json!({"en": "Account"});
+    untitled["form"]["children"][0]["children"][2]["content"] = json!({});
+    assert_eq!(
+        violations("text-languages-complete", &untitled),
+        vec!["/form/children/0/title".to_string()]
+    );
+}
+
+#[test]
+fn html_that_does_not_survive_into_the_document_is_reported() {
+    let table = "<table><thead><tr><th>A</th></tr></thead><tbody><tr><td>1</td></tr></tbody></table>";
+    let image = "<img src=\"data:image/png;base64,AAAA\" alt=\"x\">";
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            html("TBL_Fees", &format!("{table}<script>alert(1)</script>")),
+            html("TBL_Loose", "<p>one</p><p>two</p>"),
+            html("IMG_Logo", "<img src=\"https://example.com/logo.png\">"),
+            html("CRT_Pie", "<p>none</p>"),
+            html("TBL_Form", &format!("{table}<input type=\"text\">")),
+            html("TBL_Ok", table),
+            html("IMG_Ok", image),
+            html("CRT_Ok", "<svg viewBox=\"0 0 1 1\"><circle r=\"1\"/></svg>"),
+            html("IMG_Link", &format!("{image}<a href=\"javascript:void(0)\">x</a>")),
+        ],
+    )]);
+    let p = "/form/children/0/children";
+    assert_eq!(
+        violations("html-displayer-markup", &doc),
+        vec![
+            format!("{p}/0/content/en"),
+            format!("{p}/1/content/en"),
+            format!("{p}/2/content/en"),
+            format!("{p}/2/content/en"),
+            format!("{p}/3/content/en"),
+            format!("{p}/4/content/en"),
+            format!("{p}/8/content/en"),
+        ]
+    );
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![html("TBL_Ok", table), html("IMG_Ok", image), html("ST_Text", "<p>Anything</p>")],
+    )]);
+    assert!(violations("html-displayer-markup", &doc).is_empty());
+}
+
+#[test]
+fn a_node_name_is_used_once_but_the_party_names_repeat() {
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            text_field("TXT_Name", "Name", None),
+            panel("PN_Inner", "", false, false, vec![text_field("TXT_Name", "Name again", None)]),
+            text_field("TXT_Name", "A third", None),
+            fragment("PN_CPGRP", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_ContractualPartnerGeneric1"),
+            fragment("PN_CPGRP", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_ContractualPartnerGeneric1"),
+            repeatable("RCP_SGN_CPGRP", "Client", vec![]),
+            repeatable("RCP_SGN_CPGRP", "Client", vec![]),
+        ],
+    )]);
+    let p = "/form/children/0/children";
+    assert_eq!(
+        violations("unique-node-names", &doc),
+        vec![format!("{p}/1/children/0/name"), format!("{p}/2/name")]
+    );
+}
+
+#[test]
+fn only_the_forms_first_level_panels_are_pages() {
+    let body = || draw("TextDraw", "ST_Body", "Some text");
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![panel("PN_Inner", "Inner", true, false, vec![body()]), body()],
+    )]);
+    assert_eq!(
+        violations("step-titles", &doc),
+        vec!["/form/children/0/children/0/is_page".to_string()]
+    );
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![panel("PN_Inner", "Inner", false, false, vec![body()]), body()],
+    )]);
+    assert!(violations("step-titles", &doc).is_empty());
+}
+
+#[test]
+fn a_heading_is_rendered_once() {
+    let mut subtitle = draw("TextDraw", "ST_Subtitle", "Account");
+    subtitle["css"] = json!("subtitle-after-form-title");
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "Account",
+        vec![
+            draw("TitleDraw", "TTL_Copy", "<b>Account:</b>"),
+            panel("PN_Inner", "", false, false, vec![draw("TextDraw", "ST_Copy", "account")]),
+            draw("TextDraw", "ST_One", "Same"),
+            draw("TextDraw", "ST_Two", "Same"),
+            draw("TextDraw", "ST_Three", "Different"),
+            subtitle,
+        ],
+    )]);
+    let p = "/form/children/0/children";
+    // The draw repeating its neighbour comes first, then the two repeating the page's title.
+    assert_eq!(
+        violations("headings-rendered-once", &doc),
+        vec![format!("{p}/3"), format!("{p}/0"), format!("{p}/1/children/0")]
+    );
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "Account",
+        vec![
+            draw("TextDraw", "ST_One", "Same"),
+            draw("TextDraw", "ST_Two", "Other"),
+            draw("TitleDraw", "TTL_Section", "Fees"),
+        ],
+    )]);
+    assert!(violations("headings-rendered-once", &doc).is_empty());
+}
+
+#[test]
+fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
+    let body = || draw("TextDraw", "ST_Body", "Some text");
+    let ok = doc_with(vec![page("PN_A", "A", vec![preface(), body()]), page("PN_B", "B", vec![body()])]);
+    assert!(violations("banking-relationship-present", &ok).is_empty());
+
+    let none = doc_with(vec![page("PN_A", "A", vec![body()])]);
+    assert_eq!(violations("banking-relationship-present", &none), vec!["/form".to_string()]);
+
+    let twice = doc_with(vec![page("PN_A", "A", vec![preface(), preface()])]);
+    assert_eq!(
+        violations("banking-relationship-present", &twice),
+        vec!["/form/children/0/children/1".to_string()]
+    );
+
+    let late = doc_with(vec![page("PN_A", "A", vec![body()]), page("PN_B", "B", vec![preface()])]);
+    assert_eq!(
+        violations("banking-relationship-present", &late),
+        vec!["/form/children/1/children/0".to_string()]
+    );
+
+    let mut entity = draw("TextDraw", "ST_Entity", "<p><b>UBS Europe SE</b></p>");
+    entity["content"]["de"] = json!("ubs europe se");
+    let line = doc_with(vec![page("PN_A", "A", vec![preface(), entity, draw("TextDraw", "ST_Other", "UBS Europe SE, Milan")])]);
+    assert_eq!(
+        violations("banking-relationship-present", &line),
+        vec![
+            "/form/children/0/children/1/content/de".to_string(),
+            "/form/children/0/children/1/content/en".to_string()
+        ]
+    );
+}
+
+#[test]
+fn a_repeatable_is_named_once_and_something_names_it() {
+    let p = "/form/children/0/children";
+    // Nothing names it: no title, no heading above it, a page title too long to be a subject.
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A long page title with many words",
+        vec![repeatable("RCP_Row", "", vec![text_field("TXT_A", "A", None)])],
+    )]);
+    assert_eq!(violations("repeatable-title", &doc), vec![format!("{p}/0/title")]);
+    // A title equal to the node's own name is the converter's "nothing names this".
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A long page title with many words",
+        vec![repeatable("RCP_Row", "RCP_Row", vec![text_field("TXT_A", "A", None)])],
+    )]);
+    assert_eq!(violations("repeatable-title", &doc), vec![format!("{p}/0/title")]);
+    // The page's title, a heading right above it, or its own title name it.
+    for children in [
+        vec![repeatable("RCP_Row", "", vec![])],
+        vec![draw("TitleDraw", "TTL_Rows", "Rows"), repeatable("RCP_Row", "", vec![])],
+        vec![repeatable("RCP_Row", "Row", vec![])],
+    ] {
+        let title = if children.len() == 1 && children[0]["title"]["en"] == "" { "Rows" } else { "A long page title with many words" };
+        let doc = doc_with(vec![page("PN_A", title, children)]);
+        assert!(violations("repeatable-title", &doc).is_empty(), "{:?}", violations("repeatable-title", &doc));
+    }
+    // A sentence is no subject.
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A long page title with many words",
+        vec![repeatable("RCP_Row", "Please list every person who holds the account.", vec![])],
+    )]);
+    assert_eq!(violations("repeatable-title", &doc), vec![format!("{p}/0/title")]);
+    // A heading inside that names the row names it twice; one for another thing does not.
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![repeatable(
+            "RCP_Client",
+            "Client",
+            vec![
+                draw("TitleDraw", "TTL_Row", "Client 1"),
+                draw("TitleDraw", "TTL_Same", "client"),
+                draw("TitleDraw", "TTL_Other", "Clients of the bank"),
+                repeatable("RCP_Nested", "Child", vec![draw("TitleDraw", "TTL_Child", "Client 2")]),
+            ],
+        )],
+    )]);
+    assert_eq!(
+        violations("repeatable-title", &doc),
+        vec![format!("{p}/0/children/0/content/en"), format!("{p}/0/children/1/content/en")]
+    );
+}
+
+#[test]
+fn a_hand_written_repeatable_rule_is_reported_and_the_templates_own_is_not() {
+    let template = "<fd:scripts fd:click=\"[{&quot;script&quot;:{&quot;content&quot;:&quot;// [repeating-panel] Generated automatically. \
+        window.forms.ubs.addInstance(this.parent.RCP_A)&quot;},&quot;_archetype&quot;:&quot;repeating-panel&quot;}]\" \
+        fd:visible=\"[{&quot;script&quot;:{&quot;content&quot;:&quot;this.parent.RCP_A.instanceManager.instances.length &quot;},&quot;_archetype&quot;:&quot;repeating-panel&quot;}]\"/>";
+    let by_hand = "<fd:scripts fd:click=\"[{&quot;script&quot;:{&quot;content&quot;:&quot;this.parent.RCP_A.instanceManager.addInstance()&quot;}}]\"/>";
+    let mut repeating = repeatable("RCP_A", "A", vec![text_field("TXT_A", "A", None)]);
+    repeating["passthrough"] = json!({"raw_children": [template, by_hand], "raw_attributes": {"x": "instanceManager.minOccur"}});
+    let doc = doc_with(vec![page("PN_A", "A", vec![repeating])]);
+    let p = "/form/children/0/children/0/passthrough";
+    assert_eq!(
+        violations("repeatable-no-handwritten-rules", &doc),
+        vec![format!("{p}/raw_attributes/x"), format!("{p}/raw_children/1")]
+    );
+    let mut clean = repeatable("RCP_A", "A", vec![text_field("TXT_A", "A", None)]);
+    clean["passthrough"] = json!({"raw_children": [template]});
+    assert!(violations("repeatable-no-handwritten-rules", &doc_with(vec![page("PN_A", "A", vec![clean])])).is_empty());
+}
+
+#[test]
+fn a_condition_needs_a_conditional_panel_and_an_option_to_match() {
+    let p = "/form/children/0/children";
+    let target = |name: &str, conditional: bool| {
+        panel(name, "", false, conditional, vec![text_field(&format!("TXT_{name}"), "Field", None)])
+    };
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![radio("RB_Type", &["One", "Two"], &["PN_One", "PN_Two"]), target("PN_One", true), target("PN_Two", false)],
+    )]);
+    // The second target is not conditional, so the writer gives it no visibility hook.
+    assert_eq!(violations("condition-targets", &doc), vec![format!("{p}/2/is_conditional")]);
+
+    // A name that no node has, a fragment, a name two nodes share, and a value no option has.
+    let mut choice = radio("RB_Type", &["One", "Two"], &["PN_Gone", "PN_Frag"]);
+    choice["conditions"].as_array_mut().unwrap().push(json!({
+        "target_panel_name": "PN_Dup", "value": {"type": "text", "value": "9"}, "show": true
+    }));
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            choice,
+            fragment("PN_Frag", "/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature"),
+            target("PN_Dup", true),
+            panel("PN_Dup", "", false, true, vec![text_field("TXT_Other", "Other", None)]),
+        ],
+    )]);
+    assert_eq!(
+        violations("condition-targets", &doc),
+        vec![
+            format!("{p}/0/conditions/0/target_panel_name"),
+            format!("{p}/0/conditions/1/target_panel_name"),
+            format!("{p}/0/conditions/2/target_panel_name"),
+            format!("{p}/0/conditions/2/value"),
+        ]
+    );
+    // A matching value on a wired panel.
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![radio("RB_Type", &["One", "Two"], &["PN_One", "PN_Two"]), target("PN_One", true), target("PN_Two", true)],
+    )]);
+    assert!(violations("condition-targets", &doc).is_empty());
+    let doc = set(doc, &format!("{p}/0/conditions/1"), "value", json!({"type": "text", "value": "7"}));
+    assert_eq!(violations("condition-targets", &doc), vec![format!("{p}/0/conditions/1/value")]);
+}
+
+#[test]
+fn a_node_kept_for_the_pdf_does_not_drop_itself_with_dor_exclude() {
+    let mut copy = fragment("PN_Copy", "/content/dam/formsanddocuments/afforms_italy_fragmentlib/affrg_italy_infobox");
+    copy["always_in_pdf"] = json!(true);
+    copy["summary_exclude"] = json!(true);
+    copy["dor_exclude"] = json!(true);
+    let mut hidden = draw("TextDraw", "ST_Hidden", "Hidden");
+    hidden["dor_exclude"] = json!(true);
+    let doc = doc_with(vec![page("PN_A", "A", vec![copy, hidden])]);
+    assert_eq!(
+        violations("placement-flags", &doc),
+        vec!["/form/children/0/children/0/dor_exclude".to_string()]
+    );
+    let doc = set(doc, "/form/children/0/children/0", "dor_exclude", json!(false));
+    assert!(violations("placement-flags", &doc).is_empty());
+}
+
+#[test]
+fn the_edit_button_is_not_set_where_the_writer_or_the_summary_has_no_use_for_it() {
+    let flagged = |mut node: Value| {
+        node["jump_to_field"] = json!(true);
+        node
+    };
+    let field = || text_field("TXT_A", "A", None);
+    let body = || draw("TextDraw", "ST_Body", "Some text");
+    let p = "/form/children/0/children";
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            flagged(panel("PN_FormConfigurator", "", false, false, vec![field()])),
+            flagged(panel("PN_Text", "", false, false, vec![body()])),
+            flagged(panel("PN_Fields", "", false, false, vec![field()])),
+            flagged(panel("PN_Rows", "", false, false, vec![repeatable("RCP_Row", "Row", vec![field()])])),
+        ],
+    )]);
+    assert_eq!(
+        violations("jump-to-field-placement", &doc),
+        vec![format!("{p}/0/jump_to_field"), format!("{p}/1/jump_to_field")]
+    );
+    // A titled page carries the writer's button on its step-title panel already; an untitled one
+    // keeps the only one it has.
+    let titled = doc_with(vec![flagged(page("PN_Page", "Declaration", vec![field()]))]);
+    assert_eq!(
+        violations("jump-to-field-placement", &titled),
+        vec!["/form/children/0/jump_to_field".to_string()]
+    );
+    let untitled = doc_with(vec![flagged(page("PN_Page", "", vec![field()]))]);
+    assert!(violations("jump-to-field-placement", &untitled).is_empty());
+}
+
+#[test]
+fn a_column_width_is_on_the_twelve_column_grid() {
+    let mut wide = text_field("TXT_Wide", "Wide", None);
+    wide["colspan"] = json!(13);
+    let mut none = text_field("TXT_None", "None", None);
+    none["colspan"] = json!(0);
+    let mut dor = text_field("TXT_Dor", "Dor", None);
+    dor["dor_colspan"] = json!(14);
+    let mut half = text_field("TXT_Half", "Half", None);
+    half["colspan"] = json!(6);
+    half["dor_colspan"] = json!(12);
+    let doc = doc_with(vec![page("PN_A", "A", vec![wide, none, dor, half])]);
+    let p = "/form/children/0/children";
+    assert_eq!(
+        violations("grid-widths", &doc),
+        vec![format!("{p}/0/colspan"), format!("{p}/1/colspan"), format!("{p}/2/dor_colspan")]
+    );
+}
+
+#[test]
+fn an_option_has_a_value_of_its_own() {
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![dropdown("DD_Blank", &["a", " ", "c"]), dropdown("DD_Twice", &["a", "b", "a"]), dropdown("DD_Fine", &["1", "2"])],
+    )]);
+    let p = "/form/children/0/children";
+    assert_eq!(
+        violations("options-wellformed", &doc),
+        vec![format!("{p}/0/options/1/value"), format!("{p}/1/options/2/value")]
+    );
+}
+
+#[test]
+fn a_partner_generic_is_wrapped_in_a_repeatable() {
+    let generic = "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_ContractualPartnerGeneric1";
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            fragment("PN_CPG", generic),
+            repeatable("RCP_AHGRP", "Representative", vec![fragment(
+                "PN_AHGRP",
+                "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_PartnertoPartnerGeneric1",
+            )]),
+            fragment("PN_Address", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_AddressGeneric1"),
+        ],
+    )]);
+    assert_eq!(
+        violations("account-holder-wiring", &doc),
+        vec!["/form/children/0/children/0".to_string()]
+    );
+    let fixed = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![repeatable("RCP_CPGRP", "Client", vec![fragment("PN_CPGRP", generic)])],
+    )]);
+    assert!(violations("account-holder-wiring", &fixed).is_empty());
 }
