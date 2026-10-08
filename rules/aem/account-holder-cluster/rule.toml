@@ -17,7 +17,7 @@ Germany, Tipo in Italy) that decides who the parties are. In such a form the clu
 - THE PARTIES sit on the configurator's page, in each option's panel, each a Repeatable wrapping
   one partner generic (naming and wrapping: ubs-aem-account-holder-wiring). A minor who holds the
   account is the contracting party (`PN_CPGRP`), not a partner, even though a guardian signs.
-  `init_hide` lists the sub-panels a party does not show. A party the source introduces in a
+  `init_hide` lists the sub-panels a party does not show, `init_show` the hidden ones it does. A party the source introduces in a
   later section (an authorisation, an annex of beneficial owners) stays in that section.
 - THE SIGNATURES sit on the signature page, in each option's panel, one signature Repeatable per
   party that signs. The signature page is the source's own signature section, or a page of their

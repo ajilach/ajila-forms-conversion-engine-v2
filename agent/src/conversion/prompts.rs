@@ -210,8 +210,11 @@ Fragments and Common Fields\") and confirm it against the reference packages (gr
 children to author. A `Preface` node is the banking relationship block the template renders. A \
 party (account holder, representative, beneficial owner, power of attorney) is a `Repeatable` \
 wrapping one `afforms_ubs_fragmentlib` partner generic `Fragment`, whose `init_hide` lists the \
-sub-panels its one Initialize hideAFHideDor rule hides (the only way to author that rule, and only a \
-partner generic takes it); its signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, and \
+sub-panels its one Initialize rule hides and `init_show` the ones it ships hidden that the source \
+asks for (a date of birth: `PN_DOBNationality`); that is the only way to author the rule, and only a \
+partner generic takes it. A field the source asks for that the generic does not have at all (a \
+place of birth) goes into a content `Panel` beside the `Fragment` inside the party's `Repeatable`, \
+never into the fragment; its signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, and \
 the UBS layer pairs the two by name so the party's Add and Remove drive both. A configurator \
 `RadioButton` with `conditions` shows the panel of each option. \
 CASCADING / DEPENDENT DROPDOWNS: where in the XFA a change-event script drives one dropdown from \

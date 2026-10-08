@@ -3,13 +3,15 @@ title = "A party is a Repeatable around its partner generic, named the way UBS p
 output_formats = ["aem-ubs"]
 description = """
 The UBS general-fragments directive models a party and its signature from ordinary nodes. A party
-is a `Repeatable` named `RCP_<stem>` wrapping exactly ONE `Fragment` of a partner generic, the
+is a `Repeatable` named `RCP_<stem>` wrapping exactly ONE `Fragment` of a partner generic (and,
+beside it, at most a content `Panel` for the fields the generic does not have), the
 fragment named by its role: `affrg_ContractualPartnerGeneric1` as `PN_CPGRP`;
 `affrg_PartnertoPartnerGeneric1` as `PN_AHGRP` (a second one `PN_AHGRP_AR`);
 `affrg_BeneficialOwnerGeneric1` as `PN_BOGRP`; `affrg_PowerofAttorneyGeneric1` as `PN_PAGRP`.
 `init_hide` lists the sub-panels the party does not show (a private person:
-`["PN_EntityBasic", "PN_Address"]`); it is the fragment's one Initialize rule, and only a partner
-generic takes it.
+`["PN_EntityBasic", "PN_Address"]`) and `init_show` the hidden ones it does (`PN_DOBNationality`
+for a date of birth); together they are the fragment's one Initialize rule, and only a partner
+generic takes them.
 
 A signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, both named after the party:
 `RCP_SGN_CPGRP` wrapping `PN_SGN_CPGRP` for `PN_CPGRP`; `RCP_Sign_AHGRP` wrapping `PN_Sign_AHGRP`
@@ -21,8 +23,9 @@ repeatable no buttons of its own, so a misspelled name silently unpairs them.
 The check decides the wrapping: a Fragment of a partner generic (`affrg_ContractualPartnerGeneric`,
 `affrg_PartnertoPartnerGeneric`, `affrg_BeneficialOwnerGeneric`, `affrg_PowerofAttorneyGeneric`)
 must be a child of a Repeatable, because a party that is not repeatable has no Add and Remove and
-no signature twin. The naming, the one-fragment-per-repeatable shape and `init_hide` are the
-directive's: a misplaced `init_hide` is refused when the package is built, and the signature half
+no signature twin. The naming, the one-fragment-per-repeatable shape, `init_hide` and `init_show`
+are the directive's: a misplaced or wrong `init_hide` or `init_show` is refused when the package is
+built, and the signature half
 is held by the review.
 
 Wrap the bare Fragment in a Repeatable named `RCP_<stem>` (title, `min_occur` and `max_occur` from

@@ -517,6 +517,7 @@ mod catalog_guards {
         "summary_exclude",
         "textbox",
         "init_hide",
+        "init_show",
         // u2s tool arguments and reply fields.
         "affects_layout",
         "side_effects",

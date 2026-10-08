@@ -16,11 +16,14 @@ signature's (place, date, name) are collected by the party's partner generic and
 the fragment's own field. A partner generic ships `PN_IndividualBasic` (last and first name) and
 `PN_Address` (street, number, additional details, postcode, city, state, country) shown, and
 `PN_EntityBasic` (company name), `PN_FormAddress` (title), `PN_DOBNationality` (date of birth,
-nationality) and `PN_DateIncorporation` (date and country of incorporation) hidden; `init_hide`
-hides a shown one. A sub-panel the source does not ask for that still shows, or one it asks for
-that stays hidden, is a break: hiding a field the source asks for loses data. A source field the
-partner generic does not have at all (place of birth, an email, a client id) is a break too. The
-signature generic's own hidden `SIGN_Signature` is intended, since the form is signed on paper.
+nationality) and `PN_DateIncorporation` (date and country of incorporation) hidden; a `Basic`
+variant has no `PN_Address`, and some ship `PN_EntityBasic` shown. `init_hide` hides a shown
+sub-panel and `init_show` shows a hidden one; building the package refuses a name the fragment
+does not have, or an `init_show` of one it already shows. A sub-panel the source does not ask for
+that still shows, or one it asks for that stays hidden, is a break: hiding a field the source asks
+for loses data. A source field the partner generic does not have at all (place of birth, an email,
+a client id) is a break too. The signature generic's own hidden `SIGN_Signature` is intended,
+since the form is signed on paper.
 
 How to judge: run coverage_check, which lists per language the source texts the document does not
 carry. It is a lead, not a verdict: look each entry up on the rendered page. Count the controls in
@@ -35,5 +38,7 @@ that differs without an explanation.
 
 Fix: add the missing node or text in the place the page shows it; where a count differs, find the
 lost control and add it. Never rebuild a fragment's fields as loose nodes: a party sub-panel shown
-against the source goes into `init_hide`.
+against the source goes into `init_hide`, a hidden one the source asks for into `init_show`, and a
+field the partner generic does not have goes into a content `Panel` beside the `Fragment` inside the
+party's `Repeatable`, never inside the fragment.
 """
