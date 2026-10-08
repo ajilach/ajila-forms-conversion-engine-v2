@@ -611,9 +611,11 @@ impl U2sTools {
             .tempdir()
             .map_err(|e| format!("could not create the u2s working directory: {e}"))?;
         let blobs = BlobStore::new(dir.path().join("blobs"));
+        let render = XfaRenderServer::with_parts(Limits::default(), blobs)
+            .map_err(|e| format!("the XFA renderer cannot start: {e}"))?;
         Ok(Self {
             data: XfaDataServer,
-            render: XfaRenderServer::with_parts(Limits::default(), blobs),
+            render,
             pdf: None,
             verifier: None,
             activity: Arc::new(Mutex::new(Activity {

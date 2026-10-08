@@ -10,7 +10,7 @@
 //!   `afAcceptLang` URL parameters that resolve to a real entity the
 //!   package's own metadata component declares -- otherwise it throws
 //!   `FormMetadataException: No metadata information for mandator .`.
-//!   `crate::ubs_metadata` extracts that entity offline, from the package
+//!   `u2s_aem_ubs_verify_mcp::ubs_metadata` extracts that entity offline, from the package
 //!   itself, before ever opening a browser.
 //! - **Recognising the wizard's terminal panel.** This branch of
 //!   `ajila-forms-ubs` hardcodes `window.forms.ubs.isFWB()` to `true`,
@@ -18,29 +18,24 @@
 //!   panel (the Forms WorkBench host is normally what triggers submit
 //!   instead). So the generic driver's "a visible submit button" signal
 //!   never fires; this crate's own signal is "the summary panel
-//!   (`.summaryComponent`) is showing" (`crate::ubs_js::IS_SUMMARY_PANEL`).
+//!   (`.summaryComponent`) is showing" (`u2s_aem_ubs_verify_mcp::ubs_js::IS_SUMMARY_PANEL`).
 //! - **Submitting.** A raw `guideBridge.submit()` takes AEM's native XDP
 //!   rendering path, whose 32-bit x86 native services (`XMLForm.exe`,
 //!   `convertpdf.exe`) cannot run on this workspace's own ARM Docker
 //!   image. UBS's own `window.forms.ubs.navigation.submit(...)` routine
-//!   (`crate::ubs_js::SUBMIT`) populates `summaryComponent` first, which
+//!   (`u2s_aem_ubs_verify_mcp::ubs_js::SUBMIT`) populates `summaryComponent` first, which
 //!   is what makes `ajila-forms-ubs`'s `DorRenderingExecutor` route the
 //!   submission through the Redacto rendering dependency instead.
 //!
 //! See `specs.rs` for the exact tool contract and
 //! `u2s_aem_verify_core::flow` for the orchestration this binary's own
-//! `crate::driver::UbsDriver` plugs into.
-
-mod driver;
-mod specs;
-mod ubs_js;
-mod ubs_metadata;
+//! `u2s_aem_ubs_verify_mcp::driver::UbsDriver` plugs into.
 
 use std::sync::Arc;
 
+use u2s_aem_ubs_verify_mcp::driver::UbsDriver;
+use u2s_aem_ubs_verify_mcp::specs;
 use u2s_aem_verify_core::server::{ServerConfig, run_main};
-
-use driver::UbsDriver;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

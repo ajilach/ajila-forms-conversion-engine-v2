@@ -136,6 +136,15 @@ pub struct RegisteredFonts {
     pub fallback: PathBuf,
 }
 
+/// Whether fonts are registered: the font manager has a fallback, which
+/// [`register_dir`] always sets. A caller that registers fonts its own way
+/// checks this before rendering anything.
+pub fn fallback_registered() -> bool {
+    get_font_manager()
+        .lock()
+        .is_ok_and(|manager| manager.has_fallback())
+}
+
 /// Register from `U2S_FONT_DIR`, which is how the server is configured.
 pub fn register_from_env() -> Result<RegisteredFonts, XfaError> {
     let dir = std::env::var("U2S_FONT_DIR").map_err(|_| {

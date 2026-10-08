@@ -477,6 +477,12 @@ impl FontManager {
         self.fallback_font_data = Some(data);
     }
 
+    /// Whether a fallback font is set: without one, layout has nothing to
+    /// measure an unresolved typeface with (see `crate::fonts`).
+    pub fn has_fallback(&self) -> bool {
+        self.fallback_font_data.is_some()
+    }
+
     /// Enable or disable strict mode
     /// In strict mode, returns an error when a font is not found instead of using fallback
     pub fn set_strict_mode(&mut self, strict: bool) {

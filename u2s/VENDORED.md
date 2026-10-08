@@ -3,7 +3,7 @@
 Source: `ajilach/ajila-forms-conversion-engine-v3` (local checkout usually at
 `../unstructured-to-structured`).
 
-Upstream commit: `115cc69`
+Upstream commit: `e19bcd9`
 
 Re-sync with `scripts/sync-u2s.sh <checkout>`. It copies the crates and plain-file assets, then
 re-applies every file in `u2s/patches/` in order. Do not edit vendored code directly: make the
@@ -42,23 +42,15 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
 
 ## Local patches (`u2s/patches/`)
 
+v3's tool servers are libraries as well as stdio binaries (each crate's `lib.rs` holds the server,
+`main.rs` serves it from the environment), so `agent/src/u2s.rs` links them in-process through their
+own `with_parts`, `dispatch`, `specs` and, for the verifiers, `shutdown`, with no patch. What is
+still patched here:
+
 - `0001-drop-u2s-engine-dev-dependency.patch`: removes the `u2s-engine` dev-dependency from
   `u2s-aem` and `u2s-redacto`, together with the three schema tests that used it
   (`skeleton.rs`, and `strict_adaptation.rs` in both crates). `u2s-engine` is v3's LLM engine;
   it is not vendored here.
-- `0002-library-targets-for-in-process-hosts.patch`: gives the five server crates a library
-  target, which `agent/src/u2s.rs` links in-process.
-  - `u2s-xfa-mcp`, `u2s-render-xfa-mcp`, `u2s-render-pdf-mcp` and `u2s-redacto-ubs-verify-mcp`
-    get a `lib.rs` that compiles their unchanged `main.rs` as a module (`#[path]`). Inside
-    `main.rs`, the patch only makes the server type, its `dispatch` and the `specs` module
-    `pub`.
-  - Each constructor that reads the environment gets a `with_parts(...)` twin, which takes
-    limits, blob store and profile as values; `new()` delegates to it. The Redacto verifier
-    also gets `shutdown()`, which tears down every session not in use.
-  - `u2s-aem-ubs-verify-mcp` gets a `lib.rs` exposing its driver and specs.
-  - `u2s-aem-verify-core`'s `AemVerifyServer` becomes public, with `with_parts`, `dispatch`
-    and `shutdown`. Leftover containers of a crashed run are removed through upstream's own
-    public `u2s_verify_core::session::remove_leftovers`.
 
 ## How the agent offers the vendored tools
 
