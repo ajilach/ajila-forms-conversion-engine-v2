@@ -8,7 +8,7 @@
 
 use serde_json::{Value, json};
 
-use u2s_aem_verify_core::driver::FormDriver;
+use u2s_aem_verify_core::driver::{FormDriver, SubmitLogFilter};
 use u2s_aem_verify_core::package_check::PackageInspection;
 
 use crate::ubs_js;
@@ -77,17 +77,18 @@ impl FormDriver for UbsDriver {
         stored_dor_path(submit_data.get("form")?.as_str()?)
     }
 
-    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
-        &[(
-            "/logs/ubsbundle.log",
-            &[
+    fn submit_log_filters(&self) -> &'static [SubmitLogFilter] {
+        &[SubmitLogFilter {
+            file: "/logs/ubsbundle.log",
+            start_marker: "Form Submit started",
+            needles: &[
                 "SummaryOutput:",
                 "rendering summary document",
                 "Submit successfully completed",
                 "*ERROR*",
                 "Exception",
             ],
-        )]
+        }]
     }
 
     fn submit_failed_message(&self) -> &'static str {

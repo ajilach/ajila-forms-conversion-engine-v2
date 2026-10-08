@@ -15,6 +15,17 @@ use serde_json::{Value, json};
 
 use crate::package_check::PackageInspection;
 
+/// One AEM log file to read after a submit: see
+/// [`FormDriver::submit_log_filters`].
+pub struct SubmitLogFilter {
+    /// The file as the Sling log tailer names it, e.g. `/logs/error.log`.
+    pub file: &'static str,
+    /// A substring of the line that starts a submit in this file.
+    pub start_marker: &'static str,
+    /// Substrings of the lines worth attaching.
+    pub needles: &'static [&'static str],
+}
+
 /// Format-specific behaviour `crate::flow`'s wizard walk needs but must
 /// not itself know about. Every method is synchronous and side-effect
 /// free: it either inspects `package` (already read once, offline, by
@@ -102,10 +113,12 @@ pub trait FormDriver: Send + Sync {
         None
     }
 
-    /// AEM log files (as the Sling log tailer names them) and the substrings
-    /// of their lines worth attaching to a submit's findings, so an agent
-    /// reads the server's own account of what happened. Empty for none.
-    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
+    /// AEM log files (as the Sling log tailer names them), the substring of
+    /// the line that starts a submit there, and the substrings of the lines
+    /// worth attaching, so an agent reads the server's own account of what
+    /// happened. Only lines from the last start marker on are used: older
+    /// lines belong to an earlier submit. Empty for none.
+    fn submit_log_filters(&self) -> &'static [SubmitLogFilter] {
         &[]
     }
 

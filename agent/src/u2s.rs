@@ -993,7 +993,15 @@ fn reply_from_result(result: CallToolResult, blobs: &Path) -> ToolReply {
         .content
         .into_iter()
         .map(|content| match content {
-            ContentBlock::Text(t) => ReplyBlock::Text(t.text),
+            // A result whose text is itself the JSON report (as
+            // aem_verify_submit's is) gets the blob paths there.
+            ContentBlock::Text(t) => match serde_json::from_str::<Value>(&t.text) {
+                Ok(mut value) if t.text.contains("\"handle\"") => {
+                    add_blob_paths(&mut value, blobs);
+                    ReplyBlock::Text(value.to_string())
+                }
+                _ => ReplyBlock::Text(t.text),
+            },
             ContentBlock::Image(i) => ReplyBlock::Image {
                 media_type: i.mime_type,
                 data: i.data,
@@ -1184,6 +1192,17 @@ mod tests {
             panic!("a text-only result stays text");
         };
         assert_eq!(text.matches("closed").count(), 1, "{text}");
+
+        // aem_verify_submit's text is its report: its artefacts get the path
+        // too, so the pdf_* tools can read the submitted PDF.
+        let submitted = CallToolResult::structured(serde_json::json!({
+            "artefacts": [{ "kind": "download", "blob": { "handle": handle } }],
+        }));
+        let ToolReply::Text(text) = reply_from_result(submitted, blobs.path()) else {
+            panic!("a text-only result stays text");
+        };
+        assert!(text.contains(&format!("\"doc_path\":{}", serde_json::json!(doc_path))), "{text}");
+        assert_eq!(text.matches("artefacts").count(), 1, "{text}");
     }
 
     /// The two verifiers share tool names upstream; here each family carries

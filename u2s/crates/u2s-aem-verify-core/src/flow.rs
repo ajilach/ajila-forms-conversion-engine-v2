@@ -1728,16 +1728,30 @@ async fn attach_server_log(
     }
     let client = AemClient::new(&instances.aem_base_url, &profile.aem_user, &profile.aem_password);
     let mut picked = Vec::new();
-    for (file, needles) in filters {
-        match client.tail_log(file, 400).await {
-            Ok(text) => picked.extend(
-                text.lines()
-                    .filter(|line| needles.iter().any(|n| line.contains(n)))
-                    .map(|line| {
-                        let line: String = line.chars().take(400).collect();
-                        format!("{file}: {line}")
-                    }),
-            ),
+    for filter in filters {
+        let file = filter.file;
+        match client.tail_log(file, 600).await {
+            Ok(text) => {
+                let lines: Vec<&str> = text.lines().collect();
+                // Only this submit's lines: earlier submits of the same session
+                // are in the same file and would otherwise read as this one's.
+                let start = lines
+                    .iter()
+                    .rposition(|line| line.contains(filter.start_marker))
+                    .unwrap_or(0);
+                picked.extend(
+                    lines[start..]
+                        .iter()
+                        .filter(|line| {
+                            line.contains(filter.start_marker)
+                                || filter.needles.iter().any(|n| line.contains(n))
+                        })
+                        .map(|line| {
+                            let line: String = line.chars().take(400).collect();
+                            format!("{file}: {line}")
+                        }),
+                );
+            }
             Err(err) => picked.push(format!("{file}: could not be read ({err})")),
         }
     }

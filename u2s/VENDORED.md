@@ -75,6 +75,9 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
   `download_failed_read_from_repository` finding. A PDF with no font and no image raises
   `pdf_blank`. The matching lines of `ubsbundle.log` (`SummaryOutput:`, `rendering summary
   document`, errors) are attached as a `server_log` finding (`AemClient::tail_log`).
+- `0005-submit-log-scope.patch`: the `server_log` finding keeps only the lines from the last
+  submit's start marker on (`SubmitLogFilter`), so a second submit in the same session no longer
+  reports the first one's lines.
 
 ## How the agent offers the vendored tools
 

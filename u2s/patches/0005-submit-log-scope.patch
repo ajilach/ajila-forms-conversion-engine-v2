@@ -1,0 +1,121 @@
+diff --git a/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs b/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs
+index f7e0e9a..a4abbba 100644
+--- a/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs
++++ b/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs
+@@ -8,7 +8,7 @@
+ 
+ use serde_json::{Value, json};
+ 
+-use u2s_aem_verify_core::driver::FormDriver;
++use u2s_aem_verify_core::driver::{FormDriver, SubmitLogFilter};
+ use u2s_aem_verify_core::package_check::PackageInspection;
+ 
+ use crate::ubs_js;
+@@ -77,17 +77,18 @@ impl FormDriver for UbsDriver {
+         stored_dor_path(submit_data.get("form")?.as_str()?)
+     }
+ 
+-    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
+-        &[(
+-            "/logs/ubsbundle.log",
+-            &[
++    fn submit_log_filters(&self) -> &'static [SubmitLogFilter] {
++        &[SubmitLogFilter {
++            file: "/logs/ubsbundle.log",
++            start_marker: "Form Submit started",
++            needles: &[
+                 "SummaryOutput:",
+                 "rendering summary document",
+                 "Submit successfully completed",
+                 "*ERROR*",
+                 "Exception",
+             ],
+-        )]
++        }]
+     }
+ 
+     fn submit_failed_message(&self) -> &'static str {
+diff --git a/u2s/crates/u2s-aem-verify-core/src/driver.rs b/u2s/crates/u2s-aem-verify-core/src/driver.rs
+index 466e85d..0a4e3c9 100644
+--- a/u2s/crates/u2s-aem-verify-core/src/driver.rs
++++ b/u2s/crates/u2s-aem-verify-core/src/driver.rs
+@@ -15,6 +15,17 @@ use serde_json::{Value, json};
+ 
+ use crate::package_check::PackageInspection;
+ 
++/// One AEM log file to read after a submit: see
++/// [`FormDriver::submit_log_filters`].
++pub struct SubmitLogFilter {
++    /// The file as the Sling log tailer names it, e.g. `/logs/error.log`.
++    pub file: &'static str,
++    /// A substring of the line that starts a submit in this file.
++    pub start_marker: &'static str,
++    /// Substrings of the lines worth attaching.
++    pub needles: &'static [&'static str],
++}
++
+ /// Format-specific behaviour `crate::flow`'s wizard walk needs but must
+ /// not itself know about. Every method is synchronous and side-effect
+ /// free: it either inspects `package` (already read once, offline, by
+@@ -102,10 +113,12 @@ pub trait FormDriver: Send + Sync {
+         None
+     }
+ 
+-    /// AEM log files (as the Sling log tailer names them) and the substrings
+-    /// of their lines worth attaching to a submit's findings, so an agent
+-    /// reads the server's own account of what happened. Empty for none.
+-    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
++    /// AEM log files (as the Sling log tailer names them), the substring of
++    /// the line that starts a submit there, and the substrings of the lines
++    /// worth attaching, so an agent reads the server's own account of what
++    /// happened. Only lines from the last start marker on are used: older
++    /// lines belong to an earlier submit. Empty for none.
++    fn submit_log_filters(&self) -> &'static [SubmitLogFilter] {
+         &[]
+     }
+ 
+diff --git a/u2s/crates/u2s-aem-verify-core/src/flow.rs b/u2s/crates/u2s-aem-verify-core/src/flow.rs
+index 618842d..26fc529 100644
+--- a/u2s/crates/u2s-aem-verify-core/src/flow.rs
++++ b/u2s/crates/u2s-aem-verify-core/src/flow.rs
+@@ -1728,16 +1728,30 @@ async fn attach_server_log(
+     }
+     let client = AemClient::new(&instances.aem_base_url, &profile.aem_user, &profile.aem_password);
+     let mut picked = Vec::new();
+-    for (file, needles) in filters {
+-        match client.tail_log(file, 400).await {
+-            Ok(text) => picked.extend(
+-                text.lines()
+-                    .filter(|line| needles.iter().any(|n| line.contains(n)))
+-                    .map(|line| {
+-                        let line: String = line.chars().take(400).collect();
+-                        format!("{file}: {line}")
+-                    }),
+-            ),
++    for filter in filters {
++        let file = filter.file;
++        match client.tail_log(file, 600).await {
++            Ok(text) => {
++                let lines: Vec<&str> = text.lines().collect();
++                // Only this submit's lines: earlier submits of the same session
++                // are in the same file and would otherwise read as this one's.
++                let start = lines
++                    .iter()
++                    .rposition(|line| line.contains(filter.start_marker))
++                    .unwrap_or(0);
++                picked.extend(
++                    lines[start..]
++                        .iter()
++                        .filter(|line| {
++                            line.contains(filter.start_marker)
++                                || filter.needles.iter().any(|n| line.contains(n))
++                        })
++                        .map(|line| {
++                            let line: String = line.chars().take(400).collect();
++                            format!("{file}: {line}")
++                        }),
++                );
++            }
+             Err(err) => picked.push(format!("{file}: could not be read ({err})")),
+         }
+     }
