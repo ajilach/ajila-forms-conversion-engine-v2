@@ -549,7 +549,7 @@ pub(crate) async fn run_stage(
         obs: obs.clone(),
         spend: judge_spend.clone(),
     };
-    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &judges);
+    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &judges, records_evidence(role));
 
     let memory = if role.remember {
         stage_memory(&session_id, role.name, context_budget.policy())
@@ -557,6 +557,9 @@ pub(crate) async fn run_stage(
         None
     };
     let loaded: Vec<Message> = match &memory {
+        // A stage that does not resume (the Reviewer) still stores what it
+        // does, but starts from nothing.
+        Some(_) if !role.resume => Vec::new(),
         // Repaired as it is loaded: a conversation stored before calls were
         // answered on the way out still holds unanswered ones.
         Some((memory, id)) => match memory.load(id).await {
@@ -788,6 +791,13 @@ async fn run_stage_attempts(
     }
 }
 
+/// Whether a stage's calls count as its own verification (see
+/// `agent::ConversionAgent::execute_as`). A judge's do not: it runs on the
+/// same agent while the stage that dispatched it waits.
+pub(crate) fn records_evidence(role: &Role) -> bool {
+    role.scope & agent::scope::JUDGES == 0
+}
+
 /// Build one stage's `Agent`: the model it runs against, plus the tool
 /// catalog's own scoped subset bridged onto rig's `DynamicTool` — see
 /// [`crate::tools`].
@@ -798,8 +808,9 @@ fn build_stage_agent(
     shared_agent: &SharedAgent,
     specs: &[serde_json::Value],
     judges: &crate::judge::JudgeContext,
+    records: bool,
 ) -> Agent {
-    let dynamic_tools = tools::dynamic_tools_with_judges(shared_agent, specs, judges);
+    let dynamic_tools = tools::dynamic_tools_with_judges(shared_agent, specs, judges, records);
     let builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
 
     let mut iter = dynamic_tools.into_iter();
@@ -1505,8 +1516,26 @@ mod controller {
     /// build their own agent with a real id and a scratch database instead
     /// (see `a_resumed_session_loads_its_prior_conversation`).
     fn bare_agent() -> SharedAgent {
-        Arc::new(tokio::sync::Mutex::new(ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
-            .expect("an agent without sources starts")))
+        shared(buildable_agent(String::new()))
+    }
+
+    /// A Redacto agent over a real source whose document builds, since the
+    /// controller builds it before every review, with its evidence gate
+    /// waived: these tests are about sequencing, and the gate is the agent's
+    /// own (`agent::conversion::evidence`).
+    fn buildable_agent(session_id: String) -> ConversionAgent {
+        let name = "AAEV_019_EN.pdf";
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../forms").join(name);
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let mut agent = ConversionAgent::new(None, vec![(name.to_string(), bytes)], session_id, OutputTarget::Redacto)
+            .expect("an agent over a source starts");
+        let mut doc = agent.document().clone();
+        doc["assets"] = serde_json::json!([{ "key": "intro", "kind": "text", "content": { "en": "<p>Intro.</p>" } }]);
+        doc["body"] = serde_json::json!([{ "type": "assetContainer", "assets": ["intro"] }]);
+        agent.seed_document(doc).expect("a Redacto document");
+        agent.ensure_built().expect("the test document builds");
+        agent.waive_evidence();
+        agent
     }
 
     /// A `ContextBudget` that shapes nothing and records nothing — every
@@ -1552,8 +1581,7 @@ mod controller {
     /// Docker; only a verifier call or the teardown would.
     fn redacto_agent_with_verifier() -> SharedAgent {
         let settings = agent::u2s::RedactoVerifySettings::default();
-        let agent = ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
-            .expect("an agent without sources starts")
+        let agent = buildable_agent(String::new())
             .with_redacto_verify(&settings)
             .expect("attaching the verifier needs no Docker");
         assert!(agent.has_verifier());
@@ -1611,9 +1639,9 @@ mod controller {
         // every other controller test — so driving a stage all the way to
         // `MaxTurnsError` needs turns that keep the loop going instead: a
         // tool call, answered every time, never ends the stage on its own.
-        // One ordinary Author turn, then Redacto's Reviewer budget of 30
-        // turns (its `stuck_tool` is the dump build, so repeating
-        // `get_source_info` never trips the stuck watch instead); the 32nd
+        // One ordinary Author turn, then Redacto's Reviewer budget of 45
+        // turns (its `stuck_tool` is rule_check, so repeating
+        // `get_source_info` never trips the stuck watch instead); the 47th
         // completion call is refused with `MaxTurnsError`.
         let repeat_turn = || {
             vec![
@@ -1622,7 +1650,7 @@ mod controller {
             ]
         };
         let mut turns = vec![text_turn("BUILT")];
-        turns.extend(std::iter::repeat_with(repeat_turn).take(30));
+        turns.extend(std::iter::repeat_with(repeat_turn).take(45));
         let model = MockCompletionModel::from_stream_turns(turns);
         let (obs, rec) = recorder();
 
@@ -1632,7 +1660,7 @@ mod controller {
             outcome.is_some(),
             "a budget-exhausted stage still finalizes with whatever it built"
         );
-        assert_eq!(model.request_count(), 31);
+        assert_eq!(model.request_count(), 46);
         let warnings: Vec<String> = rec
             .lock()
             .unwrap()
@@ -1641,7 +1669,7 @@ mod controller {
             .map(|w| w.to_string())
             .collect();
         assert!(
-            warnings.iter().any(|w| w.contains("Reviewer") && w.contains("30-turn budget")),
+            warnings.iter().any(|w| w.contains("Reviewer") && w.contains("45-turn budget")),
             "the operator was never told the Reviewer ran out of budget: {warnings:?}"
         );
     }
@@ -1665,6 +1693,52 @@ mod controller {
             !warnings.iter().any(|w| w.contains("without a clean review")),
             "{warnings:?}"
         );
+    }
+
+    /// The Reviewer builds nothing, so the controller builds the Author's
+    /// document before each review; one that does not build goes straight
+    /// back to the Author as the review, without a Reviewer stage.
+    #[tokio::test]
+    async fn a_document_that_does_not_build_goes_back_to_the_author_unreviewed() {
+        // No source, so its Redacto document has no language and builds nothing.
+        let mut unbuildable = ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
+            .expect("an agent without sources starts");
+        unbuildable.waive_evidence();
+        let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), text_turn("FIXED")]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(shared(unbuildable), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
+
+        assert!(outcome.is_some());
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Author"]);
+        let fix_system = turn_system(&model.requests()[1]);
+        assert!(fix_system.contains("does not build"), "the build failure was not pinned: {fix_system}");
+    }
+
+    /// `finish_authoring` ends the Author's stage there and then; an Author
+    /// that ends any other way is reported, since it did not verify its form.
+    #[tokio::test]
+    async fn finish_authoring_ends_the_author_stage() {
+        let finish = vec![
+            MockStreamEvent::tool_call("call-finish", "finish_authoring", serde_json::json!({ "summary": "done" })),
+            MockStreamEvent::final_response(Usage::new()),
+        ];
+        let model = MockCompletionModel::from_stream_turns([finish, review_turn(true, "")]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
+
+        assert!(outcome.is_some());
+        assert_eq!(model.request_count(), 2, "the Author must get no turn after finish_authoring");
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert!(!warnings.iter().any(|w| w.contains("finish_authoring")), "{warnings:?}");
+
+        let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), review_turn(true, "")]);
+        let (obs, rec) = recorder();
+        run(bare_agent(), config(AbortFlag::default(), 1, model), RunSeed::Fresh, obs).await;
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert!(warnings.iter().any(|w| w.contains("without finish_authoring")), "{warnings:?}");
     }
 
     /// A rejected review sends the run back to the Author with the report
@@ -1872,6 +1946,7 @@ mod controller {
         stuck_activity: "testing",
         max_tokens_nudge: "nudge incrementally",
         remember: true,
+        resume: true,
     };
 
     /// A restart after a turn already succeeded must not lose what that turn
@@ -2014,7 +2089,7 @@ mod controller {
     async fn a_review_ended_by_submit_review_is_stored() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
-        let (stored, _) = stored_after(role, vec![review_turn(true, "fine")]).await;
+        let (stored, _) = stored_after(role, vec![review_turn(false, "fine")]).await;
         assert_eq!(seeds(&stored), 1, "{stored:?}");
         assert!(calls_tool(&stored, "submit_review"), "{stored:?}");
     }
@@ -2097,13 +2172,12 @@ mod controller {
         calls.filter(|id| !answered.contains(id)).collect()
     }
 
-    /// A stage that `submit_review` ends stops before rig records that call's
-    /// result. The next round of the same stage loads that conversation, and a
-    /// provider refuses a tool call left unanswered (`tool_use ids were found
-    /// without tool_result blocks`), so the stored conversation has to answer
-    /// every call it makes.
+    /// The Reviewer reviews every round from scratch: a second round under
+    /// the same session sends none of the first round's conversation, though
+    /// the first round's is still stored for a diagnosis.
     #[tokio::test]
-    async fn a_second_review_round_resumes_a_conversation_with_every_call_answered() {
+    async fn a_second_review_round_starts_fresh() {
+        use rig_core::memory::ConversationMemory;
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let session_id = format!("review-rounds-{}", uuid::Uuid::new_v4());
         let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
@@ -2135,15 +2209,20 @@ mod controller {
         };
 
         review(MockCompletionModel::from_stream_turns([review_turn(false, "The footer is missing.")])).await;
-        let second = MockCompletionModel::from_stream_turns([review_turn(true, "")]);
+        let second = MockCompletionModel::from_stream_turns([review_turn(false, "Still missing.")]);
         review(second.clone()).await;
 
         let sent = &second.requests()[0].chat_history;
         assert!(
-            sent.iter().any(|m| matches!(m, Message::Assistant { .. })),
-            "the second round must resume the first round's conversation: {sent:?}"
+            !sent.iter().any(|m| matches!(m, Message::Assistant { .. })),
+            "the second round must not see the first round's conversation: {sent:?}"
         );
-        assert_eq!(unanswered_calls(sent), Vec::<String>::new(), "{sent:?}");
+        let stored = crate::memory::SqliteConversationMemory
+            .load(&crate::memory::conversation_id(&session_id, role.name))
+            .await
+            .expect("memory loads");
+        let rounds = stored.iter().filter(|m| user_text(m) == "review it").count();
+        assert_eq!(rounds, 2, "both rounds are stored: {stored:?}");
     }
 
     /// A conversation stored before calls were answered on the way out still

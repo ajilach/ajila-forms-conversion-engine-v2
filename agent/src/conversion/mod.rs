@@ -232,6 +232,10 @@ pub struct ConversionAgent {
     /// What the current stage has verified, which gates its terminal call
     /// (see [`evidence`]).
     evidence: evidence::StageEvidence,
+    /// Whether the evidence gate is off, for a controller test that drives
+    /// stages with scripted turns rather than real verification.
+    #[cfg(any(test, feature = "test-utils"))]
+    evidence_waived: bool,
     /// The judgements `rule_check` has dispatched and not yet taken back, each
     /// with the verdict its judge recorded, if it has. Keyed by a judgement id
     /// of its own, not the rule's: two judges of one rule never collide, and a
@@ -300,6 +304,8 @@ impl ConversionAgent {
             review: None,
             finish: None,
             evidence: evidence::StageEvidence::default(),
+            #[cfg(any(test, feature = "test-utils"))]
+            evidence_waived: false,
             judgements: HashMap::new(),
             judgements_opened: 0,
             u2s: None,
@@ -347,7 +353,18 @@ impl ConversionAgent {
     /// What the current stage still has to verify before its terminal call
     /// is accepted (empty when nothing).
     pub fn missing_evidence(&self) -> Vec<String> {
+        #[cfg(any(test, feature = "test-utils"))]
+        if self.evidence_waived {
+            return Vec::new();
+        }
         self.evidence.missing(self.target, self.built.is_some())
+    }
+
+    /// Turns the evidence gate off, for a controller test whose scripted
+    /// stages end with a terminal call they did nothing to earn.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn waive_evidence(&mut self) {
+        self.evidence_waived = true;
     }
 
     /// The document as it stands.
@@ -926,6 +943,74 @@ mod tests {
         let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
         assert!(files.iter().any(|(_, c)| c.contains("TXT_LastName")));
         assert!(agent.xsd().is_some() && agent.package_bound().is_some());
+    }
+
+    /// Feeds the agent's evidence everything the AEM gate asks for, as the
+    /// verifier and renderer replies would.
+    fn verify_everything(agent: &mut ConversionAgent) {
+        let text = |v: Value| ToolReply::Text(v.to_string());
+        let e = &mut agent.evidence;
+        e.observe_reply("xfa_controls", &json!({}), &text(json!({ "controls": [] })));
+        e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
+        e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
+        e.observe_reply(
+            "aem_verify_submit",
+            &json!({}),
+            &text(json!({ "artefacts": [{ "blob": { "media_type": "application/pdf", "doc_path": "/blobs/dor.pdf" } }] })),
+        );
+        e.observe_call("pdf_render_pages", &json!({ "doc_path": "/blobs/dor.pdf" }));
+    }
+
+    /// The terminal calls are gated on the stage's own verification of the
+    /// current build: refused before it, accepted after it, refused again once
+    /// an edit or a new stage voids it. A rejecting review is never gated.
+    #[tokio::test]
+    async fn terminal_calls_wait_for_the_stages_own_verification() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
+
+        let approve = json!({ "approved": true, "report": "" });
+        let refused = agent.execute("submit_review", &approve).await;
+        assert!(matches!(&refused, ToolReply::Error(e) if e.contains("aem_verify_submit") && e.contains("build_aem_package")), "{refused:?}");
+        assert!(agent.take_review().is_none(), "a refused approval records nothing");
+        assert!(matches!(agent.execute("finish_authoring", &json!({ "summary": "done" })).await, ToolReply::Error(_)));
+
+        let rejected = agent.execute("submit_review", &json!({ "approved": false, "report": "footer" })).await;
+        assert!(matches!(rejected, ToolReply::Text(_)));
+        assert!(agent.take_review().is_some_and(|r| !r.approved && r.report == "footer"));
+
+        reply_text(agent.execute("build_aem_package", &json!({})).await);
+        verify_everything(&mut agent);
+        reply_text(agent.execute("submit_review", &approve).await);
+        assert!(agent.take_review().is_some_and(|r| r.approved));
+        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done" })).await);
+        assert_eq!(agent.take_finish().as_deref(), Some("done"));
+
+        // A new stage earns its own.
+        agent.begin_stage();
+        assert!(matches!(agent.execute("submit_review", &approve).await, ToolReply::Error(_)));
+
+        // An edit voids the verification of the build it replaced.
+        verify_everything(&mut agent);
+        assert!(agent.missing_evidence().is_empty());
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_More") }])).await;
+        let missing = agent.missing_evidence().join("\n");
+        assert!(missing.contains("build_aem_package") && missing.contains("aem_verify_submit"), "{missing}");
+    }
+
+    /// A judge's calls run on the same agent while the stage waits for its
+    /// verdict, but they are not the stage's own verification.
+    #[tokio::test]
+    async fn an_unrecorded_call_is_no_evidence() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let render = json!({ "doc_path": "/nowhere/source.pdf", "page": 1 });
+        let names_render = |agent: &ConversionAgent| agent.missing_evidence().join("\n").contains("xfa_render_pages");
+
+        agent.execute_as("xfa_render_pages", &render, false).await;
+        assert!(agent.start_read_as("xfa_render_pages", &render, false).await.is_some());
+        assert!(names_render(&agent), "a judge's render counted for the stage");
+        agent.execute("xfa_render_pages", &render).await;
+        assert!(!names_render(&agent), "the stage's own render did not count");
     }
 
     /// The authored header is what the banking-relationship preface prints in

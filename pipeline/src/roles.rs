@@ -79,10 +79,14 @@ pub(crate) struct Role {
     /// Injected when a turn overflows the output-token cap. Names the authoring
     /// tools this role actually has, so it must be per target.
     pub(crate) max_tokens_nudge: &'static str,
-    /// Whether the stage's conversation is stored under the session and loaded
-    /// when it runs again. A judge's is not: it is one-shot, and judges run in
-    /// parallel, so one stored conversation would mix them.
+    /// Whether the stage's conversation is stored under the session. A judge's
+    /// is not: it is one-shot, and judges run in parallel, so one stored
+    /// conversation would mix them.
     pub(crate) remember: bool,
+    /// Whether a stored conversation is loaded when the stage runs again, so
+    /// it carries on where it left off. The Reviewer's is stored (for a
+    /// diagnosis) but never loaded: every round reviews from scratch.
+    pub(crate) resume: bool,
 }
 
 pub(crate) const AUTHOR: Role = Role {
@@ -93,6 +97,7 @@ pub(crate) const AUTHOR: Role = Role {
     stuck_activity: "the package build",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
     remember: true,
+    resume: true,
 };
 
 /// The Reviewer's budget covers a browser click-through of the deployed form
@@ -100,18 +105,21 @@ pub(crate) const AUTHOR: Role = Role {
 /// control the form's scripts read, not just the package checks the Redacto
 /// reviewer needs.
 ///
-/// It builds nothing, so it has no build to watch for a stall. It remembers
-/// nothing either: every round starts fresh from the source, unbiased by how
-/// an earlier round (or the Author) saw the form; the prior reports pinned in
-/// its system prompt are all it carries over.
+/// It builds nothing, so its stall watch is on rule_check instead: the
+/// document cannot change under it, so the same report three times running
+/// means it is going in circles. It resumes nothing either: every round starts
+/// fresh from the source, unbiased by how an earlier round (or the Author) saw
+/// the form; the prior reports pinned in its system prompt are all it carries
+/// over.
 pub(crate) const REVIEWER: Role = Role {
     name: "Reviewer",
     scope: agent::scope::AEM_REVIEWER,
     max_iterations: 90,
-    stuck_tool: None,
-    stuck_activity: "reviewing",
+    stuck_tool: Some("rule_check"),
+    stuck_activity: "the rule check",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
-    remember: false,
+    remember: true,
+    resume: false,
 };
 
 // ── Redacto roles ────────────────────────────────────────────────────────────
@@ -126,17 +134,19 @@ pub(crate) const REDACTO_AUTHOR: Role = Role {
     stuck_activity: "the dump build",
     max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
     remember: true,
+    resume: true,
 };
 
-/// Builds and remembers nothing, like [`REVIEWER`].
+/// Builds and resumes nothing, like [`REVIEWER`].
 pub(crate) const REDACTO_REVIEWER: Role = Role {
     name: "Reviewer",
     scope: agent::scope::REDACTO_REVIEWER,
-    max_iterations: 30,
-    stuck_tool: None,
-    stuck_activity: "reviewing",
+    max_iterations: 45,
+    stuck_tool: Some("rule_check"),
+    stuck_activity: "the rule check",
     max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
-    remember: false,
+    remember: true,
+    resume: false,
 };
 
 /// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
@@ -153,6 +163,7 @@ pub(crate) const JUDGE: Role = Role {
     stuck_activity: "judging",
     max_tokens_nudge: JUDGE_NUDGE,
     remember: false,
+    resume: false,
 };
 
 pub(crate) const REDACTO_JUDGE: Role = Role {
@@ -163,6 +174,7 @@ pub(crate) const REDACTO_JUDGE: Role = Role {
     stuck_activity: "judging",
     max_tokens_nudge: JUDGE_NUDGE,
     remember: false,
+    resume: false,
 };
 
 /// The stages for one output target.
@@ -298,6 +310,17 @@ pub(crate) fn append_reviews(s: &mut String, heading: &str, reviews: &[String]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Only the judges' calls leave the dispatching stage's evidence alone.
+    #[test]
+    fn only_judges_record_no_evidence() {
+        use crate::run::records_evidence;
+        for target in OutputTarget::ALL {
+            let roles = roles_for(target);
+            assert!(records_evidence(roles.author) && records_evidence(roles.reviewer));
+        }
+        assert!(!records_evidence(&JUDGE) && !records_evidence(&REDACTO_JUDGE));
+    }
 
     
         /// Which tools a stage may call is decided once, in the engine's catalog;

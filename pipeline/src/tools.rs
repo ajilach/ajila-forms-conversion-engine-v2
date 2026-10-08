@@ -58,22 +58,25 @@ pub type SharedAgent = Arc<Mutex<ConversionAgent>>;
 pub fn dynamic_tools_for(agent: &SharedAgent, specs: &[serde_json::Value]) -> Vec<DynamicTool> {
     specs
         .iter()
-        .filter_map(|spec| dynamic_tool_from(agent, spec))
+        .filter_map(|spec| dynamic_tool_from(agent, spec, true))
         .collect()
 }
 
 /// [`dynamic_tools_for`], with `rule_check` dispatching judges for the judged
-/// rules (see [`crate::judge`]) instead of reporting them unchecked.
+/// rules (see [`crate::judge`]) instead of reporting them unchecked. `records`
+/// says whether the calls count as the stage's evidence (a judge's do not; see
+/// `agent::ConversionAgent::execute_as`).
 pub(crate) fn dynamic_tools_with_judges(
     agent: &SharedAgent,
     specs: &[serde_json::Value],
     judges: &crate::judge::JudgeContext,
+    records: bool,
 ) -> Vec<DynamicTool> {
     specs
         .iter()
         .filter_map(|spec| match spec["name"].as_str() {
             Some("rule_check") => Some(rule_check_tool(agent, spec, judges)),
-            _ => dynamic_tool_from(agent, spec),
+            _ => dynamic_tool_from(agent, spec, records),
         })
         .collect()
 }
@@ -93,7 +96,7 @@ fn rule_check_tool(agent: &SharedAgent, spec: &serde_json::Value, judges: &crate
     )
 }
 
-fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value) -> Option<DynamicTool> {
+fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value, records: bool) -> Option<DynamicTool> {
     let name = spec["name"].as_str()?.to_string();
     let description = spec["description"].as_str().unwrap_or_default().to_string();
     let parameters = spec["input_schema"].clone();
@@ -109,12 +112,12 @@ fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value) -> Option<Dy
             let name = dispatch_name.clone();
             Box::pin(async move {
                 let mut guard = agent.lock().await;
-                let reply = match guard.start_read(&name, &args).await {
+                let reply = match guard.start_read_as(&name, &args, records).await {
                     Some(work) => {
                         drop(guard);
                         work.await
                     }
-                    None => guard.execute(&name, &args).await,
+                    None => guard.execute_as(&name, &args, records).await,
                 };
                 reply_to_tool_output(reply)
             })

@@ -116,6 +116,13 @@ impl ConversionAgent {
     /// sees whatever revision the turn's `xfa_set` calls have reached, so it
     /// keeps its place in the call order.
     pub async fn start_read(&mut self, name: &str, input: &Value) -> Option<ReadWork> {
+        self.start_read_as(name, input, true).await
+    }
+
+    /// [`Self::start_read`], with `records` saying whether the call counts as
+    /// the current stage's evidence (see [`super::evidence`]): a judge's does
+    /// not, though it runs on the same agent while the stage waits for it.
+    pub async fn start_read_as(&mut self, name: &str, input: &Value, records: bool) -> Option<ReadWork> {
         if access_of(name) != Access::Read || input.get("session").is_some() {
             return None;
         }
@@ -134,7 +141,9 @@ impl ConversionAgent {
                 }
             }));
         }
-        self.evidence.observe_call(name, input);
+        if records {
+            self.evidence.observe_call(name, input);
+        }
         let tools = match self.u2s_tools() {
             Ok(tools) => tools,
             Err(e) => return Some(Box::pin(std::future::ready(ToolReply::Error(e)))),
@@ -208,6 +217,11 @@ impl ConversionAgent {
     }
 
     pub async fn execute(&mut self, name: &str, input: &Value) -> ToolReply {
+        self.execute_as(name, input, true).await
+    }
+
+    /// [`Self::execute`], with `records` as in [`Self::start_read_as`].
+    pub async fn execute_as(&mut self, name: &str, input: &Value, records: bool) -> ToolReply {
         if let Some(refusal) = self.target_refusal(name) {
             return ToolReply::Error(refusal);
         }
@@ -366,10 +380,8 @@ impl ConversionAgent {
             "submit_review" => {
                 let approved = input["approved"].as_bool().unwrap_or(false);
                 let report = input["report"].as_str().unwrap_or_default().to_string();
-                if approved {
-                    if let Some(refusal) = self.unverified("submit_review(approved=true)") {
-                        return refusal;
-                    }
+                if approved && let Some(refusal) = self.unverified("submit_review(approved=true)") {
+                    return refusal;
                 }
                 self.review = Some(ReviewResult { approved, report });
                 ToolReply::Text(if approved {
@@ -393,12 +405,16 @@ impl ConversionAgent {
                 } else {
                     None
                 };
-                self.evidence.observe_call(other, input);
+                if records {
+                    self.evidence.observe_call(other, input);
+                }
                 let reply = match self.u2s_tools() {
                     Ok(tools) => tools.call(other, input, artifact).await,
                     Err(e) => ToolReply::Error(e),
                 };
-                self.evidence.observe_reply(other, input, &reply);
+                if records {
+                    self.evidence.observe_reply(other, input, &reply);
+                }
                 reply
             }
             other => ToolReply::Error(format!("Unknown tool: {other}")),

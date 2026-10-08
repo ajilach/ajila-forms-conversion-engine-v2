@@ -214,6 +214,22 @@
     "name": "grep_reference_docs"
   },
   {
+    "description": "Terminal AUTHOR step: call once, last, when the form is complete and you have verified it yourself. Refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read; do those and call it again. Ends your stage and hands the form to the Reviewer.",
+    "input_schema": {
+      "properties": {
+        "summary": {
+          "description": "What you compared against the source, what you changed, and what the verification showed.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "summary"
+      ],
+      "type": "object"
+    },
+    "name": "finish_authoring"
+  },
+  {
     "description": "Terminal step of a judge: call once, last, with your verdict on the one rule you were given. pass=true when the document keeps the rule everywhere; otherwise pass=false and one violation per place that breaks it, each with the JSON Pointer of the node and a message saying what is wrong and how to fix it.",
     "input_schema": {
       "properties": {
@@ -253,7 +269,7 @@
     "name": "submit_rule_verdict"
   },
   {
-    "description": "Terminal REVIEW step (Reviewer role) — call once, last, after building/validating/reviewing. approved=true means the form is fully correct and ends the run; approved=false returns your detailed issue list to the author for a fix round.",
+    "description": "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused.",
     "input_schema": {
       "properties": {
         "approved": {

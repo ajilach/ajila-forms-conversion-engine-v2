@@ -15,8 +15,8 @@ macro_rules! review_procedure {
     () => {
         "THE REVIEW PROCEDURE. The source is the only authority: judge the built form by what the \
 source does and shows, not by what the document intends. The steps marked (gated) must be done in \
-your own stage on the current build, or your terminal call (finish_authoring, or submit_review \
-with approved=true) is refused with the list of what is missing. \
+your own stage on the current build, or your stage's terminal call (an approving one, for the \
+Reviewer) is refused with the list of what is missing. \
 (a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
 handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
 name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \
@@ -72,8 +72,8 @@ macro_rules! redacto_review_procedure {
     () => {
         "THE REVIEW PROCEDURE. The source is the only authority: judge the built document by what \
 the source shows. The steps marked (gated) must be done in your own stage on the current build, or \
-your terminal call (finish_authoring, or submit_review with approved=true) is refused with the list \
-of what is missing. \
+your stage's terminal call (an approving one, for the Reviewer) is refused with the list of what is \
+missing. \
 (a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
 handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
 name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \

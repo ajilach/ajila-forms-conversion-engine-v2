@@ -97,4 +97,5 @@ const DESCRIBE: Role = Role {
     // break up. Present because every Role carries one.
     max_tokens_nudge: "Summarise what you have and finish the description.",
     remember: true,
+    resume: true,
 };

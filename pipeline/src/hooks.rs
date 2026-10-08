@@ -640,6 +640,7 @@ mod tests {
         stuck_activity: "testing",
         max_tokens_nudge: "nudge incrementally",
         remember: true,
+        resume: true,
     };
 
     /// A role with no stuck tool, so a test's repeated calls never trip the
@@ -652,6 +653,7 @@ mod tests {
         stuck_activity: "testing",
         max_tokens_nudge: "nudge incrementally",
         remember: true,
+        resume: true,
     };
 
     fn agent_with(model: MockCompletionModel) -> Agent {
@@ -812,7 +814,8 @@ mod tests {
     }
 
     /// `submit_review` ends the stage the moment its verdict is recorded —
-    /// the model must not get a further turn afterward.
+    /// the model must not get a further turn afterward. (A rejection, which
+    /// the evidence gate never refuses.)
     #[tokio::test]
     async fn submit_review_ends_the_stage() {
         let shared_agent = bare_shared_agent();
@@ -830,7 +833,7 @@ mod tests {
                 MockStreamEvent::tool_call(
                     "call-1",
                     "submit_review",
-                    serde_json::json!({"approved": true, "report": ""}),
+                    serde_json::json!({"approved": false, "report": "missing footer"}),
                 ),
                 MockStreamEvent::final_response(rig_core::completion::Usage::new()),
             ],
@@ -857,6 +860,49 @@ mod tests {
             1,
             "the stage must stop right after submit_review, not take a second turn"
         );
+    }
+
+    /// An approval the evidence gate refuses is an error, not a verdict: the
+    /// stage goes on, so the model can verify and submit again.
+    #[tokio::test]
+    async fn a_refused_approval_does_not_end_the_stage() {
+        let shared_agent = bare_shared_agent();
+        let tools = crate::tools::dynamic_tools_for(
+            &shared_agent,
+            &[serde_json::json!({
+                "name": "submit_review",
+                "description": "Record the review verdict.",
+                "input_schema": {"type": "object", "properties": {}},
+            })],
+        );
+        let model = MockCompletionModel::from_stream_turns([
+            vec![
+                MockStreamEvent::tool_call(
+                    "call-1",
+                    "submit_review",
+                    serde_json::json!({"approved": true, "report": ""}),
+                ),
+                MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+            ],
+            vec![
+                MockStreamEvent::text("verifying first"),
+                MockStreamEvent::final_response(rig_core::completion::Usage::new()),
+            ],
+        ]);
+        let agent = agent_with_tools(model.clone(), tools);
+        let hook = StageHook::new(
+            &PLAIN,
+            AbortFlag::default(),
+            SharedObserver::new(crate::observer::NullObserver),
+            no_price(),
+            Spend::default(),
+            no_budget(),
+        );
+
+        drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
+
+        assert_eq!(model.request_count(), 2, "a refused approval must leave the stage running");
+        assert!(shared_agent.lock().await.take_review().is_none(), "nothing was recorded");
     }
 
     /// The stuck watch ends the stage once the watched tool repeats its

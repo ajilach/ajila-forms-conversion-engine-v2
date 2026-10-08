@@ -446,6 +446,7 @@ mod catalog_guards {
         "init_hide",
         // u2s tool arguments and reply fields.
         "affects_layout",
+        "side_effects",
         "budget_hit",
         "doc_path",
         "expected_revision",
