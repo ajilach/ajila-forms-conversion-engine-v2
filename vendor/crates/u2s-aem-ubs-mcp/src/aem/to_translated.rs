@@ -439,8 +439,10 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             attrs,
             visible,
             init_hide,
+            init_show,
         } => AemNodeTranslated::Fragment {
             init_hide: init_hide.clone(),
+            init_show: init_show.clone(),
             attrs: attrs.clone(),
             visible: *visible,
             uuid: *uuid,

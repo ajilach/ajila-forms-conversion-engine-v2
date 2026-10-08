@@ -52,6 +52,61 @@ fn escape_jcr_list_item(item: &str) -> String {
     item.replace('\\', "\\\\").replace(',', "\\,")
 }
 
+/// A value as it is written between the double quotes of an XML attribute,
+/// by every writer of an AEM package (this crate's, and the UBS layer's).
+/// `&`, `<`, `>` and `"` are escaped as quick-xml would; so are a newline, a
+/// carriage return and a tab (`&#xa;`, `&#xd;`, `&#x9;`), which XML's
+/// attribute-value normalisation would otherwise read back as spaces. AEM
+/// reads the value it was given; a raw newline in a rule's JavaScript would
+/// silently become a space and can end a `//` comment in the wrong place.
+/// `'` stays raw: the value is always double-quoted. A character XML cannot
+/// carry at all passes through unchanged; [`check_xml_chars`] refuses the
+/// file it ends up in.
+pub fn escape_attribute_value(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '&' => escaped.push_str("&amp;"),
+            '<' => escaped.push_str("&lt;"),
+            '>' => escaped.push_str("&gt;"),
+            '"' => escaped.push_str("&quot;"),
+            '\n' => escaped.push_str("&#xa;"),
+            '\r' => escaped.push_str("&#xd;"),
+            '\t' => escaped.push_str("&#x9;"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
+}
+
+/// An attribute spelled by [`escape_attribute_value`], for quick-xml.
+pub fn xml_attribute<'a>(key: &'a str, value: &str) -> quick_xml::events::attributes::Attribute<'a> {
+    quick_xml::events::attributes::Attribute {
+        key: quick_xml::name::QName(key.as_bytes()),
+        value: std::borrow::Cow::Owned(escape_attribute_value(value).into_bytes()),
+    }
+}
+
+/// A character XML 1.0 cannot carry at all, neither raw nor as a character
+/// reference: a control character other than tab, newline and carriage
+/// return, or U+FFFE / U+FFFF. AEM's parser rejects a file holding one.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("U+{code:04X} at byte {at} cannot be written in XML 1.0")]
+pub struct IllegalXmlChar {
+    pub code: u32,
+    pub at: usize,
+}
+
+/// The first character of `text` that XML 1.0 cannot carry, if any.
+pub fn check_xml_chars(text: &str) -> Result<(), IllegalXmlChar> {
+    match text.char_indices().find(|(_, c)| {
+        (*c < '\u{20}' && !matches!(c, '\t' | '\n' | '\r')) || matches!(c, '\u{FFFE}' | '\u{FFFF}')
+    }) {
+        Some((at, c)) => Err(IllegalXmlChar { code: c as u32, at }),
+        None => Ok(()),
+    }
+}
+
 /// AEM.md §6.6/§6.7/§6.8 `options="[value=label,...]"`. The corpus resolves
 /// the ambiguity a bare `=` join has by convention, and [`value::parse_options`]
 /// is written to match: the decoder splits on the *first* `=`, so a label
@@ -118,6 +173,28 @@ mod tests {
             vec!["a,b".to_owned(), "c\\d".to_owned()],
             "escape then split must round-trip the original elements"
         );
+    }
+
+    /// A newline, carriage return or tab in an attribute is written as a
+    /// character reference: XML reads a raw one back as a space.
+    #[test]
+    fn xml_attribute_escapes_markup_and_whitespace_that_xml_normalises() {
+        let attribute = xml_attribute("fd:click", "a\n\r\tb & <c> \"d\" 'e'");
+        assert_eq!(
+            std::str::from_utf8(&attribute.value).unwrap(),
+            "a&#xa;&#xd;&#x9;b &amp; &lt;c&gt; &quot;d&quot; 'e'"
+        );
+        assert_eq!(
+            attribute.unescape_value().unwrap(),
+            "a\n\r\tb & <c> \"d\" 'e'"
+        );
+    }
+
+    #[test]
+    fn a_character_xml_cannot_carry_is_found() {
+        assert_eq!(check_xml_chars("a\tb\nc\r"), Ok(()));
+        assert_eq!(check_xml_chars("ab\u{1}"), Err(IllegalXmlChar { code: 1, at: 2 }));
+        assert_eq!(check_xml_chars("\u{FFFF}"), Err(IllegalXmlChar { code: 0xFFFF, at: 0 }));
     }
 
     #[test]

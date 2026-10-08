@@ -81,10 +81,11 @@ pub struct ParsedAemPackage {
     /// `AemNodeTranslated` node's `passthrough`, so a load→save round-trip keeps
     /// every attribute the typed model doesn't represent. See [`Passthrough`].
     pub raw_by_uuid: HashMap<Uuid, Passthrough>,
-    /// The sub-panels each fragment's Initialize rule hides
-    /// (`hideAFHideDor(this.X)`), keyed by the fragment's uuid. The writer
-    /// regenerates a fragment's scripts, so this is what of them a document keeps.
-    pub fragment_init_hide: HashMap<Uuid, Vec<super::ComponentName>>,
+    /// The sub-panels each fragment's Initialize rule hides and shows
+    /// (`hideAFHideDor(this.X)`, `showAFShowDor(this.X)`), keyed by the
+    /// fragment's uuid. The writer regenerates a fragment's scripts, so this is
+    /// what of them a document keeps.
+    pub fragment_init: HashMap<Uuid, super::partner::SubPanelVisibility>,
 }
 
 // ============================================================================
@@ -195,7 +196,7 @@ pub fn parse_aem_zip(bytes: &[u8]) -> Result<ParsedAemPackage, String> {
         metadata,
         visibility_conditions: parse_ctx.visibility_conditions,
         raw_by_uuid: parse_ctx.raw_by_uuid,
-        fragment_init_hide: parse_ctx.fragment_init_hide,
+        fragment_init: parse_ctx.fragment_init,
     })
 }
 
@@ -288,8 +289,8 @@ struct ParseContext<'a> {
     /// The conditional panels `conditional.xml` wrote, in document order, each
     /// with the (trigger field, value) pairs its show rule tests.
     show_triggers: Vec<(String, Vec<(String, String)>)>,
-    /// See [`ParsedAemPackage::fragment_init_hide`].
-    fragment_init_hide: HashMap<Uuid, Vec<super::ComponentName>>,
+    /// See [`ParsedAemPackage::fragment_init`].
+    fragment_init: HashMap<Uuid, super::partner::SubPanelVisibility>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -306,7 +307,7 @@ impl<'a> ParseContext<'a> {
             raw_by_uuid: HashMap::new(),
             issued: std::collections::HashSet::new(),
             show_triggers: Vec::new(),
-            fragment_init_hide: HashMap::new(),
+            fragment_init: HashMap::new(),
         }
     }
 
@@ -461,31 +462,9 @@ fn parse_form_xml(xml: &str, ctx: &mut ParseContext) -> Result<(AemNode, String,
 // JCR XML tree
 // ============================================================================
 
-/// A parsed JCR XML node.
-#[derive(Debug, Clone)]
-struct JcrNode {
-    tag_name: String,
-    attributes: Vec<(String, String)>,
-    children: Vec<JcrNode>,
-}
-
-impl JcrNode {
-    fn attr(&self, name: &str) -> Option<&str> {
-        self.attributes
-            .iter()
-            .find(|(k, _)| k == name)
-            .map(|(_, v)| v.as_str())
-    }
-
-    fn resource_type(&self) -> Option<&str> {
-        self.attr("sling:resourceType")
-    }
-
-    /// Get the `name` attribute (AEM component name used in scripts).
-    fn component_name(&self) -> Option<&str> {
-        self.attr("name")
-    }
-}
+/// A parsed JCR XML node: the generic writer's own tree, read by its reader,
+/// which refuses a malformed attribute rather than reading it as empty.
+use u2s_mapper_aem::jcr::tree::JcrNode;
 
 /// Child element tags the writer regenerates from typed fields, so they are
 /// excluded from a node's `raw_children` passthrough (else they'd be emitted
@@ -526,7 +505,7 @@ fn serialize_jcr_node(node: &JcrNode) -> String {
     let mut s = String::new();
     let _ = write!(s, "<{}", node.tag_name);
     for (k, v) in &node.attributes {
-        let _ = write!(s, " {}=\"{}\"", k, quick_xml::escape::escape(v));
+        let _ = write!(s, " {}=\"{}\"", k, u2s_mapper_aem::jcr::escape_attribute_value(v));
     }
     if node.children.is_empty() {
         s.push_str("/>");
@@ -557,64 +536,9 @@ fn parse_dor_colspan(node: &JcrNode) -> Option<u32> {
     node.attr("dorColspan").and_then(|v| v.parse().ok())
 }
 
-/// Parse JCR XML into a tree of JcrNode.
+/// Parse JCR XML into a tree of [`JcrNode`].
 fn parse_jcr_xml(xml: &str) -> Result<JcrNode, String> {
-    let mut reader = Reader::from_str(xml);
-    reader.config_mut().trim_text(true);
-
-    let mut stack: Vec<JcrNode> = Vec::new();
-    let mut root: Option<JcrNode> = None;
-
-    loop {
-        match reader.read_event() {
-            Ok(Event::Start(ref e)) => {
-                let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let mut attributes = Vec::new();
-                for attr in e.attributes().flatten() {
-                    let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                    let value = attr.unescape_value().unwrap_or_default().to_string();
-                    attributes.push((key, value));
-                }
-                stack.push(JcrNode {
-                    tag_name,
-                    attributes,
-                    children: Vec::new(),
-                });
-            }
-            Ok(Event::Empty(ref e)) => {
-                let tag_name = String::from_utf8_lossy(e.name().as_ref()).to_string();
-                let mut attributes = Vec::new();
-                for attr in e.attributes().flatten() {
-                    let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-                    let value = attr.unescape_value().unwrap_or_default().to_string();
-                    attributes.push((key, value));
-                }
-                let node = JcrNode {
-                    tag_name,
-                    attributes,
-                    children: Vec::new(),
-                };
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(node);
-                } else {
-                    root = Some(node);
-                }
-            }
-            Ok(Event::End(_)) => {
-                let node = stack.pop().ok_or("Mismatched XML end tag")?;
-                if let Some(parent) = stack.last_mut() {
-                    parent.children.push(node);
-                } else {
-                    root = Some(node);
-                }
-            }
-            Ok(Event::Eof) => break,
-            Ok(_) => {} // skip text, comments, etc.
-            Err(e) => return Err(format!("XML parse error: {e}")),
-        }
-    }
-
-    root.ok_or_else(|| "Empty XML document".into())
+    u2s_mapper_aem::jcr::tree::parse_jcr_xml(xml).map_err(|e| format!("XML parse error: {e}"))
 }
 
 /// Find a node by its `sling:resourceType` (searches recursively).
@@ -1281,7 +1205,7 @@ fn convert_panel(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<AemNod
     let attrs = parse_attrs(node);
     // A conditional panel's show rule is regenerated from its triggers'
     // conditions, and the panel stays hidden until one of them matches.
-    let show_triggers = show_triggers(node);
+    let show_triggers = show_triggers(node)?;
     let visible = show_triggers.is_none() && parse_visible(node);
     let regenerated_children: Vec<&str> = match show_triggers {
         Some(_) => [REGENERATED_CHILD_TAGS, &["fd:rules", "fd:scripts"]].concat(),
@@ -1432,9 +1356,9 @@ fn convert_fragment(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<Aem
         // than kept: an authored fragment script gives way to the profile's.
         &[REGENERATED_CHILD_TAGS, &["fd:scripts"]].concat(),
     );
-    let hidden = hidden_on_init(node);
-    if !hidden.is_empty() {
-        ctx.fragment_init_hide.insert(uuid, hidden);
+    let visibility = sub_panels_on_init(node);
+    if visibility != super::partner::SubPanelVisibility::default() {
+        ctx.fragment_init.insert(uuid, visibility);
     }
 
     // Cycle detection
@@ -1532,6 +1456,7 @@ fn convert_fragment(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<Aem
         frag_ref,
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
         init_hide: Vec::new(),
+        init_show: Vec::new(),
     }))
 }
 
@@ -1600,22 +1525,17 @@ fn find_fragment_content(tree: &JcrNode) -> Option<&JcrNode> {
 // Script extraction
 // ============================================================================
 
-/// The sub-panels `node`'s Initialize rule hides: each `hideAFHideDor(this.X)`
-/// in its `fd:init`, in order.
-fn hidden_on_init(node: &JcrNode) -> Vec<super::ComponentName> {
-    use regex_lite::Regex;
-    let Some(init) = node
-        .children
+/// The sub-panels `node`'s Initialize rule hides and shows. The calls are
+/// matched in the attribute as read: they hold only identifier characters,
+/// which none of the rule's three layers escapes, so this also reads a rule
+/// whose list is malformed (as six deployed forms' are) instead of losing it.
+fn sub_panels_on_init(node: &JcrNode) -> super::partner::SubPanelVisibility {
+    node.children
         .iter()
         .find(|c| c.tag_name == "fd:scripts")
         .and_then(|scripts| scripts.attr("fd:init"))
-    else {
-        return Vec::new();
-    };
-    let call = Regex::new(r"hideAFHideDor\(this\.([A-Za-z_][A-Za-z0-9_]*)\)").unwrap();
-    call.captures_iter(init)
-        .filter_map(|c| super::ComponentName::try_from(c[1].to_string()).ok())
-        .collect()
+        .map(super::partner::parse_init_calls)
+        .unwrap_or_default()
 }
 
 /// Extract scripts from `fd:scripts` and `fd:rules` child nodes.
@@ -1714,39 +1634,57 @@ fn parse_visibility_rules(raw: &str, ctx: &mut ParseContext) {
 
 /// The (trigger field, value) pairs of the show rule `conditional.xml` writes,
 /// `if (F.value == "v" || G.value == "w") { showAFShowDor ... }`, or `None`
-/// when the panel carries no such rule.
-fn show_triggers(node: &JcrNode) -> Option<Vec<(String, String)>> {
+/// when the panel carries no such rule. The rule is read through its three
+/// layers (`u2s_mapper_aem::script`), so a value carrying a quote, a comma or
+/// a backslash comes back as it was written. A `SHOW_EXPRESSION` rule that
+/// cannot be read is an error, not a panel without one: carried as it is, the
+/// stale rule would outlive every later edit of the conditions.
+fn show_triggers(node: &JcrNode) -> Result<Option<Vec<(String, String)>>, String> {
     use regex_lite::Regex;
-    let script = node
+    let Some(script) = node
         .children
         .iter()
-        .find(|c| c.tag_name == "fd:scripts")?
-        .attr("fd:visible")?;
-    if !script.contains("SHOW_EXPRESSION") || !script.contains("showAFShowDor") {
-        return None;
+        .find(|c| c.tag_name == "fd:scripts")
+        .and_then(|scripts| scripts.attr("fd:visible"))
+    else {
+        return Ok(None);
+    };
+    if !script.contains("SHOW_EXPRESSION") {
+        return Ok(None);
     }
-    let content = script.replace("\\,", ",");
-    let condition = Regex::new(r#"if \((.*?)\) \{"#).unwrap();
-    // The quotes around a value are JSON-escaped, and JCR escapes that
-    // backslash again: `\\"` in the attribute as read.
-    let test = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)\.value == \\+"([^"\\]*)\\+""#).unwrap();
-    let condition = condition.captures(&content)?.get(1)?.as_str().to_string();
-    let triggers: Vec<(String, String)> = test
-        .captures_iter(&condition)
-        .map(|c| (c[1].to_string(), unescape_show_value(&c[2])))
-        .collect();
-    (!triggers.is_empty()).then_some(triggers)
-}
-
-/// A value as `conditional.xml` wrote it into the rule: `{{ t.value | escape }}`.
-fn unescape_show_value(value: &str) -> String {
-    value
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&#x27;", "'")
-        .replace("&#x2F;", "/")
-        .replace("&amp;", "&")
+    let panel = node.attr("name").unwrap_or("?");
+    let unreadable = |why: String| format!("the show rule of `{panel}` cannot be read: {why}");
+    let items = u2s_mapper_aem::script::decode_script_list(script).map_err(|e| unreadable(e.to_string()))?;
+    let mut content = None;
+    for item in &items {
+        let rule: serde_json::Value = serde_json::from_str(item).map_err(|e| unreadable(e.to_string()))?;
+        if rule.pointer("/script/model/nodeName").and_then(|n| n.as_str()) == Some("SHOW_EXPRESSION") {
+            content = rule.pointer("/script/content").and_then(|c| c.as_str()).map(str::to_owned);
+        }
+    }
+    let Some(content) = content else {
+        return Ok(None);
+    };
+    if !content.contains("showAFShowDor") {
+        return Ok(None);
+    }
+    let condition = content
+        .strip_prefix("if (")
+        .and_then(|rest| rest.split(") {\n").next())
+        .ok_or_else(|| unreadable("it is not `if (...) {`".into()))?;
+    // A JavaScript string literal, its escapes those JSON has.
+    let test = Regex::new(r#"([A-Za-z_][A-Za-z0-9_]*)\.value == ("(?:[^"\\]|\\.)*")"#).unwrap();
+    let triggers = test
+        .captures_iter(condition)
+        .map(|c| {
+            let value = serde_json::from_str::<String>(&c[2]).map_err(|e| unreadable(e.to_string()))?;
+            Ok((c[1].to_string(), value))
+        })
+        .collect::<Result<Vec<_>, String>>()?;
+    if triggers.is_empty() {
+        return Err(unreadable("it tests no `F.value == \"v\"`".into()));
+    }
+    Ok(Some(triggers))
 }
 
 /// Give each trigger field the conditions the show rules test it for, in the
@@ -2067,11 +2005,21 @@ mod tests {
         let tree = parse_jcr_xml(xml).unwrap();
         assert_eq!(
             show_triggers(&tree),
-            Some(vec![
+            Ok(Some(vec![
                 ("RB_Order".to_string(), "RB_1".to_string()),
                 ("CB_Block".to_string(), "true".to_string())
-            ])
+            ]))
         );
+    }
+
+    /// A show rule whose list is broken is an error naming the panel, not a
+    /// panel without a show rule.
+    #[test]
+    fn an_unreadable_show_rule_is_an_error() {
+        let xml = r#"<panel_1 name="PN_A"><fd:scripts jcr:primaryType="nt:unstructured" fd:visible="[{&quot;script&quot;:{&quot;model&quot;:{&quot;nodeName&quot;:&quot;SHOW_EXPRESSION&quot;}}}\,{}]"/></panel_1>"#;
+        let tree = parse_jcr_xml(xml).unwrap();
+        let error = show_triggers(&tree).unwrap_err();
+        assert!(error.contains("`PN_A`"), "{error}");
     }
 
     /// A regional UBS locale folds onto the engine's language code; a bare

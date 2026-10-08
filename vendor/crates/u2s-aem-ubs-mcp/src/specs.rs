@@ -34,7 +34,12 @@ pub const CONTRACT_VERSION: &str = "1.0.0";
 /// (`UbsAemDocument`: the XFA variables, the header, the languages and the
 /// multilingual form tree) encoded through the UBS templates, in place of the
 /// generic model. A `0.2.0` document does not read as a `0.3.0` one.
-pub const FORMAT_VERSION: &str = "0.3.0";
+///
+/// Bumped `0.3.0` -> `0.4.0` when a partner generic's `Fragment` gained
+/// `init_show` (the hidden sub-panels a form shows) and a party's
+/// `Repeatable` a content `Panel` beside its fragment. Both are optional, so
+/// a `0.3.0` document reads unchanged.
+pub const FORMAT_VERSION: &str = "0.4.0";
 
 pub fn tool_specs() -> Vec<Value> {
     vec![

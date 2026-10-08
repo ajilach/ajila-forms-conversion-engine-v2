@@ -365,6 +365,12 @@ pub enum AemNodeTranslated {
         /// Initialize rule. Only a partner generic takes them.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         init_hide: Vec<ComponentName>,
+        /// Sub-panels the fragment ships hidden that the form shows, on screen
+        /// and in the DoR, when it starts: one `showAFShowDor` call each, in the
+        /// same Initialize rule as `init_hide`. Only a partner generic takes
+        /// them, and only for a sub-panel it ships hidden.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        init_show: Vec<ComponentName>,
     },
     Preface {
         uuid: Uuid,
@@ -975,9 +981,11 @@ impl AemNodeTranslated {
                 attrs,
                 visible,
                 init_hide,
+                init_show,
                 ..
             } => AemNode::Fragment {
                 init_hide: init_hide.clone(),
+                init_show: init_show.clone(),
                 attrs: attrs.clone(),
                 visible: *visible,
                 uuid: *uuid,

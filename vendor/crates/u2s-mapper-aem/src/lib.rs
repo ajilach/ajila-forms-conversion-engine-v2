@@ -38,6 +38,9 @@
 //!   merge/precedence logic to get wrong).
 //! - [`dam`] -- the DAM asset `.content.xml` (AEM.md §9).
 //! - [`package`] -- FileVault ZIP/META-INF assembly.
+//! - [`script`] -- the rule storage of `fd:scripts`/`fd:rules`: a JCR
+//!   multi-value of JSON rule objects, decoded exactly and written back
+//!   byte for byte.
 //! - [`fragment_library`] -- **not an encoder concern**: a mechanical text
 //!   search over a fragment library directory, offered to the Conversion
 //!   Agent as an MCP tool so it can choose a fragment itself. Kept in this
@@ -67,6 +70,7 @@ pub mod i18n;
 // JCR-XML reader.
 pub mod jcr;
 pub mod package;
+pub mod script;
 pub(crate) mod search;
 pub mod xml_writer;
 pub mod xsd;

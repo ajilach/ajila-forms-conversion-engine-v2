@@ -24,6 +24,19 @@ pub struct ParsedFragment {
     /// Element names extracted from `bindRef` attributes within the fragment
     /// (e.g. `["Street", "Number", "City"]`).
     pub bound_elements: Vec<String>,
+
+    /// The panels directly under the fragment's root panel, in order, each
+    /// with whether the fragment ships it shown. A partner generic's
+    /// Initialize rule hides and shows these (`init_hide`, `init_show`).
+    pub sub_panels: Vec<FragmentSubPanel>,
+}
+
+/// A panel directly under a fragment's root panel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentSubPanel {
+    pub name: String,
+    /// Whether the fragment ships it shown (`visible` absent or not false).
+    pub ships_shown: bool,
 }
 
 /// Parse fragment metadata from `.content.xml` text and a known relative
@@ -62,6 +75,7 @@ pub fn parse_fragment_content(
 
     // Extract all bindRef values to collect bound element names
     let bound_elements = extract_bind_ref_elements(content, &xsd_type_name);
+    let sub_panels = sub_panels(content)?;
 
     Some(ParsedFragment {
         dir_name,
@@ -69,7 +83,39 @@ pub fn parse_fragment_content(
         name,
         xsd_type_name,
         bound_elements,
+        sub_panels,
     })
+}
+
+/// The panels directly under the fragment's `rootPanel`, or `None` when the
+/// content is not readable JCR XML.
+fn sub_panels(content: &str) -> Option<Vec<FragmentSubPanel>> {
+    use u2s_mapper_aem::jcr::tree::{JcrNode, parse_jcr_xml};
+    fn find<'a>(node: &'a JcrNode, tag: &str) -> Option<&'a JcrNode> {
+        if node.tag_name == tag {
+            return Some(node);
+        }
+        node.children.iter().find_map(|c| find(c, tag))
+    }
+    let tree = parse_jcr_xml(content).ok()?;
+    let Some(items) = find(&tree, "rootPanel")
+        .and_then(|root| root.children.iter().find(|c| c.tag_name == "items"))
+    else {
+        return Some(Vec::new());
+    };
+    Some(
+        items
+            .children
+            .iter()
+            .filter(|c| c.attr("guideNodeClass") == Some("guidePanel"))
+            .filter_map(|c| {
+                Some(FragmentSubPanel {
+                    name: c.attr("name")?.to_owned(),
+                    ships_shown: u2s_mapper_aem::jcr::value::parse_visible(c),
+                })
+            })
+            .collect(),
+    )
 }
 
 /// Extract the value of a named XML attribute from raw XML text.

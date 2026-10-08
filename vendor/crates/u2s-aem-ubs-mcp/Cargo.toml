@@ -48,6 +48,18 @@ name = "golden_parity"
 path = "tests/golden_parity.rs"
 
 [[test]]
+name = "party_row"
+path = "tests/party_row.rs"
+
+[[test]]
+name = "script_encoding"
+path = "tests/script_encoding.rs"
+
+[[test]]
+name = "writer_snapshots"
+path = "tests/writer_snapshots.rs"
+
+[[test]]
 name = "xsd"
 path = "tests/xsd.rs"
 

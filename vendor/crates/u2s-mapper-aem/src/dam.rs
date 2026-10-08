@@ -47,25 +47,25 @@ pub fn write_dam_xml(form: &ValidForm, master: &Language) -> XmlResult<String> {
     )))?;
 
     let mut root = BytesStart::new("jcr:root");
-    root.push_attribute(("xmlns:sling", crate::jcr::ns::SLING));
-    root.push_attribute(("xmlns:fd", crate::jcr::ns::FD));
-    root.push_attribute(("xmlns:dam", crate::jcr::ns::DAM));
-    root.push_attribute(("xmlns:jcr", crate::jcr::ns::JCR));
+    root.push_attribute(crate::jcr::xml_attribute("xmlns:sling", crate::jcr::ns::SLING));
+    root.push_attribute(crate::jcr::xml_attribute("xmlns:fd", crate::jcr::ns::FD));
+    root.push_attribute(crate::jcr::xml_attribute("xmlns:dam", crate::jcr::ns::DAM));
+    root.push_attribute(crate::jcr::xml_attribute("xmlns:jcr", crate::jcr::ns::JCR));
     // Standard JCR namespace, declared unconditionally rather than only
     // when `dam_chrome` happens to reference it (`jcr:mixinTypes="[mix:
     // created,mix:lastModified]"`, in the real fixture): the same
     // unconditional-declaration convention `i18n::write_dictionary_xml`
     // already uses for this exact namespace.
-    root.push_attribute(("xmlns:mix", crate::jcr::ns::MIX));
-    root.push_attribute(("xmlns:nt", crate::jcr::ns::NT));
-    root.push_attribute(("jcr:primaryType", "dam:Asset"));
+    root.push_attribute(crate::jcr::xml_attribute("xmlns:mix", crate::jcr::ns::MIX));
+    root.push_attribute(crate::jcr::xml_attribute("xmlns:nt", crate::jcr::ns::NT));
+    root.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "dam:Asset"));
     w.write_event(Event::Start(root))?;
 
     let mut jcr_content = BytesStart::new("jcr:content");
-    jcr_content.push_attribute(("jcr:primaryType", "dam:AssetContent"));
-    jcr_content.push_attribute(("sling:resourceType", "fd/fm/af/render"));
-    jcr_content.push_attribute(("guide", "1"));
-    jcr_content.push_attribute(("type", "guide"));
+    jcr_content.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "dam:AssetContent"));
+    jcr_content.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/fm/af/render"));
+    jcr_content.push_attribute(crate::jcr::xml_attribute("guide", "1"));
+    jcr_content.push_attribute(crate::jcr::xml_attribute("type", "guide"));
     w.write_event(Event::Start(jcr_content))?;
 
     // `dam_chrome`'s own raw children (the real fixture's own
@@ -75,13 +75,13 @@ pub fn write_dam_xml(form: &ValidForm, master: &Language) -> XmlResult<String> {
     write_raw_children(&mut w, &inner.metadata.dam_chrome.raw_children)?;
 
     let mut metadata = BytesStart::new("metadata");
-    metadata.push_attribute(("fd:version", "1.1"));
-    metadata.push_attribute(("jcr:primaryType", "nt:unstructured"));
-    metadata.push_attribute(("allowedRenderFormat", "HTML"));
-    metadata.push_attribute(("dorType", dor_type));
-    metadata.push_attribute(("formmodel", formmodel));
-    metadata.push_attribute(("hasCustomThumbnail", "{Boolean}false"));
-    metadata.push_attribute(("title", title.as_str()));
+    metadata.push_attribute(crate::jcr::xml_attribute("fd:version", "1.1"));
+    metadata.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
+    metadata.push_attribute(crate::jcr::xml_attribute("allowedRenderFormat", "HTML"));
+    metadata.push_attribute(crate::jcr::xml_attribute("dorType", dor_type));
+    metadata.push_attribute(crate::jcr::xml_attribute("formmodel", formmodel));
+    metadata.push_attribute(crate::jcr::xml_attribute("hasCustomThumbnail", "{Boolean}false"));
+    metadata.push_attribute(crate::jcr::xml_attribute("title", title.as_str()));
     push_passthrough_attributes(&mut metadata, &inner.metadata.dam_chrome);
     w.write_event(Event::Empty(metadata))?;
 

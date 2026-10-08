@@ -177,10 +177,9 @@ fn read_attributes(e: &BytesStart) -> Result<Vec<(String, String)>, JcrXmlError>
     for attr in e.attributes() {
         let attr = attr.map_err(quick_xml::Error::from)?;
         let key = String::from_utf8_lossy(attr.key.as_ref()).to_string();
-        let value = attr
-            .unescape_value()
-            .map(|v| v.to_string())
-            .unwrap_or_default();
+        // A malformed escape is an error, never an empty value: a rule
+        // read back empty would be written back empty.
+        let value = attr.unescape_value()?.to_string();
         attributes.push((key, value));
     }
     Ok(attributes)
@@ -211,13 +210,13 @@ fn write_node(writer: &mut Writer<Cursor<Vec<u8>>>, node: &JcrNode) -> quick_xml
     if node.children.is_empty() {
         let mut start = BytesStart::new(node.tag_name.as_str());
         for (k, v) in &node.attributes {
-            start.push_attribute((k.as_str(), v.as_str()));
+            start.push_attribute(crate::jcr::xml_attribute(k.as_str(), v.as_str()));
         }
         writer.write_event(Event::Empty(start))
     } else {
         let mut start = BytesStart::new(node.tag_name.as_str());
         for (k, v) in &node.attributes {
-            start.push_attribute((k.as_str(), v.as_str()));
+            start.push_attribute(crate::jcr::xml_attribute(k.as_str(), v.as_str()));
         }
         writer.write_event(Event::Start(start))?;
         for child in &node.children {

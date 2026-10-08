@@ -154,6 +154,7 @@ fn fold(node: AemNode) -> AemNode {
             bind_ref,
             // Read back from the package's Initialize rule after decoding.
             init_hide: Vec::new(),
+            init_show: Vec::new(),
         },
         AemNode::Panel { .. } => match repeatable(&node) {
             Some(repeatable) => fold_children(repeatable),

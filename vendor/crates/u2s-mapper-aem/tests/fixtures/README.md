@@ -35,3 +35,26 @@ configuration: German-language form copy, an internal mailbox alias
 (`formrange_cdokinfo="63138"`). Confirmed clear to commit as a test fixture;
 do not extract or repurpose this content outside the round-trip test it
 exists for.
+
+## `script-corpus.zip`
+
+Every distinct rule attribute (`fd:click`, `fd:init`, `fd:visible`, ... on
+`fd:scripts`/`fd:rules`) of the 420 reviewed UBS packages in
+`ajila-forms-conversion-feedback/forms/issued/` at commit `c0fdc08a`
+(2026-09-30): 6'443 values, each with the form, file, element and owning
+component it was first seen on, and the value exactly as the file spells it
+(still XML-escaped). One `attributes.jsonl` inside the zip.
+
+It is the reference of `tests/script_encoding.rs`: the codec of
+`u2s_mapper_aem::script` and this crate's XML writer must carry every one of
+these through their three encodings (XML attribute, JCR multi-value, JSON
+SCRIPTMODEL) unchanged.
+
+Regenerate with `scripts/extract-script-corpus.py <feedback-checkout>` when
+the reviewed set changes, and say in the commit which commit of the feedback
+repository it was taken from. Like `AF_AABF.zip`, it was not produced by this
+crate's encoder, and must never be.
+
+**Content note.** The values are the forms' own JavaScript rules: UBS client
+library calls, component names and validation messages, no client data. Do
+not extract or repurpose them outside the encoding tests.

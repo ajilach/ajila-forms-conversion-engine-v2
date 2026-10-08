@@ -16,6 +16,7 @@ pub mod fragment_parser;
 pub mod normalize;
 mod package_writer;
 pub mod parser;
+pub mod partner;
 pub mod profile;
 pub mod script_engine;
 pub mod to_translated;
@@ -1110,6 +1111,12 @@ pub enum AemNode {
         /// Initialize rule. Only a partner generic takes them.
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         init_hide: Vec<ComponentName>,
+        /// Sub-panels the fragment ships hidden that the form shows, on screen
+        /// and in the DoR, when it starts: one `showAFShowDor` call each, in the
+        /// same Initialize rule as `init_hide`. Only a partner generic takes
+        /// them, and only for a sub-panel it ships hidden.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        init_show: Vec<ComponentName>,
     },
 
     /// Optional profile-driven snippet inserted as the first item in the

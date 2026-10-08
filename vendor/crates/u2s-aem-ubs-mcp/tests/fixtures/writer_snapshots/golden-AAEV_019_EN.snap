@@ -1,0 +1,985 @@
+== package META-INF/MANIFEST.MF
+Manifest-Version: 1.0
+Content-Package-Id: fd/export:AAEV
+Content-Package-Roots: /content/forms/af/afforms_germany_all/af_aa/AF_AA
+ EV,/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV
+Content-Package-Type: content
+
+
+== package META-INF/vault/config.xml
+<vaultfs version="1.1">
+  <aggregates >
+    <aggregate title="File Aggregate" type="file">
+    <aggregate title="File/Folder Aggregate" type="filefolder">
+    <aggregate title="Node Type Aggregate" type="nodetype">
+    <aggregate title="Full Coverage Aggregate" type="full">
+      <matches >
+        <include nodeType="rep:AccessControl" respectSupertype="true">
+        <include nodeType="rep:Policy" respectSupertype="true">
+        <include nodeType="cq:Widget" respectSupertype="true">
+        <include nodeType="cq:EditConfig" respectSupertype="true">
+        <include nodeType="cq:WorkflowModel" respectSupertype="true">
+        <include nodeType="vlt:FullCoverage" respectSupertype="true">
+        <include nodeType="mix:language" respectSupertype="true">
+        <include nodeType="sling:OsgiConfig" respectSupertype="true">
+    <aggregate title="Folder Aggregate" type="generic">
+      <matches >
+        <include nodeType="nt:folder" respectSupertype="true">
+      <contains >
+        <exclude isNode="true">
+    <aggregate isDefault="true" title="Default Aggregator" type="generic">
+      <matches >
+      <contains >
+        <exclude nodeType="nt:hierarchyNode" respectSupertype="true">
+  <handlers >
+    <handler type="folder">
+    <handler type="file">
+    <handler type="nodetype">
+    <handler type="generic">
+== package META-INF/vault/definition/.content.xml
+<jcr:root buildCount="1" group="fd/export" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="vlt:PackageDefinition" lastWrapped="{Date}<DATE>" lastWrappedBy="blueprint" name="AAEV" version="" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0" xmlns:vlt="http://www.day.com/jcr/vault/1.0">
+  <filter jcr:primaryType="nt:unstructured">
+    <f0 jcr:primaryType="nt:unstructured" mode="replace" root="/content/forms/af/afforms_germany_all/af_aa/AF_AAEV" rules="[]">
+    <f1 jcr:primaryType="nt:unstructured" mode="replace" root="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV" rules="[]">
+== package META-INF/vault/filter.xml
+<workspaceFilter version="1.0">
+  <filter root="/content/forms/af/afforms_germany_all/af_aa/AF_AAEV">
+  <filter root="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV">
+== package META-INF/vault/nodetypes.cnd
+<'sling'='http://sling.apache.org/jcr/sling/1.0'>
+<'cq'='http://www.day.com/jcr/cq/1.0'>
+<'nt'='http://www.jcp.org/jcr/nt/1.0'>
+<'jcr'='http://www.jcp.org/jcr/1.0'>
+<'rep'='internal'>
+<'dam'='http://www.day.com/dam/1.0'>
+<'oak'='http://jackrabbit.apache.org/oak/ns/1.0'>
+<'mix'='http://www.jcp.org/jcr/mix/1.0'>
+<'fd'='http://www.adobe.com/aemfd/fd/1.0'>
+
+[sling:Resource]
+  mixin
+  - sling:resourceType (string)
+
+[cq:ClientLibraryFolder] > sling:Folder
+  - dependencies (string) multiple
+  - categories (string) multiple
+  - embed (string) multiple
+  - channels (string) multiple
+
+[sling:Folder] > nt:folder
+  - * (undefined) multiple
+  - * (undefined)
+  + * (nt:base) = sling:Folder version
+
+[cq:Page] > nt:hierarchyNode
+  orderable primaryitem jcr:content
+  + jcr:content (nt:base) = nt:unstructured
+  + * (nt:base) = nt:base version
+
+[cq:Taggable]
+  mixin
+  - cq:tags (string) multiple
+
+[sling:Message]
+  mixin
+  - sling:key (string)
+  - sling:message (undefined)
+
+[sling:OrderedFolder] > sling:Folder
+  orderable
+  + * (nt:base) = sling:OrderedFolder version
+
+[cq:ReplicationStatus]
+  mixin
+  - cq:lastReplicatedBy (string) ignore
+  - cq:lastPublished (date) ignore
+  - cq:lastReplicationStatus (string) ignore
+  - cq:lastPublishedBy (string) ignore
+  - cq:lastReplicationAction (string) ignore
+  - cq:lastReplicated (date) ignore
+
+[rep:RepoAccessControllable]
+  mixin
+  + rep:repoPolicy (rep:Policy) protected ignore
+
+[dam:Asset] > nt:hierarchyNode
+  primaryitem jcr:content
+  + jcr:content (dam:AssetContent) = dam:AssetContent
+  + * (nt:base) = nt:base version
+
+[dam:AssetContent] > nt:unstructured
+  + metadata (nt:unstructured)
+  + related (nt:unstructured)
+  + renditions (nt:folder)
+
+[oak:Resource] > mix:lastModified, mix:mimeType
+  primaryitem jcr:data
+  - jcr:data (binary) mandatory
+
+[cq:PageContent] > cq:OwnerTaggable, cq:ReplicationStatus, mix:created, mix:title, nt:unstructured, sling:Resource, sling:VanityPath
+  orderable
+  - cq:lastModified (date)
+  - cq:template (string)
+  - pageTitle (string)
+  - offTime (date)
+  - hideInNav (boolean)
+  - cq:lastModifiedBy (string)
+  - onTime (date)
+  - jcr:language (string)
+  - cq:allowedTemplates (string) multiple
+  - cq:designPath (string)
+  - navTitle (string)
+
+[cq:OwnerTaggable] > cq:Taggable
+  mixin
+
+[sling:VanityPath]
+  mixin
+  - sling:vanityPath (string) multiple
+  - sling:redirect (boolean)
+  - sling:vanityOrder (long)
+  - sling:redirectStatus (long)
+
+[sling:MessageEntry] > nt:hierarchyNode, sling:Message
+
+[fd:xdp]
+  mixin
+  - fd:trusted (boolean)
+
+== package META-INF/vault/properties.xml
+<properties >
+  <comment >
+    text "FileVault Package Properties"
+  <entry key="packageType">
+    text "content"
+  <entry key="lastWrappedBy">
+    text "blueprint"
+  <entry key="packageFormatVersion">
+    text "2"
+  <entry key="group">
+    text "fd/export"
+  <entry key="created">
+    text "<DATE>"
+  <entry key="lastModifiedBy">
+    text "blueprint"
+  <entry key="buildCount">
+    text "1"
+  <entry key="lastWrapped">
+    text "<DATE>"
+  <entry key="version">
+  <entry key="dependencies">
+  <entry key="createdBy">
+    text "blueprint"
+  <entry key="name">
+    text "AAEV"
+  <entry key="lastModified">
+    text "<DATE>"
+== package jcr_root/.content.xml
+<jcr:root jcr:mixinTypes="[rep:AccessControllable,rep:RepoAccessControllable]" jcr:primaryType="rep:root" sling:resourceType="sling:redirect" sling:target="/index.html" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/.content.xml
+<jcr:root jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:OrderedFolder" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <rep:policy >
+  <dam >
+  <forms >
+== package jcr_root/content/dam/.content.xml
+<jcr:root jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:Folder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/dam/formsanddocuments/.content.xml
+<jcr:root hidden="true" jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:Folder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/dam/formsanddocuments/afforms_germany_all/.content.xml
+<jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/dam/formsanddocuments/afforms_germany_all/af_aa/.content.xml
+<jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV/.content.xml
+<jcr:root jcr:primaryType="dam:Asset" xmlns:dam="http://www.day.com/dam/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <jcr:content guide="1" jcr:primaryType="dam:AssetContent" sling:resourceType="fd/fm/af/render" type="guide">
+    <dictionary jcr:primaryType="nt:unstructured">
+      <en jcr:primaryType="nt:unstructured">
+    <metadata allowedRenderFormat="HTML" author="blueprint" availableInMobileApp="{Boolean}false" availableStylings="[ajila-forms-ubs-ebanking-styling]" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV/jcr:content/renditions/dorTemplate" dorType="generate" fd:version="1.1" formmodel="none" hasCustomThumbnail="{Boolean}false" jcr:mixinTypes="[mix:created,mix:lastModified]" jcr:primaryType="nt:unstructured" menuOptions="[ajila-forms-ubs-menu-option-save]" redactoSummary="true" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" title="AAEV">
+== package jcr_root/content/forms/.content.xml
+<jcr:root jcr:primaryType="sling:OrderedFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <af >
+== package jcr_root/content/forms/af/.content.xml
+<jcr:root hidden="true" jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:Folder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/forms/af/afforms_germany_all/.content.xml
+<jcr:root jcr:primaryType="sling:OrderedFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/.content.xml
+<jcr:root jcr:primaryType="sling:OrderedFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/.content.xml
+<jcr:root jcr:primaryType="cq:Page" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <jcr:content cq:deviceGroups="[/etc/mobile/groups/responsive]" cq:lastModified="{Date}<DATE>" cq:lastModifiedBy="blueprint" cq:template="/conf/ajila-forms-ubs/settings/wcm/templates/basic" jcr:language="en" jcr:primaryType="cq:PageContent" jcr:title="AAEV" sling:resourceType="/apps/ajila-forms-customers/ajila-forms-ubs/components/pages/aftemplatedpage">
+    <parsys1 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
+      <guideheader jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guideheader">
+      <guideformtitle _value="<p>Investing in US Securities – Qualified Intermediary (QI) Rules for Partnerships/Trusts under US QI</p>" css="guideformtitle container" guideNodeClass="guideTextDraw" jcr:primaryType="nt:unstructured" name="formTitle" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/formtitle" textIsRich="true">
+    <guideContainer actionType="ajila-forms-customers/ajila-forms-ubs/components/actions/submit" autoSaveStrategyType="fd/fp/components/actions/autosave/timebased" clientLibRef="ajila-forms-ubs" disableSwipeGesture="{Boolean}false" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV/jcr:content/renditions/dorTemplate" dorType="generate" enableFocusOnFirstField="{Boolean}true" enableLayoutLayer="false" fd:version="1.1" guideCss="guideContainer" guideNodeClass="guideContainerNode" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="guide1" redirect="/content/forms/af/afforms_global_common/confirm-successful-submission" sling:resourceType="fd/af/components/guideContainer" textIsRich="true" thankYouMessage="Thank you for submitting the form." thankYouOption="page" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" useExistingAF="false">
+      <layout jcr:primaryType="nt:unstructured" mobileLayout="fd/af/layouts/mobile/step" sling:resourceType="fd/af/layouts/defaultGuideLayout" toolbarPosition="Bottom">
+      <rootPanel completionExpReq="{Boolean}true" dorExcludeDescription="true" dorExcludeTitle="true" guideNodeClass="rootPanelNode" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Root Panel" name="guideRootPanel" panelSetType="Navigable" sling:resourceType="fd/af/components/rootPanel" validateOnStepCompletion="{Boolean}true">
+        <layout enableLayoutOptimization="true" guideNavigatorTab="wizard-tab" jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/layouts/panel/wizard" toolbarPosition="Bottom">
+        <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+          <fragment_formmetadata dorExcludeDescription="true" dorExcludeTitle="true" dorExclusion="true" fragRef="/content/dam/formsanddocuments/afforms_global_fragmentlib/formmetadata" guideNodeClass="guidePanel" jcr:primaryType="nt:unstructured" jcr:title="FormMetadata" name="FormMetadata" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" visible="false">
+            <layout columns="1" dorLayoutType="columnar" dorNumCols="1" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+            <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+          <panel_acef9286634b4a2e9126ba38ede5daa4 dorExcludeDescription="true" dorExcludeTitle="true" dorFieldStyling="Default" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_e8434830" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+            <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+              <panel_da69bf97bbe24922891305ea1af882b7 css="ubs-margin-20" dorExclusion="true" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_BR" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+                <layout columns="1" dorLayoutType="columnar" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+                <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                  <preface_da69bf97bbe24922891305ea1af882b7 completionExpReq="{Boolean}false" dorExclusion="true" fragRef="/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_BankingRelationship" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+                    <layout columns="1" dorLayoutType="columnar" dorNumCols="1" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+                    <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <fd:scripts fd:init="[{\"script\":{\"field\":\"this\"\\,\"event\":\"Initialize\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"TXT_BankingRelationship1.value = '0319';\\\\nTXT_BankingRelationship1.enabled = false;\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+                  <textdraw_slot2_da69bf97bbe24922891305ea1af882b7 _value="<p><b>UBS Europe SE</b></p>\n" alwaysInPdf="true" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+              <panel_cd1367ad2e7745c0b3d66c8c3ee35f75 dorExcludeDescription="true" dorFieldStyling="Default" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_337e9218" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+                <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                  <textdraw_cb8d7ce3775d4628804d2f113ad290f5 _value="<p>A partnership as well as &#39;grantor&#39; or &#39;simple&#39; trust will have to satisfy all the following conditions:</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_APartnershipAsWellAsGrantorOr_6fe404fd" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_c15b5ad549464f4e8d5d83d8f3083ffe _value="<ul style=\"list-style-type: \"\\2013\";\"><li>The partnership or trust is a direct account holder of UBS;</li><li>The account holder is a certified deemed-compliant FFI (other than a registered deemed-compliant Model 1 IGA FFI)<sup>1</sup>, an exempt beneficial owner, an owner-documented FFI or an NFFE (other than a Withholding partnership or trust).</li><li>None of the partners, beneficiaries or owners is a US person;</li><li>None of the partners, beneficiaries or owners are flow-through entities or acting as intermediaries; and</li><li>None of the partners, beneficiaries or owners is subject to FATCA withholding or reporting<sup>2</sup>.</li></ul>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_ThePartnershipOrTrustIsA_d27ccee9" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_703670c1a06547cd8ff1c883ff38974a _value="<p>The QI must withhold tax at the highest rate applicable to any partner, beneficiary, or owner.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_TheQiMustWithholdTaxAtThe_eccdf07c" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_1a8d93247b8a4567be031914b89aa6d0 _value="<p>In order to comply with the above conditions, the following specific QI documents are required from the partnership or trust:</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_InOrderToComplyWithTheAbove_fa7008f0" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_d6af37fbfef0453fbd875858515c1448 _value="<ul style=\"list-style-type: \"\\2013\";\"><li>Withholding Statement and Agreement; and</li><li>Substitute Form W-8IMY from the partnership or trust; and</li><li>Official Form W-8BEN from each of the partners, beneficiaries or owners that are individuals; and/or</li><li>Official Form W-8BEN-E from each of the partners, beneficiaries or owners that are entities.</li></ul>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_WithholdingStatementAnd_377d9431" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_378e724373bc47928f5459560f9a6aba _value="<p>Please note that the above documents are kept within the bank and are not forwarded to the Internal Revenue Service.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_PleaseNoteThatTheAbove_9758b0fe" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_3be535b44c5f43caaf5a5893b4eea358 _value="<p>Under the Withholding Statement and Agreement, the partnership or trust must make records available within 90 days upon request from</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_UnderTheWithholdingStatement_5f764277" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_6db64b03d62642b0a08deb2d189228f3 _value="<p>QI or QI&#39;s auditor. If the partnership or trust fails to comply with the request within the time limit, this might result in correction of withholding and disclosure of the partnership or trust and its partners, beneficiaries or owners to the US Internal Revenue Service.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_QiOrQiSAuditorIfThe_30444fd6" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_dd309b8808d843ddac573bb0f62b5087 _value="<p>The Substitute Form W-8IMY and agreement are in general valid without timely restriction. Other documentation such as Forms W-8BEN and/or W-8BEN-E, withholding statements, and related documentation are subject to a renewal based on applicable rules, and unless there are material changes which will require a renewal. We appreciate that the QI rules are complicated. If you are not familiar with the QI rules, please seek advice from your own legal counsels for the appropriate action that you should take.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_TheSubstituteFormW8imyAnd_e174e105" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_39646503c0ec4baeb8abe8dfad619a27 _value="<p>The information provided in this document is based on the current legal and/or tax laws as applicable at the point in time when this information was prepared. Such legal and/or tax situation may change subsequently. Please note that all legal and/or tax considerations and indications included in or deriving from the information provided in this document should only be considered as non-binding, general information. In no circumstance must such considerations and indications be understood as a substitute for having obtained appropriate legal and/or tax advice as provided by your certified legal and/or tax counsel. Only such counsel will be able to finally and comprehensively analyze your specific case and to take fully into account your individual situation. UBS Europe SE must not provide legal and or tax advice.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_TheInformationProvidedInThis_31697381" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_8ac7376771df43b79e48ca9e6b58ae21 _value="<p>UBS Europe SE is a subsidiary of UBS AG, Switzerland. Please note that this document must neither be copied nor distributed without having obtained the prior written approval from UBS Europe SE.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_UbsEuropeSeIsASubsidiaryOfUbs_fb6dd43c" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                <layout columns="1" dorLayoutType="columnar" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+                <cq:responsive jcr:primaryType="nt:unstructured">
+                  <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+            <layout columns="1" dorLayoutType="columnar" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+            <cq:responsive jcr:primaryType="nt:unstructured">
+              <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+          <summarypanel dorExclusion="true" dorFieldStyling="Default" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Summary of form information" name="summaryPanel" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" validateOnStepCompletion="{Boolean}false" visible="{Boolean}true">
+            <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+              <messagebox_ElsigCheck css="messagebox-ElsigCheck ubs-margin-10" guideNodeClass="guideTextDraw" hideTitle="{Boolean}true" i18nBodyId="ajila-forms-ubs-signature-level-error" jcr:primaryType="nt:unstructured" name="messagebox_ElsigCheck" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/messagebox" visible="{Boolean}true">
+              <summary autofillFieldKeyword="name" css="widget_ajila_forms_summary" dorFieldStyling="Default" guideNodeClass="guideTextBox" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Summary" name="summaryComponent" replaceEmptyValues="true" showStaticText="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/summary" textIsRich="[true,true,true]">
+              <messagebox_SubmissionError guideNodeClass="guideTextDraw" jcr:primaryType="nt:unstructured" messageboxBody="<p>The form could not be sent. Please try again later.</p>" messageboxTitle="Submission failed" messageboxType="{Long}4" name="submitErrorMessage" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/messagebox" visible="{Boolean}false">
+              <doroptionsubs _value="Further configurations for the document of record" dorExclusion="true" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="doroptionsubs" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/dorOptionsUBS" summaryExclusion="true" visible="false">
+              <metadata _value="Metadata" dorExclusion="true" formrange_afmasterlanguage="EN" formrange_aftype="Single" formrange_code="AAEV" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="metadataTextDraw" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/metadata" summaryExclusion="true" visible="false">
+                <entities jcr:primaryType="nt:unstructured">
+                  <item0 formrange_clpmandatory="false" formrange_entity="019" formrange_language="EN" jcr:primaryType="nt:unstructured">
+                    <cdoks jcr:primaryType="nt:unstructured">
+                      <item0 formrange_cdokinfo="66300" formrange_partnerlevel="No" formrange_releasedate="31.10.2019" formrange_version="V0" jcr:primaryType="nt:unstructured">
+            <layout columns="1" dorLayoutType="columnar" dorNumCols="1" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+        <toolbar css="" guideNodeClass="guideToolbar" jcr:primaryType="nt:unstructured" jcr:title="Toolbar" name="toolbar" sling:resourceType="fd/af/components/toolbar">
+          <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/toolbar/defaultToolbarLayout">
+            <nextitemnav dorExclusion="true" fd:targetVersion="1.1" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Next" name="nextitemnav" sling:resourceType="fd/af/components/actions/nextitemnav" summaryExclusion="true" type="moveNext">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.nextitemnav\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.ajila.forms.ubs.control.summary.setSummaryData(guideRootPanel);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true},{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.nextitemnav\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.com.ajila.forms.ubs.navigation.nextStep(this);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+            <submit dorExclusion="true" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Submit" name="submit" sling:resourceType="fd/af/components/actions/submit" summaryExclusion="true" type="submit">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.submit\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.forms.ubs.navigation.submit(submitErrorMessage);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" fd:navigationChange="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.submit\"\\,\"event\":\"Navigation\"\\,\"content\":\"this.visible=(!this.panel.navigationContext.hasNextItem);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+            <previtemnav dorExclusion="true" fd:targetVersion="1.1" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Back" name="previtemnav" sling:resourceType="fd/af/components/actions/previtemnav" summaryExclusion="true" type="movePrev">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.previtemnav\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.forms.ubs.navigation.previousStep(this);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+            <guidebutton dorExclusion="true" dorFieldStyling="Default" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Save Progress" name="fwbSaveProgress" sling:resourceType="fd/af/components/guidebutton" summaryExclusion="true" textIsRich="[true,true,true]" type="Button">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.fwbSaveProgress\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.forms.ubs.fwb.saveFormData();\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+          <layout jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/toolbar/defaultToolbarLayout">
+      <autoSaveInfo jcr:primaryType="nt:unstructured" metadataselector="global">
+      <signerInfo firstSignerFormFiller="false" jcr:primaryType="nt:unstructured" workflowType="SEQUENTIAL">
+        <signer0 countryCode="undefined" countryCodeSource="undefined" email="undefined" emailSource="undefined" jcr:primaryType="nt:unstructured" phone="undefined" phoneSource="undefined" securityOption="undefined" signerTitle="Signer One">
+      <view jcr:primaryType="nt:unstructured">
+        <print accentColor="#04a6cb" alignment="dorFieldVerticalAlignment" fontFamily="Arial" hidePanelDescriptions="true" includeUnboundFields="true" jcr:created="{Date}<DATE>" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" metaTemplateRef="/content/dam/formsanddocuments/reference-dor-templates/ajila-forms-ubs/02_forms/UBS_General_Germany_DOR.xdp" optionSeparator=", " optionsNumberInHorizontalAlign="4" showSelectedOptions="false" sling:resourceType="fd/af/authoring/components/dor/dorProperties">
+          <branding jcr:primaryType="nt:unstructured">
+            <items jcr:primaryType="nt:unstructured">
+              <masterpage0 jcr:primaryType="nt:unstructured">
+                <items jcr:primaryType="nt:unstructured">
+                  <txtBankingRelationship jcr:primaryType="nt:unstructured">
+                  <ShowBankingRelationship jcr:primaryType="nt:unstructured" value="1">
+                  <Header jcr:primaryType="nt:unstructured">
+                    <items jcr:primaryType="nt:unstructured">
+                      <AF_LOGO_IMAGE jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" valueFrom="template">
+                      <FormType jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" value=" " valueFrom="     ">
+                      <HeaderInfo jcr:primaryType="nt:unstructured">
+                        <items jcr:primaryType="nt:unstructured">
+                          <AF_HEADER_TEXT jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" valueFrom="template">
+                          <AF_FORM_TITLE jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" valueFrom="formTitle">
+                      <Adressblock jcr:primaryType="nt:unstructured">
+                        <items jcr:primaryType="nt:unstructured">
+                          <senderAddressTitle jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" value="Banking Relationship" valueFrom="     ">
+                  <formId jcr:primaryType="nt:unstructured">
+                  <displayLanguage jcr:primaryType="nt:unstructured">
+                  <language jcr:primaryType="nt:unstructured">
+                  <footerVersion jcr:primaryType="nt:unstructured">
+                  <mandator jcr:primaryType="nt:unstructured">
+                  <footerFormCode jcr:primaryType="nt:unstructured">
+                  <footerFormVersionDate jcr:primaryType="nt:unstructured">
+                  <APPCode jcr:primaryType="nt:unstructured" value="AFC">
+                  <footerFreeText jcr:primaryType="nt:unstructured">
+      <assets jcr:primaryType="nt:unstructured">
+        <dictionary jcr:primaryType="nt:unstructured">
+          <en jcr:primaryType="nt:unstructured">
+    <parsys2 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
+      <guidefooter jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guidefooter">
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de-ch.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Durch Klicken auf &quot;Vorschau&quot; können Sie Ihr Dokument vor dem Absenden überprüfen.&lt;/p&gt;&lt;p&gt;Nach dem Klicken auf &quot;Absenden&quot; können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.&lt;/p&gt;"
+"fd_Add" = "Hinzufügen"
+"fd_Back" = "Zurück"
+"fd_Company" = "Firma"
+"fd_For internal bank use only" = "Nur für den internen Bankgebrauch"
+"fd_Next" = "Weiter"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Bitte geben Sie eine gültige E-Mail-Adresse ein (z. B. max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Bitte geben Sie eine gültige Telefonnummer einschließlich Ländervorwahl (z. B. +41) ein."
+"fd_Preview" = "Vorschau"
+"fd_Save Progress" = "Fortschritt speichern"
+"fd_Signature(s)" = "Unterschrift(en)"
+"fd_Signature(s) verified / Signed in my presence" = "Unterschrift(en) geprüft / in meiner Gegenwart unterzeichnet"
+"fd_Submission failed" = "Übermittlung fehlgeschlagen"
+"fd_Submit" = "Absenden"
+"fd_Summary" = "Zusammenfassung"
+"fd_Summary of form information" = "Zusammenfassung der Formulardaten"
+"fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Durch Klicken auf &quot;Vorschau&quot; können Sie Ihr Dokument vor dem Absenden überprüfen.&lt;/p&gt;&lt;p&gt;Nach dem Klicken auf &quot;Absenden&quot; können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.&lt;/p&gt;"
+"fd_Add" = "Hinzufügen"
+"fd_Back" = "Zurück"
+"fd_Company" = "Firma"
+"fd_For internal bank use only" = "Nur für den internen Bankgebrauch"
+"fd_Next" = "Weiter"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Bitte geben Sie eine gültige E-Mail-Adresse ein (z. B. max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Bitte geben Sie eine gültige Telefonnummer einschließlich Ländervorwahl (z. B. +41) ein."
+"fd_Preview" = "Vorschau"
+"fd_Save Progress" = "Fortschritt speichern"
+"fd_Signature(s)" = "Unterschrift(en)"
+"fd_Signature(s) verified / Signed in my presence" = "Unterschrift(en) geprüft / in meiner Gegenwart unterzeichnet"
+"fd_Submission failed" = "Übermittlung fehlgeschlagen"
+"fd_Submit" = "Absenden"
+"fd_Summary" = "Zusammenfassung"
+"fd_Summary of form information" = "Zusammenfassung der Formulardaten"
+"fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/en.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;"
+"fd_Add" = "Add"
+"fd_Back" = "Back"
+"fd_Company" = "Company"
+"fd_For internal bank use only" = "For internal bank use only"
+"fd_Next" = "Next"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Please enter a valid email address (e.g., max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Please enter a valid phone number incl. country code (e.g., +41)."
+"fd_Preview" = "Preview"
+"fd_Save Progress" = "Save Progress"
+"fd_Signature(s) verified / Signed in my presence" = "Signature(s) verified / Signed in my presence"
+"fd_Submission failed" = "Submission failed"
+"fd_Submit" = "Submit"
+"fd_Summary" = "Summary"
+"fd_Summary of form information" = "Summary of form information"
+"fd_Thank you for submitting the form." = "Thank you for submitting the form."
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/es.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Al hacer clic en &quot;Vista previa&quot;, puede revisar su documento antes del envío.&lt;/p&gt;&lt;p&gt;Después de hacer clic en &quot;Enviar&quot;, ya no podrá editar el documento y se creará el PDF para su firma.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.&lt;/p&gt;"
+"fd_Add" = "Añadir"
+"fd_Back" = "Atrás"
+"fd_Company" = "Empresa"
+"fd_For internal bank use only" = "Solo para uso interno del banco"
+"fd_Next" = "Siguiente"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Por favor, introduzca una dirección de correo electrónico válida (por ejemplo, max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Por favor, introduzca un número de teléfono válido que incluya el código de país (por ejemplo, +41)."
+"fd_Preview" = "Vista previa"
+"fd_Save Progress" = "Guardar progreso"
+"fd_Signature(s)" = "Firma(s)"
+"fd_Signature(s) verified / Signed in my presence" = "Firma(s) comprobada(s) / Firmado en mi presencia"
+"fd_Submission failed" = "Error en el envío"
+"fd_Submit" = "Enviar"
+"fd_Summary" = "Resumen"
+"fd_Summary of form information" = "Resumen de la información del formulario"
+"fd_Thank you for submitting the form." = "Gracias por enviar el formulario."
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/fr.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;En cliquant sur &quot;Aperçu&quot;, vous pouvez consulter votre document avant l&apos;envoi.&lt;/p&gt;&lt;p&gt;Après avoir cliqué sur &quot;Soumettre&quot;, vous ne pourrez plus modifier le document et le PDF sera créé pour signature.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Le formulaire n&apos;a pas pu être envoyé. Veuillez réessayer plus tard.&lt;/p&gt;"
+"fd_Add" = "Ajouter"
+"fd_Back" = "Retour"
+"fd_Company" = "Société"
+"fd_For internal bank use only" = "Réservé à l&apos;usage interne de la banque"
+"fd_Next" = "Suivant"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Veuillez saisir une adresse e-mail valide (p. ex. max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Veuillez saisir un numéro de téléphone valide avec l&apos;indicatif du pays (p. ex. +41)."
+"fd_Preview" = "Aperçu"
+"fd_Save Progress" = "Enregistrer la progression"
+"fd_Signature(s) verified / Signed in my presence" = "Signature(s) verifiée(s) / Signé en ma présence"
+"fd_Submission failed" = "Échec de l&apos;envoi"
+"fd_Submit" = "Soumettre"
+"fd_Summary" = "Résumé"
+"fd_Summary of form information" = "Résumé des informations du formulaire"
+"fd_Thank you for submitting the form." = "Merci d&apos;avoir soumis le formulaire."
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/it.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Cliccando su &quot;Anteprima&quot;, è possibile verificare il documento prima dell&apos;invio.&lt;/p&gt;&lt;p&gt;Dopo aver cliccato su &quot;Invia&quot;, non sarà più possibile modificare il documento e il PDF verrà creato per la firma.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Il modulo non è stato inviato. Si prega di riprovare più tardi.&lt;/p&gt;"
+"fd_Add" = "Aggiungi"
+"fd_Back" = "Indietro"
+"fd_Company" = "Società"
+"fd_For internal bank use only" = "Solo per uso interno della banca"
+"fd_Next" = "Avanti"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Si prega di inserire un indirizzo email valido (ad esempio, max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Si prega di inserire un numero di telefono valido con il prefisso paese (ad esempio, +41)."
+"fd_Preview" = "Anteprima"
+"fd_Save Progress" = "Salva progressi"
+"fd_Signature(s) verified / Signed in my presence" = "Controllo firma/e / Firmato in mia presenza"
+"fd_Submission failed" = "Invio non riuscito"
+"fd_Submit" = "Invia"
+"fd_Summary" = "Riepilogo"
+"fd_Summary of form information" = "Riepilogo delle informazioni del modulo"
+"fd_Thank you for submitting the form." = "Grazie per aver inviato il modulo."
+== package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/sp.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Al hacer clic en &quot;Vista previa&quot;, puede revisar su documento antes del envío.&lt;/p&gt;&lt;p&gt;Después de hacer clic en &quot;Enviar&quot;, ya no podrá editar el documento y se creará el PDF para su firma.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.&lt;/p&gt;"
+"fd_Add" = "Añadir"
+"fd_Back" = "Atrás"
+"fd_Company" = "Empresa"
+"fd_For internal bank use only" = "Solo para uso interno del banco"
+"fd_Next" = "Siguiente"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Por favor, introduzca una dirección de correo electrónico válida (por ejemplo, max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Por favor, introduzca un número de teléfono válido que incluya el código de país (por ejemplo, +41)."
+"fd_Preview" = "Vista previa"
+"fd_Save Progress" = "Guardar progreso"
+"fd_Signature(s)" = "Firma(s)"
+"fd_Signature(s) verified / Signed in my presence" = "Firma(s) comprobada(s) / Firmado en mi presencia"
+"fd_Submission failed" = "Error en el envío"
+"fd_Submit" = "Enviar"
+"fd_Summary" = "Resumen"
+"fd_Summary of form information" = "Resumen de la información del formulario"
+"fd_Thank you for submitting the form." = "Gracias por enviar el formulario."
+== bound META-INF/MANIFEST.MF
+Manifest-Version: 1.0
+Content-Package-Id: fd/export:AAEV
+Content-Package-Roots: /content/forms/af/afforms_germany_all/af_aa/AF_AA
+ EV,/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV,/co
+ ntent/dam/formsanddocuments/afforms_xsd/AFForms/AF_AAEV.xsd
+Content-Package-Type: content
+
+
+== bound META-INF/vault/config.xml
+<vaultfs version="1.1">
+  <aggregates >
+    <aggregate title="File Aggregate" type="file">
+    <aggregate title="File/Folder Aggregate" type="filefolder">
+    <aggregate title="Node Type Aggregate" type="nodetype">
+    <aggregate title="Full Coverage Aggregate" type="full">
+      <matches >
+        <include nodeType="rep:AccessControl" respectSupertype="true">
+        <include nodeType="rep:Policy" respectSupertype="true">
+        <include nodeType="cq:Widget" respectSupertype="true">
+        <include nodeType="cq:EditConfig" respectSupertype="true">
+        <include nodeType="cq:WorkflowModel" respectSupertype="true">
+        <include nodeType="vlt:FullCoverage" respectSupertype="true">
+        <include nodeType="mix:language" respectSupertype="true">
+        <include nodeType="sling:OsgiConfig" respectSupertype="true">
+    <aggregate title="Folder Aggregate" type="generic">
+      <matches >
+        <include nodeType="nt:folder" respectSupertype="true">
+      <contains >
+        <exclude isNode="true">
+    <aggregate isDefault="true" title="Default Aggregator" type="generic">
+      <matches >
+      <contains >
+        <exclude nodeType="nt:hierarchyNode" respectSupertype="true">
+  <handlers >
+    <handler type="folder">
+    <handler type="file">
+    <handler type="nodetype">
+    <handler type="generic">
+== bound META-INF/vault/definition/.content.xml
+<jcr:root buildCount="1" group="fd/export" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="vlt:PackageDefinition" lastWrapped="{Date}<DATE>" lastWrappedBy="blueprint" name="AAEV" version="" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0" xmlns:vlt="http://www.day.com/jcr/vault/1.0">
+  <filter jcr:primaryType="nt:unstructured">
+    <f0 jcr:primaryType="nt:unstructured" mode="replace" root="/content/forms/af/afforms_germany_all/af_aa/AF_AAEV" rules="[]">
+    <f1 jcr:primaryType="nt:unstructured" mode="replace" root="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV" rules="[]">
+    <f2 jcr:primaryType="nt:unstructured" mode="replace" root="/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AAEV.xsd" rules="[]">
+== bound META-INF/vault/filter.xml
+<workspaceFilter version="1.0">
+  <filter root="/content/forms/af/afforms_germany_all/af_aa/AF_AAEV">
+  <filter root="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV">
+  <filter root="/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AAEV.xsd">
+== bound META-INF/vault/nodetypes.cnd
+<'sling'='http://sling.apache.org/jcr/sling/1.0'>
+<'cq'='http://www.day.com/jcr/cq/1.0'>
+<'nt'='http://www.jcp.org/jcr/nt/1.0'>
+<'jcr'='http://www.jcp.org/jcr/1.0'>
+<'rep'='internal'>
+<'dam'='http://www.day.com/dam/1.0'>
+<'oak'='http://jackrabbit.apache.org/oak/ns/1.0'>
+<'mix'='http://www.jcp.org/jcr/mix/1.0'>
+<'fd'='http://www.adobe.com/aemfd/fd/1.0'>
+
+[sling:Resource]
+  mixin
+  - sling:resourceType (string)
+
+[cq:ClientLibraryFolder] > sling:Folder
+  - dependencies (string) multiple
+  - categories (string) multiple
+  - embed (string) multiple
+  - channels (string) multiple
+
+[sling:Folder] > nt:folder
+  - * (undefined) multiple
+  - * (undefined)
+  + * (nt:base) = sling:Folder version
+
+[cq:Page] > nt:hierarchyNode
+  orderable primaryitem jcr:content
+  + jcr:content (nt:base) = nt:unstructured
+  + * (nt:base) = nt:base version
+
+[cq:Taggable]
+  mixin
+  - cq:tags (string) multiple
+
+[sling:Message]
+  mixin
+  - sling:key (string)
+  - sling:message (undefined)
+
+[sling:OrderedFolder] > sling:Folder
+  orderable
+  + * (nt:base) = sling:OrderedFolder version
+
+[cq:ReplicationStatus]
+  mixin
+  - cq:lastReplicatedBy (string) ignore
+  - cq:lastPublished (date) ignore
+  - cq:lastReplicationStatus (string) ignore
+  - cq:lastPublishedBy (string) ignore
+  - cq:lastReplicationAction (string) ignore
+  - cq:lastReplicated (date) ignore
+
+[rep:RepoAccessControllable]
+  mixin
+  + rep:repoPolicy (rep:Policy) protected ignore
+
+[dam:Asset] > nt:hierarchyNode
+  primaryitem jcr:content
+  + jcr:content (dam:AssetContent) = dam:AssetContent
+  + * (nt:base) = nt:base version
+
+[dam:AssetContent] > nt:unstructured
+  + metadata (nt:unstructured)
+  + related (nt:unstructured)
+  + renditions (nt:folder)
+
+[oak:Resource] > mix:lastModified, mix:mimeType
+  primaryitem jcr:data
+  - jcr:data (binary) mandatory
+
+[cq:PageContent] > cq:OwnerTaggable, cq:ReplicationStatus, mix:created, mix:title, nt:unstructured, sling:Resource, sling:VanityPath
+  orderable
+  - cq:lastModified (date)
+  - cq:template (string)
+  - pageTitle (string)
+  - offTime (date)
+  - hideInNav (boolean)
+  - cq:lastModifiedBy (string)
+  - onTime (date)
+  - jcr:language (string)
+  - cq:allowedTemplates (string) multiple
+  - cq:designPath (string)
+  - navTitle (string)
+
+[cq:OwnerTaggable] > cq:Taggable
+  mixin
+
+[sling:VanityPath]
+  mixin
+  - sling:vanityPath (string) multiple
+  - sling:redirect (boolean)
+  - sling:vanityOrder (long)
+  - sling:redirectStatus (long)
+
+[sling:MessageEntry] > nt:hierarchyNode, sling:Message
+
+[fd:xdp]
+  mixin
+  - fd:trusted (boolean)
+
+== bound META-INF/vault/properties.xml
+<properties >
+  <comment >
+    text "FileVault Package Properties"
+  <entry key="packageType">
+    text "content"
+  <entry key="lastWrappedBy">
+    text "blueprint"
+  <entry key="packageFormatVersion">
+    text "2"
+  <entry key="group">
+    text "fd/export"
+  <entry key="created">
+    text "<DATE>"
+  <entry key="lastModifiedBy">
+    text "blueprint"
+  <entry key="buildCount">
+    text "1"
+  <entry key="lastWrapped">
+    text "<DATE>"
+  <entry key="version">
+  <entry key="dependencies">
+  <entry key="createdBy">
+    text "blueprint"
+  <entry key="name">
+    text "AAEV"
+  <entry key="lastModified">
+    text "<DATE>"
+== bound jcr_root/.content.xml
+<jcr:root jcr:mixinTypes="[rep:AccessControllable,rep:RepoAccessControllable]" jcr:primaryType="rep:root" sling:resourceType="sling:redirect" sling:target="/index.html" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/.content.xml
+<jcr:root jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:OrderedFolder" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <rep:policy >
+  <dam >
+  <forms >
+== bound jcr_root/content/dam/.content.xml
+<jcr:root jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:Folder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/dam/formsanddocuments/.content.xml
+<jcr:root hidden="true" jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:Folder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/dam/formsanddocuments/afforms_germany_all/.content.xml
+<jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/dam/formsanddocuments/afforms_germany_all/af_aa/.content.xml
+<jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV/.content.xml
+<jcr:root jcr:primaryType="dam:Asset" xmlns:dam="http://www.day.com/dam/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:mix="http://www.jcp.org/jcr/mix/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <jcr:content guide="1" jcr:primaryType="dam:AssetContent" sling:resourceType="fd/fm/af/render" type="guide">
+    <dictionary jcr:primaryType="nt:unstructured">
+      <en jcr:primaryType="nt:unstructured">
+    <metadata allowedRenderFormat="HTML" author="blueprint" availableInMobileApp="{Boolean}false" availableStylings="[ajila-forms-ubs-ebanking-styling]" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV/jcr:content/renditions/dorTemplate" dorType="generate" fd:version="1.1" formmodel="xsd" hasCustomThumbnail="{Boolean}false" jcr:mixinTypes="[mix:created,mix:lastModified]" jcr:primaryType="nt:unstructured" menuOptions="[ajila-forms-ubs-menu-option-save]" redactoSummary="true" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" title="AAEV" xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AAEV.xsd">
+== bound jcr_root/content/dam/formsanddocuments/afforms_xsd/.content.xml
+<jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/dam/formsanddocuments/afforms_xsd/AFForms/.content.xml
+<jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AAEV.xsd
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
+
+  <xs:element name="UBSAF_AAEV">
+    <xs:complexType>
+      <xs:sequence>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
+
+== bound jcr_root/content/forms/.content.xml
+<jcr:root jcr:primaryType="sling:OrderedFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <af >
+== bound jcr_root/content/forms/af/.content.xml
+<jcr:root hidden="true" jcr:mixinTypes="[rep:AccessControllable]" jcr:primaryType="sling:Folder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:rep="internal" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/forms/af/afforms_germany_all/.content.xml
+<jcr:root jcr:primaryType="sling:OrderedFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/.content.xml
+<jcr:root jcr:primaryType="sling:OrderedFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/.content.xml
+<jcr:root jcr:primaryType="cq:Page" xmlns:cq="http://www.day.com/jcr/cq/1.0" xmlns:fd="http://www.adobe.com/aemfd/fd/1.0" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:nt="http://www.jcp.org/jcr/nt/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
+  <jcr:content cq:deviceGroups="[/etc/mobile/groups/responsive]" cq:lastModified="{Date}<DATE>" cq:lastModifiedBy="blueprint" cq:template="/conf/ajila-forms-ubs/settings/wcm/templates/basic" jcr:language="en" jcr:primaryType="cq:PageContent" jcr:title="AAEV" sling:resourceType="/apps/ajila-forms-customers/ajila-forms-ubs/components/pages/aftemplatedpage">
+    <parsys1 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
+      <guideheader jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guideheader">
+      <guideformtitle _value="<p>Investing in US Securities – Qualified Intermediary (QI) Rules for Partnerships/Trusts under US QI</p>" css="guideformtitle container" guideNodeClass="guideTextDraw" jcr:primaryType="nt:unstructured" name="formTitle" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/formtitle" textIsRich="true">
+    <guideContainer actionType="ajila-forms-customers/ajila-forms-ubs/components/actions/submit" autoSaveStrategyType="fd/fp/components/actions/autosave/timebased" clientLibRef="ajila-forms-ubs" disableSwipeGesture="{Boolean}false" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV/jcr:content/renditions/dorTemplate" dorType="generate" enableFocusOnFirstField="{Boolean}true" enableLayoutLayer="false" fd:version="1.1" guideCss="guideContainer" guideNodeClass="guideContainerNode" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="guide1" redirect="/content/forms/af/afforms_global_common/confirm-successful-submission" sling:resourceType="fd/af/components/guideContainer" textIsRich="true" thankYouMessage="Thank you for submitting the form." thankYouOption="page" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" useExistingAF="false">
+      <layout jcr:primaryType="nt:unstructured" mobileLayout="fd/af/layouts/mobile/step" sling:resourceType="fd/af/layouts/defaultGuideLayout" toolbarPosition="Bottom">
+      <rootPanel completionExpReq="{Boolean}true" dorExcludeDescription="true" dorExcludeTitle="true" guideNodeClass="rootPanelNode" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Root Panel" name="guideRootPanel" panelSetType="Navigable" sling:resourceType="fd/af/components/rootPanel" validateOnStepCompletion="{Boolean}true">
+        <layout enableLayoutOptimization="true" guideNavigatorTab="wizard-tab" jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/layouts/panel/wizard" toolbarPosition="Bottom">
+        <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+          <fragment_formmetadata dorExcludeDescription="true" dorExcludeTitle="true" dorExclusion="true" fragRef="/content/dam/formsanddocuments/afforms_global_fragmentlib/formmetadata" guideNodeClass="guidePanel" jcr:primaryType="nt:unstructured" jcr:title="FormMetadata" name="FormMetadata" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" visible="false">
+            <layout columns="1" dorLayoutType="columnar" dorNumCols="1" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+            <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+          <panel_acef9286634b4a2e9126ba38ede5daa4 dorExcludeDescription="true" dorExcludeTitle="true" dorFieldStyling="Default" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_e8434830" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+            <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+              <panel_da69bf97bbe24922891305ea1af882b7 css="ubs-margin-20" dorExclusion="true" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_BR" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+                <layout columns="1" dorLayoutType="columnar" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+                <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                  <preface_da69bf97bbe24922891305ea1af882b7 completionExpReq="{Boolean}false" dorExclusion="true" fragRef="/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_BankingRelationship" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+                    <layout columns="1" dorLayoutType="columnar" dorNumCols="1" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+                    <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <fd:scripts fd:init="[{\"script\":{\"field\":\"this\"\\,\"event\":\"Initialize\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"TXT_BankingRelationship1.value = '0319';\\\\nTXT_BankingRelationship1.enabled = false;\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+                  <textdraw_slot2_da69bf97bbe24922891305ea1af882b7 _value="<p><b>UBS Europe SE</b></p>\n" alwaysInPdf="true" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+              <panel_cd1367ad2e7745c0b3d66c8c3ee35f75 dorExcludeDescription="true" dorFieldStyling="Default" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="PN_337e9218" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" textIsRich="true" validateOnStepCompletion="{Boolean}false">
+                <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                  <textdraw_cb8d7ce3775d4628804d2f113ad290f5 _value="<p>A partnership as well as &#39;grantor&#39; or &#39;simple&#39; trust will have to satisfy all the following conditions:</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_APartnershipAsWellAsGrantorOr_6fe404fd" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_c15b5ad549464f4e8d5d83d8f3083ffe _value="<ul style=\"list-style-type: \"\\2013\";\"><li>The partnership or trust is a direct account holder of UBS;</li><li>The account holder is a certified deemed-compliant FFI (other than a registered deemed-compliant Model 1 IGA FFI)<sup>1</sup>, an exempt beneficial owner, an owner-documented FFI or an NFFE (other than a Withholding partnership or trust).</li><li>None of the partners, beneficiaries or owners is a US person;</li><li>None of the partners, beneficiaries or owners are flow-through entities or acting as intermediaries; and</li><li>None of the partners, beneficiaries or owners is subject to FATCA withholding or reporting<sup>2</sup>.</li></ul>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_ThePartnershipOrTrustIsA_d27ccee9" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_703670c1a06547cd8ff1c883ff38974a _value="<p>The QI must withhold tax at the highest rate applicable to any partner, beneficiary, or owner.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_TheQiMustWithholdTaxAtThe_eccdf07c" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_1a8d93247b8a4567be031914b89aa6d0 _value="<p>In order to comply with the above conditions, the following specific QI documents are required from the partnership or trust:</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_InOrderToComplyWithTheAbove_fa7008f0" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_d6af37fbfef0453fbd875858515c1448 _value="<ul style=\"list-style-type: \"\\2013\";\"><li>Withholding Statement and Agreement; and</li><li>Substitute Form W-8IMY from the partnership or trust; and</li><li>Official Form W-8BEN from each of the partners, beneficiaries or owners that are individuals; and/or</li><li>Official Form W-8BEN-E from each of the partners, beneficiaries or owners that are entities.</li></ul>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_WithholdingStatementAnd_377d9431" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_378e724373bc47928f5459560f9a6aba _value="<p>Please note that the above documents are kept within the bank and are not forwarded to the Internal Revenue Service.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_PleaseNoteThatTheAbove_9758b0fe" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_3be535b44c5f43caaf5a5893b4eea358 _value="<p>Under the Withholding Statement and Agreement, the partnership or trust must make records available within 90 days upon request from</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_UnderTheWithholdingStatement_5f764277" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_6db64b03d62642b0a08deb2d189228f3 _value="<p>QI or QI&#39;s auditor. If the partnership or trust fails to comply with the request within the time limit, this might result in correction of withholding and disclosure of the partnership or trust and its partners, beneficiaries or owners to the US Internal Revenue Service.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_QiOrQiSAuditorIfThe_30444fd6" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_dd309b8808d843ddac573bb0f62b5087 _value="<p>The Substitute Form W-8IMY and agreement are in general valid without timely restriction. Other documentation such as Forms W-8BEN and/or W-8BEN-E, withholding statements, and related documentation are subject to a renewal based on applicable rules, and unless there are material changes which will require a renewal. We appreciate that the QI rules are complicated. If you are not familiar with the QI rules, please seek advice from your own legal counsels for the appropriate action that you should take.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_TheSubstituteFormW8imyAnd_e174e105" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_39646503c0ec4baeb8abe8dfad619a27 _value="<p>The information provided in this document is based on the current legal and/or tax laws as applicable at the point in time when this information was prepared. Such legal and/or tax situation may change subsequently. Please note that all legal and/or tax considerations and indications included in or deriving from the information provided in this document should only be considered as non-binding, general information. In no circumstance must such considerations and indications be understood as a substitute for having obtained appropriate legal and/or tax advice as provided by your certified legal and/or tax counsel. Only such counsel will be able to finally and comprehensively analyze your specific case and to take fully into account your individual situation. UBS Europe SE must not provide legal and or tax advice.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_TheInformationProvidedInThis_31697381" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                  <textdraw_8ac7376771df43b79e48ca9e6b58ae21 _value="<p>UBS Europe SE is a subsidiary of UBS AG, Switzerland. Please note that this document must neither be copied nor distributed without having obtained the prior written approval from UBS Europe SE.</p>" css="" dorFieldStyling="Default" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_UbsEuropeSeIsASubsidiaryOfUbs_fb6dd43c" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" textIsRich="true">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+                <layout columns="1" dorLayoutType="columnar" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+                <cq:responsive jcr:primaryType="nt:unstructured">
+                  <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+            <layout columns="1" dorLayoutType="columnar" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+            <cq:responsive jcr:primaryType="nt:unstructured">
+              <default jcr:primaryType="nt:unstructured" offset="0" width="12">
+          <summarypanel dorExclusion="true" dorFieldStyling="Default" guideNodeClass="guidePanel" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Summary of form information" name="summaryPanel" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel" summaryExclusion="true" textIsRich="true" validateOnStepCompletion="{Boolean}false" visible="{Boolean}true">
+            <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
+              <messagebox_ElsigCheck css="messagebox-ElsigCheck ubs-margin-10" guideNodeClass="guideTextDraw" hideTitle="{Boolean}true" i18nBodyId="ajila-forms-ubs-signature-level-error" jcr:primaryType="nt:unstructured" name="messagebox_ElsigCheck" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/messagebox" visible="{Boolean}true">
+              <summary autofillFieldKeyword="name" css="widget_ajila_forms_summary" dorFieldStyling="Default" guideNodeClass="guideTextBox" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Summary" name="summaryComponent" replaceEmptyValues="true" showStaticText="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/summary" textIsRich="[true,true,true]">
+              <messagebox_SubmissionError guideNodeClass="guideTextDraw" jcr:primaryType="nt:unstructured" messageboxBody="<p>The form could not be sent. Please try again later.</p>" messageboxTitle="Submission failed" messageboxType="{Long}4" name="submitErrorMessage" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/messagebox" visible="{Boolean}false">
+              <doroptionsubs _value="Further configurations for the document of record" dorExclusion="true" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="doroptionsubs" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/dorOptionsUBS" summaryExclusion="true" visible="false">
+              <metadata _value="Metadata" dorExclusion="true" formrange_afmasterlanguage="EN" formrange_aftype="Single" formrange_code="AAEV" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="metadataTextDraw" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/metadata" summaryExclusion="true" visible="false">
+                <entities jcr:primaryType="nt:unstructured">
+                  <item0 formrange_clpmandatory="false" formrange_entity="019" formrange_language="EN" jcr:primaryType="nt:unstructured">
+                    <cdoks jcr:primaryType="nt:unstructured">
+                      <item0 formrange_cdokinfo="66300" formrange_partnerlevel="No" formrange_releasedate="31.10.2019" formrange_version="V0" jcr:primaryType="nt:unstructured">
+            <layout columns="1" dorLayoutType="columnar" dorNumCols="1" jcr:primaryType="nt:unstructured" nonNavigable="{Boolean}true" sling:resourceType="fd/af/layouts/gridFluidLayout2" toolbarPosition="Bottom">
+        <toolbar css="" guideNodeClass="guideToolbar" jcr:primaryType="nt:unstructured" jcr:title="Toolbar" name="toolbar" sling:resourceType="fd/af/components/toolbar">
+          <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/toolbar/defaultToolbarLayout">
+            <nextitemnav dorExclusion="true" fd:targetVersion="1.1" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Next" name="nextitemnav" sling:resourceType="fd/af/components/actions/nextitemnav" summaryExclusion="true" type="moveNext">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.nextitemnav\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.ajila.forms.ubs.control.summary.setSummaryData(guideRootPanel);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true},{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.nextitemnav\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.com.ajila.forms.ubs.navigation.nextStep(this);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+            <submit dorExclusion="true" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Submit" name="submit" sling:resourceType="fd/af/components/actions/submit" summaryExclusion="true" type="submit">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.submit\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.forms.ubs.navigation.submit(submitErrorMessage);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" fd:navigationChange="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.submit\"\\,\"event\":\"Navigation\"\\,\"content\":\"this.visible=(!this.panel.navigationContext.hasNextItem);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+            <previtemnav dorExclusion="true" fd:targetVersion="1.1" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Back" name="previtemnav" sling:resourceType="fd/af/components/actions/previtemnav" summaryExclusion="true" type="movePrev">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.previtemnav\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.forms.ubs.navigation.previousStep(this);\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+            <guidebutton dorExclusion="true" dorFieldStyling="Default" guideNodeClass="guideButton" jcr:primaryType="nt:unstructured" jcr:title="Save Progress" name="fwbSaveProgress" sling:resourceType="fd/af/components/guidebutton" summaryExclusion="true" textIsRich="[true,true,true]" type="Button">
+              <fd:rules jcr:primaryType="nt:unstructured">
+              <fd:scripts fd:click="[{\"script\":{\"field\":\"guide.guideRootPanel.toolbar.fwbSaveProgress\"\\,\"event\":\"Click\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"window.forms.ubs.fwb.saveFormData();\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
+          <layout jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/toolbar/defaultToolbarLayout">
+      <autoSaveInfo jcr:primaryType="nt:unstructured" metadataselector="global">
+      <signerInfo firstSignerFormFiller="false" jcr:primaryType="nt:unstructured" workflowType="SEQUENTIAL">
+        <signer0 countryCode="undefined" countryCodeSource="undefined" email="undefined" emailSource="undefined" jcr:primaryType="nt:unstructured" phone="undefined" phoneSource="undefined" securityOption="undefined" signerTitle="Signer One">
+      <view jcr:primaryType="nt:unstructured">
+        <print accentColor="#04a6cb" alignment="dorFieldVerticalAlignment" fontFamily="Arial" hidePanelDescriptions="true" includeUnboundFields="true" jcr:created="{Date}<DATE>" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" metaTemplateRef="/content/dam/formsanddocuments/reference-dor-templates/ajila-forms-ubs/02_forms/UBS_General_Germany_DOR.xdp" optionSeparator=", " optionsNumberInHorizontalAlign="4" showSelectedOptions="false" sling:resourceType="fd/af/authoring/components/dor/dorProperties">
+          <branding jcr:primaryType="nt:unstructured">
+            <items jcr:primaryType="nt:unstructured">
+              <masterpage0 jcr:primaryType="nt:unstructured">
+                <items jcr:primaryType="nt:unstructured">
+                  <txtBankingRelationship jcr:primaryType="nt:unstructured">
+                  <ShowBankingRelationship jcr:primaryType="nt:unstructured" value="1">
+                  <Header jcr:primaryType="nt:unstructured">
+                    <items jcr:primaryType="nt:unstructured">
+                      <AF_LOGO_IMAGE jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" valueFrom="template">
+                      <FormType jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" value=" " valueFrom="     ">
+                      <HeaderInfo jcr:primaryType="nt:unstructured">
+                        <items jcr:primaryType="nt:unstructured">
+                          <AF_HEADER_TEXT jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" valueFrom="template">
+                          <AF_FORM_TITLE jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" valueFrom="formTitle">
+                      <Adressblock jcr:primaryType="nt:unstructured">
+                        <items jcr:primaryType="nt:unstructured">
+                          <senderAddressTitle jcr:primaryType="nt:unstructured" resourceType="granite/ui/components/coral/foundation/form/textarea" value="Banking Relationship" valueFrom="     ">
+                  <formId jcr:primaryType="nt:unstructured">
+                  <displayLanguage jcr:primaryType="nt:unstructured">
+                  <language jcr:primaryType="nt:unstructured">
+                  <footerVersion jcr:primaryType="nt:unstructured">
+                  <mandator jcr:primaryType="nt:unstructured">
+                  <footerFormCode jcr:primaryType="nt:unstructured">
+                  <footerFormVersionDate jcr:primaryType="nt:unstructured">
+                  <APPCode jcr:primaryType="nt:unstructured" value="AFC">
+                  <footerFreeText jcr:primaryType="nt:unstructured">
+      <assets jcr:primaryType="nt:unstructured">
+        <dictionary jcr:primaryType="nt:unstructured">
+          <en jcr:primaryType="nt:unstructured">
+    <parsys2 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
+      <guidefooter jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guidefooter">
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de-ch.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Durch Klicken auf &quot;Vorschau&quot; können Sie Ihr Dokument vor dem Absenden überprüfen.&lt;/p&gt;&lt;p&gt;Nach dem Klicken auf &quot;Absenden&quot; können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.&lt;/p&gt;"
+"fd_Add" = "Hinzufügen"
+"fd_Back" = "Zurück"
+"fd_Company" = "Firma"
+"fd_For internal bank use only" = "Nur für den internen Bankgebrauch"
+"fd_Next" = "Weiter"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Bitte geben Sie eine gültige E-Mail-Adresse ein (z. B. max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Bitte geben Sie eine gültige Telefonnummer einschließlich Ländervorwahl (z. B. +41) ein."
+"fd_Preview" = "Vorschau"
+"fd_Save Progress" = "Fortschritt speichern"
+"fd_Signature(s)" = "Unterschrift(en)"
+"fd_Signature(s) verified / Signed in my presence" = "Unterschrift(en) geprüft / in meiner Gegenwart unterzeichnet"
+"fd_Submission failed" = "Übermittlung fehlgeschlagen"
+"fd_Submit" = "Absenden"
+"fd_Summary" = "Zusammenfassung"
+"fd_Summary of form information" = "Zusammenfassung der Formulardaten"
+"fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Durch Klicken auf &quot;Vorschau&quot; können Sie Ihr Dokument vor dem Absenden überprüfen.&lt;/p&gt;&lt;p&gt;Nach dem Klicken auf &quot;Absenden&quot; können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.&lt;/p&gt;"
+"fd_Add" = "Hinzufügen"
+"fd_Back" = "Zurück"
+"fd_Company" = "Firma"
+"fd_For internal bank use only" = "Nur für den internen Bankgebrauch"
+"fd_Next" = "Weiter"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Bitte geben Sie eine gültige E-Mail-Adresse ein (z. B. max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Bitte geben Sie eine gültige Telefonnummer einschließlich Ländervorwahl (z. B. +41) ein."
+"fd_Preview" = "Vorschau"
+"fd_Save Progress" = "Fortschritt speichern"
+"fd_Signature(s)" = "Unterschrift(en)"
+"fd_Signature(s) verified / Signed in my presence" = "Unterschrift(en) geprüft / in meiner Gegenwart unterzeichnet"
+"fd_Submission failed" = "Übermittlung fehlgeschlagen"
+"fd_Submit" = "Absenden"
+"fd_Summary" = "Zusammenfassung"
+"fd_Summary of form information" = "Zusammenfassung der Formulardaten"
+"fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/en.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;"
+"fd_Add" = "Add"
+"fd_Back" = "Back"
+"fd_Company" = "Company"
+"fd_For internal bank use only" = "For internal bank use only"
+"fd_Next" = "Next"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Please enter a valid email address (e.g., max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Please enter a valid phone number incl. country code (e.g., +41)."
+"fd_Preview" = "Preview"
+"fd_Save Progress" = "Save Progress"
+"fd_Signature(s) verified / Signed in my presence" = "Signature(s) verified / Signed in my presence"
+"fd_Submission failed" = "Submission failed"
+"fd_Submit" = "Submit"
+"fd_Summary" = "Summary"
+"fd_Summary of form information" = "Summary of form information"
+"fd_Thank you for submitting the form." = "Thank you for submitting the form."
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/es.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Al hacer clic en &quot;Vista previa&quot;, puede revisar su documento antes del envío.&lt;/p&gt;&lt;p&gt;Después de hacer clic en &quot;Enviar&quot;, ya no podrá editar el documento y se creará el PDF para su firma.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.&lt;/p&gt;"
+"fd_Add" = "Añadir"
+"fd_Back" = "Atrás"
+"fd_Company" = "Empresa"
+"fd_For internal bank use only" = "Solo para uso interno del banco"
+"fd_Next" = "Siguiente"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Por favor, introduzca una dirección de correo electrónico válida (por ejemplo, max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Por favor, introduzca un número de teléfono válido que incluya el código de país (por ejemplo, +41)."
+"fd_Preview" = "Vista previa"
+"fd_Save Progress" = "Guardar progreso"
+"fd_Signature(s)" = "Firma(s)"
+"fd_Signature(s) verified / Signed in my presence" = "Firma(s) comprobada(s) / Firmado en mi presencia"
+"fd_Submission failed" = "Error en el envío"
+"fd_Submit" = "Enviar"
+"fd_Summary" = "Resumen"
+"fd_Summary of form information" = "Resumen de la información del formulario"
+"fd_Thank you for submitting the form." = "Gracias por enviar el formulario."
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/fr.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;En cliquant sur &quot;Aperçu&quot;, vous pouvez consulter votre document avant l&apos;envoi.&lt;/p&gt;&lt;p&gt;Après avoir cliqué sur &quot;Soumettre&quot;, vous ne pourrez plus modifier le document et le PDF sera créé pour signature.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Le formulaire n&apos;a pas pu être envoyé. Veuillez réessayer plus tard.&lt;/p&gt;"
+"fd_Add" = "Ajouter"
+"fd_Back" = "Retour"
+"fd_Company" = "Société"
+"fd_For internal bank use only" = "Réservé à l&apos;usage interne de la banque"
+"fd_Next" = "Suivant"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Veuillez saisir une adresse e-mail valide (p. ex. max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Veuillez saisir un numéro de téléphone valide avec l&apos;indicatif du pays (p. ex. +41)."
+"fd_Preview" = "Aperçu"
+"fd_Save Progress" = "Enregistrer la progression"
+"fd_Signature(s) verified / Signed in my presence" = "Signature(s) verifiée(s) / Signé en ma présence"
+"fd_Submission failed" = "Échec de l&apos;envoi"
+"fd_Submit" = "Soumettre"
+"fd_Summary" = "Résumé"
+"fd_Summary of form information" = "Résumé des informations du formulaire"
+"fd_Thank you for submitting the form." = "Merci d&apos;avoir soumis le formulaire."
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/it.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Cliccando su &quot;Anteprima&quot;, è possibile verificare il documento prima dell&apos;invio.&lt;/p&gt;&lt;p&gt;Dopo aver cliccato su &quot;Invia&quot;, non sarà più possibile modificare il documento e il PDF verrà creato per la firma.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;Il modulo non è stato inviato. Si prega di riprovare più tardi.&lt;/p&gt;"
+"fd_Add" = "Aggiungi"
+"fd_Back" = "Indietro"
+"fd_Company" = "Società"
+"fd_For internal bank use only" = "Solo per uso interno della banca"
+"fd_Next" = "Avanti"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Si prega di inserire un indirizzo email valido (ad esempio, max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Si prega di inserire un numero di telefono valido con il prefisso paese (ad esempio, +41)."
+"fd_Preview" = "Anteprima"
+"fd_Save Progress" = "Salva progressi"
+"fd_Signature(s) verified / Signed in my presence" = "Controllo firma/e / Firmato in mia presenza"
+"fd_Submission failed" = "Invio non riuscito"
+"fd_Submit" = "Invia"
+"fd_Summary" = "Riepilogo"
+"fd_Summary of form information" = "Riepilogo delle informazioni del modulo"
+"fd_Thank you for submitting the form." = "Grazie per aver inviato il modulo."
+== bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/sp.xml
+"fd_&lt;p&gt;By clicking on &quot;Preview&quot;, you can review your document before submission.&lt;/p&gt;&lt;p&gt;After clicking &quot;Submit&quot;, you will no longer be able to edit the document and the PDF will be created for signing.&lt;/p&gt;" = "&lt;p&gt;Al hacer clic en &quot;Vista previa&quot;, puede revisar su documento antes del envío.&lt;/p&gt;&lt;p&gt;Después de hacer clic en &quot;Enviar&quot;, ya no podrá editar el documento y se creará el PDF para su firma.&lt;/p&gt;"
+"fd_&lt;p&gt;The form could not be sent. Please try again later.&lt;/p&gt;" = "&lt;p&gt;No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.&lt;/p&gt;"
+"fd_Add" = "Añadir"
+"fd_Back" = "Atrás"
+"fd_Company" = "Empresa"
+"fd_For internal bank use only" = "Solo para uso interno del banco"
+"fd_Next" = "Siguiente"
+"fd_Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Por favor, introduzca una dirección de correo electrónico válida (por ejemplo, max.muster@beispiel.ch)."
+"fd_Please enter a valid phone number incl. country code (e.g., +41)." = "Por favor, introduzca un número de teléfono válido que incluya el código de país (por ejemplo, +41)."
+"fd_Preview" = "Vista previa"
+"fd_Save Progress" = "Guardar progreso"
+"fd_Signature(s)" = "Firma(s)"
+"fd_Signature(s) verified / Signed in my presence" = "Firma(s) comprobada(s) / Firmado en mi presencia"
+"fd_Submission failed" = "Error en el envío"
+"fd_Submit" = "Enviar"
+"fd_Summary" = "Resumen"
+"fd_Summary of form information" = "Resumen de la información del formulario"
+"fd_Thank you for submitting the form." = "Gracias por enviar el formulario."
+== schema
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
+
+  <xs:element name="UBSAF_AAEV">
+    <xs:complexType>
+      <xs:sequence>
+      </xs:sequence>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>
+

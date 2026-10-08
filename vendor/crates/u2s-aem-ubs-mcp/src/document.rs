@@ -12,6 +12,8 @@ use std::collections::{BTreeMap, HashMap};
 use serde::{Deserialize, Serialize};
 
 use crate::Error;
+use crate::aem::fragment_parser::ParsedFragment;
+use crate::aem::partner::{self, is_partner_generic};
 use crate::aem::{
     AemConfig, AemNode, AemNodeTranslated, LowerConflict, aem_to_translated,
     generate_aem_package_from_node_with_passthrough, parse_aem_zip,
@@ -121,6 +123,7 @@ pub struct UbsAemBuild {
 pub fn encode(doc: &UbsAemDocument) -> Result<UbsAemBuild, Error> {
     validate(doc)?;
     let config = config_for(&doc.variables, doc.header.as_deref(), &doc.languages)?;
+    check_parties(doc, &config.fragments)?;
 
     let (node, translations, conflicts) = lower(doc, &config);
     // The dictionary is keyed by master text, so a text translated two ways
@@ -165,11 +168,41 @@ pub fn encode(doc: &UbsAemDocument) -> Result<UbsAemBuild, Error> {
         generate_xsd_string_from_aem(schema_tree, xsd_config, &config.fragments)
     });
 
+    check_package_chars(&package)?;
+    if let Some((bound_package, _)) = &bound {
+        check_package_chars(bound_package)?;
+    }
     Ok(UbsAemBuild {
         package,
         bound_package: bound.map(|(package, _)| package),
         xsd,
     })
+}
+
+/// Refuse a package whose XML holds a character XML 1.0 cannot carry
+/// (`u2s_mapper_aem::jcr::check_xml_chars`): AEM would reject it on install,
+/// and a text from the document is the only way one gets in.
+fn check_package_chars(package: &[u8]) -> Result<(), Error> {
+    use std::io::Read;
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(package))
+        .expect("the package writer writes a valid zip");
+    for i in 0..archive.len() {
+        let mut file = archive.by_index(i).expect("an entry of a valid zip");
+        if !file.name().ends_with(".xml") {
+            continue;
+        }
+        let mut text = String::new();
+        file.read_to_string(&mut text)
+            .expect("the package writer writes UTF-8 XML");
+        if let Err(e) = u2s_mapper_aem::jcr::check_xml_chars(&text) {
+            return Err(Error::InvalidDocument(format!(
+                "a text of the document holds a character a form cannot carry: {} in {}",
+                e,
+                file.name()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Lift a UBS package back into a document, so a deployed form or a reference
@@ -204,12 +237,14 @@ pub fn decode(package: &[u8]) -> Result<UbsAemDocument, Error> {
             uuid,
             frag_ref,
             init_hide,
+            init_show,
             ..
         } = node
             && is_partner_generic(frag_ref)
-            && let Some(hidden) = parsed.fragment_init_hide.get(uuid)
+            && let Some(visibility) = parsed.fragment_init.get(uuid)
         {
-            *init_hide = hidden.clone();
+            *init_hide = visibility.hide.clone();
+            *init_show = visibility.show.clone();
         }
     });
     Ok(UbsAemDocument {
@@ -341,43 +376,57 @@ fn validate(doc: &UbsAemDocument) -> Result<(), Error> {
             doc.languages
         )));
     }
-    let mut misplaced = Vec::new();
-    doc.form.visit(&mut |node| {
-        if let AemNodeTranslated::Fragment {
-            name,
-            frag_ref,
-            init_hide,
-            ..
-        } = node
-            && !init_hide.is_empty()
-            && !is_partner_generic(frag_ref)
-        {
-            misplaced.push(format!("{name} ({frag_ref})"));
-        }
-    });
-    if !misplaced.is_empty() {
-        return Err(Error::InvalidDocument(format!(
-            "`init_hide` hides sub-panels of a UBS partner generic ({}), and these fragments \
-             are none: {}",
-            PARTNER_GENERICS.join(", "),
-            misplaced.join(", ")
-        )));
-    }
     Ok(())
 }
 
-/// The UBS partner generics (`afforms_ubs_fragmentlib`), the fragments whose
-/// sub-panels a form hides with `init_hide`. Their `Basic` variants count too.
-const PARTNER_GENERICS: &[&str] = &[
-    "affrg_ContractualPartnerGeneric",
-    "affrg_PartnertoPartnerGeneric",
-    "affrg_BeneficialOwnerGeneric",
-    "affrg_PowerofAttorneyGeneric",
-];
-
-fn is_partner_generic(frag_ref: &str) -> bool {
-    let fragment = frag_ref.rsplit('/').next().unwrap_or(frag_ref);
-    PARTNER_GENERICS.iter().any(|stem| fragment.starts_with(stem))
+/// Every party is one Repeatable around one partner generic, and every
+/// fragment's `init_hide` and `init_show` name sub-panels the fragment
+/// library says it has, as [`partner::init_problems`] requires.
+fn check_parties(doc: &UbsAemDocument, library: &[ParsedFragment]) -> Result<(), Error> {
+    let mut problems = Vec::new();
+    doc.form.visit(&mut |node| match node {
+        AemNodeTranslated::Fragment {
+            name,
+            frag_ref,
+            init_hide,
+            init_show,
+            ..
+        } if !init_hide.is_empty() || !init_show.is_empty() => {
+            if !partner::is_partner_generic(frag_ref) {
+                problems.push(format!(
+                    "`init_hide` and `init_show` set the sub-panels of a UBS partner generic ({}), \
+                     and `{name}` ({frag_ref}) is none",
+                    partner::PARTNER_GENERICS.join(", ")
+                ));
+            } else if let Some(sub_panels) = partner::sub_panels(library, frag_ref) {
+                problems.extend(partner::init_problems(name, sub_panels, init_hide, init_show));
+            } else {
+                problems.push(format!(
+                    "`{name}` references {frag_ref}, which the fragment library does not hold"
+                ));
+            }
+        }
+        AemNodeTranslated::Repeatable { name, children, .. } => {
+            let parties = children
+                .iter()
+                .filter(|c| {
+                    matches!(c, AemNodeTranslated::Fragment { frag_ref, .. } if partner::is_partner_generic(frag_ref))
+                })
+                .count();
+            if parties > 1 {
+                problems.push(format!(
+                    "`{name}` holds {parties} partner generics: a party is one Repeatable around one \
+                     partner generic, with at most a content Panel beside it for fields the generic lacks"
+                ));
+            }
+        }
+        _ => {}
+    });
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::InvalidDocument(problems.join("; ")))
+    }
 }
 
 /// The profile's configuration, resolved against a document's variables,
@@ -540,6 +589,128 @@ mod tests {
             panic!("init_hide on a signature fragment must be refused");
         };
         assert!(message.contains("PN_CPGRP"), "{message}");
+    }
+
+    /// [`fragment_page`] with the fragment also showing `init_show`.
+    fn fragment_page_showing(
+        frag_ref: &str,
+        init_hide: serde_json::Value,
+        init_show: serde_json::Value,
+    ) -> serde_json::Value {
+        let mut page = fragment_page(frag_ref, init_hide);
+        page["form"]["children"][0]["children"][0]["init_show"] = init_show;
+        page
+    }
+
+    fn refusal(json: serde_json::Value) -> String {
+        let doc = UbsAemDocument::from_json(&json).unwrap();
+        match encode(&doc) {
+            Err(Error::InvalidDocument(message)) => message,
+            Err(other) => panic!("refused for another reason: {other}"),
+            Ok(_) => panic!("the document must be refused"),
+        }
+    }
+
+    /// The hidden sub-panels a form needs are shown by the same Initialize
+    /// rule that hides the ones it does not, every call in the order the
+    /// fragment holds its sub-panels, and a load gives both lists back.
+    #[test]
+    fn init_show_and_init_hide_are_one_initialize_rule_in_fragment_order_and_decode_back() {
+        let doc = UbsAemDocument::from_json(&fragment_page_showing(
+            CONTRACTUAL_PARTNER,
+            json!(["PN_Address", "PN_EntityBasic"]),
+            json!(["PN_DateIncorporation", "PN_DOBNationality"]),
+        ))
+        .unwrap();
+        let build = encode(&doc).unwrap();
+        let xml = form_xml(&build.package);
+        assert!(
+            xml.contains(concat!(
+                r"window.forms.ubs.hideAFHideDor(this.PN_EntityBasic);\\n",
+                r"window.forms.ubs.hideAFHideDor(this.PN_Address);\\n",
+                r"window.forms.ubs.showAFShowDor(this.PN_DOBNationality);\\n",
+                "window.forms.ubs.showAFShowDor(this.PN_DateIncorporation);"
+            )),
+            "{xml}"
+        );
+        assert_eq!(xml.matches("&quot;event&quot;:&quot;Initialize&quot;").count(), 1);
+
+        let decoded = decode(&build.package).unwrap();
+        let mut lists = Vec::new();
+        decoded.form.visit(&mut |node| {
+            if let AemNodeTranslated::Fragment { init_hide, init_show, .. } = node {
+                let names = |list: &[crate::aem::ComponentName]| {
+                    list.iter().map(|n| n.as_str().to_string()).collect::<Vec<_>>()
+                };
+                lists.push((names(init_hide), names(init_show)));
+            }
+        });
+        assert_eq!(
+            lists,
+            [(
+                vec!["PN_EntityBasic".to_string(), "PN_Address".to_string()],
+                vec!["PN_DOBNationality".to_string(), "PN_DateIncorporation".to_string()]
+            )]
+        );
+    }
+
+    /// Only a partner generic ships sub-panels hidden that a form shows.
+    #[test]
+    fn init_show_on_another_fragment_is_refused() {
+        let message = refusal(fragment_page_showing(
+            "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1",
+            json!([]),
+            json!(["PN_DOBNationality"]),
+        ));
+        assert!(message.contains("PN_CPGRP"), "{message}");
+    }
+
+    /// Showing a sub-panel the generic already shows, or one it does not
+    /// have, does nothing at runtime: it is a mistake, so it is refused.
+    #[test]
+    fn showing_a_sub_panel_that_is_not_shipped_hidden_is_refused() {
+        let message = refusal(fragment_page_showing(
+            CONTRACTUAL_PARTNER,
+            json!([]),
+            json!(["PN_Address"]),
+        ));
+        assert!(message.contains("already shows"), "{message}");
+        let message = refusal(fragment_page_showing(
+            CONTRACTUAL_PARTNER,
+            json!([]),
+            json!(["PN_PlaceOfBirth"]),
+        ));
+        assert!(message.contains("does not have"), "{message}");
+    }
+
+    /// What a fragment can show is what the library says it ships hidden: a
+    /// `Basic` partner generic ships its company name shown and has no
+    /// address at all.
+    #[test]
+    fn a_basic_variant_is_held_to_its_own_sub_panels() {
+        const BASIC: &str =
+            "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_PartnertoPartnerGenericBasic1";
+        let shown = refusal(fragment_page_showing(BASIC, json!([]), json!(["PN_EntityBasic"])));
+        assert!(shown.contains("already shows"), "{shown}");
+        let missing = refusal(fragment_page_showing(BASIC, json!(["PN_Address"]), json!([])));
+        assert!(missing.contains("does not have"), "{missing}");
+        let doc = UbsAemDocument::from_json(&fragment_page_showing(
+            BASIC,
+            json!(["PN_EntityBasic"]),
+            json!(["PN_DOBNationality"]),
+        ))
+        .unwrap();
+        encode(&doc).expect("hiding its company name and showing its date of birth is valid");
+    }
+
+    #[test]
+    fn a_sub_panel_both_hidden_and_shown_is_refused() {
+        let message = refusal(fragment_page_showing(
+            CONTRACTUAL_PARTNER,
+            json!(["PN_EntityBasic"]),
+            json!(["PN_EntityBasic"]),
+        ));
+        assert!(message.contains("both hides and shows `PN_EntityBasic`"), "{message}");
     }
 
     /// The names are written into a script as they are, so only identifiers

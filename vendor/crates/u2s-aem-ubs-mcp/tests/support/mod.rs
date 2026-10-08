@@ -8,6 +8,8 @@
 
 #![allow(dead_code)] // Not every helper is used by every test binary.
 
+pub mod package;
+
 use std::collections::HashMap;
 use std::io::Cursor;
 use std::path::{Path, PathBuf};

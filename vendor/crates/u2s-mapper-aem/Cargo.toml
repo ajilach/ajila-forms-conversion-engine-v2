@@ -39,8 +39,16 @@ path = "tests/no_customer_terms.rs"
 name = "roundtrip_real_package"
 path = "tests/roundtrip_real_package.rs"
 
+[[test]]
+name = "script_encoding"
+path = "tests/script_encoding.rs"
+
 [dependencies]
 quick-xml = "0.36"
+
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
 
 [dependencies.serde_json]
 version = "1.0"

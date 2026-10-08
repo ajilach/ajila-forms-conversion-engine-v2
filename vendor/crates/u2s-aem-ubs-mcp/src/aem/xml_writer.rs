@@ -10,12 +10,11 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 use super::{
-    ComponentName,
     AemAttrs, AemConfig, AemI18nText, AemNode, AemOption, ConditionRule, OptionAlignment,
     Passthrough, TextFieldKind,
 };
 use crate::aem::template;
-use crate::util::escape_html as xml_escape;
+use u2s_mapper_aem::jcr::escape_attribute_value as xml_escape;
 use crate::value::InputValue;
 
 /// No fidelity passthrough (the engine / from-XFA path): every node renders
@@ -429,22 +428,30 @@ fn signature_twin_candidates(data_panel: &str) -> Vec<String> {
     names
 }
 
-/// A subject as it has to be written inside a rule body, escaped once for every
-/// layer between here and the browser.
+/// A text as it has to be written inside a JavaScript string literal of a rule
+/// body, escaped once for every layer between here and the browser.
 ///
-/// The repeating panel's buttons pass the subject to the accessibility helpers as
-/// a JavaScript string, and that string sits inside a JSON document, inside a
+/// A repeating panel's buttons pass their subject to the accessibility helpers
+/// as a JavaScript string, and a conditional panel compares its trigger with an
+/// option value as one. That string sits inside a JSON document, inside a
 /// FileVault multi-value property, inside an XML attribute. Each layer owns
-/// different characters, and the one that bites is the comma: unescaped, it ends
-/// the property value, and AEM reads the rest of the rule as a second one.
-fn rule_label(subject: &str) -> String {
-    // The JavaScript string literal.
-    let js = subject.replace('\\', "\\\\").replace('"', "\\\"");
-    // The JSON document that carries it.
-    let json = js.replace('\\', "\\\\").replace('"', "\\\"");
+/// different characters: a `"` ends the JSON string, and a comma, unescaped,
+/// ends the property value, so AEM reads the rest of the rule as a second one.
+fn in_rule_string(subject: &str) -> String {
+    // The JavaScript string literal, then the JSON document that carries it:
+    // JSON's string escaping (`\\`, `\"`, `\n`, other control characters) is
+    // valid JavaScript too, so one escaper serves both.
+    let js = json_string_body(subject);
+    let json = json_string_body(&js);
     // The multi-value property, where a backslash escapes and a comma separates.
     let vault = json.replace('\\', "\\\\").replace(',', "\\,");
     xml_escape(&vault)
+}
+
+/// `text` escaped as the inside of a JSON string, without the quotes.
+fn json_string_body(text: &str) -> String {
+    let quoted = serde_json::to_string(text).expect("a string serialises");
+    quoted[1..quoted.len() - 1].to_owned()
 }
 
 /// Drop any tags from a rich-text title and collapse the whitespace.
@@ -1198,7 +1205,7 @@ fn build_node_context(
                     .map(|(field, value)| {
                         HashMap::from([
                             ("field", field.clone()),
-                            ("value", condition_value_str(value)),
+                            ("value", in_rule_string(&condition_value_str(value))),
                         ])
                     })
                     .collect();
@@ -1527,7 +1534,7 @@ fn build_node_context(
                 .unwrap_or_default();
             ctx.insert("add_label", &xml_escape(&add_label));
             ctx.insert("subject", &xml_escape(subject));
-            ctx.insert("rule_label", &rule_label(subject));
+            ctx.insert("rule_label", &in_rule_string(subject));
 
             // The signature panel this one's buttons also drive, if the form has
             // one. Empty otherwise, and the buttons then name only their own
@@ -1559,14 +1566,16 @@ fn build_node_context(
             attrs: _,
             visible,
             init_hide,
+            init_show,
         } => {
             ctx.insert("uuid", &uuid.as_simple().to_string());
             ctx.insert("name", name);
             ctx.insert("title", title);
             ctx.insert("frag_ref", frag_ref);
+            let sub_panels = super::partner::sub_panels(&config.fragments, frag_ref).unwrap_or(&[]);
             ctx.insert(
-                "init_hide",
-                &init_hide.iter().map(ComponentName::as_str).collect::<Vec<_>>(),
+                "init_calls",
+                &super::partner::init_calls(sub_panels, init_hide, init_show),
             );
             ctx.insert("visible", visible);
             ctx.insert("bind_ref", bind_ref);
@@ -1879,7 +1888,7 @@ mod tests {
         );
         config.component_templates.insert(
             "conditional".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ title }}\"{% if not visible and not visibility_triggers %} visible=\"{Boolean}false\"{% endif %}{% if dor_exclude %} dorExclusion=\"true\"{% endif %}{% if dor_num_cols %} dorNumCols=\"{{ dor_num_cols }}\"{% endif %}{% if dor_colspan %} dorColspan=\"{{ dor_colspan }}\"{% endif %}>{{ children }}{% if visibility_triggers %}<fd:scripts fd:visible=\"[{&quot;script&quot;:{&quot;field&quot;:&quot;{{ name }}&quot;\\,&quot;event&quot;:&quot;Visibility&quot;\\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;SHOW_EXPRESSION&quot;}\\,&quot;content&quot;:&quot;if ({% for t in visibility_triggers %}{{ t.field }}.value == \\\\&quot;{{ t.value | escape }}\\\\&quot;{% if not loop.last %} || {% endif %}{% endfor %}) {\\\\n  window.forms.ubs.showAFShowDor(this);\\\\n  true;\\\\n} else {\\\\n  window.forms.ubs.hideAFHideDor(this);\\\\n  false;\\\\n}\\\\n&quot;}\\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\\,&quot;version&quot;:1\\,&quot;enabled&quot;:true}]\" jcr:primaryType=\"nt:unstructured\"/>{% endif %}</{{ element_name }}>".into(),
+            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ title }}\"{% if not visible and not visibility_triggers %} visible=\"{Boolean}false\"{% endif %}{% if dor_exclude %} dorExclusion=\"true\"{% endif %}{% if dor_num_cols %} dorNumCols=\"{{ dor_num_cols }}\"{% endif %}{% if dor_colspan %} dorColspan=\"{{ dor_colspan }}\"{% endif %}>{{ children }}{% if visibility_triggers %}<fd:scripts fd:visible=\"[{&quot;script&quot;:{&quot;field&quot;:&quot;{{ name }}&quot;\\,&quot;event&quot;:&quot;Visibility&quot;\\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;SHOW_EXPRESSION&quot;}\\,&quot;content&quot;:&quot;if ({% for t in visibility_triggers %}{{ t.field }}.value == \\\\&quot;{{ t.value }}\\\\&quot;{% if not loop.last %} || {% endif %}{% endfor %}) {\\\\n  window.forms.ubs.showAFShowDor(this);\\\\n  true;\\\\n} else {\\\\n  window.forms.ubs.hideAFHideDor(this);\\\\n  false;\\\\n}\\\\n&quot;}\\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\\,&quot;version&quot;:1\\,&quot;enabled&quot;:true}]\" jcr:primaryType=\"nt:unstructured\"/>{% endif %}</{{ element_name }}>".into(),
         );
         config.component_templates.insert(
             "textbox".into(),
@@ -3930,6 +3939,7 @@ mod tests {
             frag_ref: frag_ref.into(),
             bind_ref: None,
             init_hide: Vec::new(),
+            init_show: Vec::new(),
             attrs: AemAttrs::default(),
             visible: true,
         };
@@ -4005,6 +4015,7 @@ mod tests {
             frag_ref: frag_ref.into(),
             bind_ref: None,
             init_hide: Vec::new(),
+            init_show: Vec::new(),
             attrs: AemAttrs::default(),
             visible: true,
         };

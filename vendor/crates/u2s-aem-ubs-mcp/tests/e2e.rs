@@ -365,5 +365,5 @@ async fn decode_then_encode_reproduces_the_real_fixture() {
 /// `manifest()`'s own key/version fields are asserted by literal value
 /// elsewhere in this suite.
 fn u2s_aem_ubs_mcp_specs_format_version() -> &'static str {
-    "0.3.0"
+    "0.4.0"
 }
