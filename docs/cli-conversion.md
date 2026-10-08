@@ -96,11 +96,11 @@ You need:
 
 **For both targets:**
 - Check rules: every rule runs in a sandboxed worker process, which is `blueprint` itself started with `--u2s-rules-worker`; nothing extra needs building or shipping.
-- `pdfium`: Run `./scripts/fetch-pdfium.sh` to download the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
+- `pdfium`: downloaded and embedded by the build on first compilation; nothing to do beyond network access on the first build.
 - Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM image (default none, must be pulled manually), data volume (default `u2s-aem-ubs-data`), AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: the migration, core and rendering images (default: the ones `ajila-redacto-platform`'s CI publishes to `ajilaclouddev.azurecr.io`), Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin).
 - CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
 - Prepare: Run `blueprint verify prepare` to pull the public verifier images (headless Chromium `chromedp/headless-shell:stable` and Postgres). The AEM image must be pulled by hand (see above).
-- Check: Run `blueprint verify check [--target aem|redacto]` to run the readiness check a conversion performs: settings complete, Docker reachable, images present locally, the AEM data volume exists, pdfium loads.
+- Check: Run `blueprint verify check [--target aem|redacto]` to run the readiness check a conversion performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry), the AEM data volume exists, and pdfium loads.
 
 ```sh
 cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images
@@ -115,7 +115,7 @@ the run cannot start:" and lists every missing item.
 `<config_dir>/blueprint/history.db` — on macOS `~/Library/Application
 Support/blueprint/history.db`. It holds the desktop app's settings, the
 edit-history sessions, the stored source bytes and each session's running spend
-total. The CLI, the app and the MCP server all share it. Deleting it discards
+total. The CLI and the app share it. Deleting it discards
 every resumable session.
 
 ---

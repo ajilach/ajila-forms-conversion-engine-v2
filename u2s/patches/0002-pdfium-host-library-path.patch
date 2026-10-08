@@ -1,0 +1,50 @@
+diff --git a/u2s/crates/u2s-render-pdf/src/lib.rs b/u2s/crates/u2s-render-pdf/src/lib.rs
+index f042f38..bd11961 100644
+--- a/u2s/crates/u2s-render-pdf/src/lib.rs
++++ b/u2s/crates/u2s-render-pdf/src/lib.rs
+@@ -15,7 +15,7 @@ mod types;
+ mod worker;
+ 
+ pub use types::{DocumentInfo, FormType};
+-pub use worker::Renderer;
++pub use worker::{Renderer, set_library_path};
+ 
+ // Re-exported so a caller needs one dependency, not two.
+ pub use u2s_render_core::{
+diff --git a/u2s/crates/u2s-render-pdf/src/worker.rs b/u2s/crates/u2s-render-pdf/src/worker.rs
+index f914844..bc11901 100644
+--- a/u2s/crates/u2s-render-pdf/src/worker.rs
++++ b/u2s/crates/u2s-render-pdf/src/worker.rs
+@@ -22,8 +22,21 @@ use u2s_render_core::{
+ use crate::error::{ENGINE, from_load};
+ use crate::types::{DocumentInfo, FormType};
+ 
++/// The library a host process supplies itself (for example one it embeds and
++/// extracts), set once before the first render. Set-once, so it cannot change
++/// under a worker that already bound pdfium.
++static HOST_LIBRARY: OnceLock<PathBuf> = OnceLock::new();
++
++/// Names the pdfium library to bind, taking precedence over every search path
++/// except `PDFIUM_LIB_PATH`. Only the first call has an effect; it returns
++/// whether this call was it.
++pub fn set_library_path(path: PathBuf) -> bool {
++    HOST_LIBRARY.set(path).is_ok()
++}
++
+ /// Where to look for the pdfium dynamic library, in order:
+-/// `PDFIUM_LIB_PATH`, then next to the running binary, then a `vendor/pdfium/lib`
++/// `PDFIUM_LIB_PATH`, then the directory of the library the host set with
++/// [`set_library_path`], then next to the running binary, then a `vendor/pdfium/lib`
+ /// directory in any ancestor of the binary or the working directory. The
+ /// ancestor walk is what makes `cargo test` work without configuration: test
+ /// binaries live in `target/debug/deps`, several levels below the vendored
+@@ -37,6 +50,9 @@ fn library_search_paths() -> Vec<PathBuf> {
+     }
+ 
+     let mut paths = Vec::new();
++    if let Some(dir) = HOST_LIBRARY.get().and_then(|lib| lib.parent()) {
++        paths.push(dir.to_path_buf());
++    }
+ 
+     let mut roots = Vec::new();
+     if let Ok(exe) = std::env::current_exe()

@@ -12,15 +12,3 @@ publisher = "ajila"
 homepage = "https://www.ajila.com"
 copyright = "Copyright © 2026 Ajila"
 icon = ["icons/icon.icns", "icons/icon.ico", "icons/icon.png"]
-# Bundle the standalone `mcp` stdio server next to the app executable so the
-# app can register it with Claude Desktop (see `crate::mcp_install`). dx looks
-# for `<value>-<target-triple>` relative to its working directory (the repo
-# root, where `dx bundle` runs) and copies it next to the app binary with the
-# triple stripped (→ `mcp`). The release workflow stages it at
-# `sidecar/mcp-<target-triple>` before bundling. NOTE: dx silently skips a
-# missing external_bin, so verify the staged path matches if the binary is
-# absent from a bundle.
-# pdfium, which the u2s PDF renderer loads from next to the executable, is
-# staged the same way (only the one built for the current platform exists). The
-# rule worker needs no sidecar: the app is its own worker (`agent::rules`).
-external_bin = ["sidecar/mcp", "sidecar/libpdfium.dylib", "sidecar/libpdfium.so"]

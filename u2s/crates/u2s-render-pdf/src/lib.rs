@@ -15,7 +15,7 @@ mod types;
 mod worker;
 
 pub use types::{DocumentInfo, FormType};
-pub use worker::Renderer;
+pub use worker::{Renderer, set_library_path};
 
 // Re-exported so a caller needs one dependency, not two.
 pub use u2s_render_core::{

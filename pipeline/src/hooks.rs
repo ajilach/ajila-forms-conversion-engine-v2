@@ -1118,7 +1118,7 @@ mod tests {
     async fn reads_between_repeats_do_not_reset_the_stuck_watch() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let shared_agent = bare_shared_agent();
-        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::MCP)
+        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::REDACTO_AUTHOR)
             .into_iter()
             .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
             .collect();
@@ -1162,7 +1162,7 @@ mod tests {
     async fn a_turn_of_reads_and_a_write_records_every_result_in_call_order() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let shared_agent = bare_shared_agent();
-        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::MCP)
+        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::REDACTO_AUTHOR)
             .into_iter()
             .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
             .collect();

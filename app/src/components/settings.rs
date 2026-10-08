@@ -60,12 +60,6 @@ pub fn SettingsPage(
 ) -> Element {
     let mut tab = use_signal(SettingsTab::default);
 
-    // Whether the Blueprint MCP server is registered in Claude Desktop, and the
-    // last install error (shown below the row). Checked once on mount; flipped
-    // to `true` after a successful install.
-    let mut mcp_installed = use_signal(crate::mcp_install::is_installed);
-    let mut mcp_install_error: Signal<Option<String>> = use_signal(|| None);
-
     // The image-pull and readiness-check progress and outcome, shown under the
     // verification buttons. `Ok` lines are progress and the final report; `Err`
     // is the check's own message, which already says what to fix.
@@ -122,35 +116,6 @@ pub fn SettingsPage(
                                 desc: "Keep the window above all other applications.",
                                 checked: s.always_on_top,
                                 on_toggle: move |v: bool| update.call(Box::new(move |s| s.always_on_top = v)),
-                            }
-                        }
-                        div { class: "settings-section",
-                            h3 { class: "settings-section-title", "Claude Desktop" }
-                            div { class: "row",
-                                RowInfo {
-                                    label: "Blueprint MCP server",
-                                    desc: "Register Blueprint's conversion tools with Claude Desktop so you can drive conversions from Claude. Restart Claude Desktop after installing.",
-                                }
-                                if mcp_installed() {
-                                    span { class: "mcp-installed", "Installed ✓" }
-                                } else {
-                                    button {
-                                        class: "btn btn-primary btn-sm",
-                                        onclick: move |_| {
-                                            match crate::mcp_install::install() {
-                                                Ok(()) => {
-                                                    mcp_install_error.set(None);
-                                                    mcp_installed.set(true);
-                                                }
-                                                Err(e) => mcp_install_error.set(Some(e)),
-                                            }
-                                        },
-                                        "Install"
-                                    }
-                                }
-                            }
-                            if let Some(err) = mcp_install_error.read().as_ref() {
-                                div { class: "mcp-error", "{err}" }
                             }
                         }
                     },
@@ -517,30 +482,11 @@ pub fn SettingsPage(
                                     class: "btn btn-primary btn-sm",
                                     disabled: verify_busy(),
                                     onclick: move |_| {
-                                        let s = settings.read();
-                                        let aem_verify = s.aem_verify.clone();
-                                        let redacto_verify = s.redacto_verify.clone();
+                                        let current = settings.read().clone();
                                         verify_busy.set(true);
                                         verify_status.set(None);
                                         spawn(async move {
-                                            let aem = agent::u2s::aem_verify_readiness(&aem_verify).await;
-                                            let redacto = agent::u2s::redacto_verify_readiness(
-                                                    &redacto_verify,
-                                                )
-                                                .await;
-                                            let report = match (&aem, &redacto) {
-                                                (Ok(a), Ok(r)) => Ok(format!("AEM: {a}\nRedacto: {r}")),
-                                                _ => {
-                                                    let mut problems = Vec::new();
-                                                    if let Err(e) = &aem {
-                                                        problems.push(format!("AEM: {e}"));
-                                                    }
-                                                    if let Err(e) = &redacto {
-                                                        problems.push(format!("Redacto: {e}"));
-                                                    }
-                                                    Err(problems.join("\n"))
-                                                }
-                                            };
+                                            let report = super::Readiness::check(current).await.report();
                                             verify_status.set(Some(report));
                                             verify_busy.set(false);
                                         });
@@ -550,7 +496,7 @@ pub fn SettingsPage(
                             }
                             match verify_status.read().as_ref() {
                                 Some(Ok(text)) if !text.is_empty() => rsx! { div { class: "browser-status", "{text}" } },
-                                Some(Err(err)) => rsx! { div { class: "mcp-error", "{err}" } },
+                                Some(Err(err)) => rsx! { div { class: "verify-error", "{err}" } },
                                 _ => rsx! {},
                             }
                         }

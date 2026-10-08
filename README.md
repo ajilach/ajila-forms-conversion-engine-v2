@@ -21,10 +21,9 @@ Decodes PDFs and extracts structured data for automated forms conversion.
 |---|---|
 | `cli` | Command-line interface: the `convert` subcommand runs the AI conversion the app runs headless; `sessions` lists resumable conversions; `verify` checks setup. |
 | `app` | Dioxus desktop application: drag-and-drop upload driving the autonomous conversion agent. |
-| `agent` | Headless conversion-agent engine — the tool catalog/executor, edit-history store, reference store, and adapter over vendored u2s tools. No UI or LLM dependency, shared by the app, the pipeline and the MCP server. |
+| `agent` | Headless conversion-agent engine — the tool catalog/executor, edit-history store, reference store, and adapter over vendored u2s tools. No UI or LLM dependency, shared by the app and the pipeline. |
 | `pipeline` | The conversion controller: the Author → Reviewer stage sequencing, retry recovery and abort handling. Depends on neither a UI framework nor an LLM provider — the consumer supplies a `TurnProvider` and a `RunObserver`. |
 | `runner` | The host side of a run, shared by the app and the CLI: the two LLM transports (the Anthropic Messages API with prompt caching, and any OpenAI-compatible endpoint), history eviction, the operator settings, and the entry points that build the agent, open an edit-history session and record the result. |
-| `mcp` | Model Context Protocol (stdio) server that exposes the conversion tools so an external LLM client (Claude Desktop, Claude Code, Cursor) can drive a conversion. |
 
 ## Prerequisites
 
@@ -120,11 +119,11 @@ Prerequisites for Redacto: Docker running, the public Postgres image pulled (`ve
 
 **For both targets:**
 - Check rules: every rule runs in a sandboxed worker process, which is the converting binary itself started with `--u2s-rules-worker`, so nothing extra ships. The agent tests need the standalone worker built first: `cargo build --release -p u2s-rules-host --bin u2s-rules-worker`.
-- `pdfium`: `./scripts/fetch-pdfium.sh` downloads the pinned pdfium library (checksum-verified) into `vendor/pdfium/`; a release ships `libpdfium` next to the binary.
+- `pdfium`: downloaded and embedded by the build on first compilation; nothing to do beyond network access on the first build.
 - Settings: verifier settings live in the desktop app's settings (tab "Verification"): AEM image, data volume (default `u2s-aem-ubs-data`), container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL; for Redacto: the migration, core and rendering images, Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin). The CLI reads the same stored settings.
 - CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
 - `blueprint verify prepare` pulls the public verifier images (headless Chromium `chromedp/headless-shell:stable` and Postgres); the AEM image must be pulled by hand (see above).
-- `blueprint verify check [--target aem|redacto]` runs the readiness check a run performs: settings complete, Docker reachable, images present locally, the AEM data volume exists, pdfium loads.
+- `blueprint verify check [--target aem|redacto]` runs the readiness check a run performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry), the AEM data volume exists, and pdfium loads.
 
 ```sh
 cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images
@@ -148,7 +147,7 @@ The app is built with [Dioxus](https://dioxuslabs.com/) and targets the desktop.
 
 It bundles an AI conversion agent that drives the engine's tools turn by turn to convert a form interactively. The agent uses the Anthropic API by default — set the API key and model in the app's settings, under AI Model. The same settings tab switches the agent to any OpenAI-compatible chat-completions endpoint (OpenRouter, a local gateway) by entering a base URL, key and model id; that path sends no prompt-cache breakpoints, so a long run costs more input tokens there, and the model has to support tool calling and image input. Every tree change is versioned into a local edit-history SQLite database, so conversions can be reviewed and resumed.
 
-Reopening the app restores the conversions that were open, sources and all, but never restarts them: a reopened tab sits on its result with a Continue button, and the agent runs only once that is pressed. Continue carries the session on as it stands — the agent finishes the tree the previous run left and rebuilds the outputs, which are not kept between sessions. The feedback field is the other way in, for when there is something specific to change.
+Reopening the app restores the conversions that were open, sources and all, but never restarts them: a reopened tab sits on its result with a Continue button, and the agent runs only once that is pressed. Continue carries the session on as it stands — the agent finishes the tree the previous run left and rebuilds the outputs, which are not kept between sessions. The feedback field is the other way in, for when there is something specific to change. At startup and whenever settings are saved, the app runs a readiness check and shows a banner under the header listing any setup problems with a Re-check button; Start is disabled for targets that are not ready.
 
 ### Development
 
@@ -159,26 +158,7 @@ dx serve --platform desktop
 
 ### Production Build
 
-`dx run --release --platform desktop --package blueprint-app` works directly once pdfium is fetched (`./scripts/fetch-pdfium.sh`). A distributable app needs pdfium and the `mcp` server next to its executable, and `dx bundle` is what puts them there (`dx build` does not copy them). Stage them first, from the repo root:
-
-```sh
-./scripts/fetch-pdfium.sh
-./scripts/stage-sidecars.sh
-dx bundle --release --platform desktop --package blueprint-app --package-types macos
-```
-
-The app lands in `target/dx/blueprint-app/bundle/macos/macos/BlueprintApp.app`.
-
-## MCP Server
-
-The `mcp` crate is a [Model Context Protocol](https://modelcontextprotocol.io/) server that exposes the conversion tools over stdio, so an external LLM client (Claude Desktop, Claude Code, Cursor, …) can drive a conversion step by step. The client supplies the reasoning; the server supplies the tools, backed by the headless `agent` engine. It shares the same edit-history SQLite as the desktop app, so a conversion driven over MCP can later be reviewed in the app.
-
-```sh
-# Build the server binary
-cargo build --release -p mcp
-```
-
-Register the built binary (`target/release/mcp`) in the client's MCP config with `command` pointing at it. The desktop app can also install the bundled server into Claude Desktop's config automatically. A call to `start_conversion` (with a `pdf_path` or `pdf_base64`, and an optional `profile`) loads a source PDF; every other tool then operates on that loaded conversion.
+`dx run --release --platform desktop --package blueprint-app` and `dx bundle --release --platform desktop --package blueprint-app --package-types macos` work directly; pdfium is embedded by the build. The app lands in `target/dx/blueprint-app/bundle/macos/macos/BlueprintApp.app`.
 
 ## Library Documentation
 

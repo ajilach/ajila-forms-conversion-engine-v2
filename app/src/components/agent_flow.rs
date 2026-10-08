@@ -73,6 +73,9 @@ pub fn AgentFlow(
     profiles: Vec<String>,
     /// Whether agent processing is available (an API key is configured).
     ai_available: bool,
+    /// Whether each target can run on this machine; `None` until the first
+    /// check finishes.
+    readiness: Option<super::Readiness>,
     /// Start a fresh agent run in this tab from its uploaded files.
     on_ai_process: EventHandler<Vec<(String, Vec<u8>)>>,
     /// Re-run the agent in the same session with the user's feedback.
@@ -109,6 +112,7 @@ pub fn AgentFlow(
                                 selected_profile: tab.profile,
                                 selected_target: tab.target,
                                 ai_available,
+                                readiness,
                                 uploaded_files,
                                 on_start: move |files: Vec<(String, Vec<u8>)>| on_ai_process.call(files),
                             }
@@ -163,6 +167,7 @@ fn UploadBox(
     mut selected_profile: Signal<Option<String>>,
     selected_target: Signal<agent::OutputTarget>,
     ai_available: bool,
+    readiness: Option<super::Readiness>,
     mut uploaded_files: Signal<Vec<(String, Vec<u8>)>>,
     on_start: EventHandler<Vec<(String, Vec<u8>)>>,
 ) -> Element {
@@ -178,9 +183,18 @@ fn UploadBox(
     // An AEM content-package ZIP can be attached as an editable template; a run
     // needs at least a PDF or a template.
     let has_template = agent::conversion::template_of(&files).is_some();
-    let start_disabled = files.is_empty() || (!has_pdf && !has_template) || !ai_available;
+    // The runner refuses a target that is not ready anyway; this says so
+    // before the files are dropped, and the banner says why.
+    let target = *selected_target.read();
+    let target_ready = readiness.as_ref().map(|r| r.of(target).is_ok());
+    let start_disabled =
+        files.is_empty() || (!has_pdf && !has_template) || !ai_available || target_ready != Some(true);
     let start_title = if !ai_available {
         "Configure an API key in Settings to enable agent processing."
+    } else if target_ready.is_none() {
+        "Checking whether this machine can run the conversion…"
+    } else if target_ready == Some(false) {
+        "This machine is not ready for this output format; the banner above says why."
     } else if files.is_empty() {
         "Drop or choose a file to begin."
     } else if !has_pdf && !has_template {

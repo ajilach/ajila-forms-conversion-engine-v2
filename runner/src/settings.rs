@@ -63,7 +63,7 @@ pub struct AppSettings {
     #[serde(default)]
     pub max_review_rounds: usize,
     /// The Docker-hosted AEM the UBS verifier boots for an AEM run. Stored
-    /// flat (`aem_verify_*`), and read by the MCP server from the same blob.
+    /// flat (`aem_verify_*`).
     #[serde(flatten)]
     pub aem_verify: agent::u2s::AemVerifySettings,
     /// The throwaway Postgres the Redacto verifier imports dumps into, stored

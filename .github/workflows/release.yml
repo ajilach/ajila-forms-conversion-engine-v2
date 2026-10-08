@@ -185,18 +185,13 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Fetch pdfium
-        # The u2s PDF renderer loads pdfium dynamically from next to the
-        # executable; the script pins the release and checks its SHA-256.
-        run: ./scripts/fetch-pdfium.sh
-        shell: bash
-
-      - name: Build and stage the sidecars
-        # The binaries the app ships next to its executable (mcp, the rule
-        # worker, pdfium), staged where [bundle].external_bin in app/Dioxus.toml
-        # expects them. The same script stages them for a local build.
-        run: ./scripts/stage-sidecars.sh ${{ matrix.target }}
-        shell: bash
+      - name: Cache pdfium
+        # agent/build.rs downloads the pinned pdfium into vendor/pdfium and
+        # embeds it in every binary; the cache only spares the download.
+        uses: actions/cache@v4
+        with:
+          path: vendor/pdfium
+          key: pdfium-${{ matrix.target }}-${{ hashFiles('agent/build.rs') }}
 
       - name: Bundle with Dioxus CLI
         # dx bundle (unlike dx build) does platform packaging and embeds the app
@@ -279,13 +274,16 @@ jobs:
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Fetch pdfium
-        # Shipped next to the binary: the u2s PDF renderer loads it from there.
-        run: ./scripts/fetch-pdfium.sh
-        shell: bash
+      - name: Cache pdfium
+        # agent/build.rs downloads the pinned pdfium into vendor/pdfium and
+        # embeds it in every binary; the cache only spares the download.
+        uses: actions/cache@v4
+        with:
+          path: vendor/pdfium
+          key: pdfium-${{ matrix.target }}-${{ hashFiles('agent/build.rs') }}
 
       - name: Build blueprint-cli
-        # The binary is also its own rule worker, so it ships alone with pdfium.
+        # The binary is also its own rule worker and embeds pdfium, so it ships alone.
         run: |
           cargo build --release -p blueprint-cli --target ${{ matrix.target }}
         shell: bash
@@ -295,12 +293,10 @@ jobs:
           mkdir -p release-artifacts
           OUT="target/${{ matrix.target }}/release"
           if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            cp vendor/pdfium/lib/pdfium.dll "$OUT/"
-            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe" "./$OUT/pdfium.dll"
+            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe"
           else
             chmod +x "$OUT/blueprint"
-            cp vendor/pdfium/lib/libpdfium.* "$OUT/"
-            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint $(cd "$OUT" && ls libpdfium.*)
+            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint
           fi
         shell: bash
 

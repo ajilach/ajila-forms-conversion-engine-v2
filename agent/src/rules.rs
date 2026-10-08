@@ -36,7 +36,7 @@ fn worker_name() -> String {
 }
 
 /// What every rule runs in: this executable itself, started with
-/// [`WORKER_ARG`], so the app, the CLI and the MCP server ship no second
+/// [`WORKER_ARG`], so the app and the CLI ship no second
 /// program. Each of them hands control to [`serve_worker_if_invoked`] first
 /// thing in `main`.
 ///

@@ -190,7 +190,7 @@ pub fn render_sources(files: &[(String, Vec<u8>)]) -> Result<Vec<ReviewImage>, S
 
 /// Renders every page of a plain PDF with pdfium.
 fn render_pdf(path: &Path, label: &str) -> Result<Vec<ReviewImage>, String> {
-    let pdfium = u2s_render_pdf::Renderer::start(limits()).map_err(crate::u2s::pdfium_unavailable)?;
+    let pdfium = crate::pdfium::renderer(limits())?;
     let pages = walk(|from| pdfium.render_pages(path, None, Some(from), None, Some(REVIEW_DPI), None, ImageFormat::Png))
         .map_err(|e| format!("rendering {label}: {e}"))?;
     Ok(labelled(label, pages))

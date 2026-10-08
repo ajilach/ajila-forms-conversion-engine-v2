@@ -1,7 +1,6 @@
 mod agent_runner;
 mod components;
 mod files;
-mod mcp_install;
 mod models;
 mod rule_status;
 mod run_status;
@@ -18,7 +17,7 @@ pub use runner::settings;
 
 use dioxus::prelude::*;
 
-use components::{AgentFlow, FormTabs, ReferencesPage, ReviewPage, SettingsPage};
+use components::{AgentFlow, EnvironmentBanner, FormTabs, Readiness, ReferencesPage, ReviewPage, SettingsPage};
 use models::{ProcessingState, ProcessingStep};
 use settings::AppSettings;
 use tabs::{restored_view, RestoredView, SavedTab, SavedWorkspace, WORKSPACE_KEY};
@@ -99,6 +98,9 @@ fn App() -> Element {
     let profiles = use_hook(agent::profiles::list_profiles);
     let mut app_settings = use_signal(AppSettings::load);
     let mut settings_open = use_signal(|| false);
+    // Whether each target can run here. Reading the settings inside makes a
+    // saved change re-run it; the banner's Re-check restarts it too.
+    let readiness = use_resource(move || Readiness::check(app_settings.read().clone()));
     // Whether the full-page reference-forms manager is open.
     let mut references_open = use_signal(|| false);
     // A hook, so it has to be called here rather than inside the settings
@@ -320,6 +322,8 @@ fn App() -> Element {
             }
         }
 
+        EnvironmentBanner { readiness }
+
         // Settings, the references manager, or the workspace — full-page views
         // under the persistent header.
         if *settings_open.read() {
@@ -357,6 +361,8 @@ fn App() -> Element {
                 tab: active,
                 profiles,
                 ai_available: !app_settings.read().active_api_key().is_empty(),
+                // Unknown again while a re-check runs, so Start waits for it.
+                readiness: if readiness.pending() { None } else { readiness.value().read().clone() },
                 on_ai_process: move |files: Vec<(String, Vec<u8>)>| {
                     on_ai_process(active, files);
                 },

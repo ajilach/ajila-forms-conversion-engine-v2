@@ -40,9 +40,13 @@ jobs:
           libayatana-appindicator3-dev \
           libxdo-dev
 
-    # The vendored u2s-render-pdf loads pdfium dynamically; its tests need it.
-    - name: Fetch pdfium
-      run: ./scripts/fetch-pdfium.sh
+    # agent/build.rs downloads the pinned pdfium into vendor/pdfium, where the
+    # vendored u2s-render-pdf tests also find it; the cache only spares the download.
+    - name: Cache pdfium
+      uses: actions/cache@v4
+      with:
+        path: vendor/pdfium
+        key: pdfium-linux-x64-${{ hashFiles('agent/build.rs') }}
 
     # --locked so CI resolves exactly what Cargo.lock pins; without it a silently
     # different dependency set can pass here and fail for everyone else.

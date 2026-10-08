@@ -605,6 +605,40 @@ body > div, #main {
     color: var(--danger);
 }
 
+/* What keeps a target from running on this machine, under the header. */
+.environment-banner {
+    background: var(--danger-soft);
+    color: var(--danger);
+    padding: var(--space-2) var(--space-5);
+    font-size: var(--font-size-sm);
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--header-border);
+}
+
+.environment-banner-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-4);
+}
+
+.environment-banner-target {
+    display: flex;
+    gap: var(--space-2);
+    margin-top: var(--space-2);
+}
+
+.environment-banner-name {
+    font-weight: 600;
+    min-width: 5em;
+}
+
+.environment-banner-target ul {
+    margin: 0;
+    padding-left: var(--space-4);
+    overflow-wrap: anywhere;
+}
+
 /* ── Settings button in header ── */
 .app-header-right {
     display: flex;
@@ -1448,11 +1482,10 @@ body > div, #main {
     justify-content: center;
 }
 
-/* Status indicators (MCP install state) */
+/* Status indicators */
 .ag-save-error { color: var(--danger); font-size: 12px; }
 
-.mcp-installed { color: var(--success); font-size: 12px; }
-.mcp-error { color: var(--danger); font-size: 12px; margin-top: var(--space-2); }
+.verify-error { color: var(--danger); font-size: 12px; margin-top: var(--space-2); white-space: pre-wrap; }
 
 /* Progress and outcome of "Prepare browser tooling" in the AEM settings tab. */
 .browser-status {

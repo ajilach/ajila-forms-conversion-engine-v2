@@ -27,11 +27,6 @@ edit history and the reference-form store.
 dx bundle --platform desktop
 ```
 
-The bundle embeds the standalone `mcp` stdio server as a sidecar so the app can
-register Blueprint's conversion tools with Claude Desktop (see `src/mcp_install.rs`).
-The release workflow stages that binary at `sidecar/mcp-<target-triple>` before
-bundling — see `Dioxus.toml`.
-
 ## Layout
 
 | Path | Contents |

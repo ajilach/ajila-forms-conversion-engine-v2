@@ -181,36 +181,26 @@ impl Verification {
     }
 }
 
-/// Check that the target's verifier can run: Docker, the images, the AEM data
-/// volume and pdfium. There is no way to run without verification, so a
-/// verifier that is not ready refuses the run, before it spends a token.
+/// Check that the target's rules and verifier can run: the rule sandbox,
+/// Docker, the images, the AEM data volume and pdfium. There is no way to run
+/// without them, so a target that is not ready refuses the run, before it
+/// spends a token.
 async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<Verification, String> {
     obs.emit(RunEvent::Thought("Checking the verification setup…".into()));
-    let refuse = |e: String| {
-        format!(
-            "Verification is not possible, so the run cannot start:\n{e}\n\
-             See docker/aem/README.md for the setup."
-        )
-    };
-    let rules = agent::rules::readiness(opts.target)
-        .map_err(|e| format!("The check rules cannot run, so the run cannot start:\n{e}"))?;
-    obs.emit(RunEvent::Thought(format!("Check rules ready: {rules}.")));
-    let (report, verification) = match opts.target {
-        OutputTarget::Aem => {
-            let settings = opts.settings.aem_verify.clone();
-            let report = agent::u2s::aem_verify_readiness(&settings).await.map_err(refuse)?;
-            (report, Verification::Aem(settings))
-        }
-        OutputTarget::Redacto => {
-            let settings = opts.settings.redacto_verify.clone();
-            let report = agent::u2s::redacto_verify_readiness(&settings)
-                .await
-                .map_err(refuse)?;
-            (report, Verification::Redacto(settings))
-        }
-    };
+    let settings = &opts.settings;
+    let report = agent::u2s::readiness(opts.target, &settings.aem_verify, &settings.redacto_verify)
+        .await
+        .map_err(|e| {
+            format!(
+                "Verification is not possible, so the run cannot start:\n{e}\n\
+                 See docker/aem/README.md for the setup."
+            )
+        })?;
     obs.emit(RunEvent::Thought(format!("Verification ready. {report}")));
-    Ok(verification)
+    Ok(match opts.target {
+        OutputTarget::Aem => Verification::Aem(settings.aem_verify.clone()),
+        OutputTarget::Redacto => Verification::Redacto(settings.redacto_verify.clone()),
+    })
 }
 
 /// Drive the controller over `agent` and record what it produced.

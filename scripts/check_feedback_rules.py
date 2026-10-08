@@ -7,8 +7,8 @@ form that re-introduces one. A form this engine converts is such a form: it goes
 that corpus. So the guard is the acceptance test for the AEM output, and this script is
 how to run it without importing the form into the corpus first.
 
-It takes packages that already exist: the ZIP an AI conversion wrote (`blueprint convert`,
-or the MCP server's `write_package`), together with the form's source PDFs. It then builds
+It takes packages that already exist: the ZIP an AI conversion wrote (`blueprint convert`
+or the desktop app), together with the form's source PDFs. It then builds
 the same one-form harness the feedback repo's intake app builds
 (`scripts/intake/core.py::_check_harness`). Every detector derives its repo root from
 `os.path.abspath(__file__)`, which normalises lexically and does NOT resolve symlinks, so

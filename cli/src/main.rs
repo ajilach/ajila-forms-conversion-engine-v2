@@ -71,12 +71,8 @@ fn verify_command(args: VerifyArgs) -> Result<(), Box<dyn std::error::Error>> {
                 println!("{report}");
             }
             VerifyAction::Check => {
-                let report = match args.target {
-                    OutputTarget::Aem => agent::u2s::aem_verify_readiness(&settings.aem_verify).await?,
-                    OutputTarget::Redacto => {
-                        agent::u2s::redacto_verify_readiness(&settings.redacto_verify).await?
-                    }
-                };
+                let report =
+                    agent::u2s::readiness(args.target, &settings.aem_verify, &settings.redacto_verify).await?;
                 println!("{report}");
                 println!("Ready.");
             }

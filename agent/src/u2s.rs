@@ -30,6 +30,7 @@ use u2s_render_xfa_mcp::XfaRenderServer;
 use u2s_verify_core::docker::DockerLifecycle;
 use u2s_xfa_mcp::XfaDataServer;
 
+use crate::OutputTarget;
 use crate::conversion::ToolReply;
 
 /// The server a u2s tool belongs to.
@@ -196,8 +197,7 @@ fn to_entry(spec: &Value, family: Family, siblings: &[String]) -> Entry {
 /// volume are prepared.
 ///
 /// Stored flat in the app settings blob under the serde names below: the
-/// desktop app's settings embed this struct, and the MCP server reads the same
-/// blob (see [`stored_verify_settings`]). An empty optional string means unset.
+/// desktop app's settings embed this struct. An empty optional string means unset.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AemVerifySettings {
@@ -374,28 +374,53 @@ impl RedactoVerifySettings {
     }
 }
 
-/// Key under which the desktop app stores its settings blob in `history.db`.
-const APP_SETTINGS_KEY: &str = "app";
+/// Everything that keeps a target's runs from starting, one problem per entry,
+/// each saying what to do about it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotReady(pub Vec<String>);
 
-/// The verifier settings the desktop app stored, for a host without its own
-/// settings (the MCP server); defaults when nothing is stored, and an error
-/// when what is stored cannot be read.
-pub fn stored_verify_settings() -> Result<(AemVerifySettings, RedactoVerifySettings), String> {
-    let Some(blob) = crate::db::get_setting(APP_SETTINGS_KEY) else {
-        return Ok(Default::default());
-    };
-    let unreadable = |e: serde_json::Error| format!("the stored app settings cannot be read: {e}");
-    Ok((
-        serde_json::from_str(&blob).map_err(unreadable)?,
-        serde_json::from_str(&blob).map_err(unreadable)?,
-    ))
+impl std::fmt::Display for NotReady {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0.join("\n"))
+    }
 }
 
-/// Checks everything the AEM verifier needs before a run spends a token:
-/// complete settings, a reachable Docker, the AEM and Chromium images present
-/// locally, the data volume, and pdfium for reading the submitted PDF. Returns
-/// a short report, or every problem found.
-pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, String> {
+impl std::error::Error for NotReady {}
+
+/// Checks everything a run for `target` needs before it spends a token: the
+/// check rules' sandbox and the target's verifier (see
+/// [`aem_verify_readiness`] and [`redacto_verify_readiness`]). Returns a short
+/// report, or every problem found.
+pub async fn readiness(
+    target: OutputTarget,
+    aem: &AemVerifySettings,
+    redacto: &RedactoVerifySettings,
+) -> Result<String, NotReady> {
+    let rules = crate::rules::readiness(target);
+    let verifier = match target {
+        OutputTarget::Aem => aem_verify_readiness(aem).await,
+        OutputTarget::Redacto => redacto_verify_readiness(redacto).await,
+    };
+    match (rules, verifier) {
+        (Ok(rules), Ok(verifier)) => Ok(format!("Check rules: {rules}. {verifier}")),
+        (rules, verifier) => {
+            let mut problems = Vec::new();
+            if let Err(e) = rules {
+                problems.push(format!("the check rules cannot run: {e}"));
+            }
+            if let Err(NotReady(more)) = verifier {
+                problems.extend(more);
+            }
+            Err(NotReady(problems))
+        }
+    }
+}
+
+/// Checks everything the AEM verifier needs: complete settings, a host that
+/// can run the AEM image, a reachable Docker, the AEM and Chromium images
+/// present locally, the data volume, and pdfium for reading the submitted
+/// PDF. Returns a short report, or every problem found.
+async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, NotReady> {
     let mut problems = settings.missing();
     let profile = if problems.is_empty() {
         settings.profile()
@@ -406,6 +431,13 @@ pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String
         && !e.is_empty()
     {
         problems.push(e.clone());
+    }
+    if !cfg!(target_arch = "aarch64") {
+        problems.push(
+            "the AEM verifier image exists only for ARM, so AEM conversions need an ARM host \
+             (Apple Silicon)"
+                .into(),
+        );
     }
     let docker = docker_problems(&mut problems).await;
     if let (Some(docker), Ok(profile)) = (&docker, &profile) {
@@ -432,7 +464,7 @@ pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String
     }
     pdf_problem(&mut problems);
     if !problems.is_empty() {
-        return Err(problems.join("\n"));
+        return Err(NotReady(problems));
     }
     Ok(format!(
         "AEM image {}, data volume {}, Docker reachable, pdfium loaded.",
@@ -442,7 +474,7 @@ pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String
 
 /// The Redacto counterpart of [`aem_verify_readiness`]: complete settings, a
 /// reachable Docker, every platform image present locally, and pdfium.
-pub async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Result<String, String> {
+async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Result<String, NotReady> {
     let mut problems = Vec::new();
     let profile = settings.profile();
     if let Err(e) = &profile {
@@ -456,7 +488,7 @@ pub async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Resul
     }
     pdf_problem(&mut problems);
     if !problems.is_empty() {
-        return Err(problems.join("\n"));
+        return Err(NotReady(problems));
     }
     let images = profile.map(|p| p.images.all().join(", ")).unwrap_or_default();
     Ok(format!("Redacto platform images {images}, Docker reachable, pdfium loaded."))
@@ -508,22 +540,79 @@ async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> 
 async fn image_problem(docker: &DockerLifecycle, image: &str, problems: &mut Vec<String>) {
     match docker.image_id(image).await {
         Ok(Some(_)) => {}
-        Ok(None) => problems.push(format!(
-            "the image {image} is not present locally; pull it first (`verify prepare` pulls the \
-             public images; the AEM and Redacto platform images need `az acr login` and \
-             `docker pull`, see docker/aem/README.md and docker/redacto/README.md)"
-        )),
+        Ok(None) => {
+            let config = docker_config_path().and_then(|path| std::fs::read_to_string(path).ok());
+            problems.push(missing_image_problem(image, config.as_deref()));
+        }
         Err(e) => problems.push(format!("could not look up the image {image}: {e}")),
     }
 }
 
+/// The Docker CLI's config file, where `docker login` and `az acr login`
+/// record a registry.
+fn docker_config_path() -> Option<PathBuf> {
+    match std::env::var_os("DOCKER_CONFIG") {
+        Some(dir) => Some(PathBuf::from(dir).join("config.json")),
+        None => dirs::home_dir().map(|home| home.join(".docker/config.json")),
+    }
+}
+
+/// What to do about an image that is not present locally. A run never pulls,
+/// so whether the registry is logged in matters only here; `docker_config` is
+/// the Docker CLI's config file, if there is one.
+fn missing_image_problem(image: &str, docker_config: Option<&str>) -> String {
+    let Some(registry) = registry_of(image) else {
+        return format!(
+            "the image {image} is not present locally and names no registry: pull it from Docker \
+             Hub with `docker pull {image}` (Settings > Pull images pulls the public ones), or \
+             tag a locally built image with this name"
+        );
+    };
+    let login = match registry.strip_suffix(".azurecr.io") {
+        Some(name) => format!("az acr login --name {name}"),
+        None => format!("docker login {registry}"),
+    };
+    if docker_config.is_some_and(|config| logged_in(config, registry)) {
+        format!(
+            "the image {image} is not present locally; pull it with `docker pull {image}` (if \
+             {registry} refuses, the login expired: run `{login}` again)"
+        )
+    } else {
+        format!(
+            "the image {image} is not present locally, and Docker is not logged in to \
+             {registry}: run `{login}`, then `docker pull {image}`"
+        )
+    }
+}
+
+/// The registry host an image reference names, or `None` for Docker Hub: as
+/// Docker reads it, the first path segment is a registry only if it looks
+/// like a host.
+fn registry_of(image: &str) -> Option<&str> {
+    let (first, _) = image.split_once('/')?;
+    (first.contains('.') || first.contains(':') || first == "localhost").then_some(first)
+}
+
+/// Whether the Docker CLI config records credentials for `registry`, either
+/// in `auths` (the entry is empty when a credential store holds the secret) or
+/// through a per-registry credential helper. Whether those credentials are
+/// still valid only the registry knows.
+fn logged_in(docker_config: &str, registry: &str) -> bool {
+    let Ok(config) = serde_json::from_str::<Value>(docker_config) else {
+        return false;
+    };
+    let auths = config["auths"].as_object().into_iter().flat_map(|auths| auths.keys());
+    let helpers = config["credHelpers"].as_object().into_iter().flat_map(|helpers| helpers.keys());
+    auths.chain(helpers).any(|key| {
+        let host = key.trim_start_matches("https://").trim_start_matches("http://");
+        host.trim_end_matches('/') == registry
+    })
+}
+
 fn pdf_problem(problems: &mut Vec<String>) {
     let scratch = std::env::temp_dir().join("blueprint-u2s-pdf-check");
-    if let Err(e) = PdfRenderServer::with_parts(Limits::default(), BlobStore::new(scratch)) {
-        problems.push(format!(
-            "the PDF renderer cannot load pdfium ({e}); run scripts/fetch-pdfium.sh or ship \
-             libpdfium next to the binary"
-        ));
+    if let Err(e) = crate::pdfium::server(BlobStore::new(scratch)) {
+        problems.push(e);
     }
 }
 
@@ -676,8 +765,8 @@ impl U2sTools {
                 match file.try_lock() {
                     Ok(()) => {}
                     Err(TryLockError::WouldBlock) => {
-                        return Err("The AEM verifier is in use by another conversion (in this app, \
-                                    the CLI or the MCP server). It frees up when that run ends; carry \
+                        return Err("The AEM verifier is in use by another conversion (in this app or \
+                                    the CLI). It frees up when that run ends; carry \
                                     on with other checks and try again later."
                             .into());
                     }
@@ -872,7 +961,7 @@ impl U2sTools {
             Some(server) => server,
             None => {
                 let blobs = BlobStore::new(self.dir.path().join("blobs"));
-                PdfRenderServer::with_parts(Limits::default(), blobs).map_err(pdfium_unavailable)?
+                crate::pdfium::server(blobs)?
             }
         };
         Ok(self.pdf.insert(server))
@@ -941,11 +1030,6 @@ async fn spawned(
     tokio::spawn(work)
         .await
         .unwrap_or_else(|join| Err(format!("the tool server failed: {join}")))
-}
-
-/// Why a `pdf_*` render cannot run: pdfium did not load.
-pub(crate) fn pdfium_unavailable(e: impl std::fmt::Display) -> String {
-    format!("the PDF renderer is unavailable ({e}); run scripts/fetch-pdfium.sh")
 }
 
 /// Registers every profile's parser fonts with the u2s font manager, once per
@@ -1061,10 +1145,52 @@ mod tests {
             data_volume: " ".into(),
             ..Default::default()
         };
-        let err = aem_verify_readiness(&settings).await.unwrap_err();
+        let err = aem_verify_readiness(&settings).await.unwrap_err().to_string();
         assert!(err.contains("the AEM image is not set"), "{err}");
         assert!(err.contains("the AEM data volume is not set"), "{err}");
         assert!(!err.contains("U2S_AEM_VERIFY"), "{err}");
+    }
+
+    #[test]
+    fn a_registry_is_the_first_segment_only_when_it_looks_like_a_host() {
+        assert_eq!(registry_of("ajilaclouddev.azurecr.io/redacto/core:1.2"), Some("ajilaclouddev.azurecr.io"));
+        assert_eq!(registry_of("localhost:5000/aem:latest"), Some("localhost:5000"));
+        assert_eq!(registry_of("postgres:16"), None);
+        assert_eq!(registry_of("library/postgres:16"), None);
+    }
+
+    /// `az acr login` leaves an empty `auths` entry when a credential store
+    /// holds the token, and a full one without; both count as logged in, any
+    /// other registry does not.
+    #[test]
+    fn a_registry_login_is_read_from_the_docker_config() {
+        let host = "ajilaclouddev.azurecr.io";
+        let store = r#"{"auths": {"ajilaclouddev.azurecr.io": {}}, "credsStore": "desktop"}"#;
+        let plain = r#"{"auths": {"https://ajilaclouddev.azurecr.io/": {"auth": "eDp5"}}}"#;
+        let helper = r#"{"credHelpers": {"ajilaclouddev.azurecr.io": "acr-env"}}"#;
+        let other = r#"{"auths": {"ghcr.io": {}}, "credsStore": "desktop"}"#;
+        assert!(logged_in(store, host));
+        assert!(logged_in(plain, host));
+        assert!(logged_in(helper, host));
+        assert!(!logged_in(other, host));
+        assert!(!logged_in("not json", host));
+    }
+
+    #[test]
+    fn a_missing_private_image_says_how_to_log_in_and_pull() {
+        let image = "ajilaclouddev.azurecr.io/redacto/core:1.2";
+        let logged_out = missing_image_problem(image, None);
+        assert!(logged_out.contains("not logged in to ajilaclouddev.azurecr.io"), "{logged_out}");
+        assert!(logged_out.contains("az acr login --name ajilaclouddev"), "{logged_out}");
+        assert!(logged_out.contains(&format!("docker pull {image}")), "{logged_out}");
+
+        let config = r#"{"auths": {"ajilaclouddev.azurecr.io": {}}}"#;
+        let logged_in = missing_image_problem(image, Some(config));
+        assert!(!logged_in.contains("not logged in"), "{logged_in}");
+        assert!(logged_in.contains(&format!("docker pull {image}")), "{logged_in}");
+
+        let public = missing_image_problem("postgres:16", None);
+        assert!(!public.contains("login"), "{public}");
     }
 
     /// The two verifiers share tool names upstream; here each family carries

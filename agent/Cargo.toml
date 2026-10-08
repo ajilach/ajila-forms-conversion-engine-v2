@@ -45,6 +45,13 @@ include_dir = "0.7"
 # Reads a judged rule's rule.toml, which the vendored loader never sees.
 toml = "0.8"
 
+[build-dependencies]
+# build.rs fetches the pinned pdfium build that src/pdfium.rs embeds.
+flate2 = "1"
+reqwest = { workspace = true, features = ["blocking"] }
+sha2 = "0.10"
+tar = "0.4"
+
 [features]
 # Un-gates `db::set_db_path_for_test` for another crate's own tests (this
 # crate's tests always have it via `cfg(test)`) — `pipeline`'s tests need it

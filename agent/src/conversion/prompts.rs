@@ -99,11 +99,8 @@ pub const REVIEW_PROCEDURE: &str = review_procedure!();
 pub const REDACTO_REVIEW_PROCEDURE: &str = redacto_review_procedure!();
 
 /// The workflow guidance that teaches a driving model how to operate the
-/// conversion tools. Shared by every consumer so the app's autonomous loop and
-/// the standalone MCP server present one source of truth: the app injects it as
-/// the agent's opening message, and the MCP server advertises it as its server
-/// `instructions`. Consumer-specific bits (e.g. the MCP-only `start_conversion`
-/// / `write_package` bootstrap) are appended by the consumer.
+/// conversion tools: the AEM Author's authoring body, which the pipeline's
+/// Author role prompt starts from.
 pub const SYSTEM_PROMPT: &str = concat!("\
 You are an autonomous conversion agent operating the form-conversion engine via tools, \
 replacing manual interaction. Goal: produce an AEM Adaptive Form that is analogous to the \
@@ -244,50 +241,13 @@ Before stopping, run rule_check once more over every rule and fix every negative
 form is complete, end with finish_authoring and summarise what you built. Keep tool inputs minimal \
 and valid JSON.\n\n", review_procedure!());
 
-/// The MCP-specific bootstrap/teardown guidance that [`SYSTEM_PROMPT`] does not
-/// cover, kept next to it so the two cannot drift.
-///
-/// The MCP server emits this **twice** per session — once as the server
-/// `instructions` and once in the `start_conversion` result — because many MCP
-/// clients drop `instructions` entirely, and the tool result is the one surface
-/// every client delivers to the model. That duplication is deliberate; sharing
-/// one constant is what stops the two copies saying different things.
-pub const MCP_ADDENDUM: &str = "\
-MCP specifics: prefer local file paths for inputs and outputs. `start_conversion` takes \
-`pdf_path` / `pdf_paths` (with `pdf_base64` only as a fallback when the file is not reachable on \
-the server's filesystem), and the built ZIP leaves via `write_package` after \
-build_aem_package rather than being inlined into the transcript. \
-The aem_verify_* and redacto_verify_* tools run against the Docker-hosted verifier configured in \
-the desktop app settings (shared history.db); `start_conversion` refuses to start a conversion whose \
-verifier is not ready, and reports what it checked.\n\n\
-RULES: you read them with rule_list and you are your own judge. rule_check runs the scripted rules, \
-but no judge agent is available through MCP, so it reports every judged rule (check `agent`) as \
-unchecked: check those yourself against their descriptions, reading the document and the source, \
-and fix what you find.\n\n\
-FIXING A DEPLOYED FORM rather than converting one: when a content-package ZIP is loaded, that package \
-is the ground truth, decoded into the document's `/form`. Study it with json_outline / json_get and EDIT \
-it with json_patch; never re-author the form from the source, which would discard the corrections the \
-form already carries. Every attribute that decides where a node shows up is a field on the node, \
-so a fix is a field edit, and rule_check tells you which of the rules the document still breaks.";
-
-/// The Redacto counterpart of [`MCP_ADDENDUM`]: a Redacto session has no AEM
-/// package to export and no package to fix.
-pub const REDACTO_MCP_ADDENDUM: &str = "\
-MCP specifics: prefer local file paths for inputs. `start_conversion` takes `pdf_path` / \
-`pdf_paths` (with `pdf_base64` only as a fallback when the file is not reachable on the server's \
-filesystem). The redacto_verify_* tools run against the Docker-hosted verifier configured in the \
-desktop app settings (shared history.db); `start_conversion` refuses to start a conversion whose \
-verifier is not ready, and reports what it checked. You read the rules with rule_list and you are \
-your own judge: rule_check runs the scripted rules and reports every judged rule as unchecked, so \
-check those yourself against their descriptions, reading the document and the source.";
-
 // ── Multi-agent role prompts ─────────────────────────────────────────────────
 //
 // The pipeline splits the run into an Author → (Reviewer → Author fix)*
 // sequence. The Author's system prompt is the full [`SYSTEM_PROMPT`] authoring
 // body + its addendum; the Reviewer's is SHARED_PREAMBLE + its addendum. Both
 // get the accumulated review reports pinned in the system field so they are
-// never evicted. MCP serves [`SYSTEM_PROMPT`] to external clients.
+// never evicted.
 
 /// Prepended to every pipeline-stage role prompt.
 pub const SHARED_PREAMBLE: &str = "\

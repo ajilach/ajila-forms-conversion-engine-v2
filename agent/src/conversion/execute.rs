@@ -90,8 +90,9 @@ pub(super) fn cap_total(text: String) -> String {
     )
 }
 
-/// Why `rule_check` leaves a judged rule unchecked where no judge agent runs
-/// (the MCP server, whose client judges for itself).
+/// Why `rule_check` leaves a judged rule unchecked where no judge agent runs:
+/// the agent on its own. A pipeline stage's `rule_check` dispatches judges
+/// instead (`pipeline::judge`).
 const NO_JUDGE: &str = "no judge agent runs here: check the document against this rule's \
                         description (rule_list) yourself";
 

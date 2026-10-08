@@ -22,8 +22,7 @@ use u2s_rules_host::runner::RuleRunner;
 use crate::rule_board::{RuleBoard, RuleView};
 use crate::source::SourceContext;
 
-/// Error returned by the package tools before a package is built. Public so the
-/// MCP server's `write_package` reports the same thing.
+/// Error returned by the package tools before a package is built.
 pub const NO_PACKAGE: &str = "No package built yet; call build_aem_package.";
 
 /// The document tools a run offers, in catalog order.
@@ -387,7 +386,7 @@ impl ConversionAgent {
 
     /// Start the UBS AEM verifier for this run: from then on the
     /// `aem_verify_*` tools check the built package against a Docker AEM.
-    /// Run [`crate::u2s::aem_verify_readiness`] first; this only validates the
+    /// Run [`crate::u2s::readiness`] first; this only validates the
     /// settings.
     pub fn with_aem_verify(mut self, settings: &crate::u2s::AemVerifySettings) -> Result<Self, String> {
         self.u2s_tools()?.attach_aem_verify(settings)?;
@@ -397,7 +396,7 @@ impl ConversionAgent {
     /// Start the UBS Redacto verifier for this run: from then on the
     /// `redacto_verify_*` tools import the built dump into a Redacto platform
     /// of the run's own and render it there. Run
-    /// [`crate::u2s::redacto_verify_readiness`] first.
+    /// [`crate::u2s::readiness`] first.
     pub fn with_redacto_verify(
         mut self,
         settings: &crate::u2s::RedactoVerifySettings,

@@ -1,8 +1,7 @@
 //! Assembling a finished run's artefacts from the agent's working state.
 //!
 //! Split from the UI so the rule *what ships is the build of the final
-//! document* is one function with tests, and so the MCP server can reach the
-//! same exports the desktop app offers.
+//! document* is one function with tests.
 
 use serde_json::Value;
 

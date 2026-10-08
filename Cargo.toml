@@ -3,7 +3,6 @@ members = [
     "cli",
     "app",
     "agent",
-    "mcp",
     "pipeline",
     "references-mcp",
     "runner",

@@ -5,10 +5,6 @@
 /.idea
 /.ori
 
-# Sidecar binaries staged for `dx bundle` by scripts/stage-sidecars.sh.
-# Repo-root, because dx resolves [bundle].external_bin relative to its CWD.
-/sidecar
-
 /cli/*.png
 /cli/*.json
 /cli/*.html
@@ -23,5 +19,5 @@
 AAHA_019_merged.zip
 
 .claude
-# pdfium dynamic library, fetched by scripts/fetch-pdfium.sh.
-/vendor/pdfium
+# pdfium dynamic library, fetched by agent/build.rs (and its partial downloads).
+/vendor/pdfium*

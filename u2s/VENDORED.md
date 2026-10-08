@@ -27,7 +27,7 @@ Assets that originate in this repo are symlinks rather than copies:
 | Crate | Role here |
 |---|---|
 | `u2s-xfa`, `u2s-render-xfa`, `u2s-xfa-mcp`, `u2s-render-xfa-mcp` | Source-form reads, renders and live interaction (`xfa_*`) |
-| `u2s-render-pdf`, `u2s-render-pdf-mcp` | Viewing the PDFs the verifiers produce (`pdf_*`); needs pdfium, see `scripts/fetch-pdfium.sh` |
+| `u2s-render-pdf`, `u2s-render-pdf-mcp` | Viewing the PDFs the verifiers produce (`pdf_*`); pdfium is embedded by agent/build.rs |
 | `u2s-aem-ubs-verify-mcp`, `u2s-aem-verify-core`, `u2s-mapper-aem`, `u2s-aem` | AEM verification against a Docker AEM + Chromium |
 | `u2s-redacto-ubs-verify-mcp`, `u2s-redacto-verify-core`, `u2s-mapper-redacto`, `u2s-redacto` | Redacto dump verification: imports and renders the dump on a Redacto platform (Postgres, migration, core, rendering) booted per session, see `docker/redacto/README.md` |
 | `u2s-aem-ubs-mcp` | The UBS AEM format: the authored `UbsAemDocument`, `encode` into a FileVault package through the UBS templates, `decode` back. It ships no check rules (v3 keeps rules in its database); this repo's live in `rules/aem/` |
@@ -51,6 +51,8 @@ still patched here:
   `u2s-aem` and `u2s-redacto`, together with the three schema tests that used it
   (`skeleton.rs`, and `strict_adaptation.rs` in both crates). `u2s-engine` is v3's LLM engine;
   it is not vendored here.
+- `0002-pdfium-host-library-path.patch`: adds `u2s_render_pdf::set_library_path(PathBuf)`,
+  which lets the host name the pdfium library to bind; it is consulted after `PDFIUM_LIB_PATH`.
 
 ## How the agent offers the vendored tools
 
@@ -78,8 +80,8 @@ with sensible defaults; nothing sets them:
   `MAX_RESPONSE_BYTES`, `MAX_INLINE_BYTES`, `SEARCH_MAX_PAGES` (only via `Limits::from_env`,
   which the adapter does not call).
 - `u2s-render-xfa`: `RASTER_CACHE_SIZE`, `DOC_CACHE_SIZE`; `u2s-xfa`: `XFA_MAX_CALC_ITERATIONS`.
-- `u2s-render-pdf`: `PDFIUM_LIB_PATH`, overriding the lookup next to the binary and in
-  `vendor/pdfium/lib`.
+- `u2s-render-pdf`: `PDFIUM_LIB_PATH`, overriding the library path set by the host via
+  `set_library_path()` and the embedded library written to the user cache directory at runtime.
 - `U2S_FONT_DIR`, `U2S_FONT_FALLBACK`, `U2S_BLOB_DIR`: read only by the stdio binaries and
   `from_env` constructors, never by the adapter.
 
