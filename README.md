@@ -97,8 +97,8 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> 
 
 Both AEM and Redacto targets require verification during the conversion: the Author
 and Reviewer drive the built form with verification tools, not with a browser.
-Verification uses vendored u2s verifiers linked into the binaries (source in `u2s/`,
-see `u2s/VENDORED.md`). Every run checks whether verification is set up before it
+Verification uses vendored u2s verifiers linked into the binaries (source in
+`vendor/crates/`, see `u2s/VENDORED.md`). Every run checks whether verification is set up before it
 starts and refuses to run if it is not.
 
 For an **AEM target**, the verifier boots its own AEM Forms instance plus a headless

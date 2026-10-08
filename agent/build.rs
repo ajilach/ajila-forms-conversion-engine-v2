@@ -6,13 +6,13 @@
 //!
 //! The release is pinned: pdfium's antialiasing changes between builds, and the
 //! ABI must match the `pdfium_XXXX` feature in
-//! `u2s/crates/u2s-render-pdf/Cargo.toml`. Bumping it means updating
-//! `RELEASE`, that feature, and every checksum in `ASSETS`.
+//! `vendor/crates/u2s-render-pdf/Cargo.toml`, which is upstream's to change.
+//! Bumping it means pinning a u2s revision with the new feature, then updating
+//! `RELEASE` and every checksum in `ASSETS`.
 //!
-//! The download is cached in `vendor/pdfium/` at the workspace root, which is
-//! also where the vendored renderer's own tests look for it. A `RELEASE`
-//! marker there records what was unpacked, so a matching cache never touches
-//! the network.
+//! The download is cached in `vendor/pdfium/` at the workspace root. A
+//! `RELEASE` marker there records what was unpacked, so a matching cache never
+//! touches the network.
 
 use std::fs;
 use std::io::Read;

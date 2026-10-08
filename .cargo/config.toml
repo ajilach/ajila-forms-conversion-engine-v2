@@ -1,0 +1,5 @@
+[net]
+# The u2s git dependency is fetched over SSH with your own git setup (agent,
+# keys); cargo's built-in git client does not use them. Only needed when
+# re-vendoring: builds read vendor/crates and never fetch.
+git-fetch-with-cli = true

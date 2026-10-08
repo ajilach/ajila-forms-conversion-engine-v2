@@ -1,77 +1,89 @@
 #!/usr/bin/env bash
-# Re-sync the vendored u2s crates from an ajila-forms-conversion-engine-v3
-# checkout, then re-apply this repo's local patches (u2s/patches/*.patch).
+# Pin the u2s crates to a revision of ajila-forms-conversion-engine-v3 and
+# re-vendor them into vendor/crates, then copy the non-crate assets this repo
+# takes from the same revision (the AEM and Redacto docker notes and scripts).
 #
-#   scripts/sync-u2s.sh ../unstructured-to-structured
+#   scripts/sync-u2s.sh ../unstructured-to-structured [rev]   # rev: default HEAD
 #
-# See u2s/VENDORED.md. A patch that no longer applies stops the sync: fix it
-# against the new upstream, regenerate it, and run the script again.
+# See u2s/VENDORED.md. Only the u2s crates are vendored; crates.io stays
+# online. The revision must be on the remote, or nobody else could fetch it.
 set -euo pipefail
 
-if [ $# -ne 1 ]; then
-  echo "usage: $0 <path-to-v3-checkout>" >&2
+if [ $# -lt 1 ] || [ $# -gt 2 ]; then
+  echo "usage: $0 <path-to-v3-checkout> [rev]" >&2
   exit 2
 fi
 
 SRC="$(cd "$1" && pwd)"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEST="$ROOT/u2s"
+REV="$(git -C "$SRC" rev-parse "${2:-HEAD}^{commit}")"
 
-if [ -n "$(git -C "$ROOT" status --porcelain -- u2s docker/aem docker/redacto)" ]; then
-  echo "u2s/, docker/aem/ or docker/redacto/ has uncommitted changes; commit or stash them first" >&2
+# What this repo takes from upstream besides the crates.
+ASSETS=(docker/aem/README.md docker/aem/bake-ubs-platform.sh docker/aem/dompurify docker/redacto/README.md)
+
+if [ -z "$(git -C "$SRC" branch -r --contains "$REV")" ]; then
+  echo "$REV is on no remote branch of $SRC: push it first" >&2
+  exit 1
+fi
+if [ -n "$(git -C "$ROOT" status --porcelain -- Cargo.toml Cargo.lock .cargo vendor/crates "${ASSETS[@]}")" ]; then
+  echo "the files this script rewrites have uncommitted changes; commit or stash them first" >&2
   exit 1
 fi
 
-COMMIT="$(git -C "$SRC" rev-parse --short HEAD)"
+cd "$ROOT"
 
-# Keep in step with the table in u2s/VENDORED.md and the workspace members.
-CRATES=(
-  u2s-aem u2s-aem-ubs-mcp u2s-aem-ubs-verify-mcp u2s-aem-verify-core u2s-blob
-  u2s-core u2s-doc-tools u2s-facts u2s-jsondoc u2s-mapper-aem
-  u2s-mapper-redacto u2s-mcp u2s-redacto u2s-redacto-ubs-mcp
-  u2s-redacto-ubs-verify-mcp u2s-redacto-verify-core u2s-render-core
-  u2s-render-pdf u2s-render-pdf-mcp u2s-render-test-harness u2s-render-xfa
-  u2s-render-xfa-mcp u2s-rules u2s-rules-host u2s-schema u2s-verify-core
-  u2s-xfa u2s-xfa-mcp
-)
-
-# The recorded commit must describe exactly what is copied: only the paths
-# copied below must be clean upstream, so work in progress on the rest of the
-# upstream workspace does not block a sync.
-COPIED=(specs/aem/aem-xml-spec.md vendor/fonts corpus/ubs fixtures docker/aem docker/redacto)
-for c in "${CRATES[@]}"; do COPIED+=("crates/$c"); done
-if [ -n "$(git -C "$SRC" status --porcelain -- "${COPIED[@]}")" ]; then
-  echo "$SRC has uncommitted changes in what is copied; commit them upstream first so $COMMIT matches:" >&2
-  git -C "$SRC" status --short -- "${COPIED[@]}" >&2
+# The git URL every u2s dependency in Cargo.toml names; they must agree.
+URLS="$(sed -n -E 's/^u2s-[a-z0-9-]+ = \{ git = "([^"]+)", rev = "[0-9a-f]+" \}$/\1/p' Cargo.toml | sort -u)"
+if [ "$(echo "$URLS" | grep -c .)" -ne 1 ]; then
+  echo "expected one u2s git URL in Cargo.toml, found: ${URLS:-none}" >&2
   exit 1
 fi
+URL="$URLS"
 
-for c in "${CRATES[@]}"; do
-  rsync -a --delete --exclude target "$SRC/crates/$c/" "$DEST/crates/$c/"
-done
+# 1. Pin.
+sed -i.bak -E "s/^(u2s-[a-z0-9-]+ = \{ git = \"[^\"]+\", rev = \")[0-9a-f]+(\" \})$/\1$REV\2/" Cargo.toml
+rm -f Cargo.toml.bak
 
-# Plain-file assets. Symlinked assets (the corpus forms and Frutiger faces
-# that originate in this repo, and the fixture links into crates/) are left
-# as they are.
-rm -f "$DEST/specs/AEM.md"
-mkdir -p "$DEST/specs/aem"
-cp "$SRC/specs/aem/aem-xml-spec.md" "$DEST/specs/aem/aem-xml-spec.md"
-cp "$SRC/vendor/fonts/DejaVuSans.ttf" "$SRC/vendor/fonts/LICENSE" "$DEST/vendor/fonts/"
-cp "$SRC/vendor/fonts/ubs-frutiger/README.md" "$DEST/vendor/fonts/ubs-frutiger/"
-cp "$SRC/corpus/ubs/README.md" "$DEST/corpus/ubs/"
-cp "$SRC/fixtures/README.md" "$DEST/fixtures/"
-cp "$SRC/docker/aem/README.md" "$SRC/docker/aem/bake-ubs-platform.sh" "$ROOT/docker/aem/"
-rsync -a --delete "$SRC/docker/aem/dompurify/" "$ROOT/docker/aem/dompurify/"
-mkdir -p "$ROOT/docker/redacto"
-cp "$SRC/docker/redacto/README.md" "$ROOT/docker/redacto/"
+# 2. Re-vendor. `cargo vendor` vendors every source; keep only the u2s crates,
+# the packages of the one git source. It also moves Cargo.lock to the new rev.
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT
+cargo vendor --quiet "$TMP/vendor" > /dev/null
+rm -rf vendor/crates
+mkdir -p vendor/crates
+mv "$TMP"/vendor/u2s-* vendor/crates/
 
-for p in "$DEST"/patches/*.patch; do
-  echo "applying $(basename "$p")"
-  git -C "$ROOT" apply "$p"
-done
+# 3. Point cargo at vendor/crates for that source. The source key carries the
+# rev, so this file changes with every pin.
+mkdir -p .cargo
+cat > .cargo/config.toml <<EOF
+# Generated by scripts/sync-u2s.sh; see u2s/VENDORED.md.
 
-sed -i.bak "s/^Upstream commit: .*/Upstream commit: \`$COMMIT\`/" "$DEST/VENDORED.md"
-rm -f "$DEST/VENDORED.md.bak"
+[net]
+# Fetching the u2s git dependency, which only re-vendoring does, goes over SSH
+# with your own git setup; cargo's built-in git client does not use it.
+git-fetch-with-cli = true
 
-echo "synced to $COMMIT. Next: cargo build --workspace, then the u2s and agent tests."
-git -C "$ROOT" status --short -- u2s docker
+# Builds take the u2s crates from vendor/crates and never fetch them. crates.io
+# is not replaced.
+[source."git+$URL?rev=$REV"]
+git = "$URL"
+rev = "$REV"
+replace-with = "vendored-u2s"
+
+[source.vendored-u2s]
+directory = "vendor/crates"
+EOF
+
+# 4. The non-crate assets, from the same revision rather than the working tree.
+rm -rf "${ASSETS[@]}"
+git -C "$SRC" archive "$REV" "${ASSETS[@]}" | tar -x -C "$ROOT"
+
+sed -i.bak "s/^Upstream commit: .*/Upstream commit: \`$REV\`/" u2s/VENDORED.md
+rm -f u2s/VENDORED.md.bak
+
+# Without network access to the u2s repository: proves vendor/crates is
+# complete before anything is committed.
+cargo build --locked --workspace --quiet
+echo "pinned u2s to $REV. Next: cargo test --release --workspace."
+git status --short -- Cargo.toml Cargo.lock .cargo vendor/crates "${ASSETS[@]}" u2s

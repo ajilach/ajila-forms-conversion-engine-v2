@@ -562,7 +562,7 @@ Second line</text></value></draw>
         let pdf = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../forms/AAEV_019_EN.pdf")).unwrap();
         let golden = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../u2s/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/AAEV_019_EN/document.json"
+            "/../vendor/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/AAEV_019_EN/document.json"
         );
         let mut doc: Value = serde_json::from_str(&std::fs::read_to_string(golden).unwrap()).unwrap();
         let sources = vec![("AAEV_019_EN.pdf".to_string(), pdf)];
@@ -604,7 +604,7 @@ Second line</text></value></draw>
                 })
                 .collect();
             let golden = format!(
-                "{}/../u2s/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/{form}/document.json",
+                "{}/../vendor/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/{form}/document.json",
                 env!("CARGO_MANIFEST_DIR")
             );
             let doc: Value = serde_json::from_str(&std::fs::read_to_string(golden).unwrap()).unwrap();

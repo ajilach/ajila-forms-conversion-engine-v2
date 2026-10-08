@@ -1080,7 +1080,7 @@ mod tests {
 
     fn fixture_pdf() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../u2s/crates/u2s-render-pdf/fixtures/generated/unicode-text.pdf")
+            .join("../vendor/crates/u2s-render-pdf/fixtures/generated/unicode-text.pdf")
     }
 
     /// A PDF a verifier put in the blob store is readable with the `pdf_*`

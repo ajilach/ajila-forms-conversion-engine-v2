@@ -40,8 +40,8 @@ jobs:
           libayatana-appindicator3-dev \
           libxdo-dev
 
-    # agent/build.rs downloads the pinned pdfium into vendor/pdfium, where the
-    # vendored u2s-render-pdf tests also find it; the cache only spares the download.
+    # agent/build.rs downloads the pinned pdfium into vendor/pdfium; the cache
+    # only spares the download.
     - name: Cache pdfium
       uses: actions/cache@v4
       with:

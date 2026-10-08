@@ -15,32 +15,32 @@ regex-lite = { workspace = true }
 tokio = { version = "1", features = ["process", "io-util", "rt", "time"] }
 # Checks the AEM verifier's data volume exists; u2s-verify-core has no call for it.
 bollard = { workspace = true }
-# The vendored u2s tool servers, linked in-process (see u2s/VENDORED.md).
+# The u2s tool servers, linked in-process (see u2s/VENDORED.md).
 # rmcp3 names their result types; it is not a transport here.
 rmcp3 = { package = "rmcp", version = "3.1", default-features = false }
 tempfile = "3"
 # The reference store, its semantic matcher and the reference tools.
 references-mcp = { path = "../references-mcp" }
-u2s-aem-ubs-verify-mcp = { path = "../u2s/crates/u2s-aem-ubs-verify-mcp" }
-u2s-aem-verify-core = { path = "../u2s/crates/u2s-aem-verify-core" }
-u2s-blob = { path = "../u2s/crates/u2s-blob" }
-u2s-redacto-ubs-verify-mcp = { path = "../u2s/crates/u2s-redacto-ubs-verify-mcp" }
-u2s-redacto-verify-core = { path = "../u2s/crates/u2s-redacto-verify-core" }
-u2s-render-core = { path = "../u2s/crates/u2s-render-core" }
-u2s-verify-core = { path = "../u2s/crates/u2s-verify-core" }
-u2s-render-pdf = { path = "../u2s/crates/u2s-render-pdf" }
-u2s-render-pdf-mcp = { path = "../u2s/crates/u2s-render-pdf-mcp" }
-u2s-render-xfa = { path = "../u2s/crates/u2s-render-xfa" }
-u2s-render-xfa-mcp = { path = "../u2s/crates/u2s-render-xfa-mcp" }
-u2s-xfa = { path = "../u2s/crates/u2s-xfa" }
-u2s-xfa-mcp = { path = "../u2s/crates/u2s-xfa-mcp" }
+u2s-aem-ubs-verify-mcp = { workspace = true }
+u2s-aem-verify-core = { workspace = true }
+u2s-blob = { workspace = true }
+u2s-redacto-ubs-verify-mcp = { workspace = true }
+u2s-redacto-verify-core = { workspace = true }
+u2s-render-core = { workspace = true }
+u2s-verify-core = { workspace = true }
+u2s-render-pdf = { workspace = true }
+u2s-render-pdf-mcp = { workspace = true }
+u2s-render-xfa = { workspace = true }
+u2s-render-xfa-mcp = { workspace = true }
+u2s-xfa = { workspace = true }
+u2s-xfa-mcp = { workspace = true }
 # The UBS output formats, their document and rule tools, and the rule sandbox.
-u2s-aem-ubs-mcp = { path = "../u2s/crates/u2s-aem-ubs-mcp" }
-u2s-redacto-ubs-mcp = { path = "../u2s/crates/u2s-redacto-ubs-mcp" }
-u2s-mapper-redacto = { path = "../u2s/crates/u2s-mapper-redacto" }
-u2s-doc-tools = { path = "../u2s/crates/u2s-doc-tools" }
-u2s-jsondoc = { path = "../u2s/crates/u2s-jsondoc" }
-u2s-rules-host = { path = "../u2s/crates/u2s-rules-host" }
+u2s-aem-ubs-mcp = { workspace = true }
+u2s-redacto-ubs-mcp = { workspace = true }
+u2s-mapper-redacto = { workspace = true }
+u2s-doc-tools = { workspace = true }
+u2s-jsondoc = { workspace = true }
+u2s-rules-host = { workspace = true }
 include_dir = "0.7"
 # Reads a judged rule's rule.toml, which the vendored loader never sees.
 toml = "0.8"
@@ -63,6 +63,6 @@ test-utils = []
 # The tool executor is async; the tests drive it directly.
 tokio = { version = "1", features = ["macros", "rt"] }
 # Runs a rule's check script directly, for the rule tests.
-u2s-rules = { path = "../u2s/crates/u2s-rules" }
+u2s-rules = { workspace = true }
 # Opens a built package, to see what a rule's shape becomes in it.
 zip = { workspace = true }

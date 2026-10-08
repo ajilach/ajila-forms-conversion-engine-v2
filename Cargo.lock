@@ -46,7 +46,7 @@ dependencies = [
  "include_dir",
  "references-mcp",
  "regex-lite",
- "reqwest",
+ "reqwest 0.13.4",
  "rmcp",
  "rusqlite",
  "serde",
@@ -202,15 +202,6 @@ name = "anyhow"
 version = "1.0.102"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
-
-[[package]]
-name = "approx"
-version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cab112f0a86d568ea0e627cc1d6be74a1e9cd55214684db5561995f6dad897c6"
-dependencies = [
- "num-traits",
-]
 
 [[package]]
 name = "arbitrary"
@@ -540,7 +531,7 @@ dependencies = [
  "futures-util",
  "image",
  "pipeline",
- "reqwest",
+ "reqwest 0.13.4",
  "runner",
  "serde",
  "serde_json",
@@ -1042,7 +1033,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "pin-project-lite",
- "reqwest",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -3156,102 +3147,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "glam"
-version = "0.14.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "333928d5eb103c5d4050533cec0384302db6be8ef7d3cebd30ec6a35350353da"
-
-[[package]]
-name = "glam"
-version = "0.15.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3abb554f8ee44336b72d522e0a7fe86a29e09f839a36022fa869a7dfe941a54b"
-
-[[package]]
-name = "glam"
-version = "0.16.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4126c0479ccf7e8664c36a2d719f5f2c140fbb4f9090008098d2c291fa5b3f16"
-
-[[package]]
-name = "glam"
-version = "0.17.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e01732b97afd8508eee3333a541b9f7610f454bb818669e66e90f5f57c93a776"
-
-[[package]]
-name = "glam"
-version = "0.18.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "525a3e490ba77b8e326fb67d4b44b4bd2f920f44d4cc73ccec50adc68e3bee34"
-
-[[package]]
-name = "glam"
-version = "0.19.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2b8509e6791516e81c1a630d0bd7fbac36d2fa8712a9da8662e716b52d5051ca"
-
-[[package]]
-name = "glam"
-version = "0.20.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f43e957e744be03f5801a55472f593d43fabdebf25a4585db250f04d86b1675f"
-
-[[package]]
-name = "glam"
-version = "0.21.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "518faa5064866338b013ff9b2350dc318e14cc4fcd6cb8206d7e7c9886c98815"
-
-[[package]]
-name = "glam"
-version = "0.22.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "12f597d56c1bd55a811a1be189459e8fad2bbc272616375602443bdfb37fa774"
-
-[[package]]
-name = "glam"
-version = "0.23.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8e4afd9ad95555081e109fe1d21f2a30c691b5f0919c67dfa690a2e1eb6bd51c"
-
-[[package]]
-name = "glam"
-version = "0.24.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b5418c17512bdf42730f9032c74e1ae39afc408745ebb2acf72fbc4691c17945"
-
-[[package]]
-name = "glam"
-version = "0.25.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "151665d9be52f9bb40fc7966565d39666f2d1e69233571b71b87791c7e0528b3"
-
-[[package]]
-name = "glam"
-version = "0.27.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e05e7e6723e3455f4818c7b26e855439f7546cf617ef669d1adedb8669e5cb9"
-
-[[package]]
-name = "glam"
-version = "0.28.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "779ae4bf7e8421cf91c0b3b64e7e8b40b862fba4d393f59150042de7c4965a94"
-
-[[package]]
-name = "glam"
-version = "0.29.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8babf46d4c1c9d92deac9f7be466f76dfc4482b6452fc5024b5e8daf6ffeb3ee"
-
-[[package]]
-name = "glam"
-version = "0.30.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "19fc433e8437a212d1b6f1e68c7824af3aed907da60afa994e7f542d18d12aa9"
-
-[[package]]
 name = "glib"
 version = "0.18.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4046,38 +3941,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "image_hasher"
-version = "3.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dd266c66b0a0e2d4c6db8e710663fc163a2d33595ce997b6fbda407c8759d344"
-dependencies = [
- "base64 0.22.1",
- "image",
- "rustdct",
- "serde",
- "transpose",
-]
-
-[[package]]
-name = "imageproc"
-version = "0.26.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a8046da590889acc65f5880004580ebb269bbef84d6c0f5c543ec2dece46638"
-dependencies = [
- "ab_glyph",
- "approx",
- "getrandom 0.3.4",
- "image",
- "itertools 0.14.0",
- "nalgebra",
- "num",
- "rand 0.9.2",
- "rand_distr",
- "rayon",
- "rustdct",
-]
-
-[[package]]
 name = "imgref"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4397,6 +4260,7 @@ dependencies = [
  "referencing",
  "regex",
  "regex-syntax",
+ "reqwest 0.12.28",
  "serde",
  "serde_json",
  "uuid-simd",
@@ -4785,16 +4649,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2532096657941c2fea9c289d370a250971c689d4f143798ff67113ec042024a5"
 
 [[package]]
-name = "matrixmultiply"
-version = "0.3.10"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a06de3016e9fae57a36fd14dba131fccf49f74b40b7fbdb472f96e361ec71a08"
-dependencies = [
- "autocfg",
- "rawpointer",
-]
-
-[[package]]
 name = "maybe-owned"
 version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4961,37 +4815,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "nalgebra"
-version = "0.34.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c4d5b3eff5cd580f93da45e64715e8c20a3996342f1e466599cf7a267a0c2f5f"
-dependencies = [
- "approx",
- "glam 0.14.0",
- "glam 0.15.2",
- "glam 0.16.0",
- "glam 0.17.3",
- "glam 0.18.0",
- "glam 0.19.0",
- "glam 0.20.5",
- "glam 0.21.3",
- "glam 0.22.0",
- "glam 0.23.0",
- "glam 0.24.2",
- "glam 0.25.0",
- "glam 0.27.0",
- "glam 0.28.0",
- "glam 0.29.3",
- "glam 0.30.10",
- "matrixmultiply",
- "num-complex",
- "num-rational",
- "num-traits",
- "simba",
- "typenum",
-]
-
-[[package]]
 name = "native-tls"
 version = "0.2.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5043,18 +4866,6 @@ name = "new_debug_unreachable"
 version = "1.0.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "650eef8c711430f1a879fdd01d4745a7deea475becfb90269c06775983bbf086"
-
-[[package]]
-name = "nix"
-version = "0.31.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5d6d0705320c1e6ba1d912b5e37cf18071b6c2e9b7fa8215a1e8a7651966f5d3"
-dependencies = [
- "bitflags 2.13.2",
- "cfg-if",
- "cfg_aliases",
- "libc",
-]
 
 [[package]]
 name = "nodrop"
@@ -5887,15 +5698,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "primal-check"
-version = "0.3.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dc0d895b311e3af9902528fbb8f928688abbd95872819320517cc24ca6b2bd08"
-dependencies = [
- "num-integer",
-]
-
-[[package]]
 name = "proc-macro-crate"
 version = "1.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5973,20 +5775,6 @@ dependencies = [
  "quote",
  "syn 2.0.117",
  "version_check",
-]
-
-[[package]]
-name = "process-wrap"
-version = "9.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "2e842efad9119158434d193c6682e2ebee4b44d6ad801d7b349623b3f57cdf55"
-dependencies = [
- "futures",
- "indexmap",
- "nix",
- "tokio",
- "tracing",
- "windows 0.62.2",
 ]
 
 [[package]]
@@ -6379,12 +6167,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "20675572f6f24e9e76ef639bc5552774ed45f1c30e2951e1e99c59888861c539"
 
 [[package]]
-name = "rawpointer"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "60a357793950651c4ed0f3f52338f53b2f809f32d83a07f72909fa13e4c6c1e3"
-
-[[package]]
 name = "rayon"
 version = "1.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6564,6 +6346,40 @@ dependencies = [
 
 [[package]]
 name = "reqwest"
+version = "0.12.28"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "futures-channel",
+ "futures-core",
+ "futures-util",
+ "http",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "js-sys",
+ "log",
+ "percent-encoding",
+ "pin-project-lite",
+ "serde",
+ "serde_json",
+ "serde_urlencoded",
+ "sync_wrapper",
+ "tokio",
+ "tower",
+ "tower-http",
+ "tower-service",
+ "url",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
+]
+
+[[package]]
+name = "reqwest"
 version = "0.13.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "219c5811de6525e5416c7d5d53bb656d3afdbc6c5af816e0802bcfa42dbdc1c3"
@@ -6679,7 +6495,7 @@ dependencies = [
  "mime_guess",
  "ordered-float",
  "pin-project-lite",
- "reqwest",
+ "reqwest 0.13.4",
  "schemars",
  "serde",
  "serde_json",
@@ -6757,7 +6573,6 @@ dependencies = [
  "indexmap",
  "pastey 0.2.3",
  "pin-project-lite",
- "process-wrap",
  "rmcp-macros",
  "schemars",
  "serde",
@@ -6792,7 +6607,7 @@ dependencies = [
  "futures-util",
  "image",
  "pipeline",
- "reqwest",
+ "reqwest 0.13.4",
  "rig-agent",
  "rig-core",
  "rig-memory",
@@ -6850,29 +6665,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cfcb3a22ef46e85b45de6ee7e79d063319ebb6594faafcf1c225ea92ab6e9b92"
 dependencies = [
  "semver",
-]
-
-[[package]]
-name = "rustdct"
-version = "0.7.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8b61555105d6a9bf98797c063c362a1d24ed8ab0431655e38f1cf51e52089551"
-dependencies = [
- "rustfft",
-]
-
-[[package]]
-name = "rustfft"
-version = "6.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "21db5f9893e91f41798c88680037dba611ca6674703c1a18601b01a72c8adb89"
-dependencies = [
- "num-complex",
- "num-integer",
- "num-traits",
- "primal-check",
- "strength_reduce",
- "transpose",
 ]
 
 [[package]]
@@ -6980,15 +6772,6 @@ name = "ryu-js"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd29631678d6fb0903b69223673e122c32e9ae559d0960a38d574695ebc0ea15"
-
-[[package]]
-name = "safe_arch"
-version = "0.7.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "96b02de82ddbe1b636e6170c21be622223aea188ef2e139be0a5b219ec215323"
-dependencies = [
- "bytemuck",
-]
 
 [[package]]
 name = "safetensors"
@@ -7311,19 +7094,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "simba"
-version = "0.9.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c99284beb21666094ba2b75bbceda012e610f5479dfcc2d6e2426f53197ffd95"
-dependencies = [
- "approx",
- "num-complex",
- "num-traits",
- "paste",
- "wide",
-]
-
-[[package]]
 name = "simd-adler32"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7492,12 +7262,6 @@ name = "static_assertions"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
-
-[[package]]
-name = "strength_reduce"
-version = "0.2.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe895eb47f22e2ddd4dabc02bce419d2e643c8e3b585c78158b349195bc24d82"
 
 [[package]]
 name = "string_cache"
@@ -7709,7 +7473,7 @@ dependencies = [
  "tao-macros",
  "unicode-segmentation",
  "url",
- "windows 0.61.3",
+ "windows",
  "windows-core 0.61.2",
  "windows-version",
  "x11-dl",
@@ -8232,16 +7996,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "transpose"
-version = "0.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ad61aed86bc3faea4300c7aee358b4c6d0c8d6ccc36524c96e4c92ccf26e77e"
-dependencies = [
- "num-integer",
- "strength_reduce",
-]
-
-[[package]]
 name = "tray-icon"
 version = "0.21.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8326,8 +8080,8 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 [[package]]
 name = "u2s-aem"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
- "jsonschema",
  "regex",
  "schemars",
  "serde",
@@ -8338,6 +8092,7 @@ dependencies = [
 [[package]]
 name = "u2s-aem-ubs-mcp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "base64 0.22.1",
  "boa_engine",
@@ -8358,8 +8113,6 @@ dependencies = [
  "toml",
  "u2s-blob",
  "u2s-mapper-aem",
- "u2s-mcp",
- "u2s-render-test-harness",
  "uuid",
  "zip 2.4.2",
 ]
@@ -8367,6 +8120,7 @@ dependencies = [
 [[package]]
 name = "u2s-aem-ubs-verify-mcp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "env_logger",
  "rmcp",
@@ -8376,21 +8130,18 @@ dependencies = [
  "tokio",
  "u2s-aem-verify-core",
  "u2s-mapper-aem",
- "u2s-mcp",
- "u2s-render-test-harness",
- "zip 2.4.2",
 ]
 
 [[package]]
 name = "u2s-aem-verify-core"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "base64 0.22.1",
  "bollard",
  "env_logger",
- "http",
  "log",
- "reqwest",
+ "reqwest 0.13.4",
  "rmcp",
  "serde",
  "serde_json",
@@ -8401,12 +8152,12 @@ dependencies = [
  "u2s-mapper-aem",
  "u2s-verify-core",
  "uuid",
- "zip 2.4.2",
 ]
 
 [[package]]
 name = "u2s-blob"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.18",
@@ -8415,10 +8166,10 @@ dependencies = [
 [[package]]
 name = "u2s-core"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "regex",
  "serde",
- "serde_json",
  "thiserror 2.0.18",
  "uuid",
 ]
@@ -8426,11 +8177,11 @@ dependencies = [
 [[package]]
 name = "u2s-doc-tools"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.18",
- "tokio",
  "toml",
  "u2s-core",
  "u2s-facts",
@@ -8444,6 +8195,7 @@ dependencies = [
 [[package]]
 name = "u2s-facts"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "regex",
  "serde",
@@ -8455,6 +8207,7 @@ dependencies = [
 [[package]]
 name = "u2s-jsondoc"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "json-patch",
  "jsonptr",
@@ -8467,9 +8220,9 @@ dependencies = [
 [[package]]
 name = "u2s-mapper-aem"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "quick-xml",
- "regex",
  "serde_json",
  "thiserror 2.0.18",
  "u2s-aem",
@@ -8479,8 +8232,8 @@ dependencies = [
 [[package]]
 name = "u2s-mapper-redacto"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
- "regex",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -8489,25 +8242,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "u2s-mcp"
-version = "0.1.0"
-dependencies = [
- "rmcp",
- "semver",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "u2s-core",
- "u2s-render-test-harness",
- "uuid",
-]
-
-[[package]]
 name = "u2s-redacto"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
- "jsonschema",
  "regex",
  "schemars",
  "serde",
@@ -8518,6 +8256,7 @@ dependencies = [
 [[package]]
 name = "u2s-redacto-ubs-mcp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "env_logger",
  "log",
@@ -8531,14 +8270,13 @@ dependencies = [
  "tokio",
  "u2s-blob",
  "u2s-mapper-redacto",
- "u2s-mcp",
  "u2s-redacto",
- "u2s-render-test-harness",
 ]
 
 [[package]]
 name = "u2s-redacto-ubs-verify-mcp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "env_logger",
  "log",
@@ -8547,19 +8285,18 @@ dependencies = [
  "serde_json",
  "tokio",
  "u2s-blob",
- "u2s-mcp",
  "u2s-redacto-verify-core",
- "u2s-render-test-harness",
  "u2s-verify-core",
 ]
 
 [[package]]
 name = "u2s-redacto-verify-core"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "log",
  "lopdf 0.44.0",
- "reqwest",
+ "reqwest 0.13.4",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
@@ -8573,6 +8310,7 @@ dependencies = [
 [[package]]
 name = "u2s-render-core"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "image",
  "serde",
@@ -8584,11 +8322,10 @@ dependencies = [
 [[package]]
 name = "u2s-render-pdf"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "image",
- "image_hasher",
  "log",
- "lopdf 0.44.0",
  "pdfium-render",
  "serde",
  "serde_json",
@@ -8599,6 +8336,7 @@ dependencies = [
 [[package]]
 name = "u2s-render-pdf-mcp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -8606,33 +8344,18 @@ dependencies = [
  "log",
  "rmcp",
  "serde_json",
- "sha2 0.10.9",
  "tokio",
  "u2s-render-pdf",
- "u2s-render-test-harness",
-]
-
-[[package]]
-name = "u2s-render-test-harness"
-version = "0.1.0"
-dependencies = [
- "image",
- "rmcp",
- "serde_json",
- "sha2 0.10.9",
- "tokio",
- "u2s-mcp",
 ]
 
 [[package]]
 name = "u2s-render-xfa"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "image",
  "log",
- "lopdf 0.44.0",
  "serde",
- "serde_json",
  "u2s-render-core",
  "u2s-xfa",
 ]
@@ -8640,23 +8363,22 @@ dependencies = [
 [[package]]
 name = "u2s-render-xfa-mcp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
  "env_logger",
- "image",
  "log",
  "rmcp",
  "serde_json",
  "tokio",
- "u2s-render-test-harness",
  "u2s-render-xfa",
- "u2s-xfa",
 ]
 
 [[package]]
 name = "u2s-rules"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "boa_engine",
  "json-patch",
@@ -8669,6 +8391,7 @@ dependencies = [
 [[package]]
 name = "u2s-rules-host"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "libc",
  "serde",
@@ -8682,6 +8405,7 @@ dependencies = [
 [[package]]
 name = "u2s-schema"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "jsonschema",
  "serde",
@@ -8692,6 +8416,7 @@ dependencies = [
 [[package]]
 name = "u2s-verify-core"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "base64 0.22.1",
  "bollard",
@@ -8699,7 +8424,7 @@ dependencies = [
  "chromiumoxide",
  "futures",
  "log",
- "reqwest",
+ "reqwest 0.13.4",
  "serde",
  "serde_json",
  "tar",
@@ -8712,13 +8437,13 @@ dependencies = [
 [[package]]
 name = "u2s-xfa"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "ab_glyph",
  "base64 0.22.1",
  "boa_engine",
  "hyphenation",
  "image",
- "imageproc",
  "log",
  "lopdf 0.44.0",
  "quick-xml",
@@ -8734,6 +8459,7 @@ dependencies = [
 [[package]]
 name = "u2s-xfa-mcp"
 version = "0.1.0"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=416cb7b1c4b65b6c177b7dba786ae1d5db4202fd#416cb7b1c4b65b6c177b7dba786ae1d5db4202fd"
 dependencies = [
  "anyhow",
  "env_logger",
@@ -8742,7 +8468,6 @@ dependencies = [
  "serde_json",
  "tokio",
  "u2s-render-core",
- "u2s-render-test-harness",
  "u2s-xfa",
 ]
 
@@ -9236,7 +8961,7 @@ checksum = "7130243a7a5b33c54a444e54842e6a9e133de08b5ad7b5861cd8ed9a6a5bc96a"
 dependencies = [
  "webview2-com-macros",
  "webview2-com-sys",
- "windows 0.61.3",
+ "windows",
  "windows-core 0.61.2",
  "windows-implement",
  "windows-interface",
@@ -9260,7 +8985,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "381336cfffd772377d291702245447a5251a2ffa5bad679c99e61bc48bacbf9c"
 dependencies = [
  "thiserror 2.0.18",
- "windows 0.61.3",
+ "windows",
  "windows-core 0.61.2",
 ]
 
@@ -9293,16 +9018,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bae2f2b2b816647a1cab1acc91f5bd20812d53cb344382635ec2181940c8034f"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "wide"
-version = "0.7.33"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0ce5da8ecb62bcd8ec8b7ea19f69a51275e91299be594ea5cc6ef7819e16cd03"
-dependencies = [
- "bytemuck",
- "safe_arch",
 ]
 
 [[package]]
@@ -9342,23 +9057,11 @@ version = "0.61.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9babd3a767a4c1aef6900409f85f5d53ce2544ccdfaa86dad48c91782c6d6893"
 dependencies = [
- "windows-collections 0.2.0",
+ "windows-collections",
  "windows-core 0.61.2",
- "windows-future 0.2.1",
+ "windows-future",
  "windows-link 0.1.3",
- "windows-numerics 0.2.0",
-]
-
-[[package]]
-name = "windows"
-version = "0.62.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "527fadee13e0c05939a6a05d5bd6eec6cd2e3dbd648b9f8e447c6518133d8580"
-dependencies = [
- "windows-collections 0.3.2",
- "windows-core 0.62.2",
- "windows-future 0.3.2",
- "windows-numerics 0.3.1",
+ "windows-numerics",
 ]
 
 [[package]]
@@ -9368,15 +9071,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3beeceb5e5cfd9eb1d76b381630e82c4241ccd0d27f1a39ed41b2760b255c5e8"
 dependencies = [
  "windows-core 0.61.2",
-]
-
-[[package]]
-name = "windows-collections"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "23b2d95af1a8a14a3c7367e1ed4fc9c20e0a26e79551b1454d72583c97cc6610"
-dependencies = [
- "windows-core 0.62.2",
 ]
 
 [[package]]
@@ -9413,18 +9107,7 @@ checksum = "fc6a41e98427b19fe4b73c550f060b59fa592d7d686537eebf9385621bfbad8e"
 dependencies = [
  "windows-core 0.61.2",
  "windows-link 0.1.3",
- "windows-threading 0.1.0",
-]
-
-[[package]]
-name = "windows-future"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e1d6f90251fe18a279739e78025bd6ddc52a7e22f921070ccdc67dde84c605cb"
-dependencies = [
- "windows-core 0.62.2",
- "windows-link 0.2.1",
- "windows-threading 0.2.1",
+ "windows-threading",
 ]
 
 [[package]]
@@ -9469,16 +9152,6 @@ checksum = "9150af68066c4c5c07ddc0ce30421554771e528bde427614c61038bc2c92c2b1"
 dependencies = [
  "windows-core 0.61.2",
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-numerics"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6e2e40844ac143cdb44aead537bbf727de9b044e107a0f1220392177d15b0f26"
-dependencies = [
- "windows-core 0.62.2",
- "windows-link 0.2.1",
 ]
 
 [[package]]
@@ -9652,15 +9325,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66463ad2e0ea3bbf808b7f1d371311c80e115c0b71d60efc142cafbcfb057a6"
 dependencies = [
  "windows-link 0.1.3",
-]
-
-[[package]]
-name = "windows-threading"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3949bd5b99cafdf1c7ca86b43ca564028dfe27d66958f2470940f73d86d75b37"
-dependencies = [
- "windows-link 0.2.1",
 ]
 
 [[package]]
@@ -10014,7 +9678,7 @@ dependencies = [
  "webkit2gtk",
  "webkit2gtk-sys",
  "webview2-com",
- "windows 0.61.3",
+ "windows",
  "windows-core 0.61.2",
  "windows-version",
 ]

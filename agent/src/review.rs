@@ -308,7 +308,7 @@ mod tests {
         let shot = dir.path().join("shot.png");
         std::fs::write(&shot, PNG_MAGIC).unwrap();
         let pdf = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../u2s/crates/u2s-render-pdf/fixtures/generated/unicode-text.pdf");
+            .join("../vendor/crates/u2s-render-pdf/fixtures/generated/unicode-text.pdf");
         let captured = read_located(Located {
             screenshots: vec![("form".into(), shot)],
             pdfs: vec![("Document of Record".into(), pdf)],
@@ -346,7 +346,7 @@ mod tests {
     fn a_plain_pdf_source_renders_through_pdfium() {
         let pdf = std::fs::read(
             Path::new(env!("CARGO_MANIFEST_DIR"))
-                .join("../u2s/crates/u2s-render-pdf/fixtures/generated/unicode-text.pdf"),
+                .join("../vendor/crates/u2s-render-pdf/fixtures/generated/unicode-text.pdf"),
         )
         .unwrap();
         let images = render_sources(&[("plain.pdf".into(), pdf)]).unwrap();

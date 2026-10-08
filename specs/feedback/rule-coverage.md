@@ -6,8 +6,8 @@ output, because a converted form joins the corpus the guard polices. This map li
 the guard enrols (the entries of `consistent-problems.md` whose `Runs automatically:` is `yes`,
 which is what `check_regressions.swept_problems()` returns: 35 today) and what guarantees each one
 here. A guarantee is one of: a check rule in `rules/aem/`, a normalize pass of the UBS layer
-(`u2s/crates/u2s-aem-ubs-mcp/src/aem/normalize.rs`), a template under
-`u2s/crates/u2s-aem-ubs-mcp/profiles/ubs/aem/`, a writer function (`xml_writer.rs`,
+(`vendor/crates/u2s-aem-ubs-mcp/src/aem/normalize.rs`), a template under
+`vendor/crates/u2s-aem-ubs-mcp/profiles/ubs/aem/`, a writer function (`xml_writer.rs`,
 `package_writer.rs`), or an exception accepted by decision (AGENTS.md). Keep this file in step with
 `rules/aem/`: a new or removed rule changes a row here.
 

@@ -12,7 +12,7 @@ fn rules_dir() -> PathBuf {
 
 fn golden(form: &str) -> Value {
     let path = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../u2s/crates/u2s-redacto-ubs-mcp/tests/fixtures/golden")
+        .join("../vendor/crates/u2s-redacto-ubs-mcp/tests/fixtures/golden")
         .join(form)
         .join("document.json");
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
