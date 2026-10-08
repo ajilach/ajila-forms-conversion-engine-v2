@@ -28,7 +28,9 @@ u2s-redacto-ubs-verify-mcp = { path = "../u2s/crates/u2s-redacto-ubs-verify-mcp"
 u2s-redacto-verify-core = { path = "../u2s/crates/u2s-redacto-verify-core" }
 u2s-render-core = { path = "../u2s/crates/u2s-render-core" }
 u2s-verify-core = { path = "../u2s/crates/u2s-verify-core" }
+u2s-render-pdf = { path = "../u2s/crates/u2s-render-pdf" }
 u2s-render-pdf-mcp = { path = "../u2s/crates/u2s-render-pdf-mcp" }
+u2s-render-xfa = { path = "../u2s/crates/u2s-render-xfa" }
 u2s-render-xfa-mcp = { path = "../u2s/crates/u2s-render-xfa-mcp" }
 u2s-xfa = { path = "../u2s/crates/u2s-xfa" }
 u2s-xfa-mcp = { path = "../u2s/crates/u2s-xfa-mcp" }

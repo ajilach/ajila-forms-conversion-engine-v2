@@ -67,7 +67,7 @@ pub async fn run_fresh(
     // id is stable for template-only runs.
     let pdfs: Vec<(String, Vec<u8>)> = files
         .iter()
-        .filter(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"))
+        .filter(|(name, _)| agent::conversion::is_source_pdf(name))
         .cloned()
         .collect();
     let doc_hash = agent::db::document_hash(if pdfs.is_empty() { &files } else { &pdfs });
@@ -252,7 +252,18 @@ async fn drive(
         price: resolved.price,
         max_tokens: resolved.max_tokens,
         context_budget: resolved.context_budget,
+        capture_review: true,
     };
+
+    // A session's review images show its last finished run. This run will
+    // change what was built, so the previous run's images go now: a run that
+    // ends without capturing any, or never ends, must not leave an older build
+    // on show as this one.
+    if agent::db::store_review(&session_id, &agent::review::ReviewImages::default()).is_none() {
+        obs.emit(RunEvent::Warning(
+            "The previous review images could not be cleared, so the review may show an older build.".into(),
+        ));
+    }
 
     let shared_agent: pipeline::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
     let outcome = pipeline::run(shared_agent, run_config, seed, obs.clone()).await;
@@ -277,6 +288,13 @@ async fn drive(
                 "The result could not be recorded in the edit history, so session \
                  {session_id} cannot be reopened. Download the outputs before closing."
             )));
+        }
+        if let Some(review) = &outcome.review
+            && agent::db::store_review(&session_id, review).is_none()
+        {
+            obs.emit(RunEvent::Warning(
+                "The review images could not be recorded, so the result cannot be reviewed.".into(),
+            ));
         }
     }
 

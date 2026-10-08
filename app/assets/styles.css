@@ -467,6 +467,64 @@ body > div, #main {
     margin: 0 auto;
 }
 
+/* ---- Review: source on the left, output on the right ---- */
+.review-columns {
+    flex: 1;
+    min-height: 0;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+}
+
+.review-col {
+    overflow-y: auto;
+    min-height: 0;
+    padding: var(--space-md);
+    background: var(--surface-2);
+}
+
+.review-col + .review-col {
+    border-left: 1px solid var(--border);
+}
+
+.review-col-title {
+    margin: 0 0 var(--space-sm);
+    font-size: var(--font-size-md);
+}
+
+.review-group-title {
+    margin: var(--space-md) 0 var(--space-sm);
+    font-size: var(--font-size-sm);
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.review-image {
+    margin: 0 0 var(--space-md);
+}
+
+.review-image img {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.review-image figcaption {
+    margin-top: var(--space-xs);
+    font-size: var(--font-size-sm);
+    color: var(--muted);
+}
+
+.review-loading {
+    display: flex;
+    align-items: center;
+    gap: var(--space-sm);
+    color: var(--muted);
+}
+
 /* Opt-in for pages whose content is a stack of cards rather than sections. */
 .page-content-stack {
     display: flex;

@@ -269,7 +269,7 @@ impl ConversionAgent {
     ) -> Result<Self, String> {
         let pdfs: Vec<(String, Vec<u8>)> = files
             .iter()
-            .filter(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"))
+            .filter(|(name, _)| is_source_pdf(name))
             .cloned()
             .collect();
         let template = template_of(&files);
@@ -604,6 +604,12 @@ impl ConversionAgent {
             )
         })
     }
+}
+
+/// Whether an uploaded file is a source PDF, by its name. The one rule both
+/// the agent and its hosts decide it by.
+pub fn is_source_pdf(name: &str) -> bool {
+    name.to_ascii_lowercase().ends_with(".pdf")
 }
 
 /// The uploaded AEM package a run starts from, if `files` has one: the first
@@ -1441,6 +1447,7 @@ mod prompts;
 
 use catalog::target_mask;
 pub use catalog::{Access, ToolSpec, access_of, all_tools, catalog, scope, target, tools_for};
+pub(crate) use evidence::json_of;
 pub use execute::ReadWork;
 pub use prompts::*;
 

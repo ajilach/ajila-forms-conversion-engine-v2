@@ -16,6 +16,10 @@
 //!   LLM message, opaque JSON this module never deserializes (that is
 //!   `pipeline::memory`'s job, the one place that knows what a rig `Message`
 //!   is). Append-only: nothing here ever deletes a row except `clear`.
+//! - `review_images(session_id TEXT, side TEXT, seq INTEGER, label TEXT,
+//!   png BLOB, PRIMARY KEY(session_id, side, seq))` — what a session's last
+//!   finished run looked like on its verifier (see [`crate::review`]); a run
+//!   that finishes replaces its session's rows.
 
 /// Metadata about a previous editing session, for the "continue editing" list.
 #[derive(Clone, Debug, PartialEq)]
@@ -49,6 +53,7 @@ pub fn format_timestamp(ts: &str) -> String {
 
 mod imp {
     use super::{EditInfo, SessionInfo};
+    use crate::review::{ReviewImage, ReviewImages};
     use rusqlite::{Connection, OptionalExtension};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
@@ -313,6 +318,17 @@ mod imp {
                 created_at   TEXT NOT NULL,
                 message_json TEXT NOT NULL,
                 PRIMARY KEY (session_id, stage, seq)
+            );
+            -- What a session's last finished run looked like on its verifier:
+            -- the form's screenshots and the output PDF's pages. A brand new
+            -- table, so like `conversations` it needs no migration.
+            CREATE TABLE IF NOT EXISTS review_images (
+                session_id TEXT NOT NULL,
+                side       TEXT NOT NULL CHECK (side IN ('form', 'output')),
+                seq        INTEGER NOT NULL,
+                label      TEXT NOT NULL,
+                png        BLOB NOT NULL,
+                PRIMARY KEY (session_id, side, seq)
             );",
         )?;
         // Reference-form tables (shared schema with the `reference-builder`
@@ -565,6 +581,7 @@ mod imp {
             "DELETE FROM edits WHERE session_id IN (?1, ?2, ?3, ?4)",
             [session_id, &document_session, &aem_session, &headers_session],
         )?;
+        tx.execute("DELETE FROM review_images WHERE session_id = ?1", [session_id])?;
         tx.execute("DELETE FROM sessions WHERE session_id = ?1", [session_id])?;
         tx.commit()
     }
@@ -930,9 +947,108 @@ mod imp {
         clear_conversation_conn(&conn, session_id, stage);
     }
 
+    // ── Review images ────────────────────────────────────────────────────────
+
+    fn store_review_conn(conn: &mut Connection, session_id: &str, images: &ReviewImages) -> rusqlite::Result<()> {
+        let tx = conn.transaction()?;
+        tx.execute("DELETE FROM review_images WHERE session_id = ?1", [session_id])?;
+        for (side, side_images) in images.sides() {
+            for (seq, image) in side_images.iter().enumerate() {
+                tx.execute(
+                    "INSERT INTO review_images (session_id, side, seq, label, png) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![session_id, side, seq as i64, image.label, image.png],
+                )?;
+            }
+        }
+        tx.commit()
+    }
+
+    /// Replace the review images of `session_id`. One transaction, so a
+    /// session never shows half of one run's images next to another's.
+    /// `None` when the write failed (the cause is printed).
+    pub fn store_review(session_id: &str, images: &ReviewImages) -> Option<()> {
+        let mut conn = warn_db(open(), "opening the store")?;
+        warn_db(store_review_conn(&mut conn, session_id, images), "storing review images")
+    }
+
+    fn load_review_conn(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<ReviewImages>> {
+        let mut images = ReviewImages::default();
+        let mut stmt = conn.prepare(
+            "SELECT label, png FROM review_images WHERE session_id = ?1 AND side = ?2 ORDER BY seq ASC",
+        )?;
+        for (side, side_images) in images.sides_mut() {
+            *side_images = stmt
+                .query_map([session_id, side], |row| {
+                    Ok(ReviewImage {
+                        label: row.get(0)?,
+                        png: row.get(1)?,
+                    })
+                })?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+        }
+        Ok((!images.is_empty()).then_some(images))
+    }
+
+    /// The review images of `session_id`; `None` when it has none, or the read
+    /// failed (the cause is printed).
+    pub fn load_review(session_id: &str) -> Option<ReviewImages> {
+        let conn = warn_db(open(), "opening the store")?;
+        warn_db(load_review_conn(&conn, session_id), "reading review images").flatten()
+    }
+
+    fn has_review_conn(conn: &Connection, session_id: &str) -> rusqlite::Result<bool> {
+        conn.query_row(
+            "SELECT EXISTS (SELECT 1 FROM review_images WHERE session_id = ?1)",
+            [session_id],
+            |row| row.get(0),
+        )
+    }
+
+    /// Whether `session_id` has review images, without reading them; `false`
+    /// when the read failed (the cause is printed).
+    pub fn has_review(session_id: &str) -> bool {
+        warn_db(open().and_then(|conn| has_review_conn(&conn, session_id)), "checking for review images")
+            .unwrap_or(false)
+    }
+
     #[cfg(test)]
     mod tests {
         use super::*;
+
+        fn review(labels: &[&str], outputs: &[&str]) -> ReviewImages {
+            let image = |label: &&str| ReviewImage {
+                label: label.to_string(),
+                png: label.as_bytes().to_vec(),
+            };
+            ReviewImages {
+                form: labels.iter().map(image).collect(),
+                output: outputs.iter().map(image).collect(),
+            }
+        }
+
+        /// Review images round-trip in order per side, a second store replaces
+        /// the first rather than adding to it, and deleting the session takes
+        /// them along.
+        #[test]
+        fn review_images_round_trip_and_are_replaced() {
+            let mut conn = mem();
+            assert!(!has_review_conn(&conn, "s").unwrap());
+            assert_eq!(load_review_conn(&conn, "s").unwrap(), None);
+
+            let first = review(&["form", "panel-2", "panel-3"], &["DoR, page 1", "DoR, page 2"]);
+            store_review_conn(&mut conn, "s", &first).unwrap();
+            store_review_conn(&mut conn, "other", &review(&["x"], &[])).unwrap();
+            assert!(has_review_conn(&conn, "s").unwrap());
+            assert_eq!(load_review_conn(&conn, "s").unwrap(), Some(first));
+
+            let second = review(&[], &["rendered (en), page 1"]);
+            store_review_conn(&mut conn, "s", &second).unwrap();
+            assert_eq!(load_review_conn(&conn, "s").unwrap(), Some(second));
+
+            delete_session_conn(&mut conn, "s").unwrap();
+            assert!(!has_review_conn(&conn, "s").unwrap());
+            assert!(has_review_conn(&conn, "other").unwrap(), "another session keeps its images");
+        }
 
         /// A scratch database carrying the same schema and indexes a real one
         /// gets, so the unique constraint is under test rather than bypassed.

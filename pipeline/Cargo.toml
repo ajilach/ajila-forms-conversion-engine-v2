@@ -16,7 +16,7 @@ rig-agent = { workspace = true }
 # (`CompactingMemory`, `TemplateCompactor`) types `ContextBudget` and
 # `SqliteConversationMemory` are built on; see `pipeline::memory`.
 rig-memory = { workspace = true }
-tokio = { version = "1", features = ["rt", "time"] }
+tokio = { version = "1", features = ["rt", "time", "macros"] }
 # Drives `AgentRunner::stream()`'s item-by-item loop in `run_stage`.
 futures-util = "0.3"
 

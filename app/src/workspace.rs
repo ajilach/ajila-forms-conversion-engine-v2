@@ -45,6 +45,8 @@ pub struct Tab {
     pub feedback: Signal<String>,
     /// Whether the activity timeline is expanded.
     pub timeline_open: Signal<bool>,
+    /// Whether the review of the finished run is open in place of the box.
+    pub review_open: Signal<bool>,
     /// Edit-history session, once the run has opened one.
     pub session_id: Signal<Option<String>>,
     /// Stops this tab's run, and only this tab's run.
@@ -82,6 +84,7 @@ impl Tab {
             files: app(Vec::new()),
             feedback: app(String::new()),
             timeline_open: app(false),
+            review_open: app(false),
             session_id: app(None),
             abort: app(AbortFlag::default()),
             restored: app(None),
@@ -116,6 +119,7 @@ impl Tab {
             files: app(files),
             feedback: app(saved.feedback_draft.clone()),
             timeline_open: app(false),
+            review_open: app(false),
             session_id: app(saved.session_id.clone()),
             abort: app(AbortFlag::default()),
             restored: app(match view {

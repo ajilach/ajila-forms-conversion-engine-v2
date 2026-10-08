@@ -17,7 +17,7 @@ pub use runner::settings;
 
 use dioxus::prelude::*;
 
-use components::{AgentFlow, FormTabs, ReferencesPage, SettingsPage};
+use components::{AgentFlow, FormTabs, ReferencesPage, ReviewPage, SettingsPage};
 use models::{ProcessingState, ProcessingStep};
 use settings::AppSettings;
 use tabs::{restored_view, RestoredView, SavedTab, SavedWorkspace, WORKSPACE_KEY};
@@ -193,7 +193,7 @@ fn App() -> Element {
     let on_ai_process = move |tab: Tab, file_data: Vec<(String, Vec<u8>)>| {
         let has_pdf = file_data
             .iter()
-            .any(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"));
+            .any(|(name, _)| agent::conversion::is_source_pdf(name));
         // An AEM content-package ZIP may be attached as an editable template for
         // the agent's working tree. Proceed with PDFs, a template, or both.
         let has_template = agent::conversion::template_of(&file_data).is_some();
@@ -341,6 +341,12 @@ fn App() -> Element {
                 profile: active.profile.read().clone(),
                 settings: app_settings,
                 on_close: move |_| references_open.set(false),
+            }
+        } else if *active.review_open.read() {
+            // The active conversion's review (full page view)
+            ReviewPage {
+                tab: active,
+                on_close: move |_| active.review_open.clone().set(false),
             }
         } else {
             // The open conversions, and the active one's flow:

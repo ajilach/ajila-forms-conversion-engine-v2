@@ -217,7 +217,7 @@ pub fn restored_view(tab: &SavedTab, has_snapshot: bool) -> RestoredView {
 /// The PDFs, and only those: an attached AEM template is already part of the
 /// session's working tree and is restored along with it.
 fn is_replayed_source((name, _): &(String, Vec<u8>)) -> bool {
-    name.to_ascii_lowercase().ends_with(".pdf")
+    agent::conversion::is_source_pdf(name)
 }
 
 /// Whether a re-run of this tab has the sources it would need to replay.

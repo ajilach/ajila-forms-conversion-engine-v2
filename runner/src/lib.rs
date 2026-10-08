@@ -29,7 +29,7 @@ pub mod settings;
 pub mod token_counter;
 pub mod turns;
 
-pub use artifacts::{Artifact, artifact_filename};
+pub use artifacts::{Artifact, artifact_filename, review_dirname, review_image_filename};
 pub use provider::{LlmEndpoint, Provider};
 pub use run::{Completed, RunOptions, resume, run_fresh};
 pub use settings::AppSettings;

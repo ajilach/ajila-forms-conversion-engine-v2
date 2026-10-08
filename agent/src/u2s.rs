@@ -872,9 +872,7 @@ impl U2sTools {
             Some(server) => server,
             None => {
                 let blobs = BlobStore::new(self.dir.path().join("blobs"));
-                PdfRenderServer::with_parts(Limits::default(), blobs).map_err(|e| {
-                    format!("the PDF renderer is unavailable ({e}); run scripts/fetch-pdfium.sh")
-                })?
+                PdfRenderServer::with_parts(Limits::default(), blobs).map_err(pdfium_unavailable)?
             }
         };
         Ok(self.pdf.insert(server))
@@ -945,9 +943,14 @@ async fn spawned(
         .unwrap_or_else(|join| Err(format!("the tool server failed: {join}")))
 }
 
+/// Why a `pdf_*` render cannot run: pdfium did not load.
+pub(crate) fn pdfium_unavailable(e: impl std::fmt::Display) -> String {
+    format!("the PDF renderer is unavailable ({e}); run scripts/fetch-pdfium.sh")
+}
+
 /// Registers every profile's parser fonts with the u2s font manager, once per
 /// process (the manager is process-global).
-fn register_fonts() -> Result<(), String> {
+pub(crate) fn register_fonts() -> Result<(), String> {
     static REGISTERED: OnceLock<Result<(), String>> = OnceLock::new();
     REGISTERED
         .get_or_init(|| {

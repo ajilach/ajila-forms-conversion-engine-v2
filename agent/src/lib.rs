@@ -22,6 +22,7 @@ pub mod outputs;
 pub mod package_checks;
 pub mod profiles;
 pub mod references;
+pub mod review;
 pub mod rules;
 pub mod session;
 pub mod source;

@@ -235,7 +235,7 @@ fn canonical(path: &str) -> String {
 
 /// The JSON object a u2s reply carries: its whole text, or the one line of it
 /// that is the structured report (a verifier puts a summary line first).
-fn json_of(reply: &ToolReply) -> Option<Value> {
+pub(crate) fn json_of(reply: &ToolReply) -> Option<Value> {
     let texts: Vec<&str> = match reply {
         ToolReply::Text(text) => vec![text.as_str()],
         ToolReply::Blocks(blocks) => blocks

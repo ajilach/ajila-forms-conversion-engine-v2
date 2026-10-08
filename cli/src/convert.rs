@@ -316,6 +316,17 @@ fn write_artifacts(
         &runner::artifact_filename("document", code, "json"),
         &serde_json::to_vec_pretty(&outcome.document)?,
     )?;
+
+    // What the final build looked like on the verifier, numbered in order.
+    if let Some(review) = &outcome.review {
+        let dir = args.out.join(runner::review_dirname(code));
+        std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+        for (side, images) in review.sides() {
+            for (index, image) in images.iter().enumerate() {
+                write_file(&dir, &runner::review_image_filename(side, index, &image.label), &image.png)?;
+            }
+        }
+    }
     Ok(())
 }
 
@@ -346,7 +357,7 @@ fn read_documents(paths: &[PathBuf]) -> Result<Sources, Box<dyn Error>> {
 fn pdfs_only(files: &[(String, Vec<u8>)]) -> Sources {
     files
         .iter()
-        .filter(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"))
+        .filter(|(name, _)| agent::conversion::is_source_pdf(name))
         .cloned()
         .collect()
 }

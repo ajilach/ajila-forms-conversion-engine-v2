@@ -15,6 +15,33 @@ pub fn artifact_filename(prefix: &str, form_code: Option<&str>, ext: &str) -> St
     }
 }
 
+/// The directory a run's review images are written to, e.g. `review-<code>`.
+pub fn review_dirname(form_code: Option<&str>) -> String {
+    match form_code {
+        Some(code) => format!("review-{code}"),
+        None => "review".to_string(),
+    }
+}
+
+/// The file one review image is written to: its side and position, so a
+/// directory listing keeps the run's order, then its label made safe for a
+/// file name, e.g. `output-03-Document-of-Record-page-2.png`.
+pub fn review_image_filename(side: &str, index: usize, label: &str) -> String {
+    let mut slug = String::new();
+    for c in label.chars() {
+        if c.is_ascii_alphanumeric() {
+            slug.push(c);
+        } else if !slug.ends_with('-') {
+            slug.push('-');
+        }
+    }
+    let slug = match slug.trim_matches('-') {
+        "" => "image",
+        slug => slug,
+    };
+    format!("{side}-{:02}-{slug}.png", index + 1)
+}
+
 /// One artefact of a finished run.
 ///
 /// Only the run's own outputs: a consumer's own by-products (a UI transcript,
@@ -85,6 +112,18 @@ mod tests {
             "forms-package-AAEV.zip"
         );
         assert_eq!(Artifact::RedactoSql.filename(None), "redacto.sql");
+    }
+
+    #[test]
+    fn review_images_are_named_in_order_and_safe_for_a_file_system() {
+        assert_eq!(review_dirname(Some("AAEV")), "review-AAEV");
+        assert_eq!(
+            review_image_filename("output", 2, "Document of Record, page 2"),
+            "output-03-Document-of-Record-page-2.png"
+        );
+        assert_eq!(review_image_filename("form", 0, "rendered (de)/x"), "form-01-rendered-de-x.png");
+        assert_eq!(review_image_filename("form", 9, "Übersicht"), "form-10-bersicht.png");
+        assert_eq!(review_image_filename("form", 0, "日本"), "form-01-image.png");
     }
 
     /// A Redacto run must not offer AEM artefacts, and vice versa — the check

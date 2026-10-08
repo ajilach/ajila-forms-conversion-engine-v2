@@ -60,6 +60,10 @@ pub struct RunConfig {
     /// the provider actually bills — see [`ContextBudget`]. `runner` builds
     /// this from the same model knowledge as `price`/`max_tokens`.
     pub context_budget: Arc<dyn ContextBudget>,
+    /// Whether the run ends by verifying its final build once more and
+    /// keeping what that looked like ([`RunOutcome::review`]). Off only where
+    /// no verifier may be booted: the controller tests.
+    pub capture_review: bool,
 }
 
 /// What starts a run: a fresh conversion, feedback on the previous result, or
@@ -126,6 +130,9 @@ pub struct RunOutcome {
     pub form_code: Option<String>,
     /// Notes the run accumulated that did not stop it.
     pub warnings: Vec<String>,
+    /// What the final build looked like on the verifier, for a person to
+    /// review; `None` when it was not captured (a warning says why).
+    pub review: Option<agent::review::ReviewImages>,
 }
 
 /// Sequence the pipeline over `shared_agent`.
@@ -277,20 +284,22 @@ async fn run_stages(
             }
             None => {
                 // Reviewer ended without a verdict (budget/stuck). Stop the loop.
-                let w =
-                    "The reviewer ended without a verdict — finalizing with what's built.".to_string();
-                obs.emit(RunEvent::Warning(w.clone()));
-                warnings.push(w);
+                warn(
+                    obs,
+                    &mut warnings,
+                    "The reviewer ended without a verdict — finalizing with what's built.".into(),
+                );
                 break;
             }
         }
     }
 
     if !approved {
-        let w = "Finalizing without a clean review — some issues may require manual follow-up."
-            .to_string();
-        obs.emit(RunEvent::Warning(w.clone()));
-        warnings.push(w);
+        warn(
+            obs,
+            &mut warnings,
+            "Finalizing without a clean review — some issues may require manual follow-up.".into(),
+        );
     }
 
     // Building a CRX package is AEM-only; for any other target the dump the
@@ -300,7 +309,65 @@ async fn run_stages(
         tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
     }
 
-    Some(finalize(shared_agent, config, warnings).await)
+    let mut outcome = finalize(shared_agent, config, warnings).await;
+    // After the final build and before `run` tears the verifier down: the
+    // only moment the images can show what ships.
+    let built = outcome.aem_package.is_some() || outcome.redacto_sql.is_some();
+    if config.capture_review && built && !config.abort.is_aborted() {
+        outcome.review = capture_review(shared_agent, &config.abort, obs, &mut outcome.warnings).await;
+    }
+    Some(outcome)
+}
+
+/// A note the run accumulates without stopping: shown now, and kept with the
+/// outcome.
+fn warn(obs: &SharedObserver, warnings: &mut Vec<String>, warning: String) {
+    obs.emit(RunEvent::Warning(warning.clone()));
+    warnings.push(warning);
+}
+
+/// Verifies the final build once more and keeps what it looked like. A
+/// failure costs the run its review images, never its result: the conversion
+/// is complete, so it is a warning. A stop asked for meanwhile ends the wait
+/// at once, rather than after a whole verification.
+async fn capture_review(
+    shared_agent: &SharedAgent,
+    abort: &AbortFlag,
+    obs: &SharedObserver,
+    warnings: &mut Vec<String>,
+) -> Option<agent::review::ReviewImages> {
+    const ID: &str = "capture-review";
+    obs.emit(RunEvent::ToolStarted {
+        id: ID.to_string(),
+        name: "capture_review".to_string(),
+        input_summary: "verifying the final build for the review images".into(),
+    });
+    let captured = tokio::select! {
+        captured = async { agent::review::capture(&mut *shared_agent.lock().await).await } => captured,
+        () = wait_for_abort(abort) => Err("the run was stopped".to_string()),
+    };
+    obs.emit(RunEvent::ToolFinished {
+        id: ID.to_string(),
+        ok: captured.is_ok(),
+        reply_chars: 0,
+    });
+    match captured {
+        Ok(captured) => {
+            for problem in captured.problems {
+                warn(obs, warnings, format!("The final verification for the review reported: {problem}"));
+            }
+            Some(captured.images)
+        }
+        Err(e) => {
+            warn(obs, warnings, format!("No review images were captured: {e}"));
+            None
+        }
+    }
+}
+
+/// Returns once the run is aborted.
+async fn wait_for_abort(abort: &AbortFlag) {
+    while !sleep_unless_aborted(std::time::Duration::from_secs(60), abort).await {}
 }
 
 /// An Author or Reviewer stage begins: it gathers its own evidence for its
@@ -315,11 +382,13 @@ async fn begin_stage(shared_agent: &SharedAgent) {
 /// Reviewer's own gate still holds, but the operator is told.
 async fn warn_unless_finished(shared_agent: &SharedAgent, obs: &SharedObserver, warnings: &mut Vec<String>) {
     if shared_agent.lock().await.take_finish().is_none() {
-        let w = "The author ended without finish_authoring: its form was not verified by the author \
-                 before review."
-            .to_string();
-        obs.emit(RunEvent::Warning(w.clone()));
-        warnings.push(w);
+        warn(
+            obs,
+            warnings,
+            "The author ended without finish_authoring: its form was not verified by the author \
+             before review."
+                .into(),
+        );
     }
 }
 
@@ -348,6 +417,7 @@ async fn finalize(
         redacto_sql,
         form_code: agent.form_code(),
         warnings,
+        review: None,
     }
 }
 
@@ -1570,6 +1640,7 @@ mod controller {
             price: no_price(),
             max_tokens: 4096,
             context_budget: no_budget(),
+            capture_review: false,
         }
     }
 
@@ -1691,6 +1762,45 @@ mod controller {
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(
             !warnings.iter().any(|w| w.contains("without a clean review")),
+            "{warnings:?}"
+        );
+    }
+
+    /// A run that captures its review images does so once, after every stage,
+    /// on the agent as the stages left it. One that cannot (no verifier here)
+    /// still finishes with its result, and says why it has no images.
+    #[tokio::test]
+    async fn the_review_capture_runs_last_and_its_failure_is_a_warning() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            review_turn(true, ""),
+        ]);
+        let (obs, rec) = recorder();
+        let config = RunConfig {
+            capture_review: true,
+            ..config(AbortFlag::default(), 1, model)
+        };
+
+        let outcome = run(bare_agent(), config, RunSeed::Fresh, obs).await.expect("the run still finishes");
+
+        assert!(outcome.review.is_none());
+        assert!(outcome.redacto_sql.is_some(), "the result ships without its review images");
+        let rec = rec.lock().unwrap();
+        let started: Vec<&str> = rec
+            .events
+            .iter()
+            .filter_map(|e| match e {
+                RunEvent::ToolStarted { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(started.iter().filter(|id| **id == "capture-review").count(), 1, "{started:?}");
+        assert_eq!(started.last(), Some(&"capture-review"), "{started:?}");
+        let warnings = rec.warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.starts_with("No review images were captured") && w.contains("verifier was not started")),
             "{warnings:?}"
         );
     }

@@ -88,6 +88,14 @@ pub fn AgentFlow(
     let mut timeline_open = tab.timeline_open;
 
     let screen = screen_for(&processing_state.read(), (tab.processing)());
+    // Whether the finished run's output was captured for review. Asked of the
+    // store only once the run is complete, not on every event of a live one.
+    let session_id = tab.session_id;
+    let has_review = use_memo(move || {
+        processing_state.read().step == crate::models::ProcessingStep::Complete
+            && session_id.read().as_deref().is_some_and(crate::db::has_review)
+    });
+    let mut review_open = tab.review_open;
 
     rsx! {
         div { class: "agent-flow",
@@ -118,6 +126,8 @@ pub fn AgentFlow(
                                 // to replay.
                                 can_continue: crate::tabs::is_resumable(&uploaded_files.read()),
                                 last_download: tab.last_download,
+                                has_review: has_review(),
+                                on_review: move |()| review_open.set(true),
                                 timeline_open,
                                 feedback,
                                 on_feedback: move |text: String| on_feedback.call(text),
@@ -163,7 +173,7 @@ fn UploadBox(
     let files = uploaded_files.read().clone();
     let has_pdf = files
         .iter()
-        .any(|(name, _)| name.to_ascii_lowercase().ends_with(".pdf"));
+        .any(|(name, _)| agent::conversion::is_source_pdf(name));
     // An AEM content-package ZIP can be attached as an editable template; a run
     // needs at least a PDF or a template.
     let has_template = agent::conversion::template_of(&files).is_some();
@@ -325,6 +335,10 @@ fn RunBox(
     can_continue: bool,
     /// Where this tab last saved each artefact.
     last_download: Signal<std::collections::HashMap<String, std::path::PathBuf>>,
+    /// Whether the run's output was captured, so it can be reviewed.
+    has_review: bool,
+    /// Open the review of the finished run.
+    on_review: EventHandler<()>,
     timeline_open: Signal<bool>,
     feedback: Signal<String>,
     on_feedback: EventHandler<String>,
@@ -390,7 +404,7 @@ fn RunBox(
                         ContinueBar { restored, on_continue }
                     }
                 }
-                ResultActions { state, last_download }
+                ResultActions { state, last_download, has_review, on_review }
                 if can_continue {
                     FeedbackBox { feedback, on_feedback }
                 }
@@ -909,11 +923,21 @@ fn AbortButton(abort: AbortFlag) -> Element {
 fn ResultActions(
     state: RunStateRead,
     last_download: Signal<std::collections::HashMap<String, std::path::PathBuf>>,
+    has_review: bool,
+    on_review: EventHandler<()>,
 ) -> Element {
     let run = state.read();
 
     rsx! {
         div { class: "ag-result-actions",
+            if has_review {
+                button {
+                    class: "btn btn-primary",
+                    title: "Compare the source with the form and the PDF the run produced, side by side",
+                    onclick: move |_| on_review.call(()),
+                    "Review"
+                }
+            }
             for artifact in Artifact::ALL.iter().copied() {
                 if artifact.is_offered(&run) {
                     DownloadButton {
