@@ -99,7 +99,7 @@ impl RuleBoard {
         }
     }
 
-    /// Records the judges' outcomes of one `rule_check` on `revision`, the
+    /// Records the outcomes of a `rule_check`'s judges on `revision`, the
     /// revision the judges were dispatched on.
     pub fn record_judged(&mut self, outcomes: &[(JudgedRule, Result<RuleVerdict, String>)], revision: u64) {
         for (rule, outcome) in outcomes {

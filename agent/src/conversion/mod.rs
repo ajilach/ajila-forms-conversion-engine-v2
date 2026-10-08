@@ -485,7 +485,7 @@ impl ConversionAgent {
         self.rule_board.snapshot(self.revision())
     }
 
-    /// Records the judges' outcomes of one `rule_check`, dispatched on
+    /// Records the outcomes of a `rule_check`'s judges, dispatched on
     /// `revision`.
     pub fn record_judged(
         &mut self,

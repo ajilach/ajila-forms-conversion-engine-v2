@@ -25,6 +25,10 @@ use crate::tools::SharedAgent;
 /// How many judges run at once.
 const JUDGES_AT_ONCE: usize = 4;
 
+/// Why a judged rule has no verdict when the document was edited while it was
+/// judged.
+const CHANGED_WHILE_JUDGED: &str = "the document changed while it was judged: check this rule again";
+
 /// What a judge stage needs from the stage that dispatches it.
 #[derive(Clone)]
 pub(crate) struct JudgeContext {
@@ -90,31 +94,44 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &JudgeContext, input: &
     report_rules(agent, &ctx.obs).await;
     // `buffered`, not `buffer_unordered`: the report keeps the rules' order.
     let mut verdicts: Vec<(JudgedRule, Result<RuleVerdict, String>)> = futures_util::stream::iter(plan.judged)
-        .map(|rule| judge(agent, ctx, rule))
+        .map(|rule| judge(agent, ctx, rule, revision))
         .buffered(JUDGES_AT_ONCE)
         .collect()
         .await;
-    // The judges read the live document. An edit made while they did (another
-    // call of the same turn) means a verdict may describe neither revision.
-    {
-        let mut guard = agent.lock().await;
-        if guard.revision() != revision {
-            for (_, outcome) in &mut verdicts {
-                *outcome = Err("the document changed while it was judged: check this rule again".into());
-            }
+    // Each judge put its outcome on the board for `revision`, which an edit
+    // made since (another call of the same turn) shows as outdated. The model
+    // is told to check again instead: a verdict on an older document is not
+    // one on the document it now has.
+    if agent.lock().await.revision() != revision {
+        for (_, outcome) in &mut verdicts {
+            *outcome = Err(CHANGED_WHILE_JUDGED.into());
         }
-        guard.record_judged(&verdicts, revision);
     }
-    report_rules(agent, &ctx.obs).await;
     ToolReply::Text(merge_rule_report(scripted, &verdicts).to_string())
 }
 
-/// Runs one judge on `rule` and takes the verdict it recorded.
-async fn judge(agent: &SharedAgent, ctx: &JudgeContext, rule: JudgedRule) -> (JudgedRule, Result<RuleVerdict, String>) {
+/// Runs one judge on `rule`, dispatched on `revision`, and puts its outcome on
+/// the board as soon as it ends, before the rule stops showing as judged: a
+/// check's judges end one by one, and a check cut short keeps what its ended
+/// judges found.
+async fn judge(
+    agent: &SharedAgent,
+    ctx: &JudgeContext,
+    rule: JudgedRule,
+    revision: u64,
+) -> (JudgedRule, Result<RuleVerdict, String>) {
     ctx.obs.emit(RunEvent::Judging { rule_id: rule.id.clone(), running: true });
     let _ended = JudgingEnds { obs: &ctx.obs, rule_id: rule.id.clone() };
     let outcome = judge_rule(agent, ctx, &rule).await;
-    (rule, outcome)
+    let mut guard = agent.lock().await;
+    // The judge read the live document. An edit made while it did means its
+    // verdict may describe neither revision.
+    let judged = (rule, if guard.revision() == revision { outcome } else { Err(CHANGED_WHILE_JUDGED.into()) });
+    guard.record_judged(std::slice::from_ref(&judged), revision);
+    let board = guard.rule_board();
+    drop(guard);
+    ctx.obs.emit(RunEvent::Rules(board));
+    judged
 }
 
 /// Reports a judge's end however its future ends, a dropped one included, so
@@ -322,7 +339,9 @@ mod tests {
 
     /// The observer watches the check: the scripts' verdicts first, the rule
     /// judged between its judge's start and end, and the board with the
-    /// judge's verdict last, current for the document it was judged on.
+    /// judge's verdict last, current for the document it was judged on and
+    /// reported before the judging ends, so the rule never falls back to its
+    /// old state in between.
     #[tokio::test]
     async fn a_check_reports_the_judging_and_the_board() {
         let model = MockCompletionModel::from_stream_turns([vec![
@@ -363,6 +382,12 @@ mod tests {
         // The scripted rules got their verdicts too.
         assert!(boards[1].iter().filter(|r| r.kind == agent::RuleKind::Script).all(|r| r.state != agent::RuleState::NotChecked));
         assert_eq!(agent.lock().await.rule_board(), *boards[1]);
+        let position = |wanted: &dyn Fn(&RunEvent) -> bool| events.iter().position(wanted).unwrap();
+        let judged_on_board = position(&|e| {
+            matches!(e, RunEvent::Rules(board) if board.iter().any(|r| r.rule_id == "id-a" && r.state == agent::RuleState::Pass))
+        });
+        let judging_ended = position(&|e| matches!(e, RunEvent::Judging { running: false, .. }));
+        assert!(judged_on_board < judging_ended, "the verdict reached the board only after the judging ended");
     }
 
     /// A verdict under a judgement nobody opened, or with violations that do
