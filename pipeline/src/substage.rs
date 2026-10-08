@@ -1,0 +1,194 @@
+//! What the sub-stages a stage dispatches have in common: the judges of its
+//! `rule_check` ([`crate::judge`]) and the inspectors of its `inspect`
+//! ([`crate::inspect`]). A sub-stage is a stage of its own on the run's model
+//! and the run's one agent. It is one-shot (no stored conversation), it never
+//! prompts the operator (one that fails gives up, and the dispatching tool
+//! says so), and its spend is folded into the stage that dispatched it.
+
+use std::sync::{Arc, Mutex};
+
+use agent::{Caller, OutputTarget};
+use rig_agent::agent::model::ModelHandle;
+
+use crate::hooks::PriceFn;
+use crate::memory::ContextBudget;
+use crate::observer::{AbortFlag, RetryAction, RunEvent, RunObserver, SharedObserver, Spend};
+use crate::roles::Role;
+use crate::run::run_stage_as;
+use crate::tools::SharedAgent;
+
+/// What a sub-stage needs from the stage that dispatches it.
+#[derive(Clone)]
+pub(crate) struct SubStageContext {
+    pub(crate) target: OutputTarget,
+    pub(crate) model: ModelHandle,
+    pub(crate) price: PriceFn,
+    pub(crate) max_tokens: u32,
+    pub(crate) context_budget: Arc<dyn ContextBudget>,
+    pub(crate) abort: AbortFlag,
+    pub(crate) obs: SharedObserver,
+    /// What the sub-stages spent, which the dispatching stage folds into the
+    /// run's total when it ends. Shared because sub-stages run concurrently.
+    pub(crate) spend: Arc<Mutex<Spend>>,
+}
+
+impl SubStageContext {
+    /// A context whose sub-stages have spent nothing yet.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        target: OutputTarget,
+        model: ModelHandle,
+        price: PriceFn,
+        max_tokens: u32,
+        context_budget: Arc<dyn ContextBudget>,
+        abort: AbortFlag,
+        obs: SharedObserver,
+    ) -> Self {
+        let spend = Arc::new(Mutex::new(Spend::default()));
+        Self { target, model, price, max_tokens, context_budget, abort, obs, spend }
+    }
+
+    /// Folds what the sub-stages spent into the run's `total`, and reports the
+    /// new total when they spent anything.
+    pub(crate) fn fold_spend(&self, total: &mut Spend) {
+        let spent = *self.spend.lock().unwrap_or_else(|p| p.into_inner());
+        if spent.input_tokens + spent.output_tokens > 0 {
+            total.merge(&spent);
+            self.obs.emit(RunEvent::Spend(*total));
+        }
+    }
+}
+
+/// How one sub-stage ended, for the caller to read its result against.
+pub(crate) struct SubStageEnd {
+    /// The stage's final text: `None` when it was stopped before it ended.
+    ended: Option<String>,
+    /// The error it gave up on, when it failed.
+    failure: Option<String>,
+}
+
+impl SubStageEnd {
+    /// Why a `who` that left no `result` has none: it failed, was stopped,
+    /// or ended without one.
+    pub(crate) fn why_no(&self, who: &str, result: &str) -> String {
+        match (&self.failure, &self.ended) {
+            (Some(error), _) => format!("the {who} failed: {error}"),
+            (None, None) => format!("the {who} was stopped before it gave {result}"),
+            (None, Some(_)) => format!("the {who} ended without {result}"),
+        }
+    }
+}
+
+/// Runs one sub-stage of `role` as `caller`, its observer events labelled
+/// with `label`, and folds its spend into `ctx`.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_sub_stage(
+    agent: &SharedAgent,
+    ctx: &SubStageContext,
+    role: &'static Role,
+    system: &str,
+    seed: &str,
+    caller: &Caller,
+    label: String,
+) -> SubStageEnd {
+    let failure = Arc::new(Mutex::new(None));
+    let obs = SharedObserver::new(SubStageObserver { inner: ctx.obs.clone(), label, failure: failure.clone() });
+    let mut spend = Spend::default();
+    let ended = run_stage_as(
+        agent,
+        role,
+        system,
+        seed,
+        &ctx.abort,
+        ctx.model.clone(),
+        ctx.price.clone(),
+        ctx.max_tokens,
+        ctx.context_budget.clone(),
+        &obs,
+        &mut spend,
+        caller,
+    )
+    .await;
+    ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
+    let failure = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
+    SubStageEnd { ended, failure }
+}
+
+/// What a sub-stage reports to the run's observer: its tool timeline and its
+/// warnings and thoughts, labelled with what it was handed. Not its stage
+/// header, its spend (cumulative per stage, so it would read as the run's
+/// total; the dispatching stage folds it in instead) or its context fill, and
+/// never a retry prompt: a sub-stage that fails permanently gives up.
+struct SubStageObserver {
+    inner: SharedObserver,
+    label: String,
+    /// The error the sub-stage gave up on.
+    failure: Arc<Mutex<Option<String>>>,
+}
+
+impl RunObserver for SubStageObserver {
+    fn emit(&mut self, event: RunEvent) {
+        match event {
+            RunEvent::Stage { .. } | RunEvent::Spend(_) | RunEvent::ContextUsed(_) => {}
+            RunEvent::Thought(text) => self.inner.emit(RunEvent::Thought(format!("[{}] {text}", self.label))),
+            RunEvent::Warning(text) => self.inner.emit(RunEvent::Warning(format!("[{}] {text}", self.label))),
+            // Several sub-stages run at once: each call says whose it is.
+            RunEvent::ToolStarted { id, name, input_summary } => self.inner.emit(RunEvent::ToolStarted {
+                id,
+                name,
+                input_summary: format!("[{}] {input_summary}", self.label),
+            }),
+            other => self.inner.emit(other),
+        }
+    }
+
+    fn retry_prompt(&mut self, _role: &str, error: &str) {
+        *self.failure.lock().unwrap_or_else(|p| p.into_inner()) = Some(error.to_string());
+        self.inner.emit(RunEvent::Warning(format!("[{}] gave up after a failed turn: {error}", self.label)));
+    }
+
+    fn poll_retry(&mut self) -> Option<RetryAction> {
+        Some(RetryAction::Cancel)
+    }
+
+    fn retry_resolved(&mut self, _action: RetryAction) {}
+}
+
+#[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+    use rig_core::test_utils::MockCompletionModel;
+
+    struct NoBudget;
+    impl ContextBudget for NoBudget {
+        fn policy(&self) -> Arc<dyn rig_memory::MemoryPolicy> {
+            Arc::new(rig_memory::NoopMemoryPolicy)
+        }
+        fn raw_estimate(&self, _history: &[rig_core::message::Message]) -> usize {
+            0
+        }
+        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
+    }
+
+    /// A Redacto agent without sources, holding `rules` as its judged ones.
+    pub(crate) fn agent_with_judged(rules: Vec<agent::rules::JudgedRule>) -> SharedAgent {
+        let mut agent = agent::ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
+            .expect("an agent without sources starts");
+        agent.set_judged_rules(rules);
+        Arc::new(tokio::sync::Mutex::new(agent))
+    }
+
+    /// A Redacto context on `model` whose sub-stages report to nobody.
+    pub(crate) fn context(model: MockCompletionModel, abort: AbortFlag) -> SubStageContext {
+        SubStageContext {
+            target: OutputTarget::Redacto,
+            model: ModelHandle::new(model),
+            price: Arc::new(|usage| Some(usage.input_tokens as f64 * 0.01)),
+            max_tokens: 1000,
+            context_budget: Arc::new(NoBudget),
+            abort,
+            obs: SharedObserver::new(crate::observer::NullObserver),
+            spend: Arc::default(),
+        }
+    }
+}

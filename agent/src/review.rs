@@ -71,7 +71,7 @@ pub async fn capture(agent: &mut ConversionAgent) -> Result<Captured, String> {
         OutputTarget::Aem => "aem_verify_run",
         OutputTarget::Redacto => "redacto_verify_run",
     };
-    let report = match agent.execute_as(tool, &json!({}), false).await {
+    let report = match agent.execute_as(tool, &json!({}), &crate::Caller::Host).await {
         ToolReply::Error(e) => return Err(format!("{tool} failed: {e}")),
         reply => crate::conversion::json_of(&reply).ok_or_else(|| format!("{tool} returned no report"))?,
     };

@@ -16,6 +16,7 @@
 pub mod conversion;
 pub mod coverage;
 pub mod db;
+pub mod findings;
 mod mcp_reply;
 mod output_target;
 pub mod outputs;
@@ -31,9 +32,9 @@ pub mod source;
 pub mod u2s;
 
 pub use conversion::{
-    AUTHOR_ADDENDUM, Access, ConversionAgent, JUDGE_PREAMBLE, REDACTO_AUTHOR_ADDENDUM,
+    AEM_WALKER_ADDENDUM, AUTHOR_ADDENDUM, Access, Caller, ConversionAgent, INSPECTOR_PREAMBLE, JUDGE_PREAMBLE, REDACTO_AUTHOR_ADDENDUM,
     REDACTO_REVIEWER_ADDENDUM,
-    REDACTO_SHARED_PREAMBLE, REDACTO_SYSTEM_PROMPT, REVIEWER_ADDENDUM, ReplyBlock, ReviewResult,
+    REDACTO_SHARED_PREAMBLE, REDACTO_SYSTEM_PROMPT, REDACTO_WALKER_ADDENDUM, REVIEWER_ADDENDUM, ReplyBlock, ReviewResult,
     SHARED_PREAMBLE, SYSTEM_PROMPT, ToolReply, ToolSpec, access_of, all_tools, catalog, scope,
     target, tools_for,
 };

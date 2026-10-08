@@ -24,7 +24,7 @@ pub mod target {
 /// stages are handed it.
 pub mod scope {
     /// A set of pipeline stages, as a bitmask.
-    pub type Mask = u8;
+    pub type Mask = u16;
     pub const AEM_AUTHOR: Mask = 1 << 0;
     pub const AEM_REVIEWER: Mask = 1 << 1;
     pub const REDACTO_AUTHOR: Mask = 1 << 2;
@@ -36,10 +36,23 @@ pub mod scope {
     /// document and the source, edits nothing, ends with its verdict.
     pub const AEM_JUDGE: Mask = 1 << 6;
     pub const REDACTO_JUDGE: Mask = 1 << 7;
+    /// An inspector doing one brief `inspect` handed it: reads the document
+    /// and the source, edits nothing, ends with its findings.
+    pub const AEM_INSPECTOR: Mask = 1 << 8;
+    pub const REDACTO_INSPECTOR: Mask = 1 << 9;
+    /// The one inspector of an `inspect` that walks the verifier: an
+    /// inspector that also drives the target's verifier.
+    pub const AEM_WALKER: Mask = 1 << 10;
+    pub const REDACTO_WALKER: Mask = 1 << 11;
 
-    pub const AEM_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE;
-    pub const REDACTO_STAGES: Mask = REDACTO_AUTHOR | REDACTO_REVIEWER | REDACTO_JUDGE;
+    pub const AEM_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | AEM_INSPECTOR | AEM_WALKER;
+    pub const REDACTO_STAGES: Mask =
+        REDACTO_AUTHOR | REDACTO_REVIEWER | REDACTO_JUDGE | REDACTO_INSPECTOR | REDACTO_WALKER;
     pub const JUDGES: Mask = AEM_JUDGE | REDACTO_JUDGE;
+    pub const INSPECTORS: Mask = AEM_INSPECTOR | REDACTO_INSPECTOR | AEM_WALKER | REDACTO_WALKER;
+    /// The Authors and Reviewers: the stages the pipeline runs in turn, which
+    /// dispatch judges and inspectors.
+    pub const MAIN_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER;
     pub const ALL_STAGES: Mask = AEM_STAGES | REDACTO_STAGES;
     /// Every caller, the read-only describe pass included.
     pub const EVERYWHERE: Mask = ALL_STAGES | DESCRIBE;
@@ -173,12 +186,12 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("xfa_search_text",                   target::BOTH,    EVERYWHERE, Read),
 
         // §1c PDFs the verifiers produce, through the vendored u2s PDF renderer.
-        ("pdf_info",                          target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES, Read),
-        ("pdf_render_page",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES, Read),
-        ("pdf_render_pages",                  target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES, Read),
-        ("pdf_render_region",                 target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES, Read),
-        ("pdf_page_text",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES, Read),
-        ("pdf_search_text",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES, Read),
+        ("pdf_info",                          target::BOTH,    MAIN_STAGES | JUDGES | INSPECTORS, Read),
+        ("pdf_render_page",                   target::BOTH,    MAIN_STAGES | JUDGES | INSPECTORS, Read),
+        ("pdf_render_pages",                  target::BOTH,    MAIN_STAGES | JUDGES | INSPECTORS, Read),
+        ("pdf_render_region",                 target::BOTH,    MAIN_STAGES | JUDGES | INSPECTORS, Read),
+        ("pdf_page_text",                     target::BOTH,    MAIN_STAGES | JUDGES | INSPECTORS, Read),
+        ("pdf_search_text",                   target::BOTH,    MAIN_STAGES | JUDGES | INSPECTORS, Read),
 
         // §2 the run's output document: one revisioned JSON document per run,
         // read and patched with the json_* tools and held to the rules with the
@@ -187,9 +200,9 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("json_get",                          target::BOTH,    EVERYWHERE, Write),
         ("json_search",                       target::BOTH,    EVERYWHERE, Write),
         ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Write),
-        ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES, Write),
-        ("rule_list",                         target::BOTH,     AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
-        ("rule_check",                        target::BOTH,     AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
+        ("json_validate",                     target::BOTH,    MAIN_STAGES | JUDGES | INSPECTORS, Write),
+        ("rule_list",                         target::BOTH,    MAIN_STAGES | INSPECTORS, Write),
+        ("rule_check",                        target::BOTH,    MAIN_STAGES, Write),
         ("rule_autofix",                      target::AEM,     AEM_AUTHOR, Write),
 
         // §3 building the output through the UBS encoders.
@@ -197,28 +210,28 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         // made of the Author's last document, and changes nothing.
         ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR, Write),
         ("build_aem_package",                 target::AEM,     AEM_AUTHOR, Write),
-        ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | DESCRIBE, Write),
-        ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | DESCRIBE, Write),
-        ("coverage_check",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE, Write),
+        ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | AEM_INSPECTOR | AEM_WALKER | DESCRIBE, Write),
+        ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | AEM_INSPECTOR | AEM_WALKER | DESCRIBE, Write),
+        ("coverage_check",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | AEM_INSPECTOR | AEM_WALKER, Write),
 
         // §6 verification through the vendored u2s verifiers (crate::u2s): the
         // AEM package against a Docker AEM, the Redacto dump against a throwaway
         // Postgres.
-        ("aem_verify_status",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_package_check",          target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_run",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_open",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_controls",               target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_set",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_next",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_prev",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_reset",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_screenshot",             target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_submit",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_close",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("redacto_verify_status",             target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
-        ("redacto_verify_dump_check",         target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
-        ("redacto_verify_run",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
+        ("aem_verify_status",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_package_check",          target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_run",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_open",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_controls",               target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_set",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_next",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_prev",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_reset",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_screenshot",             target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_submit",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("aem_verify_close",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_WALKER, Write),
+        ("redacto_verify_status",             target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | REDACTO_WALKER, Write),
+        ("redacto_verify_dump_check",         target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | REDACTO_WALKER, Write),
+        ("redacto_verify_run",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | REDACTO_WALKER, Write),
 
         // §7 references. The reference *forms* are AEM packages, so they are
         // pure token cost for a text-only Redacto document; only the reference
@@ -236,6 +249,8 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("finish_authoring",                  target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Write),
         ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER, Write),
         ("submit_rule_verdict",               target::BOTH,    JUDGES, Write),
+        ("inspect",                           target::BOTH,    MAIN_STAGES, Write),
+        ("submit_findings",                   target::BOTH,    INSPECTORS, Write),
     ]
 };
 
@@ -383,6 +398,64 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 serde_json::json!(["judgement", "pass", "violations"]),
             ),
             t(
+                "inspect",
+                "Hand read-only work to inspectors: one agent per task, several at once, each \
+                 doing its brief against the source and the document and returning a report of \
+                 what it checked, what it left out and what it found (defects, questions, notes, \
+                 each with the document pointer or the source place). An inspector changes \
+                 nothing and sees nothing of your conversation, so a brief says everything it \
+                 needs: what to examine (pages, a configurator dimension, a language, a section), \
+                 against what, and what to report. At most one task may set walk=true: that \
+                 inspector also drives the verifier, and while it does, your own verifier calls \
+                 are refused. What the inspectors render, set and verify counts as this stage's \
+                 own verification. A report is a lead: confirm a finding that decides your \
+                 verdict with one targeted read of your own. A report carries \
+                 document_changed=true when the document was edited while its inspector read it.",
+                serde_json::json!({
+                    "tasks": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 6,
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "brief": {"type": "string", "description": "Everything the inspector needs to know: what to examine, against what, and what to report."},
+                                "walk": {"type": "boolean", "description": "Whether this inspector also drives the verifier. At most one task per call."}
+                            },
+                            "required": ["brief"]
+                        }
+                    }
+                }),
+                serde_json::json!(["tasks"]),
+            ),
+            t(
+                "submit_findings",
+                "Terminal step of an inspector: call once, last, with your report on the brief you \
+                 were given: what you examined, what of the brief you left out and why, and every \
+                 finding, each with a severity (defect: the output is wrong; question: you could \
+                 not decide; note: no change needed), a message, and the document pointer and the \
+                 source place it is about where there is one.",
+                serde_json::json!({
+                    "inspection": {"type": "string", "description": "The inspection id you were given with the brief."},
+                    "checked": {"type": "array", "items": {"type": "string"}, "minItems": 1},
+                    "not_checked": {"type": "array", "items": {"type": "string"}},
+                    "findings": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "severity": {"type": "string", "enum": ["defect", "question", "note"]},
+                                "message": {"type": "string"},
+                                "pointer": {"type": "string"},
+                                "source": {"type": "string"}
+                            },
+                            "required": ["severity", "message"]
+                        }
+                    }
+                }),
+                serde_json::json!(["inspection", "checked", "findings"]),
+            ),
+            t(
                 "submit_review",
                 "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused.",
                 serde_json::json!({
@@ -415,6 +488,9 @@ mod catalog_guards {
         // Argument and result names in the u2s document tools' own descriptions.
         "autofix_available",
         "rule_ids",
+        // Argument and result names of inspect and submit_findings.
+        "document_changed",
+        "not_checked",
         // AEM / XFA / profile vocabulary appearing verbatim in prose.
         "affrg",
         "affrg_germany",
@@ -533,6 +609,9 @@ mod catalog_guards {
             AUTHOR_ADDENDUM,
             REVIEWER_ADDENDUM,
             JUDGE_PREAMBLE,
+            INSPECTOR_PREAMBLE,
+            AEM_WALKER_ADDENDUM,
+            REDACTO_WALKER_ADDENDUM,
             REDACTO_SYSTEM_PROMPT,
             REDACTO_SHARED_PREAMBLE,
             REDACTO_AUTHOR_ADDENDUM,
@@ -565,8 +644,17 @@ mod catalog_guards {
     #[test]
     fn each_stage_prompt_only_names_tools_that_stage_is_offered() {
         let names: BTreeSet<&str> = catalog().iter().map(|t| t.name()).collect();
-        let stages: [(OutputTarget, scope::Mask, &str, Vec<&str>); 6] = [
+        let stages: [(OutputTarget, scope::Mask, &str, Vec<&str>); 10] = [
             (OutputTarget::Aem, scope::AEM_JUDGE, "AEM Judge", vec![JUDGE_PREAMBLE]),
+            (OutputTarget::Aem, scope::AEM_INSPECTOR, "AEM Inspector", vec![INSPECTOR_PREAMBLE]),
+            (OutputTarget::Redacto, scope::REDACTO_INSPECTOR, "Redacto Inspector", vec![INSPECTOR_PREAMBLE]),
+            (OutputTarget::Aem, scope::AEM_WALKER, "AEM Walker", vec![INSPECTOR_PREAMBLE, AEM_WALKER_ADDENDUM]),
+            (
+                OutputTarget::Redacto,
+                scope::REDACTO_WALKER,
+                "Redacto Walker",
+                vec![INSPECTOR_PREAMBLE, REDACTO_WALKER_ADDENDUM],
+            ),
             (OutputTarget::Redacto, scope::REDACTO_JUDGE, "Redacto Judge", vec![JUDGE_PREAMBLE]),
             (OutputTarget::Aem, scope::AEM_AUTHOR, "AEM Author", vec![SYSTEM_PROMPT, AUTHOR_ADDENDUM]),
             (OutputTarget::Aem, scope::AEM_REVIEWER, "AEM Reviewer", vec![SHARED_PREAMBLE, REVIEWER_ADDENDUM]),
@@ -703,6 +791,45 @@ mod catalog_guards {
             }
         }
         assert!(!has(OutputTarget::Aem, scope::AEM_REVIEWER, "submit_rule_verdict"));
+
+        // An inspector reads, never edits, dispatches nothing of its own, and
+        // ends with its findings; only the walker drives the verifier.
+        for (target, inspector, walker, verify) in [
+            (OutputTarget::Aem, scope::AEM_INSPECTOR, scope::AEM_WALKER, "aem_verify_open"),
+            (OutputTarget::Redacto, scope::REDACTO_INSPECTOR, scope::REDACTO_WALKER, "redacto_verify_run"),
+        ] {
+            for scope in [inspector, walker] {
+                for barred in [
+                    "json_patch",
+                    "rule_check",
+                    "rule_autofix",
+                    "inspect",
+                    "submit_review",
+                    "submit_rule_verdict",
+                    "finish_authoring",
+                    "build_aem_package",
+                    "build_redacto_dump",
+                ] {
+                    assert!(!has(target, scope, barred), "an inspector must not have {barred}");
+                }
+                for needed in ["submit_findings", "json_get", "json_outline", "rule_list", "xfa_render_pages", "xfa_set", "pdf_render_pages", "get_source_info"] {
+                    assert!(has(target, scope, needed), "an inspector needs {needed}");
+                }
+            }
+            assert!(!has(target, inspector, verify), "only the walker drives the verifier");
+            assert!(has(target, walker, verify), "the walker drives the verifier");
+        }
+        for target in OutputTarget::ALL {
+            let (author, reviewer) = match target {
+                OutputTarget::Aem => (scope::AEM_AUTHOR, scope::AEM_REVIEWER),
+                OutputTarget::Redacto => (scope::REDACTO_AUTHOR, scope::REDACTO_REVIEWER),
+            };
+            assert!(has(target, author, "inspect") && has(target, reviewer, "inspect"));
+            assert!(!has(target, author, "submit_findings") && !has(target, reviewer, "submit_findings"));
+        }
+        for judge in [scope::AEM_JUDGE, scope::REDACTO_JUDGE] {
+            assert!(!has(OutputTarget::Aem, judge, "inspect") && !has(OutputTarget::Redacto, judge, "inspect"));
+        }
 
         // The describe pass reads and never edits.
         for writer in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {

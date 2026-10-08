@@ -17,6 +17,15 @@ macro_rules! review_procedure {
 source does and shows, not by what the document intends. The steps marked (gated) must be done in \
 your own stage on the current build, or your stage's terminal call (an approving one, for the \
 Reviewer) is refused with the list of what is missing. \
+DELEGATE what only reads: steps (b) to (e) split into independent tasks, and inspect runs them at \
+once, each by an inspector agent of its own whose renders, settings and verification count as \
+yours. Hand it, in one call, a task per page range of the source, one per language for (b), one \
+per configurator control group for the source side of (c) (what each choice reveals and hides, \
+the scripts, validations and calculations), and the AEM side of (c) with the whole of (d) and (e) \
+as the one task with walk=true, briefed with the source behaviour to mirror; brief each one \
+completely, since an inspector sees nothing of your \
+conversation. The verdict stays yours: read every report, and check a finding that decides it \
+with one targeted read of your own. \
 (a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
 handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
 name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \
@@ -74,6 +83,12 @@ macro_rules! redacto_review_procedure {
 the source shows. The steps marked (gated) must be done in your own stage on the current build, or \
 your stage's terminal call (an approving one, for the Reviewer) is refused with the list of what is \
 missing. \
+DELEGATE what only reads: steps (b) to (d) split into independent tasks, and inspect runs them at \
+once, each by an inspector agent of its own whose renders and verification count as yours. Hand \
+it, in one call, a task per language or page range for (b), and (c) with the reading of its PDFs \
+as the one task with walk=true; brief each one completely, since an inspector sees nothing of your \
+conversation. The verdict stays yours: read every report, and check a finding that decides it \
+with one targeted read of your own. \
 (a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
 handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
 name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \
@@ -133,7 +148,9 @@ fine print. Nobody has enumerated the form's variants for you: open the form wit
 controls with xfa_controls (it says which ones drive visibility), change each configurator choice \
 with xfa_set, re-render to see which sections appear, and xfa_reset between explorations. Hidden \
 sections exist in your output only if you reveal them here. A form is multilingual whenever \
-get_source_info lists more than one language: each language is its own PDF.\n\
+get_source_info lists more than one language: each language is its own PDF. On a long form, hand \
+parts of this study to inspect (a task per page range, one per configurator control group), each \
+asking for the texts, fields, options and conditions you will author from.\n\
 2. Find precedents (before building): BEFORE authoring any node, consult the reference DOCUMENTATION \
 to build a deep understanding of the house conventions behind the issues you'll face: call \
 list_reference_docs, then read_reference_doc on the relevant guides (grep_reference_docs to jump to a \
@@ -418,6 +435,40 @@ reveal a configurator variant. Look at everything the rule covers, not a sample.
 submit_rule_verdict once, last: pass=true when the document keeps the rule everywhere, otherwise \
 pass=false with one violation per place that breaks it, each with the JSON Pointer of the node and \
 what to change there. Report only breaks of THIS rule.";
+
+/// An inspector's role: one brief `inspect` handed it, read-only, ending with
+/// `submit_findings`. Names only tools every inspector of both targets is
+/// offered; the walker's verifier is in its target's walker addendum.
+pub const INSPECTOR_PREAMBLE: &str = "\
+You are an inspector. A conversion agent building a document from a source PDF handed you ONE \
+brief, given below with the inspection id your report goes under, and you change nothing. You see \
+nothing of that agent's conversation: the brief is all you are told. Read the source with \
+get_source_info for each PDF's doc_path, then xfa_page_text, xfa_search, xfa_outline, xfa_node and \
+xfa_read for its texts and structure, xfa_render_pages and xfa_render_region to look at it, and \
+xfa_open, xfa_controls, xfa_set and xfa_reset to drive a configurator variant (xfa_close when you \
+are done with a session). Read the document with json_outline, json_get and json_search, and the \
+rules it is held to with rule_list. Do the whole brief, not a sample of it, in every language it \
+names. Report only what you saw in the source and the document, never what you assume. Then call \
+submit_findings once, last: checked says what you examined, not_checked what of the brief you left \
+out and why, and each finding has its severity, what is wrong or unclear, the JSON Pointer of the \
+document node and the source place (page, XFA path, variant) it is about.";
+
+/// What the AEM walker adds to [`INSPECTOR_PREAMBLE`]: the verifier it alone
+/// drives while it runs.
+pub const AEM_WALKER_ADDENDUM: &str = "\
+You also drive the verifier, which runs the latest build on a real AEM: nobody else uses it while \
+you do. aem_verify_package_check, then aem_verify_open, aem_verify_controls, aem_verify_set, \
+aem_verify_next and aem_verify_prev, aem_verify_screenshot to look at a page or a field, \
+aem_verify_submit on the last page for the PDF it produces (read it with pdf_info and \
+pdf_render_pages, passing its doc_path), and aem_verify_close when you are done, last. \
+aem_verify_status explains a verifier that does not answer.";
+
+/// What the Redacto walker adds to [`INSPECTOR_PREAMBLE`].
+pub const REDACTO_WALKER_ADDENDUM: &str = "\
+You also drive the verifier, which imports the latest build into a Redacto platform: nobody else \
+uses it while you do. redacto_verify_dump_check, then redacto_verify_run, which returns one \
+rendered PDF per language; read each with pdf_render_pages, passing its doc_path. \
+redacto_verify_status explains a verifier that does not answer.";
 
 /// The document format a stage works on, pinned into its system prompt: the
 /// JSON Schema json_validate checks the document against.

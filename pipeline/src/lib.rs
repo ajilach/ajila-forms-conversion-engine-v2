@@ -18,11 +18,13 @@
 
 pub mod describe;
 pub mod hooks;
+mod inspect;
 mod judge;
 pub mod memory;
 pub mod observer;
 pub mod roles;
 pub mod run;
+mod substage;
 pub mod tools;
 pub mod turns;
 

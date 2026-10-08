@@ -9,17 +9,12 @@
 //! never prompts the operator (a judge that fails is reported unchecked), and
 //! its spend is folded into the stage that dispatched it.
 
-use std::sync::{Arc, Mutex};
-
 use agent::rules::{JudgedRule, RuleVerdict, merge_rule_report};
-use agent::{OutputTarget, ToolReply};
+use agent::{Caller, ToolReply};
 use futures_util::StreamExt;
-use rig_agent::agent::model::ModelHandle;
 
-use crate::hooks::PriceFn;
-use crate::memory::ContextBudget;
-use crate::observer::{AbortFlag, RetryAction, RunEvent, RunObserver, SharedObserver, Spend};
-use crate::run::run_stage;
+use crate::observer::{RunEvent, SharedObserver};
+use crate::substage::{SubStageContext, run_sub_stage};
 use crate::tools::SharedAgent;
 
 /// How many judges run at once.
@@ -29,48 +24,6 @@ const JUDGES_AT_ONCE: usize = 4;
 /// judged.
 const CHANGED_WHILE_JUDGED: &str = "the document changed while it was judged: check this rule again";
 
-/// What a judge stage needs from the stage that dispatches it.
-#[derive(Clone)]
-pub(crate) struct JudgeContext {
-    pub(crate) target: OutputTarget,
-    pub(crate) model: ModelHandle,
-    pub(crate) price: PriceFn,
-    pub(crate) max_tokens: u32,
-    pub(crate) context_budget: Arc<dyn ContextBudget>,
-    pub(crate) abort: AbortFlag,
-    pub(crate) obs: SharedObserver,
-    /// What the judges spent, which the dispatching stage folds into the
-    /// run's total when it ends. Shared because judges run concurrently.
-    pub(crate) spend: Arc<Mutex<Spend>>,
-}
-
-impl JudgeContext {
-    /// A context whose judges have spent nothing yet.
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        target: OutputTarget,
-        model: ModelHandle,
-        price: PriceFn,
-        max_tokens: u32,
-        context_budget: Arc<dyn ContextBudget>,
-        abort: AbortFlag,
-        obs: SharedObserver,
-    ) -> Self {
-        let spend = Arc::new(Mutex::new(Spend::default()));
-        Self { target, model, price, max_tokens, context_budget, abort, obs, spend }
-    }
-
-    /// Folds what the judges spent into the run's `total`, and reports the new
-    /// total when they spent anything.
-    pub(crate) fn fold_spend(&self, total: &mut Spend) {
-        let judged = *self.spend.lock().unwrap_or_else(|p| p.into_inner());
-        if judged.input_tokens + judged.output_tokens > 0 {
-            total.merge(&judged);
-            self.obs.emit(RunEvent::Spend(*total));
-        }
-    }
-}
-
 /// Tells the observer where every rule stands now.
 pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
     let board = agent.lock().await.rule_board();
@@ -79,7 +32,7 @@ pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
 
 /// One `rule_check`: the scripts while holding the agent, then the judges
 /// without it (each judge's tools take the agent call by call).
-pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &JudgeContext, input: &serde_json::Value) -> ToolReply {
+pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input: &serde_json::Value) -> ToolReply {
     let (plan, scripted, revision) = {
         let mut guard = agent.lock().await;
         let plan = match guard.rule_check_plan(input) {
@@ -116,7 +69,7 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &JudgeContext, input: &
 /// judges found.
 async fn judge(
     agent: &SharedAgent,
-    ctx: &JudgeContext,
+    ctx: &SubStageContext,
     rule: JudgedRule,
     revision: u64,
 ) -> (JudgedRule, Result<RuleVerdict, String>) {
@@ -147,101 +100,31 @@ impl Drop for JudgingEnds<'_> {
     }
 }
 
-async fn judge_rule(agent: &SharedAgent, ctx: &JudgeContext, rule: &JudgedRule) -> Result<RuleVerdict, String> {
+async fn judge_rule(agent: &SharedAgent, ctx: &SubStageContext, rule: &JudgedRule) -> Result<RuleVerdict, String> {
     let role = crate::roles::roles_for(ctx.target).judge;
-    let failure = Arc::new(Mutex::new(None));
-    let obs = SharedObserver::new(JudgeObserver {
-        inner: ctx.obs.clone(),
-        rule: rule.title.clone(),
-        failure: failure.clone(),
-    });
     let judgement = agent.lock().await.open_judgement();
-    let mut spend = Spend::default();
-    let ended = run_stage(
+    let end = run_sub_stage(
         agent,
+        ctx,
         role,
         &crate::roles::sys_judge(ctx.target, rule, &judgement),
         &format!("Judge the rule \"{}\", then call submit_rule_verdict with judgement {judgement}.", rule.title),
-        &ctx.abort,
-        ctx.model.clone(),
-        ctx.price.clone(),
-        ctx.max_tokens,
-        ctx.context_budget.clone(),
-        &obs,
-        &mut spend,
+        &Caller::Judge,
+        format!("judge: {}", rule.title),
     )
     .await;
-    ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
-    let verdict = agent.lock().await.take_judgement(&judgement);
-    let failed = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
-    match (verdict, ended, failed) {
-        (Some(verdict), _, _) => Ok(verdict),
-        (None, _, Some(error)) => Err(format!("the judge failed: {error}")),
-        (None, None, None) => Err("the judge was stopped before it gave a verdict".to_string()),
-        (None, Some(_), None) => Err("the judge ended without a verdict".to_string()),
-    }
-}
-
-/// What a judge reports to the run's observer: its tool timeline and its
-/// warnings and thoughts, labelled with the rule. Not its stage header, its
-/// spend (cumulative per stage, so it would read as the run's total; the
-/// dispatching stage folds it in instead) or its context fill, and never a
-/// retry prompt: a judge that fails permanently gives up, and its rule is
-/// reported unchecked.
-struct JudgeObserver {
-    inner: SharedObserver,
-    rule: String,
-    /// The error a judge gave up on, which its rule is reported unchecked with.
-    failure: Arc<Mutex<Option<String>>>,
-}
-
-impl RunObserver for JudgeObserver {
-    fn emit(&mut self, event: RunEvent) {
-        match event {
-            RunEvent::Stage { .. } | RunEvent::Spend(_) | RunEvent::ContextUsed(_) => {}
-            RunEvent::Thought(text) => self.inner.emit(RunEvent::Thought(format!("[judge: {}] {text}", self.rule))),
-            RunEvent::Warning(text) => self.inner.emit(RunEvent::Warning(format!("[judge: {}] {text}", self.rule))),
-            // Several judges run at once: each call says whose it is.
-            RunEvent::ToolStarted { id, name, input_summary } => self.inner.emit(RunEvent::ToolStarted {
-                id,
-                name,
-                input_summary: format!("[judge: {}] {input_summary}", self.rule),
-            }),
-            other => self.inner.emit(other),
-        }
-    }
-
-    fn retry_prompt(&mut self, _role: &str, error: &str) {
-        *self.failure.lock().unwrap_or_else(|p| p.into_inner()) = Some(error.to_string());
-        self.inner.emit(RunEvent::Warning(format!(
-            "[judge: {}] gave up after a failed turn: {error}",
-            self.rule
-        )));
-    }
-
-    fn poll_retry(&mut self) -> Option<RetryAction> {
-        Some(RetryAction::Cancel)
-    }
-
-    fn retry_resolved(&mut self, _action: RetryAction) {}
+    agent.lock().await.take_judgement(&judgement).ok_or_else(|| end.why_no("judge", "a verdict"))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, Mutex};
+
+    use crate::observer::{AbortFlag, RetryAction, RunObserver};
+    use crate::substage::test_support;
     use rig_core::completion::Usage;
     use rig_core::test_utils::{MockCompletionModel, MockStreamEvent};
-
-    struct NoBudget;
-    impl ContextBudget for NoBudget {
-        fn policy(&self) -> Arc<dyn rig_memory::MemoryPolicy> {
-            Arc::new(rig_memory::NoopMemoryPolicy)
-        }
-        fn raw_estimate(&self, _history: &[rig_core::message::Message]) -> usize {
-            0
-        }
-        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
-    }
 
     fn rule(name: &str) -> JudgedRule {
         JudgedRule {
@@ -254,23 +137,11 @@ mod tests {
 
     /// A Redacto agent holding `rules` as its judged ones.
     fn agent_with(rules: Vec<JudgedRule>) -> SharedAgent {
-        let mut agent = agent::ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
-            .expect("an agent without sources starts");
-        agent.set_judged_rules(rules);
-        Arc::new(tokio::sync::Mutex::new(agent))
+        test_support::agent_with_judged(rules)
     }
 
-    fn context(model: MockCompletionModel, abort: AbortFlag) -> JudgeContext {
-        JudgeContext {
-            target: OutputTarget::Redacto,
-            model: ModelHandle::new(model),
-            price: Arc::new(|usage| Some(usage.input_tokens as f64 * 0.01)),
-            max_tokens: 1000,
-            context_budget: Arc::new(NoBudget),
-            abort,
-            obs: SharedObserver::new(crate::observer::NullObserver),
-            spend: Arc::default(),
-        }
+    fn context(model: MockCompletionModel, abort: AbortFlag) -> SubStageContext {
+        test_support::context(model, abort)
     }
 
     /// The verdicts of the judged rules in `report`: the Redacto target has scripted rules too,

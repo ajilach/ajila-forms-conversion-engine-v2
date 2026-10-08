@@ -406,7 +406,7 @@ async fn final_rule_check(
     warnings: &mut Vec<String>,
 ) {
     obs.emit(RunEvent::Stage { role: FINAL_CHECK, doing: "checking every rule".into() });
-    let judges = crate::judge::JudgeContext::new(
+    let judges = crate::substage::SubStageContext::new(
         config.target,
         config.model.clone(),
         config.price.clone(),
@@ -647,13 +647,49 @@ pub(crate) async fn run_stage(
     // stage's own spend across retries.
     total_spend: &mut Spend,
 ) -> Option<String> {
+    let caller = stage_caller(role);
+    run_stage_as(
+        shared_agent,
+        role,
+        system,
+        seed_user_msg,
+        abort,
+        model,
+        price,
+        max_tokens,
+        context_budget,
+        obs,
+        total_spend,
+        &caller,
+    )
+    .await
+}
+
+/// [`run_stage`], its calls made as `caller` (see `agent::Caller`): an
+/// inspector's carry its inspection.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn run_stage_as(
+    shared_agent: &SharedAgent,
+    role: &'static Role,
+    system: &str,
+    seed_user_msg: &str,
+    abort: &AbortFlag,
+    model: ModelHandle,
+    price: PriceFn,
+    max_tokens: u32,
+    context_budget: Arc<dyn ContextBudget>,
+    obs: &SharedObserver,
+    total_spend: &mut Spend,
+    caller: &agent::Caller,
+) -> Option<String> {
 
     let (specs, session_id, target) = {
         let agent = shared_agent.lock().await;
         (agent.tools_for_stage(role.scope), agent.session_id().to_string(), agent.target())
     };
-    // What a `rule_check` of this stage needs to dispatch its judges.
-    let judges = crate::judge::JudgeContext::new(
+    // What a `rule_check` or an `inspect` of this stage needs to dispatch its
+    // judges or inspectors.
+    let sub_stages = crate::substage::SubStageContext::new(
         target,
         model.clone(),
         price.clone(),
@@ -662,7 +698,7 @@ pub(crate) async fn run_stage(
         abort.clone(),
         obs.clone(),
     );
-    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &judges, records_evidence(role));
+    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &sub_stages, caller);
 
     let memory = if role.remember {
         stage_memory(&session_id, role.name, context_budget.policy())
@@ -706,8 +742,8 @@ pub(crate) async fn run_stage(
     .await;
     let history = answer_unanswered_tool_calls(history);
     store_stage(memory.as_ref(), &loaded, &history, role, obs).await;
-    // The judges this stage's `rule_check` dispatched spent on its behalf.
-    judges.fold_spend(total_spend);
+    // The judges and inspectors this stage dispatched spent on its behalf.
+    sub_stages.fold_spend(total_spend);
     outcome
 }
 
@@ -900,11 +936,16 @@ async fn run_stage_attempts(
     }
 }
 
-/// Whether a stage's calls count as its own verification (see
-/// `agent::ConversionAgent::execute_as`). A judge's do not: it runs on the
-/// same agent while the stage that dispatched it waits.
-pub(crate) fn records_evidence(role: &Role) -> bool {
-    role.scope & agent::scope::JUDGES == 0
+/// Who a stage's calls are made by when nothing more is known (see
+/// `agent::Caller`): a judge is a judge, whose calls are not the dispatching
+/// stage's evidence, and every other stage is a stage. An inspector is run
+/// with [`run_stage_as`] instead, since its caller carries its inspection.
+pub(crate) fn stage_caller(role: &Role) -> agent::Caller {
+    assert!(
+        role.scope & agent::scope::INSPECTORS == 0,
+        "an inspector runs as its inspection's caller, through run_stage_as"
+    );
+    if role.scope & agent::scope::JUDGES != 0 { agent::Caller::Judge } else { agent::Caller::Stage }
 }
 
 /// Build one stage's `Agent`: the model it runs against, plus the tool
@@ -916,10 +957,10 @@ fn build_stage_agent(
     max_tokens: u32,
     shared_agent: &SharedAgent,
     specs: &[serde_json::Value],
-    judges: &crate::judge::JudgeContext,
-    records: bool,
+    sub_stages: &crate::substage::SubStageContext,
+    caller: &agent::Caller,
 ) -> Agent {
-    let dynamic_tools = tools::dynamic_tools_with_judges(shared_agent, specs, judges, records);
+    let dynamic_tools = tools::dynamic_tools_with_sub_stages(shared_agent, specs, sub_stages, caller);
     let builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
 
     let mut iter = dynamic_tools.into_iter();

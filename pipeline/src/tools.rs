@@ -32,12 +32,13 @@
 
 use std::sync::Arc;
 
-use agent::{ConversionAgent, ReplyBlock, ToolReply};
+use agent::{Caller, ConversionAgent, ReplyBlock, ToolReply};
 use rig_agent::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use rig_core::message::ToolResultContent;
 use tokio::sync::Mutex;
 
 use crate::observer::{RunEvent, SharedObserver};
+use crate::substage::SubStageContext;
 use crate::turns::media_media_type;
 
 /// How many of a turn's tool calls a stage runs at once. Only reads overlap
@@ -59,42 +60,60 @@ pub type SharedAgent = Arc<Mutex<ConversionAgent>>;
 pub fn dynamic_tools_for(agent: &SharedAgent, specs: &[serde_json::Value]) -> Vec<DynamicTool> {
     specs
         .iter()
-        .filter_map(|spec| dynamic_tool_from(agent, spec, true, None))
+        .filter_map(|spec| dynamic_tool_from(agent, spec, Caller::Stage, None))
         .collect()
 }
 
 /// [`dynamic_tools_for`], with `rule_check` dispatching judges for the judged
-/// rules (see [`crate::judge`]) instead of reporting them unchecked. `records`
-/// says whether the calls count as the stage's evidence (a judge's do not; see
-/// `agent::ConversionAgent::execute_as`).
-pub(crate) fn dynamic_tools_with_judges(
+/// rules (see [`crate::judge`]) instead of reporting them unchecked, and
+/// `inspect` dispatching inspectors (see [`crate::inspect`]), the calls made as
+/// `caller` (see `agent::Caller`).
+pub(crate) fn dynamic_tools_with_sub_stages(
     agent: &SharedAgent,
     specs: &[serde_json::Value],
-    judges: &crate::judge::JudgeContext,
-    records: bool,
+    sub_stages: &SubStageContext,
+    caller: &Caller,
 ) -> Vec<DynamicTool> {
+    // A stage's edits move the rules; a judge's or an inspector's calls edit
+    // nothing, so they report nothing.
+    let rules = (*caller == Caller::Stage).then(|| sub_stages.obs.clone());
     specs
         .iter()
         .filter_map(|spec| match spec["name"].as_str() {
-            Some("rule_check") => Some(rule_check_tool(agent, spec, judges)),
-            // A stage's edits move the rules; a judge's calls (not recorded
-            // as evidence) edit nothing, so they report nothing.
-            _ => dynamic_tool_from(agent, spec, records, records.then(|| judges.obs.clone())),
+            Some("rule_check") => Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
+                Box::pin(async move { crate::judge::rule_check(&agent, &ctx, &args).await })
+            })),
+            Some("inspect") => Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
+                Box::pin(async move { crate::inspect::inspect(&agent, &ctx, &args).await })
+            })),
+            _ => dynamic_tool_from(agent, spec, caller.clone(), rules.clone()),
         })
         .collect()
 }
 
-fn rule_check_tool(agent: &SharedAgent, spec: &serde_json::Value, judges: &crate::judge::JudgeContext) -> DynamicTool {
+/// A sub-stage tool's work on one call, which owns everything it touches.
+type SubStageWork = std::pin::Pin<Box<dyn std::future::Future<Output = ToolReply> + Send>>;
+
+/// What a tool that dispatches sub-stages does with one call.
+type SubStageDispatch = fn(SharedAgent, SubStageContext, serde_json::Value) -> SubStageWork;
+
+/// A tool that dispatches sub-stages: it does not hold the agent itself, since
+/// each sub-stage's own calls take it call by call.
+fn sub_stage_tool(
+    agent: &SharedAgent,
+    spec: &serde_json::Value,
+    sub_stages: &SubStageContext,
+    dispatch: SubStageDispatch,
+) -> DynamicTool {
     let agent = agent.clone();
-    let judges = judges.clone();
+    let sub_stages = sub_stages.clone();
     DynamicTool::new(
-        "rule_check".to_string(),
+        spec["name"].as_str().unwrap_or_default().to_string(),
         spec["description"].as_str().unwrap_or_default().to_string(),
         spec["input_schema"].clone(),
         move |_ctx, args| {
-            let agent = agent.clone();
-            let judges = judges.clone();
-            Box::pin(async move { reply_to_tool_output(crate::judge::rule_check(&agent, &judges, &args).await) })
+            let work = dispatch(agent.clone(), sub_stages.clone(), args);
+            Box::pin(async move { reply_to_tool_output(work.await) })
         },
     )
 }
@@ -104,7 +123,7 @@ fn rule_check_tool(agent: &SharedAgent, spec: &serde_json::Value, judges: &crate
 fn dynamic_tool_from(
     agent: &SharedAgent,
     spec: &serde_json::Value,
-    records: bool,
+    caller: Caller,
     rules: Option<SharedObserver>,
 ) -> Option<DynamicTool> {
     let name = spec["name"].as_str()?.to_string();
@@ -121,15 +140,16 @@ fn dynamic_tool_from(
             let agent = agent.clone();
             let name = dispatch_name.clone();
             let rules = rules.clone();
+            let caller = caller.clone();
             Box::pin(async move {
                 let mut guard = agent.lock().await;
-                let reply = match guard.start_read_as(&name, &args, records).await {
+                let reply = match guard.start_read_as(&name, &args, &caller).await {
                     Some(work) => {
                         drop(guard);
                         work.await
                     }
                     None => {
-                        let reply = guard.execute_as(&name, &args, records).await;
+                        let reply = guard.execute_as(&name, &args, &caller).await;
                         if let Some(obs) = &rules
                             && agent::access_of(&name) == agent::Access::Write
                         {
