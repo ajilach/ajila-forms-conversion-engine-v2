@@ -166,6 +166,7 @@ async fn run_stages(
     // this one accumulator, so the last `RunEvent::Spend` a run emits is the
     // form's full cost, not just its last stage's.
     let mut spend = Spend::default();
+    let mut warnings: Vec<String> = Vec::new();
 
     // A feedback run pins the request as the first "review"; a continuation pins
     // nothing at all — the seeded tree is the whole brief.
@@ -179,6 +180,7 @@ async fn run_stages(
         doing: stages.author_doing.into(),
     });
     let author_seed = author_seed_for(&seed, &reviews, &stages);
+    begin_stage(shared_agent).await;
     run_stage(
         shared_agent,
         stages.author,
@@ -193,32 +195,53 @@ async fn run_stages(
         &mut spend,
     )
     .await?;
+    warn_unless_finished(shared_agent, obs, &mut warnings).await;
 
     // ── Stage 2: Reviewer → (Author fix)* ───────────────────────────────────
     let mut approved = false;
-    let mut warnings: Vec<String> = Vec::new();
     for round in 0..config.max_review_rounds {
-        obs.emit(RunEvent::Stage {
-            role: "Reviewer",
-            doing: format!("reviewing (round {})", round + 1),
-        });
-        run_stage(
-            shared_agent,
-            stages.reviewer,
-            &roles::sys_reviewer(target, extra, &reviews),
-            "Review the built form end to end against the source, then finish by calling \
-             submit_review.",
-            &config.abort,
-            config.model.clone(),
-            config.price.clone(),
-            config.max_tokens,
-            config.context_budget.clone(),
-            obs,
-            &mut spend,
-        )
-        .await?;
-
-        let review = shared_agent.lock().await.take_review();
+        // The Reviewer builds nothing: it judges the build of the Author's
+        // last document, made here. A document that does not build goes back
+        // to the Author as the review.
+        let build = shared_agent.lock().await.ensure_built();
+        let review = match build {
+            Err(e) => {
+                obs.emit(RunEvent::Thought(format!(
+                    "The document does not build (round {}). Returning to the author.",
+                    round + 1
+                )));
+                Some(agent::ReviewResult {
+                    approved: false,
+                    report: format!(
+                        "The document does not build, so it could not be reviewed. Fix this, rebuild \
+                         and verify before finishing:\n{e}"
+                    ),
+                })
+            }
+            Ok(()) => {
+                obs.emit(RunEvent::Stage {
+                    role: "Reviewer",
+                    doing: format!("reviewing (round {})", round + 1),
+                });
+                begin_stage(shared_agent).await;
+                run_stage(
+                    shared_agent,
+                    stages.reviewer,
+                    &roles::sys_reviewer(target, extra, &reviews),
+                    "Review the built form end to end against the source, then finish by calling \
+                     submit_review.",
+                    &config.abort,
+                    config.model.clone(),
+                    config.price.clone(),
+                    config.max_tokens,
+                    config.context_budget.clone(),
+                    obs,
+                    &mut spend,
+                )
+                .await?;
+                shared_agent.lock().await.take_review()
+            }
+        };
         match review {
             Some(r) if r.approved => {
                 approved = true;
@@ -235,6 +258,7 @@ async fn run_stages(
                     role: "Author",
                     doing: format!("applying review feedback (round {})", round + 1),
                 });
+                begin_stage(shared_agent).await;
                 run_stage(
                     shared_agent,
                     stages.author,
@@ -249,6 +273,7 @@ async fn run_stages(
                     &mut spend,
                 )
                 .await?;
+                warn_unless_finished(shared_agent, obs, &mut warnings).await;
             }
             None => {
                 // Reviewer ended without a verdict (budget/stuck). Stop the loop.
@@ -276,6 +301,26 @@ async fn run_stages(
     }
 
     Some(finalize(shared_agent, config, warnings).await)
+}
+
+/// An Author or Reviewer stage begins: it gathers its own evidence for its
+/// terminal call (see `agent::ConversionAgent::begin_stage`). Not done in
+/// [`run_stage`], which also runs the judges a stage dispatches mid-way.
+async fn begin_stage(shared_agent: &SharedAgent) {
+    shared_agent.lock().await.begin_stage();
+}
+
+/// An Author stage that ended without `finish_authoring` (its turn budget, the
+/// stuck watch) did not verify its form; the review goes ahead, and the
+/// Reviewer's own gate still holds, but the operator is told.
+async fn warn_unless_finished(shared_agent: &SharedAgent, obs: &SharedObserver, warnings: &mut Vec<String>) {
+    if shared_agent.lock().await.take_finish().is_none() {
+        let w = "The author ended without finish_authoring: its form was not verified by the author \
+                 before review."
+            .to_string();
+        obs.emit(RunEvent::Warning(w.clone()));
+        warnings.push(w);
+    }
 }
 
 /// Assemble the run's artefacts: the build of the final document.

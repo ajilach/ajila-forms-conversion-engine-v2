@@ -55,3 +55,5 @@ test-utils = []
 tokio = { version = "1", features = ["macros", "rt"] }
 # Runs a rule's check script directly, for the rule tests.
 u2s-rules = { path = "../u2s/crates/u2s-rules" }
+# Opens a built package, to see what a rule's shape becomes in it.
+zip = { workspace = true }

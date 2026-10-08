@@ -478,9 +478,10 @@ impl AgentHook for SharedHook {
 /// (see the module docs on `PromptError::PromptCancelled`).
 pub(crate) const VERDICT_SENTINEL: &str = "a terminal tool recorded a verdict";
 
-/// The tools whose recorded verdict ends a stage: the Reviewer's review and a
-/// judge's verdict on its rule.
-const TERMINAL_TOOLS: &[&str] = &["submit_review", "submit_rule_verdict"];
+/// The tools whose recorded result ends a stage: the Author's hand-over, the
+/// Reviewer's review and a judge's verdict on its rule. A refused call (the
+/// evidence gate) is an error and ends nothing.
+const TERMINAL_TOOLS: &[&str] = &["finish_authoring", "submit_review", "submit_rule_verdict"];
 pub(crate) const STUCK_SENTINEL: &str = "stuck: repeated identical result";
 
 /// Characters of *text* content in a tool's presentation — the [`ToolOutput`]

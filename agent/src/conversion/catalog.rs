@@ -195,8 +195,10 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("rule_autofix",                      target::AEM,     AEM_AUTHOR | MCP, Write),
 
         // §3 building the output through the UBS encoders.
-        ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
-        ("build_aem_package",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        // Only the Author builds: the Reviewer judges the build the pipeline
+        // made of the Author's last document, and changes nothing.
+        ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR | MCP, Write),
+        ("build_aem_package",                 target::AEM,     AEM_AUTHOR | MCP, Write),
         ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | MCP | DESCRIBE, Write),
         ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | MCP | DESCRIBE, Write),
         ("coverage_check",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | MCP, Write),
@@ -233,6 +235,7 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("grep_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Read),
 
         // §8 meta.
+        ("finish_authoring",                  target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Write),
         ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER | MCP, Write),
         ("submit_rule_verdict",               target::BOTH,    JUDGES, Write),
     ]
@@ -350,6 +353,18 @@ fn tool_specs() -> Vec<serde_json::Value> {
         specs.extend([
             // §8 control
             t(
+                "finish_authoring",
+                "Terminal AUTHOR step: call once, last, when the form is complete and you have \
+                 verified it yourself. Refused, with the list of what is missing, until this stage \
+                 has used the current build on its verifier, read the PDF that produced, rendered \
+                 the source pages and (AEM) set every source control the form's scripts read; do \
+                 those and call it again. Ends your stage and hands the form to the Reviewer.",
+                serde_json::json!({
+                    "summary": {"type": "string", "description": "What you compared against the source, what you changed, and what the verification showed."}
+                }),
+                serde_json::json!(["summary"]),
+            ),
+            t(
                 "submit_rule_verdict",
                 "Terminal step of a judge: call once, last, with your verdict on the one rule you \
                  were given. pass=true when the document keeps the rule everywhere; otherwise \
@@ -371,7 +386,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "submit_review",
-                "Terminal REVIEW step (Reviewer role) — call once, last, after building/validating/reviewing. approved=true means the form is fully correct and ends the run; approved=false returns your detailed issue list to the author for a fix round.",
+                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused.",
                 serde_json::json!({
                     "approved": {"type": "boolean"},
                     "report": {"type": "string", "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible."}
@@ -664,15 +679,21 @@ mod catalog_guards {
             assert!(has(target, reviewer, "json_outline") && has(target, reviewer, "json_get"));
             assert!(has(target, reviewer, "submit_review"));
             assert!(!has(target, author, "submit_review"));
+            assert!(has(target, author, "finish_authoring"));
+            assert!(!has(target, reviewer, "finish_authoring"));
+            // The Reviewer changes nothing: no edit, no build.
+            for barred in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {
+                assert!(!has(target, reviewer, barred), "the Reviewer must not have {barred}");
+            }
         }
         assert!(has(OutputTarget::Aem, scope::AEM_AUTHOR, "rule_autofix"));
         assert!(!has(OutputTarget::Aem, scope::AEM_REVIEWER, "rule_autofix"));
         assert!(has(OutputTarget::Aem, scope::AEM_REVIEWER, "rule_check"));
         assert!(has(OutputTarget::Redacto, scope::REDACTO_AUTHOR, "build_redacto_dump"));
 
-        // Termination belongs to the controller. There is deliberately no
-        // terminal tool at all: `finish` existed, was offered to nobody, and
-        // spent five prompt sites telling the model not to call it.
+        // The run is ended by the controller. A stage ends with its own
+        // gated terminal call (`finish_authoring`, `submit_review`); the old
+        // ungated `finish`, offered to nobody, stays gone.
         assert!(
             !catalog().iter().any(|t| t.name() == "finish"),
             "the run is ended by the controller, not by a tool"

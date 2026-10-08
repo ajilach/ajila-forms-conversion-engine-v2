@@ -1,0 +1,55 @@
+# The script is the shape UBS writes by hand for content that differs between the language versions
+# of a form: `getFormMetadata().language` is the first two letters of `afAcceptLang` (AF Design
+# Guidelines, 8.1.1). The document has no field for a script, so it travels in the node's
+# `passthrough`, which the writer emits verbatim inside the node. check.js decides the shape; whether
+# every language-only region is gated, and with the right languages, needs the PDFs and is judged.
+id = "ubs-aem-language-specific-content"
+title = "Content that only some language versions carry is gated by a language script"
+output_formats = ["aem-ubs"]
+description = """
+The language PDFs of a form do not always carry the same content: a paragraph, a field, an option
+group or a whole block can exist in one language version and not in another. Such content is
+authored once, in the tree, and shown only in the languages whose source has it, by an Initialize
+script that reads the form's language. Do not drop it because one language lacks it, and do not
+show it in a language whose source lacks it. A difference in wording or layout of the same content
+is not language-specific content.
+
+The node still carries its texts in every language of `languages` (ubs-aem-text-languages-complete
+holds for it as for any node): write the wording of a language that has it into the other keys, the
+script keeps it hidden there. When the content is more than one node, wrap it in a Panel and gate
+the Panel.
+
+Shape. The gated node is authored `visible: false`, and its `passthrough.raw_children` holds exactly
+one element:
+
+    <fd:scripts fd:init="[{&quot;script&quot;:{&quot;field&quot;:&quot;NODE_NAME&quot;\\,&quot;event&quot;:&quot;Initialize&quot;\\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}\\,&quot;content&quot;:&quot;SCRIPT&quot;}\\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\\,&quot;version&quot;:1\\,&quot;enabled&quot;:true}]" jcr:primaryType="nt:unstructured"/>
+
+with NODE_NAME the node's `name`, and SCRIPT this body (here for content only the German version
+has), its line breaks written `\\\\n` and its quotes `\\\\&quot;`:
+
+    var language = (window.forms.ubs.getFormMetadata().language || "").toLowerCase();
+    if (language.indexOf("de") !== -1) {
+        window.forms.ubs.showAFShowDor(this);
+        this.visible = true;
+    } else {
+        window.forms.ubs.hideAFHideDor(this);
+        this.visible = false;
+    }
+
+List every language that has the content in the condition, joined with `||`, each tested with
+`language.indexOf("xx") !== -1`. Spanish is tested as both `es` and `sp`, since the platform files
+it under either code. Never gate a node the writer already writes visibility scripts for (a node with
+`is_conditional: true`, the target of a `conditions` entry, or a choice carrying `conditions`): wrap
+it in a Panel and gate the Panel instead.
+
+How to judge: compare the language PDFs page by page (xfa_page_text of each language, xfa_search
+for a distinctive phrase of one language in the others, xfa_render_pages where the text alone is
+unclear). For each region that one language has and another lacks, find its node (json_search) and
+confirm its script lists exactly the languages whose source has it.
+
+A break is content shown in a language whose source lacks it, content missing from the form because
+one language lacks it, or a script whose languages differ from the languages that carry the content.
+
+Fix: add the missing content once, authored `visible: false`, with the script above listing the
+languages that carry it; correct the languages of a script that lists the wrong ones.
+"""

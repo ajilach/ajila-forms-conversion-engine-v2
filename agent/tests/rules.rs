@@ -1254,3 +1254,156 @@ fn a_partner_generic_is_wrapped_in_a_repeatable() {
     )]);
     assert!(violations("account-holder-wiring", &fixed).is_empty());
 }
+
+/// The canonical language script of `ubs-aem-language-specific-content`, showing the node in
+/// the languages `codes` lists.
+fn language_gate(codes: &[&str]) -> String {
+    let test = codes
+        .iter()
+        .map(|c| format!("language.indexOf(\"{c}\") !== -1"))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    format!(
+        "var language = (window.forms.ubs.getFormMetadata().language || \"\").toLowerCase();\n\
+         if ({test}) {{\n    window.forms.ubs.showAFShowDor(this);\n    this.visible = true;\n\
+         }} else {{\n    window.forms.ubs.hideAFHideDor(this);\n    this.visible = false;\n}}"
+    )
+}
+
+/// An `fd:scripts` element carrying `content` as the Initialize script of `field`, escaped as
+/// a package carries it: JSON, then JCR's backslash escapes, then XML.
+fn fd_init(field: &str, content: &str) -> String {
+    let models = json!([{
+        "script": {
+            "field": field, "event": "Initialize",
+            "model": {"nodeName": "EVENT_SCRIPTS"}, "content": content
+        },
+        "nodeName": "SCRIPTMODEL", "version": 1, "enabled": true
+    }]);
+    let jcr = models.to_string().replace('\\', "\\\\").replace(',', "\\,");
+    let xml = jcr
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;");
+    format!("<fd:scripts fd:init=\"{xml}\" jcr:primaryType=\"nt:unstructured\"/>")
+}
+
+/// AABF_019 (German, English, Spanish) with the node at `pointer` authored hidden and gated
+/// by `content`.
+fn aabf_gated(pointer: &str, content: &str) -> Value {
+    let mut doc = golden("AABF_019");
+    let node = doc.pointer_mut(pointer).unwrap();
+    let name = node["name"].as_str().unwrap().to_string();
+    node["visible"] = json!(false);
+    node["passthrough"] = json!({ "raw_children": [fd_init(&name, content)] });
+    doc
+}
+
+/// `PN_Execution_bc1928b0`: a panel no choice shows.
+const UNCONDITIONED: &str = "/form/children/2";
+/// `PN_e58dc1d5`: a panel the configurator shows.
+const CONDITIONED: &str = "/form/children/0/children/3";
+
+#[test]
+fn a_canonical_language_script_passes() {
+    let doc = aabf_gated(UNCONDITIONED, &language_gate(&["de"]));
+    assert_eq!(violations("language-specific-content", &doc), Vec::<String>::new());
+    let doc = aabf_gated(UNCONDITIONED, &language_gate(&["de", "es", "sp"]));
+    assert_eq!(violations("language-specific-content", &doc), Vec::<String>::new());
+}
+
+#[test]
+fn a_language_script_that_does_not_lower_case_is_reported() {
+    let script = language_gate(&["de"]).replace(".toLowerCase()", "");
+    let doc = aabf_gated(UNCONDITIONED, &script);
+    assert_eq!(
+        violations("language-specific-content", &doc),
+        vec![format!("{UNCONDITIONED}/passthrough/raw_children/0")]
+    );
+}
+
+#[test]
+fn a_language_the_form_does_not_ship_is_reported() {
+    let doc = aabf_gated(UNCONDITIONED, &language_gate(&["fr"]));
+    assert_eq!(
+        violations("language-specific-content", &doc),
+        vec![format!("{UNCONDITIONED}/passthrough/raw_children/0")]
+    );
+}
+
+#[test]
+fn spanish_tested_under_one_code_only_is_reported() {
+    let doc = aabf_gated(UNCONDITIONED, &language_gate(&["es"]));
+    assert_eq!(
+        violations("language-specific-content", &doc),
+        vec![format!("{UNCONDITIONED}/passthrough/raw_children/0")]
+    );
+}
+
+#[test]
+fn a_language_script_without_the_dor_calls_is_reported() {
+    let script = language_gate(&["de"])
+        .replace("window.forms.ubs.showAFShowDor(this);", "")
+        .replace("window.forms.ubs.hideAFHideDor(this);", "");
+    let doc = aabf_gated(UNCONDITIONED, &script);
+    assert_eq!(
+        violations("language-specific-content", &doc),
+        vec![format!("{UNCONDITIONED}/passthrough/raw_children/0")]
+    );
+}
+
+#[test]
+fn a_language_gated_node_authored_visible_is_reported() {
+    let mut doc = aabf_gated(UNCONDITIONED, &language_gate(&["de"]));
+    doc.pointer_mut(UNCONDITIONED).unwrap()["visible"] = json!(true);
+    assert_eq!(
+        violations("language-specific-content", &doc),
+        vec![format!("{UNCONDITIONED}/visible")]
+    );
+}
+
+#[test]
+fn a_language_script_on_a_condition_target_is_reported() {
+    let doc = aabf_gated(CONDITIONED, &language_gate(&["de"]));
+    assert_eq!(
+        violations("language-specific-content", &doc),
+        vec![CONDITIONED.to_string()]
+    );
+}
+
+#[test]
+fn a_script_that_does_not_read_the_language_is_not_judged() {
+    let mut doc = aabf_gated(UNCONDITIONED, "this.visible = false;");
+    doc.pointer_mut(UNCONDITIONED).unwrap()["visible"] = json!(true);
+    assert_eq!(violations("language-specific-content", &doc), Vec::<String>::new());
+}
+
+/// The script reaches the package as the node's one `fd:scripts` child, in the form AEM reads.
+#[test]
+fn a_language_script_is_written_into_the_package() {
+    use std::io::Read;
+    let doc = aabf_gated(UNCONDITIONED, &language_gate(&["de"]));
+    let doc = u2s_aem_ubs_mcp::UbsAemDocument::from_json(&doc).unwrap();
+    let build = u2s_aem_ubs_mcp::encode(&doc).unwrap();
+    let mut archive = zip::ZipArchive::new(std::io::Cursor::new(build.package)).unwrap();
+    let xml = (0..archive.len())
+        .map(|i| {
+            let mut xml = String::new();
+            archive.by_index(i).unwrap().read_to_string(&mut xml).unwrap();
+            xml
+        })
+        .find(|xml| xml.contains("guideContainer"))
+        .expect("the package holds the form");
+    let start = xml.find("name=\"PN_Execution_bc1928b0\"").expect("the gated panel is written");
+    let element = &xml[xml[..start].rfind('<').unwrap()..];
+    let tag = element[1..].split([' ', '>']).next().unwrap();
+    let end = element.find(&format!("</{tag}>")).expect("the panel closes");
+    let panel = &element[..end];
+    // What follows the panel's own `items` is the panel's own children: layout, responsive, and
+    // what its passthrough carries.
+    let own = &panel[panel.rfind("</items>").expect("the panel has items")..];
+    assert_eq!(own.matches("<fd:scripts").count(), 1, "{own}");
+    assert!(own.contains("getFormMetadata().language"), "{own}");
+    assert!(own.contains("&quot;event&quot;:&quot;Initialize&quot;"), "{own}");
+}

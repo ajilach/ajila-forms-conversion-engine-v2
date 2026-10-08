@@ -16,23 +16,27 @@ use crate::conversion::{ReplyBlock, ToolReply};
 /// directory, every blob handle in it is given the `doc_path` the `pdf_*`
 /// tools read it by (a server without blobs passes `None`).
 pub fn reply_from_result(result: CallToolResult, blobs: Option<&Path>) -> ToolReply {
-    let structured = result.structured_content.as_ref().and_then(|value| {
-        let repeated = result.content.iter().any(|content| match content {
-            ContentBlock::Text(t) => serde_json::from_str::<Value>(&t.text).is_ok_and(|v| &v == value),
-            _ => false,
-        });
-        (!repeated).then(|| {
-            let mut value = value.clone();
-            if let Some(blobs) = blobs {
-                add_blob_paths(&mut value, blobs);
-            }
-            value.to_string()
-        })
+    // The structured content as the model sees it: with its blobs' paths.
+    // A text block that repeats it (`CallToolResult::structured`) is shown
+    // as this instead, so its artefacts are readable too.
+    let original = result.structured_content.as_ref();
+    let shown = original.map(|value| {
+        let mut value = value.clone();
+        if let Some(blobs) = blobs {
+            add_blob_paths(&mut value, blobs);
+        }
+        value.to_string()
     });
+    let is_repeat = |text: &str| original.is_some_and(|value| serde_json::from_str::<Value>(text).is_ok_and(|v| &v == value));
+    let repeated = result.content.iter().any(|content| matches!(content, ContentBlock::Text(t) if is_repeat(&t.text)));
+    let structured = shown.clone().filter(|_| !repeated);
     let blocks: Vec<ReplyBlock> = result
         .content
         .into_iter()
         .map(|content| match content {
+            ContentBlock::Text(t) if is_repeat(&t.text) => {
+                ReplyBlock::Text(shown.clone().expect("a repeat implies structured content"))
+            }
             ContentBlock::Text(t) => ReplyBlock::Text(t.text),
             ContentBlock::Image(i) => ReplyBlock::Image {
                 media_type: i.mime_type,
@@ -151,5 +155,25 @@ mod tests {
             panic!("a text-only result stays text");
         };
         assert_eq!(text.matches("closed").count(), 1, "{text}");
+    }
+
+    /// `aem_verify_submit` replies with `CallToolResult::structured`, whose
+    /// text is its structured content: the artefact it returns must still name
+    /// the `doc_path` the `pdf_*` tools read it by.
+    #[test]
+    fn a_structured_only_result_names_its_artefacts_doc_path() {
+        let blobs = tempfile::tempdir().unwrap();
+        let handle = format!("{}.pdf", "cd".repeat(32));
+        std::fs::write(blobs.path().join(&handle), b"%PDF-1.7").unwrap();
+        let result = CallToolResult::structured(serde_json::json!({
+            "artefacts": [{ "kind": "download", "label": "Document of Record",
+                            "blob": { "handle": handle, "media_type": "application/pdf" } }],
+        }));
+        let ToolReply::Text(text) = reply_from_result(result, Some(blobs.path())) else {
+            panic!("a text-only result stays text");
+        };
+        let doc_path = blobs.path().join(&handle).display().to_string();
+        assert!(text.contains(&format!("\"doc_path\":{}", serde_json::json!(doc_path))), "{text}");
+        assert_eq!(text.matches("Document of Record").count(), 1, "{text}");
     }
 }

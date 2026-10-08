@@ -134,6 +134,7 @@ impl ConversionAgent {
                 }
             }));
         }
+        self.evidence.observe_call(name, input);
         let tools = match self.u2s_tools() {
             Ok(tools) => tools,
             Err(e) => return Some(Box::pin(std::future::ready(ToolReply::Error(e)))),
@@ -365,6 +366,11 @@ impl ConversionAgent {
             "submit_review" => {
                 let approved = input["approved"].as_bool().unwrap_or(false);
                 let report = input["report"].as_str().unwrap_or_default().to_string();
+                if approved {
+                    if let Some(refusal) = self.unverified("submit_review(approved=true)") {
+                        return refusal;
+                    }
+                }
                 self.review = Some(ReviewResult { approved, report });
                 ToolReply::Text(if approved {
                     "Review recorded: approved.".into()
@@ -373,26 +379,50 @@ impl ConversionAgent {
                 })
             }
 
+            "finish_authoring" => {
+                if let Some(refusal) = self.unverified("finish_authoring") {
+                    return refusal;
+                }
+                self.finish = Some(input["summary"].as_str().unwrap_or_default().to_string());
+                ToolReply::Text("Authoring finished: handing the form to the Reviewer.".into())
+            }
+
             other if crate::u2s::is_u2s_tool(other) => {
                 let artifact = if crate::u2s::takes_artifact(other) {
                     self.verify_artifact()
                 } else {
                     None
                 };
-                match self.u2s_tools() {
+                self.evidence.observe_call(other, input);
+                let reply = match self.u2s_tools() {
                     Ok(tools) => tools.call(other, input, artifact).await,
                     Err(e) => ToolReply::Error(e),
-                }
+                };
+                self.evidence.observe_reply(other, input, &reply);
+                reply
             }
             other => ToolReply::Error(format!("Unknown tool: {other}")),
         }
+    }
+
+    /// The refusal of a terminal `call` the stage has not earned yet: what
+    /// it still has to verify (see [`super::evidence`]).
+    fn unverified(&self, call: &str) -> Option<ToolReply> {
+        let missing = self.missing_evidence();
+        (!missing.is_empty()).then(|| {
+            ToolReply::Error(format!(
+                "{call} refused: this stage has not verified the form yet. Do these first, then call \
+                 it again:\n- {}",
+                missing.join("\n- ")
+            ))
+        })
     }
 
     /// The tail of every edit to the document: the previous build no longer
     /// describes it, the edit history records it, and the rules report what
     /// the edit changed.
     async fn edited(&mut self, tool: &str, result: Value) -> ToolReply {
-        self.built = None;
+        self.set_built(None);
         self.snapshot(&format!("AI: {tool}"));
         match self.lint().await {
             Ok(Some(lint)) => ToolReply::Text(json!({ "result": result, "lint": lint }).to_string()),
@@ -535,11 +565,11 @@ impl ConversionAgent {
         let findings = crate::package_checks::check_package(&build.package);
         let size = build.package.len();
         let bound = build.bound_package.as_ref().map(Vec::len);
-        self.built = Some(Built::Aem {
+        self.set_built(Some(Built::Aem {
             package: build.package,
             bound_package: build.bound_package,
             xsd: build.xsd,
-        });
+        }));
         let mut report = format!("Built package ({size} bytes).");
         if let Some(bound) = bound {
             report.push_str(&format!(" With bindRefs: {bound} bytes."));
@@ -585,7 +615,7 @@ impl ConversionAgent {
             "has_footer": !redacto.document().footer.is_empty(),
             "bytes": dump.len(),
         });
-        self.built = Some(Built::Redacto { dump });
+        self.set_built(Some(Built::Redacto { dump }));
         ToolReply::Text(report.to_string())
     }
 }

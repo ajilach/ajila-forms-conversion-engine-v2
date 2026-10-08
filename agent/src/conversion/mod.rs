@@ -226,6 +226,12 @@ pub struct ConversionAgent {
     /// The Reviewer role's latest `submit_review` outcome, drained by the
     /// controller via [`take_review`](Self::take_review).
     review: Option<ReviewResult>,
+    /// The Author role's `finish_authoring` summary, drained by the controller
+    /// via [`take_finish`](Self::take_finish).
+    finish: Option<String>,
+    /// What the current stage has verified, which gates its terminal call
+    /// (see [`evidence`]).
+    evidence: evidence::StageEvidence,
     /// The judgements `rule_check` has dispatched and not yet taken back, each
     /// with the verdict its judge recorded, if it has. Keyed by a judgement id
     /// of its own, not the rule's: two judges of one rule never collide, and a
@@ -292,6 +298,8 @@ impl ConversionAgent {
             session,
             references,
             review: None,
+            finish: None,
+            evidence: evidence::StageEvidence::default(),
             judgements: HashMap::new(),
             judgements_opened: 0,
             u2s: None,
@@ -308,7 +316,7 @@ impl ConversionAgent {
     pub fn seed_document(&mut self, value: Value) -> Result<(), String> {
         check_document(self.target, &value)?;
         self.document = Document::new(value);
-        self.built = None;
+        self.set_built(None);
         self.lint = None;
         Ok(())
     }
@@ -316,11 +324,30 @@ impl ConversionAgent {
     /// Hand the run a package to inspect as if it had built it: the package
     /// tools then read it (describing a reference form does this).
     pub fn seed_package(&mut self, package: Vec<u8>) {
-        self.built = Some(Built::Aem {
+        self.set_built(Some(Built::Aem {
             package,
             bound_package: None,
             xsd: None,
-        });
+        }));
+    }
+
+    /// Replaces the latest build. Every change of it goes through here: what
+    /// the verifier made of the previous build no longer counts as evidence.
+    fn set_built(&mut self, built: Option<Built>) {
+        self.built = built;
+        self.evidence.build_changed();
+    }
+
+    /// A pipeline stage begins: it gathers its own evidence for its terminal
+    /// call, so an earlier stage's verification never stands in for it.
+    pub fn begin_stage(&mut self) {
+        self.evidence = evidence::StageEvidence::default();
+    }
+
+    /// What the current stage still has to verify before its terminal call
+    /// is accepted (empty when nothing).
+    pub fn missing_evidence(&self) -> Vec<String> {
+        self.evidence.missing(self.target, self.built.is_some())
     }
 
     /// The document as it stands.
@@ -389,6 +416,12 @@ impl ConversionAgent {
     /// reads this after running the Reviewer stage).
     pub fn take_review(&mut self) -> Option<ReviewResult> {
         self.review.take()
+    }
+
+    /// Drain the Author role's `finish_authoring` summary (the controller
+    /// reads this after running an Author stage; `None` when it ended without).
+    pub fn take_finish(&mut self) -> Option<String> {
+        self.finish.take()
     }
 
     /// Replaces the judged rules, for a test of what dispatches judges.
@@ -1317,6 +1350,7 @@ mod tests {
 }
 
 mod catalog;
+mod evidence;
 mod execute;
 mod prompts;
 

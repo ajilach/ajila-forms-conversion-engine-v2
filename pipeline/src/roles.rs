@@ -96,16 +96,22 @@ pub(crate) const AUTHOR: Role = Role {
 };
 
 /// The Reviewer's budget covers a browser click-through of the deployed form
-/// (one turn per page, per field group, per language), not just the package
-/// checks the Redacto reviewer needs.
+/// (one turn per page, per field group, per language) and driving every source
+/// control the form's scripts read, not just the package checks the Redacto
+/// reviewer needs.
+///
+/// It builds nothing, so it has no build to watch for a stall. It remembers
+/// nothing either: every round starts fresh from the source, unbiased by how
+/// an earlier round (or the Author) saw the form; the prior reports pinned in
+/// its system prompt are all it carries over.
 pub(crate) const REVIEWER: Role = Role {
     name: "Reviewer",
     scope: agent::scope::AEM_REVIEWER,
-    max_iterations: 60,
-    stuck_tool: Some("build_aem_package"),
-    stuck_activity: "the package build",
+    max_iterations: 90,
+    stuck_tool: None,
+    stuck_activity: "reviewing",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
-    remember: true,
+    remember: false,
 };
 
 // ── Redacto roles ────────────────────────────────────────────────────────────
@@ -122,14 +128,15 @@ pub(crate) const REDACTO_AUTHOR: Role = Role {
     remember: true,
 };
 
+/// Builds and remembers nothing, like [`REVIEWER`].
 pub(crate) const REDACTO_REVIEWER: Role = Role {
     name: "Reviewer",
     scope: agent::scope::REDACTO_REVIEWER,
     max_iterations: 30,
-    stuck_tool: Some("build_redacto_dump"),
-    stuck_activity: "the dump build",
+    stuck_tool: None,
+    stuck_activity: "reviewing",
     max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
-    remember: true,
+    remember: false,
 };
 
 /// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
@@ -257,7 +264,7 @@ pub(crate) fn sys_reviewer(target: OutputTarget, extra: &str, reviews: &[String]
     s.push_str(&format_note(target));
     append_reviews(
         &mut s,
-        "## PRIOR REVIEW FEEDBACK (verify each point is now fixed)",
+        "## PRIOR REVIEW FEEDBACK (points to re-verify; review the whole form regardless)",
         reviews,
     );
     s

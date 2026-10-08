@@ -9,8 +9,7 @@ panel properties the UBS client library reads (`dorFieldStyling="Repeating Panel
 `headingLevel`). Do not hand-author add or remove rules, and do not keep one that a loaded package
 carried: a rule that calls `instanceManager` bypasses the UBS routines.
 
-This only reaches a document loaded from a package, since a freshly authored document has no field
-that can carry a script. Reported: any script in a node's `passthrough` (`raw_attributes` or
+Reported: any script in a node's `passthrough` (`raw_attributes` or
 `raw_children`) that calls `instanceManager` and is not one of the template's own generated
 scripts (those say `Generated automatically` and carry `_archetype`).
 
