@@ -4,7 +4,8 @@ output_formats = ["aem-ubs"]
 description = """
 Widths are a 12-column grid: `colspan` 12 is full width (the default, and the large majority of
 fields) and 6 is half width for two fields that share a row. Use another value only where the
-source really shows that split. A `colspan` (or `dor_colspan`, when set) of 0 or above 12 breaks the
+source really shows that split. Static text is always 12, even where the source sets it in columns
+(ubs-aem-single-column-text). A `colspan` (or `dor_colspan`, when set) of 0 or above 12 breaks the
 layout and is reported; whether 6 or 12 is the right width is judged against the source page.
 
 Replace the value with one from 1 to 12, normally 12 or 6.

@@ -5,8 +5,9 @@ description = """
 A region the source lays out as two balanced columns is a `styledPanel` with style `layout-split`
 around its components; a side-by-side grid of blocks is a `styledPanel` with style
 `layout-split-block`; the footnotes are a `styledPanel` with style `footnote`. Everything else is a plain
-`assetContainer`. A document whose source has columns or footnotes and whose body has no such panel
-has been flattened.
+`assetContainer`. Redacto renders text in columns, so text the source sets in columns stays in
+columns: do not linearise it into one column. A document whose source has columns or footnotes and
+whose body has no such panel has been flattened.
 
 How to judge: render the source pages (xfa_render_pages) and compare them with `/body`
 (json_get): find each region that the page shows in columns, in a side-by-side grid or as footnotes at

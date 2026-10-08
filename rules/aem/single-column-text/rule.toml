@@ -1,0 +1,30 @@
+# AEM has no multi-column layout for text, so a region the source sets in columns is one column in
+# the form. check.js decides the widths and the CSS columns in style attributes; a layout table of
+# prose and whether a columned region was linearised in reading order need the rendered pages and
+# are judged.
+id = "ubs-aem-single-column-text"
+title = "Text is one full-width column"
+output_formats = ["aem-ubs"]
+description = """
+AEM does not support a multi-column layout for text. Every static content node (`TextDraw`,
+`TitleDraw`, `MessageBox`, `HtmlDisplayer`) is full width: `colspan` 12, and `dor_colspan` unset or
+12. A source region that sets its text in two or more columns becomes ONE column in the form, in
+reading order: the first column top to bottom, then the next, with its headings where they stand.
+Do not rebuild the columns: no panel of half-width texts, no narrow panel wrapping text as a column (not even beside fields),
+and no HTML that lays prose out side by side (a CSS `column-count` or `columns` style, a borderless
+`<table>` holding paragraphs next to each other). A real table, a grid of rows and cells, stays a
+table (ubs-aem-tables-are-html-tables). Fields may still share a row at width 6
+(ubs-aem-grid-widths): this rule is about text only.
+
+How to judge: render the source pages (xfa_render_pages) and find each region whose text runs in
+columns. Find its nodes (json_search for a phrase of each column) and confirm they are full-width
+content in one column, in the reading order of the page, with no text lost or duplicated where the
+columns meet.
+
+A break is a text node narrower than 12, a panel narrower than 12 that holds only text, HTML that
+sets text in columns, or a columned region whose text is out of reading order.
+
+Fix: json_patch every text node to `colspan` 12 (and `dor_colspan` 12 or unset), move the texts of
+a column wrapper panel up into its parent in reading order and remove the wrapper, and rewrite
+columned HTML as consecutive paragraphs.
+"""

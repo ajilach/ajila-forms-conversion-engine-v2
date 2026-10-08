@@ -3,7 +3,7 @@ title = "The tree has the structure of the source pages"
 output_formats = ["aem-ubs"]
 description = """
 For each region of each source page, decide from the PAGE what it is (a table, a list, a
-multi-column region, a panel, a heading at some level, a repeatable) and confirm the tree says the
+panel, a heading at some level, a repeatable) and confirm the tree says the
 same: section order, grouping, heading levels, field layout and overall appearance. No tool checks
 this: a table whose cells were authored as loose text carries the same text as the table, so only a
 comparison with the page catches it. Where the tree and the page disagree, the PAGE wins.
@@ -18,5 +18,6 @@ a heading at another level, fields grouped differently, a list or table flattene
 paragraphs, or a repeated block authored once or as copies.
 
 Fix: json_patch the tree to match the page. Tables are covered by the
-ubs-aem-tables-are-html-tables rule.
+ubs-aem-tables-are-html-tables rule. Text the page sets in columns is the one layout the tree does
+not copy: AEM has no multi-column text, so it is one column (ubs-aem-single-column-text).
 """

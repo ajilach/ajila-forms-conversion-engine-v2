@@ -1407,3 +1407,78 @@ fn a_language_script_is_written_into_the_package() {
     assert!(own.contains("getFormMetadata().language"), "{own}");
     assert!(own.contains("&quot;event&quot;:&quot;Initialize&quot;"), "{own}");
 }
+
+/// A static text draw in AAEV_019_EN's first panel, at the given width.
+fn text_draw(colspan: u64) -> Value {
+    json!({
+        "type": "TextDraw", "uuid": "00000000-0000-0000-0000-000000000002", "name": "ST_Column",
+        "content": {"en": "<p>Left column</p>"}, "visible": true, "colspan": colspan, "dor_colspan": null
+    })
+}
+
+#[test]
+fn a_half_width_text_is_a_text_column() {
+    let base = golden("AAEV_019_EN");
+    let page = first_panel(&base);
+    let doc = aaev_with(&format!("{page}/children"), json!([text_draw(6)]));
+    assert_eq!(
+        violations("single-column-text", &doc),
+        vec![format!("{page}/children/0/colspan")]
+    );
+    let fixed = aaev_with(&format!("{page}/children"), json!([text_draw(12)]));
+    assert!(violations("single-column-text", &fixed).is_empty());
+    let mut dor = text_draw(12);
+    dor["dor_colspan"] = json!(6);
+    let doc = aaev_with(&format!("{page}/children"), json!([dor]));
+    assert_eq!(
+        violations("single-column-text", &doc),
+        vec![format!("{page}/children/0/dor_colspan")]
+    );
+}
+
+#[test]
+fn a_narrow_panel_of_text_is_a_text_column() {
+    let base = golden("AAEV_019_EN");
+    let page = first_panel(&base);
+    let column = json!({
+        "type": "Panel", "uuid": "00000000-0000-0000-0000-000000000003", "name": "PN_Column",
+        "visible": true, "colspan": 6, "dor_colspan": null, "children": [text_draw(12)]
+    });
+    let doc = aaev_with(&format!("{page}/children"), json!([column]));
+    assert_eq!(
+        violations("single-column-text", &doc),
+        vec![format!("{page}/children/0")]
+    );
+    // A narrow panel that also holds a field is a field layout, not a text column.
+    let mut mixed = column;
+    mixed["children"].as_array_mut().unwrap().push(json!({
+        "type": "TextField", "uuid": "00000000-0000-0000-0000-000000000005", "name": "TF_Name",
+        "label": {"en": "Name"}, "visible": true, "colspan": 12, "dor_colspan": null
+    }));
+    let doc = aaev_with(&format!("{page}/children"), json!([mixed]));
+    assert!(violations("single-column-text", &doc).is_empty());
+}
+
+#[test]
+fn html_in_css_columns_is_multi_column_text() {
+    let base = golden("AAEV_019_EN");
+    let page = first_panel(&base);
+    let html = |content: &str| {
+        json!([{
+            "type": "HtmlDisplayer", "uuid": "00000000-0000-0000-0000-000000000004", "name": "HTML_Terms",
+            "content": {"en": content}, "visible": true, "colspan": 12, "dor_colspan": null
+        }])
+    };
+    let doc = aaev_with(&format!("{page}/children"), html("<div style=\"column-count: 2\"><p>Terms</p></div>"));
+    assert_eq!(
+        violations("single-column-text", &doc),
+        vec![format!("{page}/children/0/content/en")]
+    );
+    for clean in [
+        "<div style=\"display: grid; grid-template-columns: 1fr 1fr\"><p>Terms</p></div>",
+        "<p>Columns: name, date</p>",
+    ] {
+        let doc = aaev_with(&format!("{page}/children"), html(clean));
+        assert!(violations("single-column-text", &doc).is_empty(), "{clean}");
+    }
+}
