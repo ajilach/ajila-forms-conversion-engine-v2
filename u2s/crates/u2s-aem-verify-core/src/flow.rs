@@ -1489,15 +1489,29 @@ pub(crate) async fn submit_and_capture_artefact(
     }
 
     match &profile.submit {
-        SubmitArtefact::Download => match session.wait_for_download(SUBMIT_TIMEOUT).await {
-            Ok(guid) => {
-                read_downloaded_pdf(instances, &guid, blobs, artefacts, findings).await;
+        SubmitArtefact::Download => {
+            let (downloaded, submit_result) = wait_for_download_or_answer(page, session, driver).await;
+            match downloaded {
+                Ok(guid) => {
+                    read_downloaded_pdf(instances, &guid, blobs, artefacts, findings).await;
+                }
+                Err(reason) => {
+                    read_stored_artefact_instead(
+                        &reason,
+                        submit_result.as_ref(),
+                        page,
+                        profile,
+                        driver,
+                        instances,
+                        blobs,
+                        artefacts,
+                        findings,
+                    )
+                    .await;
+                }
             }
-            Err(err) => findings.push(Finding::error(
-                ErrorKind::NoDownload.as_str(),
-                err.to_string(),
-            )),
-        },
+            attach_server_log(profile, driver, instances, findings).await;
+        }
         SubmitArtefact::DocumentOfRecord => {
             let aem_client = AemClient::new(
                 &instances.aem_base_url,
@@ -1527,6 +1541,217 @@ pub(crate) async fn submit_and_capture_artefact(
         }
         SubmitArtefact::None => {}
     }
+}
+
+/// How long after the server answered a submit the browser download may
+/// take to complete before the flow stops waiting for it.
+const DOWNLOAD_GRACE: Duration = Duration::from_secs(15);
+
+/// Waits for the submit's browser download, but stops early once the
+/// driver reports the server's answer and no download followed it within
+/// [`DOWNLOAD_GRACE`] -- a download the browser refused (for instance an
+/// unquoted `Content-Disposition` file name with a comma) never completes,
+/// and waiting the full [`SUBMIT_TIMEOUT`] for it only costs time. Returns
+/// the download's guid or why there is none, plus the driver's last view of
+/// the submit answer.
+async fn wait_for_download_or_answer(
+    page: &browser::PageHandle,
+    session: &BrowserSession,
+    driver: &dyn FormDriver,
+) -> (Result<String, String>, Option<Value>) {
+    let started = Instant::now();
+    let mut answered_at: Option<Instant> = None;
+    let mut answer: Option<Value> = None;
+    loop {
+        match session.wait_for_download(Duration::from_secs(2)).await {
+            Ok(guid) => return (Ok(guid), answer),
+            Err(browser::BrowserError::DownloadTimedOut(_)) => {}
+            Err(err) => return (Err(err.to_string()), answer),
+        }
+        if let Some(js) = driver.submit_result_js()
+            && let Ok(raw) = page.evaluate_string(&js).await
+            && let Ok(value) = serde_json::from_str::<Value>(&raw)
+            && value.get("done").and_then(Value::as_bool) == Some(true)
+        {
+            answered_at.get_or_insert_with(Instant::now);
+            let failed = value.get("ok").and_then(Value::as_bool) == Some(false);
+            answer = Some(value);
+            if failed {
+                return (
+                    Err("the server rejected the submit, so no download followed".to_owned()),
+                    answer,
+                );
+            }
+        }
+        if let Some(at) = answered_at
+            && at.elapsed() >= DOWNLOAD_GRACE
+        {
+            return (
+                Err(format!(
+                    "the server answered the submit, but the browser completed no download within {}s of that answer",
+                    DOWNLOAD_GRACE.as_secs()
+                )),
+                answer,
+            );
+        }
+        if started.elapsed() >= SUBMIT_TIMEOUT {
+            return (
+                Err(browser::BrowserError::DownloadTimedOut(SUBMIT_TIMEOUT).to_string()),
+                answer,
+            );
+        }
+    }
+}
+
+/// When the browser download did not complete, records why and -- if the
+/// driver knows where the platform stored the artefact -- reads it from the
+/// repository instead, so the agent still gets the PDF to look at.
+#[allow(clippy::too_many_arguments)]
+async fn read_stored_artefact_instead(
+    reason: &str,
+    submit_result: Option<&Value>,
+    page: &browser::PageHandle,
+    profile: &Profile,
+    driver: &dyn FormDriver,
+    instances: &Instances,
+    blobs: &BlobStore,
+    artefacts: &mut Vec<Artefact>,
+    findings: &mut Vec<Finding>,
+) {
+    let failed: Vec<String> = page
+        .failed_requests()
+        .iter()
+        .map(|r| match r.status {
+            Some(status) => format!("{} (HTTP {status})", r.url),
+            None => format!("{} (no response)", r.url),
+        })
+        .collect();
+    let mut detail = reason.to_owned();
+    if !failed.is_empty() {
+        detail.push_str(&format!("; failed requests: {}", failed.join(", ")));
+    }
+    if let Some(answer) = submit_result {
+        let logs = answer
+            .get("logs")
+            .and_then(Value::as_array)
+            .map(|l| l.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" | "))
+            .unwrap_or_default();
+        if !logs.is_empty() {
+            detail.push_str(&format!("; page log: {logs}"));
+        }
+    }
+    let data = submit_result.and_then(|a| a.get("data"));
+    let ok = submit_result.and_then(|a| a.get("ok")).and_then(Value::as_bool) == Some(true);
+    let Some(path) = data.filter(|_| ok).and_then(|d| driver.stored_artefact_path(d)) else {
+        if let Some(answer) = submit_result.filter(|_| !ok) {
+            detail.push_str(&format!(
+                "; server answer: {}",
+                answer.to_string().chars().take(600).collect::<String>()
+            ));
+        }
+        findings.push(Finding::error(ErrorKind::NoDownload.as_str(), detail));
+        return;
+    };
+    let client = AemClient::new(&instances.aem_base_url, &profile.aem_user, &profile.aem_password);
+    let bytes = match client.fetch_path(&path).await {
+        Ok(bytes) if bytes.starts_with(b"%PDF") => bytes,
+        Ok(_) => {
+            findings.push(Finding::error(
+                ErrorKind::NoDownload.as_str(),
+                format!("{detail}; {path} in the repository is not a PDF"),
+            ));
+            return;
+        }
+        Err(err) => {
+            findings.push(Finding::error(
+                ErrorKind::NoDownload.as_str(),
+                format!("{detail}; reading {path} from the repository failed too: {err}"),
+            ));
+            return;
+        }
+    };
+    findings.push(Finding::warning(
+        "download_failed_read_from_repository",
+        format!(
+            "The browser did not download the submitted PDF ({detail}). The PDF the server \
+             generated was read from {path} instead, so the form itself submitted fine; the \
+             download step is what failed."
+        ),
+    ));
+    flag_blank_pdf(&bytes, findings);
+    match blobs.put(&bytes, "application/pdf", "pdf") {
+        Ok(blob) => artefacts.push(Artefact {
+            kind: ArtefactKind::Download,
+            label: "the form's submitted PDF (read from the repository)".to_owned(),
+            blob: BlobDescriptor::from(&blob),
+        }),
+        Err(err) => findings.push(Finding::error(
+            ErrorKind::StorageFailed.as_str(),
+            storage_failed("storing the submitted PDF", err).to_string(),
+        )),
+    }
+}
+
+/// A PDF that carries no font and no image draws nothing: the renderer
+/// produced an empty document (for UBS, Redacto failing to build the summary
+/// and rendering an empty string). Flagged so nobody mistakes it for a
+/// result. A byte scan, not a parse: fonts and images are referenced from
+/// uncompressed resource dictionaries in every renderer seen so far.
+pub(crate) fn pdf_looks_blank(bytes: &[u8]) -> bool {
+    let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
+    !has(b"/Font") && !has(b"/Image")
+}
+
+fn flag_blank_pdf(bytes: &[u8], findings: &mut Vec<Finding>) {
+    if pdf_looks_blank(bytes) {
+        findings.push(Finding::error(
+            "pdf_blank",
+            "The submitted PDF contains no font and no image, so every page is empty. The \
+             renderer failed to build the document; for a UBS form, check the Redacto \
+             renderer's log for \"Failed to create summary html\" (an exception while parsing \
+             the summary HTML).",
+        ));
+    }
+}
+
+/// Attaches the server's own log lines about the submit (the driver says
+/// which files and which lines), as one finding.
+async fn attach_server_log(
+    profile: &Profile,
+    driver: &dyn FormDriver,
+    instances: &Instances,
+    findings: &mut Vec<Finding>,
+) {
+    let filters = driver.submit_log_filters();
+    if filters.is_empty() {
+        return;
+    }
+    let client = AemClient::new(&instances.aem_base_url, &profile.aem_user, &profile.aem_password);
+    let mut picked = Vec::new();
+    for (file, needles) in filters {
+        match client.tail_log(file, 400).await {
+            Ok(text) => picked.extend(
+                text.lines()
+                    .filter(|line| needles.iter().any(|n| line.contains(n)))
+                    .map(|line| {
+                        let line: String = line.chars().take(400).collect();
+                        format!("{file}: {line}")
+                    }),
+            ),
+            Err(err) => picked.push(format!("{file}: could not be read ({err})")),
+        }
+    }
+    if picked.is_empty() {
+        return;
+    }
+    let keep = picked.len().saturating_sub(25);
+    findings.push(Finding::warning(
+        "server_log",
+        format!(
+            "AEM's log around this submit (most recent last):\n{}",
+            picked[keep..].join("\n")
+        ),
+    ));
 }
 
 /// Copies the download named `guid` out of the session's Chromium
@@ -1579,6 +1804,7 @@ async fn read_downloaded_pdf(
         ));
         return;
     }
+    flag_blank_pdf(&bytes, findings);
     let blob: BlobRef = match blobs.put(&bytes, "application/pdf", "pdf") {
         Ok(blob) => blob,
         Err(err) => {
@@ -1598,6 +1824,14 @@ async fn read_downloaded_pdf(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_pdf_without_fonts_or_images_looks_blank() {
+        assert!(super::pdf_looks_blank(b"%PDF-1.4 1 0 obj << /Type /Page >> endobj"));
+        assert!(!super::pdf_looks_blank(b"%PDF-1.4 << /Font << /F1 2 0 R >> >>"));
+        assert!(!super::pdf_looks_blank(b"%PDF-1.4 << /Subtype /Image >>"));
+    }
+
     use super::*;
 
     /// No Docker or AEM is assumed reachable for this crate's own test

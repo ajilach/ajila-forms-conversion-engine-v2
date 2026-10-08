@@ -207,6 +207,53 @@ impl AemClient {
     }
 }
 
+impl AemClient {
+    /// GETs `path` (already percent-encoded where needed) with the instance's
+    /// credentials and returns the body. Used to read a file AEM stored in
+    /// the repository -- e.g. a UBS DoR under `/tmp/ubsdocs/` -- when the
+    /// browser could not download it.
+    pub async fn fetch_path(&self, path: &str) -> Result<Vec<u8>, AemClientError> {
+        let url = format!("{}{path}", self.host);
+        let response = self
+            .client
+            .get(&url)
+            .basic_auth(&self.user, Some(&self.password))
+            .send()
+            .await
+            .map_err(|e| request_error("repository read", e))?;
+        let status = response.status();
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| read_error("repository read", e))?
+            .to_vec();
+        if !status.is_success() {
+            return Err(AemClientError::HttpError {
+                action: "repository read",
+                status: status.as_u16(),
+                snippet: snippet(&bytes),
+            });
+        }
+        Ok(bytes)
+    }
+
+    /// The last `lines` lines of one of AEM's log files (`name` as the Sling
+    /// log tailer knows it, e.g. `/logs/error.log`), read through the Web
+    /// Console's tailer.
+    pub async fn tail_log(&self, name: &str, lines: u32) -> Result<String, AemClientError> {
+        let encoded: String = name
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_' => (b as char).to_string(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect();
+        let path = format!("/system/console/slinglog/tailer.txt?tail={lines}&name={encoded}");
+        let bytes = self.fetch_path(&path).await?;
+        Ok(String::from_utf8_lossy(&bytes).into_owned())
+    }
+}
+
 /// Parses a CRX Package Manager `.json` response. Returns the package
 /// `path` (present on upload, absent on install) on success. CRX returns
 /// an HTML login page on auth failure rather than JSON, which is why a

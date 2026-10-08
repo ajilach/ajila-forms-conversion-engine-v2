@@ -69,6 +69,27 @@ impl FormDriver for UbsDriver {
         ubs_js::SUBMIT.to_owned()
     }
 
+    fn submit_result_js(&self) -> Option<String> {
+        Some(ubs_js::SUBMIT_RESULT.to_owned())
+    }
+
+    fn stored_artefact_path(&self, submit_data: &serde_json::Value) -> Option<String> {
+        stored_dor_path(submit_data.get("form")?.as_str()?)
+    }
+
+    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
+        &[(
+            "/logs/ubsbundle.log",
+            &[
+                "SummaryOutput:",
+                "rendering summary document",
+                "Submit successfully completed",
+                "*ERROR*",
+                "Exception",
+            ],
+        )]
+    }
+
     fn submit_failed_message(&self) -> &'static str {
         "window.forms.ubs.navigation.submit(...) is missing or did not report success -- check \
          the UBS clientlib actually loaded (see this crate's module doc)"
@@ -158,5 +179,55 @@ mod tests {
         assert_eq!(extension["ubs"]["formcode"], "AAOV");
         assert_eq!(extension["ubs"]["selected_mandator"], "033");
         assert_eq!(extension["ubs"]["selected_language"], "it");
+    }
+}
+
+/// Where `ajila-forms-ubs` stores a submitted DoR, from the submit result's
+/// `form` value (`<uuid>/<file name>.pdf`): the `dam:Asset` under
+/// `/tmp/ubsdocs/`, read through its original rendition. Each path segment
+/// is percent-encoded (the file name carries the form's document IDs, which
+/// can hold commas). `None` for anything that is not exactly two segments.
+pub fn stored_dor_path(form: &str) -> Option<String> {
+    let segments: Vec<&str> = form.split('/').collect();
+    if segments.len() != 2 || segments.iter().any(|s| s.is_empty() || *s == "." || *s == "..") {
+        return None;
+    }
+    let encode = |segment: &str| -> String {
+        segment
+            .bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_' => (b as char).to_string(),
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
+    };
+    Some(format!(
+        "/tmp/ubsdocs/{}/{}/jcr:content/renditions/original",
+        encode(segments[0]),
+        encode(segments[1])
+    ))
+}
+
+#[cfg(test)]
+mod stored_dor_path_tests {
+    use super::stored_dor_path;
+
+    #[test]
+    fn a_dor_name_with_commas_is_encoded() {
+        assert_eq!(
+            stored_dor_path("e74fe7f8-18da-43d4-b269-d781e027064f/66352,66439_MAIN_66352,66439_AAGS.pdf")
+                .as_deref(),
+            Some(
+                "/tmp/ubsdocs/e74fe7f8-18da-43d4-b269-d781e027064f/\
+                 66352%2C66439_MAIN_66352%2C66439_AAGS.pdf/jcr:content/renditions/original"
+            )
+        );
+    }
+
+    #[test]
+    fn anything_but_two_plain_segments_is_refused() {
+        assert_eq!(stored_dor_path("a.pdf"), None);
+        assert_eq!(stored_dor_path("../etc/passwd"), None);
+        assert_eq!(stored_dor_path("x/../y"), None);
     }
 }

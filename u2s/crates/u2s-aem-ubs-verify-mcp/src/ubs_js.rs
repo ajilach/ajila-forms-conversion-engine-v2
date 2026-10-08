@@ -135,10 +135,62 @@ pub const SUBMIT: &str = r#"(function() {
         || typeof window.forms.ubs.navigation.submit !== 'function') {
         return false;
     }
+    // Record the server's answer and the page's own log lines, so the
+    // verifier can tell "the server answered but the download never came"
+    // from "still waiting" (see SUBMIT_RESULT).
+    window.__u2sSubmit = { done: false, logs: [] };
+    if (!window.__u2sConsoleHooked) {
+        ['log', 'warn', 'error'].forEach(function (level) {
+            var original = console[level];
+            console[level] = function () {
+                try {
+                    var text = Array.prototype.map.call(arguments, function (a) {
+                        if (typeof a === 'string') { return a; }
+                        try { return JSON.stringify(a); } catch (e) { return String(a); }
+                    }).join(' ');
+                    if (window.__u2sSubmit && window.__u2sSubmit.logs.length < 50) {
+                        window.__u2sSubmit.logs.push(level + ': ' + text.slice(0, 500));
+                    }
+                } catch (e) {}
+                return original.apply(console, arguments);
+            };
+        });
+        window.__u2sConsoleHooked = true;
+    }
+    if (!window.__u2sSubmitHooked && typeof guideBridge !== 'undefined') {
+        var originalSubmit = guideBridge.submit;
+        guideBridge.submit = function (options) {
+            options = options || {};
+            var success = options.success, error = options.error;
+            options.success = function (result) {
+                window.__u2sSubmit.done = true;
+                window.__u2sSubmit.ok = true;
+                window.__u2sSubmit.data = result && result.data;
+                if (success) { return success.apply(this, arguments); }
+            };
+            options.error = function (result) {
+                window.__u2sSubmit.done = true;
+                window.__u2sSubmit.ok = false;
+                window.__u2sSubmit.data = result && (result.data || result);
+                if (error) { return error.apply(this, arguments); }
+            };
+            return originalSubmit.call(guideBridge, options);
+        };
+        window.__u2sSubmitHooked = true;
+    }
     var errorBox = null;
     try { errorBox = guideBridge.resolveNode('submitErrorMessage'); } catch (e) {}
     window.forms.ubs.navigation.submit(errorBox);
     return true;
+})()"#;
+
+/// The answer [`SUBMIT`] recorded, as a JSON string:
+/// `{"done", "ok", "data", "logs"}`. `data` is the guide's submit result;
+/// on the `local-setup/redacto-summary` branch its `form` names the stored
+/// DoR (`<uuid>/<file name>.pdf` under `/tmp/ubsdocs/`).
+pub const SUBMIT_RESULT: &str = r#"(function() {
+    try { return JSON.stringify(window.__u2sSubmit || { done: false }); }
+    catch (e) { return JSON.stringify({ done: false, error: String(e) }); }
 })()"#;
 
 /// Evaluated once on the summary panel before [`SUBMIT`], returning a JSON

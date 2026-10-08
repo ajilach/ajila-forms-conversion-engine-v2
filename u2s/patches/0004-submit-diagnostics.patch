@@ -1,0 +1,533 @@
+diff --git a/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs b/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs
+index 5bb69a7..f7e0e9a 100644
+--- a/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs
++++ b/u2s/crates/u2s-aem-ubs-verify-mcp/src/driver.rs
+@@ -69,6 +69,27 @@ impl FormDriver for UbsDriver {
+         ubs_js::SUBMIT.to_owned()
+     }
+ 
++    fn submit_result_js(&self) -> Option<String> {
++        Some(ubs_js::SUBMIT_RESULT.to_owned())
++    }
++
++    fn stored_artefact_path(&self, submit_data: &serde_json::Value) -> Option<String> {
++        stored_dor_path(submit_data.get("form")?.as_str()?)
++    }
++
++    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
++        &[(
++            "/logs/ubsbundle.log",
++            &[
++                "SummaryOutput:",
++                "rendering summary document",
++                "Submit successfully completed",
++                "*ERROR*",
++                "Exception",
++            ],
++        )]
++    }
++
+     fn submit_failed_message(&self) -> &'static str {
+         "window.forms.ubs.navigation.submit(...) is missing or did not report success -- check \
+          the UBS clientlib actually loaded (see this crate's module doc)"
+@@ -160,3 +181,53 @@ mod tests {
+         assert_eq!(extension["ubs"]["selected_language"], "it");
+     }
+ }
++
++/// Where `ajila-forms-ubs` stores a submitted DoR, from the submit result's
++/// `form` value (`<uuid>/<file name>.pdf`): the `dam:Asset` under
++/// `/tmp/ubsdocs/`, read through its original rendition. Each path segment
++/// is percent-encoded (the file name carries the form's document IDs, which
++/// can hold commas). `None` for anything that is not exactly two segments.
++pub fn stored_dor_path(form: &str) -> Option<String> {
++    let segments: Vec<&str> = form.split('/').collect();
++    if segments.len() != 2 || segments.iter().any(|s| s.is_empty() || *s == "." || *s == "..") {
++        return None;
++    }
++    let encode = |segment: &str| -> String {
++        segment
++            .bytes()
++            .map(|b| match b {
++                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_' => (b as char).to_string(),
++                _ => format!("%{b:02X}"),
++            })
++            .collect()
++    };
++    Some(format!(
++        "/tmp/ubsdocs/{}/{}/jcr:content/renditions/original",
++        encode(segments[0]),
++        encode(segments[1])
++    ))
++}
++
++#[cfg(test)]
++mod stored_dor_path_tests {
++    use super::stored_dor_path;
++
++    #[test]
++    fn a_dor_name_with_commas_is_encoded() {
++        assert_eq!(
++            stored_dor_path("e74fe7f8-18da-43d4-b269-d781e027064f/66352,66439_MAIN_66352,66439_AAGS.pdf")
++                .as_deref(),
++            Some(
++                "/tmp/ubsdocs/e74fe7f8-18da-43d4-b269-d781e027064f/\
++                 66352%2C66439_MAIN_66352%2C66439_AAGS.pdf/jcr:content/renditions/original"
++            )
++        );
++    }
++
++    #[test]
++    fn anything_but_two_plain_segments_is_refused() {
++        assert_eq!(stored_dor_path("a.pdf"), None);
++        assert_eq!(stored_dor_path("../etc/passwd"), None);
++        assert_eq!(stored_dor_path("x/../y"), None);
++    }
++}
+diff --git a/u2s/crates/u2s-aem-ubs-verify-mcp/src/ubs_js.rs b/u2s/crates/u2s-aem-ubs-verify-mcp/src/ubs_js.rs
+index 3cc5486..308df76 100644
+--- a/u2s/crates/u2s-aem-ubs-verify-mcp/src/ubs_js.rs
++++ b/u2s/crates/u2s-aem-ubs-verify-mcp/src/ubs_js.rs
+@@ -135,12 +135,64 @@ pub const SUBMIT: &str = r#"(function() {
+         || typeof window.forms.ubs.navigation.submit !== 'function') {
+         return false;
+     }
++    // Record the server's answer and the page's own log lines, so the
++    // verifier can tell "the server answered but the download never came"
++    // from "still waiting" (see SUBMIT_RESULT).
++    window.__u2sSubmit = { done: false, logs: [] };
++    if (!window.__u2sConsoleHooked) {
++        ['log', 'warn', 'error'].forEach(function (level) {
++            var original = console[level];
++            console[level] = function () {
++                try {
++                    var text = Array.prototype.map.call(arguments, function (a) {
++                        if (typeof a === 'string') { return a; }
++                        try { return JSON.stringify(a); } catch (e) { return String(a); }
++                    }).join(' ');
++                    if (window.__u2sSubmit && window.__u2sSubmit.logs.length < 50) {
++                        window.__u2sSubmit.logs.push(level + ': ' + text.slice(0, 500));
++                    }
++                } catch (e) {}
++                return original.apply(console, arguments);
++            };
++        });
++        window.__u2sConsoleHooked = true;
++    }
++    if (!window.__u2sSubmitHooked && typeof guideBridge !== 'undefined') {
++        var originalSubmit = guideBridge.submit;
++        guideBridge.submit = function (options) {
++            options = options || {};
++            var success = options.success, error = options.error;
++            options.success = function (result) {
++                window.__u2sSubmit.done = true;
++                window.__u2sSubmit.ok = true;
++                window.__u2sSubmit.data = result && result.data;
++                if (success) { return success.apply(this, arguments); }
++            };
++            options.error = function (result) {
++                window.__u2sSubmit.done = true;
++                window.__u2sSubmit.ok = false;
++                window.__u2sSubmit.data = result && (result.data || result);
++                if (error) { return error.apply(this, arguments); }
++            };
++            return originalSubmit.call(guideBridge, options);
++        };
++        window.__u2sSubmitHooked = true;
++    }
+     var errorBox = null;
+     try { errorBox = guideBridge.resolveNode('submitErrorMessage'); } catch (e) {}
+     window.forms.ubs.navigation.submit(errorBox);
+     return true;
+ })()"#;
+ 
++/// The answer [`SUBMIT`] recorded, as a JSON string:
++/// `{"done", "ok", "data", "logs"}`. `data` is the guide's submit result;
++/// on the `local-setup/redacto-summary` branch its `form` names the stored
++/// DoR (`<uuid>/<file name>.pdf` under `/tmp/ubsdocs/`).
++pub const SUBMIT_RESULT: &str = r#"(function() {
++    try { return JSON.stringify(window.__u2sSubmit || { done: false }); }
++    catch (e) { return JSON.stringify({ done: false, error: String(e) }); }
++})()"#;
++
+ /// Evaluated once on the summary panel before [`SUBMIT`], returning a JSON
+ /// array of `{"kind", "message"}` findings for anything worth flagging
+ /// before attempting submit -- not fatal on its own, since the actual
+diff --git a/u2s/crates/u2s-aem-verify-core/src/aem_client.rs b/u2s/crates/u2s-aem-verify-core/src/aem_client.rs
+index 161bcd1..344b55d 100644
+--- a/u2s/crates/u2s-aem-verify-core/src/aem_client.rs
++++ b/u2s/crates/u2s-aem-verify-core/src/aem_client.rs
+@@ -207,6 +207,53 @@ impl AemClient {
+     }
+ }
+ 
++impl AemClient {
++    /// GETs `path` (already percent-encoded where needed) with the instance's
++    /// credentials and returns the body. Used to read a file AEM stored in
++    /// the repository -- e.g. a UBS DoR under `/tmp/ubsdocs/` -- when the
++    /// browser could not download it.
++    pub async fn fetch_path(&self, path: &str) -> Result<Vec<u8>, AemClientError> {
++        let url = format!("{}{path}", self.host);
++        let response = self
++            .client
++            .get(&url)
++            .basic_auth(&self.user, Some(&self.password))
++            .send()
++            .await
++            .map_err(|e| request_error("repository read", e))?;
++        let status = response.status();
++        let bytes = response
++            .bytes()
++            .await
++            .map_err(|e| read_error("repository read", e))?
++            .to_vec();
++        if !status.is_success() {
++            return Err(AemClientError::HttpError {
++                action: "repository read",
++                status: status.as_u16(),
++                snippet: snippet(&bytes),
++            });
++        }
++        Ok(bytes)
++    }
++
++    /// The last `lines` lines of one of AEM's log files (`name` as the Sling
++    /// log tailer knows it, e.g. `/logs/error.log`), read through the Web
++    /// Console's tailer.
++    pub async fn tail_log(&self, name: &str, lines: u32) -> Result<String, AemClientError> {
++        let encoded: String = name
++            .bytes()
++            .map(|b| match b {
++                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-' | b'_' => (b as char).to_string(),
++                _ => format!("%{b:02X}"),
++            })
++            .collect();
++        let path = format!("/system/console/slinglog/tailer.txt?tail={lines}&name={encoded}");
++        let bytes = self.fetch_path(&path).await?;
++        Ok(String::from_utf8_lossy(&bytes).into_owned())
++    }
++}
++
+ /// Parses a CRX Package Manager `.json` response. Returns the package
+ /// `path` (present on upload, absent on install) on success. CRX returns
+ /// an HTML login page on auth failure rather than JSON, which is why a
+diff --git a/u2s/crates/u2s-aem-verify-core/src/driver.rs b/u2s/crates/u2s-aem-verify-core/src/driver.rs
+index e6c6a94..466e85d 100644
+--- a/u2s/crates/u2s-aem-verify-core/src/driver.rs
++++ b/u2s/crates/u2s-aem-verify-core/src/driver.rs
+@@ -83,6 +83,32 @@ pub trait FormDriver: Send + Sync {
+     /// with nothing extra to check.
+     fn last_panel_checks_js(&self, package: &PackageInspection) -> Option<String>;
+ 
++    /// An optional JS expression evaluating to a JSON string that describes
++    /// the server's answer to the submit [`Self::submit_js`] started:
++    /// `{"done": bool, "ok": bool, "data": {...}, "logs": [...]}`, or
++    /// `{"done": false}` while it is still outstanding. Lets the flow stop
++    /// waiting for a download that is not coming and say why. `None` for a
++    /// driver that cannot observe its own submit.
++    fn submit_result_js(&self) -> Option<String> {
++        None
++    }
++
++    /// Where the submitted artefact is stored in the repository, given the
++    /// `data` of a successful [`Self::submit_result_js`] answer: a path
++    /// (percent-encoded, starting with `/`) the flow reads over HTTP when the
++    /// browser download did not complete. `None` when the platform stores
++    /// nothing readable.
++    fn stored_artefact_path(&self, _submit_data: &Value) -> Option<String> {
++        None
++    }
++
++    /// AEM log files (as the Sling log tailer names them) and the substrings
++    /// of their lines worth attaching to a submit's findings, so an agent
++    /// reads the server's own account of what happened. Empty for none.
++    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
++        &[]
++    }
++
+     /// Extra keys merged into `verify_package_check`'s structured result,
+     /// under this driver's own namespace (e.g. `{"ubs": {...}}`). The
+     /// generic driver contributes nothing.
+diff --git a/u2s/crates/u2s-aem-verify-core/src/flow.rs b/u2s/crates/u2s-aem-verify-core/src/flow.rs
+index 9d807da..618842d 100644
+--- a/u2s/crates/u2s-aem-verify-core/src/flow.rs
++++ b/u2s/crates/u2s-aem-verify-core/src/flow.rs
+@@ -1489,15 +1489,29 @@ pub(crate) async fn submit_and_capture_artefact(
+     }
+ 
+     match &profile.submit {
+-        SubmitArtefact::Download => match session.wait_for_download(SUBMIT_TIMEOUT).await {
+-            Ok(guid) => {
+-                read_downloaded_pdf(instances, &guid, blobs, artefacts, findings).await;
++        SubmitArtefact::Download => {
++            let (downloaded, submit_result) = wait_for_download_or_answer(page, session, driver).await;
++            match downloaded {
++                Ok(guid) => {
++                    read_downloaded_pdf(instances, &guid, blobs, artefacts, findings).await;
++                }
++                Err(reason) => {
++                    read_stored_artefact_instead(
++                        &reason,
++                        submit_result.as_ref(),
++                        page,
++                        profile,
++                        driver,
++                        instances,
++                        blobs,
++                        artefacts,
++                        findings,
++                    )
++                    .await;
++                }
+             }
+-            Err(err) => findings.push(Finding::error(
+-                ErrorKind::NoDownload.as_str(),
+-                err.to_string(),
+-            )),
+-        },
++            attach_server_log(profile, driver, instances, findings).await;
++        }
+         SubmitArtefact::DocumentOfRecord => {
+             let aem_client = AemClient::new(
+                 &instances.aem_base_url,
+@@ -1529,6 +1543,217 @@ pub(crate) async fn submit_and_capture_artefact(
+     }
+ }
+ 
++/// How long after the server answered a submit the browser download may
++/// take to complete before the flow stops waiting for it.
++const DOWNLOAD_GRACE: Duration = Duration::from_secs(15);
++
++/// Waits for the submit's browser download, but stops early once the
++/// driver reports the server's answer and no download followed it within
++/// [`DOWNLOAD_GRACE`] -- a download the browser refused (for instance an
++/// unquoted `Content-Disposition` file name with a comma) never completes,
++/// and waiting the full [`SUBMIT_TIMEOUT`] for it only costs time. Returns
++/// the download's guid or why there is none, plus the driver's last view of
++/// the submit answer.
++async fn wait_for_download_or_answer(
++    page: &browser::PageHandle,
++    session: &BrowserSession,
++    driver: &dyn FormDriver,
++) -> (Result<String, String>, Option<Value>) {
++    let started = Instant::now();
++    let mut answered_at: Option<Instant> = None;
++    let mut answer: Option<Value> = None;
++    loop {
++        match session.wait_for_download(Duration::from_secs(2)).await {
++            Ok(guid) => return (Ok(guid), answer),
++            Err(browser::BrowserError::DownloadTimedOut(_)) => {}
++            Err(err) => return (Err(err.to_string()), answer),
++        }
++        if let Some(js) = driver.submit_result_js()
++            && let Ok(raw) = page.evaluate_string(&js).await
++            && let Ok(value) = serde_json::from_str::<Value>(&raw)
++            && value.get("done").and_then(Value::as_bool) == Some(true)
++        {
++            answered_at.get_or_insert_with(Instant::now);
++            let failed = value.get("ok").and_then(Value::as_bool) == Some(false);
++            answer = Some(value);
++            if failed {
++                return (
++                    Err("the server rejected the submit, so no download followed".to_owned()),
++                    answer,
++                );
++            }
++        }
++        if let Some(at) = answered_at
++            && at.elapsed() >= DOWNLOAD_GRACE
++        {
++            return (
++                Err(format!(
++                    "the server answered the submit, but the browser completed no download within {}s of that answer",
++                    DOWNLOAD_GRACE.as_secs()
++                )),
++                answer,
++            );
++        }
++        if started.elapsed() >= SUBMIT_TIMEOUT {
++            return (
++                Err(browser::BrowserError::DownloadTimedOut(SUBMIT_TIMEOUT).to_string()),
++                answer,
++            );
++        }
++    }
++}
++
++/// When the browser download did not complete, records why and -- if the
++/// driver knows where the platform stored the artefact -- reads it from the
++/// repository instead, so the agent still gets the PDF to look at.
++#[allow(clippy::too_many_arguments)]
++async fn read_stored_artefact_instead(
++    reason: &str,
++    submit_result: Option<&Value>,
++    page: &browser::PageHandle,
++    profile: &Profile,
++    driver: &dyn FormDriver,
++    instances: &Instances,
++    blobs: &BlobStore,
++    artefacts: &mut Vec<Artefact>,
++    findings: &mut Vec<Finding>,
++) {
++    let failed: Vec<String> = page
++        .failed_requests()
++        .iter()
++        .map(|r| match r.status {
++            Some(status) => format!("{} (HTTP {status})", r.url),
++            None => format!("{} (no response)", r.url),
++        })
++        .collect();
++    let mut detail = reason.to_owned();
++    if !failed.is_empty() {
++        detail.push_str(&format!("; failed requests: {}", failed.join(", ")));
++    }
++    if let Some(answer) = submit_result {
++        let logs = answer
++            .get("logs")
++            .and_then(Value::as_array)
++            .map(|l| l.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(" | "))
++            .unwrap_or_default();
++        if !logs.is_empty() {
++            detail.push_str(&format!("; page log: {logs}"));
++        }
++    }
++    let data = submit_result.and_then(|a| a.get("data"));
++    let ok = submit_result.and_then(|a| a.get("ok")).and_then(Value::as_bool) == Some(true);
++    let Some(path) = data.filter(|_| ok).and_then(|d| driver.stored_artefact_path(d)) else {
++        if let Some(answer) = submit_result.filter(|_| !ok) {
++            detail.push_str(&format!(
++                "; server answer: {}",
++                answer.to_string().chars().take(600).collect::<String>()
++            ));
++        }
++        findings.push(Finding::error(ErrorKind::NoDownload.as_str(), detail));
++        return;
++    };
++    let client = AemClient::new(&instances.aem_base_url, &profile.aem_user, &profile.aem_password);
++    let bytes = match client.fetch_path(&path).await {
++        Ok(bytes) if bytes.starts_with(b"%PDF") => bytes,
++        Ok(_) => {
++            findings.push(Finding::error(
++                ErrorKind::NoDownload.as_str(),
++                format!("{detail}; {path} in the repository is not a PDF"),
++            ));
++            return;
++        }
++        Err(err) => {
++            findings.push(Finding::error(
++                ErrorKind::NoDownload.as_str(),
++                format!("{detail}; reading {path} from the repository failed too: {err}"),
++            ));
++            return;
++        }
++    };
++    findings.push(Finding::warning(
++        "download_failed_read_from_repository",
++        format!(
++            "The browser did not download the submitted PDF ({detail}). The PDF the server \
++             generated was read from {path} instead, so the form itself submitted fine; the \
++             download step is what failed."
++        ),
++    ));
++    flag_blank_pdf(&bytes, findings);
++    match blobs.put(&bytes, "application/pdf", "pdf") {
++        Ok(blob) => artefacts.push(Artefact {
++            kind: ArtefactKind::Download,
++            label: "the form's submitted PDF (read from the repository)".to_owned(),
++            blob: BlobDescriptor::from(&blob),
++        }),
++        Err(err) => findings.push(Finding::error(
++            ErrorKind::StorageFailed.as_str(),
++            storage_failed("storing the submitted PDF", err).to_string(),
++        )),
++    }
++}
++
++/// A PDF that carries no font and no image draws nothing: the renderer
++/// produced an empty document (for UBS, Redacto failing to build the summary
++/// and rendering an empty string). Flagged so nobody mistakes it for a
++/// result. A byte scan, not a parse: fonts and images are referenced from
++/// uncompressed resource dictionaries in every renderer seen so far.
++pub(crate) fn pdf_looks_blank(bytes: &[u8]) -> bool {
++    let has = |needle: &[u8]| bytes.windows(needle.len()).any(|w| w == needle);
++    !has(b"/Font") && !has(b"/Image")
++}
++
++fn flag_blank_pdf(bytes: &[u8], findings: &mut Vec<Finding>) {
++    if pdf_looks_blank(bytes) {
++        findings.push(Finding::error(
++            "pdf_blank",
++            "The submitted PDF contains no font and no image, so every page is empty. The \
++             renderer failed to build the document; for a UBS form, check the Redacto \
++             renderer's log for \"Failed to create summary html\" (an exception while parsing \
++             the summary HTML).",
++        ));
++    }
++}
++
++/// Attaches the server's own log lines about the submit (the driver says
++/// which files and which lines), as one finding.
++async fn attach_server_log(
++    profile: &Profile,
++    driver: &dyn FormDriver,
++    instances: &Instances,
++    findings: &mut Vec<Finding>,
++) {
++    let filters = driver.submit_log_filters();
++    if filters.is_empty() {
++        return;
++    }
++    let client = AemClient::new(&instances.aem_base_url, &profile.aem_user, &profile.aem_password);
++    let mut picked = Vec::new();
++    for (file, needles) in filters {
++        match client.tail_log(file, 400).await {
++            Ok(text) => picked.extend(
++                text.lines()
++                    .filter(|line| needles.iter().any(|n| line.contains(n)))
++                    .map(|line| {
++                        let line: String = line.chars().take(400).collect();
++                        format!("{file}: {line}")
++                    }),
++            ),
++            Err(err) => picked.push(format!("{file}: could not be read ({err})")),
++        }
++    }
++    if picked.is_empty() {
++        return;
++    }
++    let keep = picked.len().saturating_sub(25);
++    findings.push(Finding::warning(
++        "server_log",
++        format!(
++            "AEM's log around this submit (most recent last):\n{}",
++            picked[keep..].join("\n")
++        ),
++    ));
++}
++
+ /// Copies the download named `guid` out of the session's Chromium
+ /// container, stores it as a blob, and removes it there. Removing matters:
+ /// the container lives as long as the session, so leaving each file behind
+@@ -1579,6 +1804,7 @@ async fn read_downloaded_pdf(
+         ));
+         return;
+     }
++    flag_blank_pdf(&bytes, findings);
+     let blob: BlobRef = match blobs.put(&bytes, "application/pdf", "pdf") {
+         Ok(blob) => blob,
+         Err(err) => {
+@@ -1598,6 +1824,14 @@ async fn read_downloaded_pdf(
+ 
+ #[cfg(test)]
+ mod tests {
++
++    #[test]
++    fn a_pdf_without_fonts_or_images_looks_blank() {
++        assert!(super::pdf_looks_blank(b"%PDF-1.4 1 0 obj << /Type /Page >> endobj"));
++        assert!(!super::pdf_looks_blank(b"%PDF-1.4 << /Font << /F1 2 0 R >> >>"));
++        assert!(!super::pdf_looks_blank(b"%PDF-1.4 << /Subtype /Image >>"));
++    }
++
+     use super::*;
+ 
+     /// No Docker or AEM is assumed reachable for this crate's own test

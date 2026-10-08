@@ -83,6 +83,32 @@ pub trait FormDriver: Send + Sync {
     /// with nothing extra to check.
     fn last_panel_checks_js(&self, package: &PackageInspection) -> Option<String>;
 
+    /// An optional JS expression evaluating to a JSON string that describes
+    /// the server's answer to the submit [`Self::submit_js`] started:
+    /// `{"done": bool, "ok": bool, "data": {...}, "logs": [...]}`, or
+    /// `{"done": false}` while it is still outstanding. Lets the flow stop
+    /// waiting for a download that is not coming and say why. `None` for a
+    /// driver that cannot observe its own submit.
+    fn submit_result_js(&self) -> Option<String> {
+        None
+    }
+
+    /// Where the submitted artefact is stored in the repository, given the
+    /// `data` of a successful [`Self::submit_result_js`] answer: a path
+    /// (percent-encoded, starting with `/`) the flow reads over HTTP when the
+    /// browser download did not complete. `None` when the platform stores
+    /// nothing readable.
+    fn stored_artefact_path(&self, _submit_data: &Value) -> Option<String> {
+        None
+    }
+
+    /// AEM log files (as the Sling log tailer names them) and the substrings
+    /// of their lines worth attaching to a submit's findings, so an agent
+    /// reads the server's own account of what happened. Empty for none.
+    fn submit_log_filters(&self) -> &'static [(&'static str, &'static [&'static str])] {
+        &[]
+    }
+
     /// Extra keys merged into `verify_package_check`'s structured result,
     /// under this driver's own namespace (e.g. `{"ubs": {...}}`). The
     /// generic driver contributes nothing.

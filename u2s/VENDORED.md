@@ -67,6 +67,14 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
   (`engine_sockets`). It adds `engine_description` and `volume_exists`. The AEM container
   gets the `host.docker.internal:host-gateway` mapping only when a Redacto URL is configured,
   since Podman before 5.3 refuses `host-gateway`.
+- `0004-submit-diagnostics.patch`: makes a failed or empty submit explain itself. The UBS
+  driver records the server's submit answer and the page's console lines (`ubs_js::SUBMIT`,
+  `SUBMIT_RESULT`). The flow stops waiting for the download 15 s after the server answered;
+  when no download came, it reads the stored DoR from `/tmp/ubsdocs/<uuid>/<name>` over HTTP
+  (`FormDriver::stored_artefact_path`, `AemClient::fetch_path`) and says so in a
+  `download_failed_read_from_repository` finding. A PDF with no font and no image raises
+  `pdf_blank`. The matching lines of `ubsbundle.log` (`SummaryOutput:`, `rendering summary
+  document`, errors) are attached as a `server_log` finding (`AemClient::tail_log`).
 
 ## How the agent offers the vendored tools
 
