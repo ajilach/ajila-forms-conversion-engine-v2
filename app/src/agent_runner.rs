@@ -102,8 +102,8 @@ impl RunObserver for DioxusObserver {
             }
             // Emitted at every abort checkpoint, so record it only once.
             RunEvent::Aborted => {
-                if !self.state.read().aborted {
-                    self.state.write().aborted = true;
+                let first = !std::mem::replace(&mut self.state.write().aborted, true);
+                if first {
                     self.thought("Run aborted by the user.");
                 }
             }

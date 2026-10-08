@@ -96,8 +96,9 @@ pub fn AgentFlow(
     // store only once the run is complete, not on every event of a live one.
     let session_id = tab.session_id;
     let has_review = use_memo(move || {
-        processing_state.read().step == crate::models::ProcessingStep::Complete
-            && session_id.read().as_deref().is_some_and(crate::db::has_review)
+        // Not held across the store's lookup: worker threads write the run state.
+        let complete = processing_state.read().step == crate::models::ProcessingStep::Complete;
+        complete && session_id.read().as_deref().is_some_and(crate::db::has_review)
     });
     let mut review_open = tab.review_open;
 
@@ -371,13 +372,21 @@ fn RunBox(
         RunStatus::Failed => "ag-box failed",
         _ => "ag-box",
     };
+    // Read once, and released before rendering: the run writes this state from
+    // worker threads, and a second read while a guard is held blocks behind a
+    // queued write forever. `rsx!` keeps an `if let` scrutinee's guard alive
+    // through its `else` branches, so reading in the template is not safe.
+    let (elapsed_secs, error, aborted, warnings) = {
+        let run = state.read();
+        (run.elapsed_secs, run.error.clone(), run.aborted, run.warnings.clone())
+    };
 
     rsx! {
         section { class: box_class,
             RunHeader {
                 status,
                 profile,
-                elapsed_secs: state.read().elapsed_secs,
+                elapsed_secs,
                 abort,
                 on_new,
             }
@@ -388,24 +397,24 @@ fn RunBox(
 
             // ---- Failed request: retry (or give up) without losing the run ----
             if status == RunStatus::Paused {
-                RetryPrompt { error: state.read().error.clone(), on_retry, on_give_up }
-            } else if let Some(error) = state.read().error.as_ref() {
+                RetryPrompt { error, on_retry, on_give_up }
+            } else if let Some(error) = error.as_ref() {
                 div { class: "progress-error",
                     strong { "Error: " }
                     "{error}"
                 }
-            } else if state.read().aborted {
+            } else if aborted {
                 div { class: "progress-note", "Stopped at your request." }
             }
 
             // Non-fatal problems the run reported — a Redacto dump that could not
             // be built, a cross-language merge that failed. Without this the run
             // looks clean while an output is silently missing.
-            if !state.read().warnings.is_empty() {
+            if !warnings.is_empty() {
                 div { class: "progress-warnings",
                     strong { "Warnings:" }
                     ul {
-                        for warning in state.read().warnings.iter() {
+                        for warning in warnings.iter() {
                             li { "{warning}" }
                         }
                     }
@@ -1158,13 +1167,19 @@ fn DownloadButton(
             class,
             title: artifact.title(),
             onclick: move |_| {
-                let state = state.read();
-                let (prefix, ext) = artifact.naming();
-                let name = runner::artifact_filename(prefix, state.form_code.as_deref(), ext);
+                // The guard is released before the file is written: the run
+                // state is written from worker threads (see `RunBox`).
+                let (name, bytes) = {
+                    let state = state.read();
+                    let (prefix, ext) = artifact.naming();
+                    let name = runner::artifact_filename(prefix, state.form_code.as_deref(), ext);
+                    let bytes = artifact.bytes(&state);
+                    (name, bytes)
+                };
                 let previous = last_download.peek().get(&name).cloned();
                 error
                     .set(
-                        match artifact.bytes(&state) {
+                        match bytes {
                             Some(bytes) => {
                                 match download_file(&bytes, &name, previous.as_deref()) {
                                     Ok(path) => {
@@ -1393,5 +1408,93 @@ mod tests {
         assert!(!Artifact::Package.is_offered(&empty));
         assert!(!Artifact::Xsd.is_offered(&empty));
         assert!(!Artifact::AgentLog.is_offered(&empty));
+    }
+}
+
+#[cfg(test)]
+mod concurrent_writes {
+    //! The run writes its state from worker threads while the window renders
+    //! it. A render that reads the state twice while holding a guard blocks
+    //! behind a queued write forever, which froze the app as soon as judges
+    //! wrote the state from several threads at once.
+
+    use super::*;
+    use std::collections::HashMap;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::{Arc, mpsc};
+    use std::time::{Duration, Instant};
+
+    use dioxus::dioxus_core::NoOpMutations;
+
+    use crate::models::{ProcessingState, RunState};
+
+    /// A `RunBox` of a running run, handing its state out to the test.
+    #[expect(clippy::needless_pass_by_value, reason = "a root component takes its props by value")]
+    fn harness(out: mpsc::Sender<RunState>) -> Element {
+        let state = use_signal_sync(ProcessingState::default);
+        use_hook(|| out.send(state).expect("the test waits for the state"));
+        let files = use_signal(Vec::new);
+        let last_download = use_signal(HashMap::new);
+        let timeline_open = use_signal(|| false);
+        let feedback = use_signal(String::new);
+        rsx! {
+            RunBox {
+                status: RunStatus::Running,
+                state: state.into(),
+                total_spend: pipeline::Spend::default(),
+                files,
+                profile: None,
+                abort: AbortFlag::default(),
+                restored: None,
+                can_continue: false,
+                last_download,
+                has_review: false,
+                on_review: |()| {},
+                timeline_open,
+                feedback,
+                on_feedback: |_: String| {},
+                on_continue: |()| {},
+                on_retry: |()| {},
+                on_give_up: |()| {},
+                on_new: |()| {},
+            }
+        }
+    }
+
+    #[test]
+    fn the_run_box_renders_while_another_thread_writes_the_run_state() {
+        const RENDERING: Duration = Duration::from_secs(3);
+        let (done_tx, done_rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (state_tx, state_rx) = mpsc::channel();
+            let mut dom = VirtualDom::new_with_props(harness, state_tx);
+            dom.rebuild_in_place();
+            let mut state = state_rx.recv().expect("the harness hands out its state");
+            let stop = Arc::new(AtomicBool::new(false));
+            // Joined before the dom drops, which drops the state it writes.
+            let writer = std::thread::spawn({
+                let stop = stop.clone();
+                move || {
+                    while !stop.load(Ordering::Relaxed) {
+                        state.write().context_used_tokens += 1;
+                    }
+                }
+            });
+            let start = Instant::now();
+            while start.elapsed() < RENDERING {
+                // Takes in the writes' marks, so the run box renders again.
+                dom.process_events();
+                dom.render_immediate(&mut NoOpMutations);
+            }
+            stop.store(true, Ordering::Relaxed);
+            writer.join().expect("the writer ends");
+            let _ = done_tx.send(());
+        });
+
+        match done_rx.recv_timeout(RENDERING + Duration::from_secs(10)) {
+            Ok(()) => {}
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("a render of the run box deadlocked against the run's writes"),
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the rendering thread panicked"),
+        }
     }
 }
