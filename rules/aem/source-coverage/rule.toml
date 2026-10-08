@@ -10,10 +10,22 @@ a configurator choice are included: a hidden section exists in the output only i
 revealed it with xfa_set. A text that a referenced fragment renders itself, or that only scripts
 use, is an expected miss and is not a break.
 
+A party's source fields (name, address, date of birth, nationality, company name) and a
+signature's (place, date, name) are collected by the party's partner generic and by
+`affrg_SignatureGeneric1`, which have no children in the document: such a field's counterpart is
+the fragment's own field. A partner generic ships `PN_IndividualBasic` (last and first name) and
+`PN_Address` (street, number, additional details, postcode, city, state, country) shown, and
+`PN_EntityBasic` (company name), `PN_FormAddress` (title), `PN_DOBNationality` (date of birth,
+nationality) and `PN_DateIncorporation` (date and country of incorporation) hidden; `init_hide`
+hides a shown one. A sub-panel the source does not ask for that still shows, or one it asks for
+that stays hidden, is a break: hiding a field the source asks for loses data. A source field the
+partner generic does not have at all (place of birth, an email, a client id) is a break too. The
+signature generic's own hidden `SIGN_Signature` is intended, since the form is signed on paper.
+
 How to judge: run coverage_check, which lists per language the source texts the document does not
 carry. It is a lead, not a verdict: look each entry up on the rendered page. Count the controls in
-xfa_controls against the fillable nodes of the document (json_outline) and resolve each
-difference. Then walk the source with xfa_page_text and xfa_search for every language and every
+xfa_controls against the fillable nodes of the document (json_outline) plus the fields its
+fragments collect, and resolve each difference. Then walk the source with xfa_page_text and xfa_search for every language and every
 configurator variant (xfa_open with xfa_set for each option) and confirm that what each page says
 and asks is in the document.
 
@@ -22,5 +34,6 @@ document, a configurator variant that was never revealed and so is missing, or a
 that differs without an explanation.
 
 Fix: add the missing node or text in the place the page shows it; where a count differs, find the
-lost control and add it.
+lost control and add it. Never rebuild a fragment's fields as loose nodes: a party sub-panel shown
+against the source goes into `init_hide`.
 """

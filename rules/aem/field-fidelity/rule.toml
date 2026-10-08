@@ -21,6 +21,10 @@ reviewed wording is an ordinary field and is judged in full. For a field inside 
 configurator shows, judge `visible` relative to that panel: a field the source shows once its
 option is chosen is `visible: true`, although its panel starts hidden.
 
+A field a fragment supplies (a partner generic's name, address or date of birth, a signature's
+place and date) is the bank's standard and has no node in the document: its type, options, label
+and width are not judged here, and whether it shows is judged by ubs-aem-source-coverage.
+
 How to judge: for each field of the document (json_outline), compare it with its control in
 xfa_controls and with the rendered page (xfa_render_pages): its type, its options (labels and
 values, in every language), its default, whether it is required, whether it is shown, and whether

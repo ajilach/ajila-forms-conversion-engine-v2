@@ -18,6 +18,9 @@ a heading at another level, fields grouped differently, a list or table flattene
 paragraphs, or a repeated block authored once or as copies.
 
 Fix: json_patch the tree to match the page. Tables are covered by the
-ubs-aem-tables-are-html-tables rule. Text the page sets in columns is the one layout the tree does
-not copy: AEM has no multi-column text, so it is one column (ubs-aem-single-column-text).
+ubs-aem-tables-are-html-tables rule. Two arrangements of the page the tree does not copy: text the
+page sets in columns is one column, because AEM has no multi-column text
+(ubs-aem-single-column-text); and in an addressee-driven form the parties sit in the
+configurator's option panels and the signatures on the signature page, wherever the source places
+them (ubs-aem-account-holder-cluster). Neither is a break.
 """

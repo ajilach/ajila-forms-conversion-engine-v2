@@ -4,10 +4,14 @@ output_formats = ["aem-ubs"]
 description = """
 Every option of a Dropdown, Checkbox or RadioButton carries a label (in every language) and a
 `value` the form submits. A blank `value`, or two options of one control that share a value, make
-the submitted data and every condition on that control ambiguous. Take the values verbatim from
-the source (the XFA item values, or the `addItem` and `rawValue` lines of a change script); never
-invent one. An empty label is reported by the ubs-aem-text-languages-complete rule.
+the submitted data and every condition on that control ambiguous. An empty label is reported by
+the ubs-aem-text-languages-complete rule.
 
-Set each option's `value` to the source's own value, and make duplicates distinct as the source
-does.
+Every key is a number (UBS owner directive, 2026-09-15). Read the source's values (the XFA item
+values, or the `addItem` and `rawValue` lines of a change script): where they are all numbers,
+keep them exactly as they are, whatever numbers they are; where any of them is text (usually the
+label repeated), number the options by position from 1, in the source's order. The control's
+`conditions` and its preselection use these keys.
+
+Set each option's `value` to its key, and make duplicates distinct.
 """
