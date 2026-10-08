@@ -8,6 +8,19 @@ the source's default, the source's required state (`mandatory`), its visible sta
 a column width `colspan` that matches the layout (12 is full width, 6 only where two fields share a
 row in the source; the range itself is checked by ubs-aem-grid-widths).
 
+The form configurator is the exception. A configurator is a `RadioButton` or `Dropdown` whose
+option labels are one of the reviewed configurator wordings and whose `conditions` show two or more
+conditional Panels (ubs-aem-configurator-panels). For a configurator, do not judge its control
+type, its option values, the position of the individual option, its default, or the `visible`
+state of the panels its conditions show: these follow the UBS convention
+(ubs-aem-account-holder-cluster, ubs-aem-configurator-panels), not the source, even where the
+source uses a dropdown, other values or another order, or shows one option's content by default.
+Still judge, as for any field, its options (none missing or invented) and their labels in every
+language, its required state and its width. A choice that shows conditional panels without a
+reviewed wording is an ordinary field and is judged in full. For a field inside a panel the
+configurator shows, judge `visible` relative to that panel: a field the source shows once its
+option is chosen is `visible: true`, although its panel starts hidden.
+
 How to judge: for each field of the document (json_outline), compare it with its control in
 xfa_controls and with the rendered page (xfa_render_pages): its type, its options (labels and
 values, in every language), its default, whether it is required, whether it is shown, and whether
@@ -17,7 +30,7 @@ alone do not show them.
 A break is a control of the wrong type (a text box for a date, a dropdown for radio buttons), options
 missing, reordered or with invented values, a default or required state that differs from the
 source, a field hidden that the source shows (or the reverse), or a width that does not match the
-page.
+page. Nothing the configurator exception above leaves to the UBS convention is a break.
 
 Fix: change the node's type (replace the node), `mandatory`, `options`, `visible` or `colspan`.
 """
