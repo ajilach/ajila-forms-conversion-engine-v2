@@ -364,7 +364,14 @@ async fn boot(
             // provides this mapping automatically, but a Linux Docker host
             // does not unless told to (the same flag `docker/aem/README.md`'s
             // bake script already passes for exactly this reason).
-            extra_hosts: vec!["host.docker.internal:host-gateway".to_owned()],
+            // Only when a Redacto URL is configured at all: the default
+            // renderer is installed into AEM itself and needs no host
+            // mapping, and Podman before 5.3 refuses `host-gateway`.
+            extra_hosts: if profile.redacto_url.is_some() {
+                vec!["host.docker.internal:host-gateway".to_owned()]
+            } else {
+                Vec::new()
+            },
             memory_bytes: None,
         })
         .await

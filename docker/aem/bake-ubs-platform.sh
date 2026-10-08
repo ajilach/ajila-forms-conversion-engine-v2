@@ -106,6 +106,24 @@ esac
 # so neither localhost:18080 nor host.docker.internal.
 REDACTO_URL="${REDACTO_URL:-http://localhost:8080/bin/redacto/summary/generatepdf}"
 
+# Docker or Podman. CONTAINER_CLI wins; otherwise docker when its daemon
+# answers, else podman (its machine must be running: `podman machine start`).
+if [ -n "${CONTAINER_CLI:-}" ]; then
+    CLI="$CONTAINER_CLI"
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    CLI=docker
+elif command -v podman >/dev/null 2>&1; then
+    CLI=podman
+else
+    echo "error: neither a reachable docker nor podman was found; set CONTAINER_CLI" >&2
+    exit 1
+fi
+if ! "$CLI" info >/dev/null 2>&1; then
+    echo "error: $CLI cannot reach its engine (for Podman: podman machine start)" >&2
+    exit 1
+fi
+echo "using $CLI"
+
 AEM_USER="${AEM_USER:-admin}"
 AEM_PASSWORD="${AEM_PASSWORD:-admin}"
 CONTAINER_NAME="aem-bake-ubs-$$"
@@ -118,28 +136,44 @@ CONTAINER_NAME="aem-bake-ubs-$$"
 # against a leftover `u2s-verify-aem-*` container: the verifier keeps its
 # AEM session alive for reuse after a run, so one can still hold this
 # volume minutes later. Refuse up front instead.
-HOLDERS="$(docker ps --filter "volume=$VOLUME_NAME" --format '{{.Names}}' || true)"
+HOLDERS="$("$CLI" ps --filter "volume=$VOLUME_NAME" --format '{{.Names}}' || true)"
 if [ -n "$HOLDERS" ]; then
     echo "error: these running containers already have $VOLUME_NAME mounted:" >&2
     echo "$HOLDERS" | sed 's/^/         /' >&2
     echo "       Two AEM instances on one repository do not fail cleanly -- the second" >&2
     echo "       blocks forever opening the segment store. Stop them first:" >&2
-    echo "         docker stop $(echo "$HOLDERS" | tr '\n' ' ')" >&2
+    echo "         $CLI stop $(echo "$HOLDERS" | tr '\n' ' ')" >&2
+    exit 1
+fi
+
+# The bake publishes AEM on localhost:4502, where the UBS Maven build deploys.
+# Another AEM there (a developer's own instance) would receive the platform
+# instead, so refuse while anything answers on that port.
+if curl -s -o /dev/null --max-time 3 "http://localhost:4502/"; then
+    echo "error: something already answers on localhost:4502, most likely another AEM." >&2
+    echo "       Stop it for the bake (e.g. $CLI stop <container>) and run this again." >&2
     exit 1
 fi
 
 echo "creating volume $VOLUME_NAME (a no-op if it already exists) ..."
-docker volume create "$VOLUME_NAME" >/dev/null
+"$CLI" volume inspect "$VOLUME_NAME" >/dev/null 2>&1 || "$CLI" volume create "$VOLUME_NAME" >/dev/null
 
 echo "starting $BASE_IMAGE as $CONTAINER_NAME with $VOLUME_NAME attached at /aem/crx-quickstart ..."
-docker run -d --name "$CONTAINER_NAME" --platform "$PLATFORM" \
-    --add-host=host.docker.internal:host-gateway \
+# The host mapping only matters for a REDACTO_URL pointing at the host, and
+# Podman before 5.3 refuses `host-gateway`, so it is added only then.
+ADD_HOST=""
+case "$REDACTO_URL" in
+    *host.docker.internal*) ADD_HOST="--add-host=host.docker.internal:host-gateway" ;;
+esac
+# shellcheck disable=SC2086
+"$CLI" run -d --name "$CONTAINER_NAME" --platform "$PLATFORM" \
+    $ADD_HOST \
     -p 4502:8080 \
     -v "$VOLUME_NAME:/aem/crx-quickstart" \
     "$BASE_IMAGE" >/dev/null
 
 cleanup() {
-    docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    "$CLI" rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -379,7 +413,7 @@ curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST "http://localhost:4502/libs/grani
     -F cmd=rebuildAll >/dev/null
 
 echo "stopping $CONTAINER_NAME (the deployed state stays in $VOLUME_NAME) ..."
-docker stop -t 300 "$CONTAINER_NAME" >/dev/null
+"$CLI" stop -t 300 "$CONTAINER_NAME" >/dev/null
 
 echo "done: $VOLUME_NAME now holds a deployed UBS platform and its Redacto renderer."
 echo "export:"

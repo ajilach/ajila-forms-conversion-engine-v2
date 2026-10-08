@@ -1,0 +1,305 @@
+diff --git a/u2s/crates/u2s-aem-verify-core/src/session.rs b/u2s/crates/u2s-aem-verify-core/src/session.rs
+index 80f5d29..85b08f5 100644
+--- a/u2s/crates/u2s-aem-verify-core/src/session.rs
++++ b/u2s/crates/u2s-aem-verify-core/src/session.rs
+@@ -364,7 +364,14 @@ async fn boot(
+             // provides this mapping automatically, but a Linux Docker host
+             // does not unless told to (the same flag `docker/aem/README.md`'s
+             // bake script already passes for exactly this reason).
+-            extra_hosts: vec!["host.docker.internal:host-gateway".to_owned()],
++            // Only when a Redacto URL is configured at all: the default
++            // renderer is installed into AEM itself and needs no host
++            // mapping, and Podman before 5.3 refuses `host-gateway`.
++            extra_hosts: if profile.redacto_url.is_some() {
++                vec!["host.docker.internal:host-gateway".to_owned()]
++            } else {
++                Vec::new()
++            },
+             memory_bytes: None,
+         })
+         .await
+diff --git a/u2s/crates/u2s-verify-core/src/docker.rs b/u2s/crates/u2s-verify-core/src/docker.rs
+index 9587955..b623847 100644
+--- a/u2s/crates/u2s-verify-core/src/docker.rs
++++ b/u2s/crates/u2s-verify-core/src/docker.rs
+@@ -92,6 +92,12 @@ pub enum DockerError {
+         waited: Duration,
+         last: String,
+     },
++    #[error("cannot inspect volume {name:?}: {source}")]
++    InspectVolume {
++        name: String,
++        #[source]
++        source: bollard::errors::Error,
++    },
+     #[error("cannot remove network {name:?}: {source}")]
+     RemoveNetwork {
+         name: String,
+@@ -186,17 +192,88 @@ pub struct DockerLifecycle {
+ }
+ 
+ impl DockerLifecycle {
+-    /// Connects using the platform default (the Unix socket on macOS/Linux,
+-    /// the named pipe on Windows) and confirms the daemon actually answers
+-    /// -- a socket that exists but refuses connections (Docker Desktop
+-    /// installed but not running) must be [`DockerError::Unreachable`], not
+-    /// a lifecycle that only fails on the first real call.
++    /// Connects to the first container engine that answers and confirms it
++    /// actually does -- a socket that exists but refuses connections (Docker
++    /// Desktop or a Podman machine installed but not running) must be
++    /// [`DockerError::Unreachable`], not a lifecycle that only fails on the
++    /// first real call.
++    ///
++    /// The engine is Docker or Podman, through Podman's Docker-compatible
++    /// API; [`engine_sockets`] says where each is looked for. The socket that
++    /// answered is remembered for the rest of the process and tried first.
+     pub async fn connect() -> Result<Self, DockerError> {
++        #[cfg(unix)]
++        {
++            let remembered = CONNECTED_SOCKET.lock().ok().and_then(|s| s.clone());
++            let mut candidates = engine_sockets();
++            if let Some(socket) = remembered {
++                candidates.retain(|c| *c != socket);
++                candidates.insert(0, socket);
++            }
++            let mut last = None;
++            for socket in candidates {
++                let docker = match Docker::connect_with_unix(
++                    &socket,
++                    120,
++                    bollard::API_DEFAULT_VERSION,
++                ) {
++                    Ok(docker) => docker,
++                    Err(e) => {
++                        last = Some(e);
++                        continue;
++                    }
++                };
++                match docker.ping().await {
++                    Ok(_) => {
++                        if let Ok(mut slot) = CONNECTED_SOCKET.lock() {
++                            *slot = Some(socket);
++                        }
++                        return Ok(Self { docker });
++                    }
++                    Err(e) => last = Some(e),
++                }
++            }
++            if let Some(e) = last {
++                return Err(DockerError::Unreachable(e));
++            }
++        }
+         let docker = Docker::connect_with_local_defaults().map_err(DockerError::Unreachable)?;
+         docker.ping().await.map_err(DockerError::Unreachable)?;
+         Ok(Self { docker })
+     }
+ 
++    /// The engine's own name and version, e.g. `"Docker Engine 27.3.1"` or
++    /// `"Podman Engine 5.6.1"`, for readiness reports.
++    pub async fn engine_description(&self) -> String {
++        match self.docker.version().await {
++            Ok(v) => {
++                let component = v
++                    .components
++                    .as_ref()
++                    .and_then(|c| c.first())
++                    .map(|c| format!("{} {}", c.name, c.version));
++                component
++                    .or_else(|| v.version.map(|ver| format!("container engine {ver}")))
++                    .unwrap_or_else(|| "container engine".to_owned())
++            }
++            Err(_) => "container engine".to_owned(),
++        }
++    }
++
++    /// Whether the named volume exists.
++    pub async fn volume_exists(&self, name: &str) -> Result<bool, DockerError> {
++        match self.docker.inspect_volume(name).await {
++            Ok(_) => Ok(true),
++            Err(bollard::errors::Error::DockerResponseServerError {
++                status_code: 404, ..
++            }) => Ok(false),
++            Err(source) => Err(DockerError::InspectVolume {
++                name: name.to_owned(),
++                source,
++            }),
++        }
++    }
++
+     /// `true` iff the daemon answers right now. Never returns an error --
+     /// this is `verify_status`'s own reachability check, where "the daemon
+     /// is down" is exactly the fact being reported, not a failure of the
+@@ -746,6 +823,142 @@ impl DockerLifecycle {
+     }
+ }
+ 
++/// The socket [`DockerLifecycle::connect`] last reached an engine on.
++#[cfg(unix)]
++static CONNECTED_SOCKET: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
++
++/// Where a Docker or Podman engine's API socket is looked for, in order,
++/// keeping only paths that exist:
++///
++/// 1. `DOCKER_HOST`, then `CONTAINER_HOST` (Podman's own variable), when set
++///    to a `unix://` socket. Set, they are the only candidate: an explicit
++///    choice that does not answer is reported, not silently bypassed.
++/// 2. `/var/run/docker.sock` -- Docker Desktop, or Podman Desktop with
++///    "Docker compatibility" on (its `podman-mac-helper` links it there).
++/// 3. `~/.docker/run/docker.sock` -- Docker Desktop's per-user socket.
++/// 4. A Podman machine's forwarded API socket on macOS:
++///    `$TMPDIR/podman/<machine>-api.sock` (Podman 5), then
++///    `~/.local/share/containers/podman/machine/[<machine>/]podman.sock`
++///    (Podman 4). `podman-machine-default` first.
++/// 5. Rootless and rootful Podman on Linux:
++///    `$XDG_RUNTIME_DIR/podman/podman.sock`, `/run/podman/podman.sock`.
++/// 6. When none of those exists: what `podman machine inspect` reports as
++///    the machine's socket, for a machine whose socket lives anywhere else.
++#[cfg(unix)]
++pub fn engine_sockets() -> Vec<String> {
++    use std::path::{Path, PathBuf};
++
++    for var in ["DOCKER_HOST", "CONTAINER_HOST"] {
++        if let Ok(host) = std::env::var(var)
++            && let Some(path) = host.strip_prefix("unix://")
++        {
++            return vec![path.to_owned()];
++        }
++    }
++
++    let mut paths: Vec<PathBuf> = vec![PathBuf::from("/var/run/docker.sock")];
++    let home = std::env::var_os("HOME").map(PathBuf::from);
++    if let Some(home) = &home {
++        paths.push(home.join(".docker/run/docker.sock"));
++    }
++    paths.extend(sorted_matches(
++        &std::env::temp_dir().join("podman"),
++        |name| name.ends_with("-api.sock"),
++        |dir, name| dir.join(name),
++    ));
++    if let Some(home) = &home {
++        let machines = home.join(".local/share/containers/podman/machine");
++        paths.push(machines.join("podman.sock"));
++        paths.extend(sorted_matches(
++            &machines,
++            |_| true,
++            |dir, name| dir.join(name).join("podman.sock"),
++        ));
++    }
++    if let Some(runtime) = std::env::var_os("XDG_RUNTIME_DIR") {
++        paths.push(PathBuf::from(runtime).join("podman/podman.sock"));
++    }
++    paths.push(PathBuf::from("/run/podman/podman.sock"));
++
++    let mut sockets: Vec<String> = Vec::new();
++    for path in paths {
++        if Path::new(&path).exists() {
++            let path = path.to_string_lossy().into_owned();
++            if !sockets.contains(&path) {
++                sockets.push(path);
++            }
++        }
++    }
++    // Starting a process is slow, so only when nothing above exists.
++    if sockets.is_empty()
++        && let Some(socket) = podman_cli_socket()
++        && Path::new(&socket).exists()
++    {
++        sockets.push(socket);
++    }
++    sockets
++}
++
++/// Entries of `dir` whose name passes `keep`, mapped by `to_path`, with
++/// Podman's default machine first and the rest by name.
++#[cfg(unix)]
++fn sorted_matches(
++    dir: &std::path::Path,
++    keep: impl Fn(&str) -> bool,
++    to_path: impl Fn(&std::path::Path, &str) -> std::path::PathBuf,
++) -> Vec<std::path::PathBuf> {
++    let Ok(entries) = std::fs::read_dir(dir) else {
++        return Vec::new();
++    };
++    let mut names: Vec<String> = entries
++        .filter_map(|e| e.ok())
++        .map(|e| e.file_name().to_string_lossy().into_owned())
++        .filter(|name| keep(name))
++        .collect();
++    names.sort_by_key(|name| (!name.starts_with("podman-machine-default"), name.clone()));
++    names.iter().map(|name| to_path(dir, name)).collect()
++}
++
++/// The API socket `podman machine inspect` reports for the running machine.
++/// An app started from Finder does not inherit the shell's `PATH`, so the
++/// usual install locations are tried as well.
++#[cfg(unix)]
++fn podman_cli_socket() -> Option<String> {
++    let binaries = [
++        "podman",
++        "/opt/podman/bin/podman",
++        "/opt/homebrew/bin/podman",
++        "/usr/local/bin/podman",
++    ];
++    for podman in binaries {
++        let Ok(output) = std::process::Command::new(podman)
++            .args([
++                "machine",
++                "inspect",
++                "--format",
++                "{{.ConnectionInfo.PodmanSocket.Path}}",
++            ])
++            .stdin(std::process::Stdio::null())
++            .stderr(std::process::Stdio::null())
++            .output()
++        else {
++            continue;
++        };
++        if !output.status.success() {
++            continue;
++        }
++        let socket = String::from_utf8_lossy(&output.stdout)
++            .lines()
++            .map(str::trim)
++            .find(|line| !line.is_empty() && *line != "<no value>")
++            .map(str::to_owned);
++        if socket.is_some() {
++            return socket;
++        }
++    }
++    None
++}
++
+ #[derive(Debug, thiserror::Error)]
+ #[error("{url} did not become ready within {waited:?}: {reason}")]
+ pub struct HttpReadyError {
+@@ -829,6 +1042,30 @@ pub fn single_file_from_tar(archive: &[u8]) -> Result<Vec<u8>, String> {
+ mod tests {
+     use super::*;
+ 
++    #[cfg(unix)]
++    #[test]
++    fn podman_machine_sockets_put_the_default_machine_first() {
++        let dir = std::env::temp_dir().join(format!("u2s-sockets-{}", uuid::Uuid::new_v4()));
++        std::fs::create_dir_all(&dir).unwrap();
++        for name in ["a-machine-api.sock", "podman-machine-default-api.sock", "notes.txt"] {
++            std::fs::write(dir.join(name), b"").unwrap();
++        }
++        let found = sorted_matches(&dir, |n| n.ends_with("-api.sock"), |d, n| d.join(n));
++        std::fs::remove_dir_all(&dir).unwrap();
++        let names: Vec<_> = found
++            .iter()
++            .map(|p| p.file_name().unwrap().to_string_lossy().into_owned())
++            .collect();
++        assert_eq!(names, ["podman-machine-default-api.sock", "a-machine-api.sock"]);
++    }
++
++    #[cfg(unix)]
++    #[test]
++    fn a_missing_directory_has_no_sockets() {
++        let dir = std::path::Path::new("/nonexistent/u2s/podman");
++        assert!(sorted_matches(dir, |_| true, |d, n| d.join(n)).is_empty());
++    }
++
+     fn tar_of(files: &[(&str, &[u8])]) -> Vec<u8> {
+         let mut builder = tar::Builder::new(Vec::new());
+         for (name, contents) in files {

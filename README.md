@@ -114,6 +114,27 @@ Prerequisites on the machine running an AEM conversion:
 - The Docker data volume with the UBS platform baked in (one-time setup: `docker/aem/bake-ubs-platform.sh`, see `docker/aem/README.md`)
 - Only an ARM image exists today, so AEM conversions currently run only on Apple Silicon hosts
 
+#### Podman instead of Docker
+
+The verifiers talk to the Docker Engine API, which Podman also serves, so Podman (and
+Podman Desktop) work in place of Docker Desktop. The engine is found by itself:
+`DOCKER_HOST` or `CONTAINER_HOST` when set to a `unix://` socket, else `/var/run/docker.sock`
+(Podman Desktop's "Docker compatibility"), else the Podman machine's own API socket
+(`$TMPDIR/podman/<machine>-api.sock`), else whatever `podman machine inspect` reports.
+`verify check` names the engine it reached.
+
+On a Mac with Apple silicon:
+
+- Give the Podman machine room for AEM: at least 4 CPUs and 12 GB of memory
+  (`podman machine stop && podman machine set --cpus 4 --memory 12288 && podman machine start`,
+  or Podman Desktop → Settings → Resources).
+- `az acr login` needs the docker CLI, so log Podman in with a token instead:
+  `podman login ajila.azurecr.io -u 00000000-0000-0000-0000-000000000000 -p "$(az acr login --name ajila --subscription BC_AZ_Ajila_10128 --expose-token --query accessToken -o tsv)"`,
+  then `podman pull ajila.azurecr.io/aemforms-arm:6.5.17.0`.
+- `docker/aem/bake-ubs-platform.sh` uses `podman` when no Docker daemon answers
+  (`CONTAINER_CLI=podman` forces it). It publishes AEM on `localhost:4502` and refuses to start
+  while something else answers there: stop your own AEM for the bake.
+
 For a **Redacto target**, the verifier boots a Redacto platform of the run's own (Postgres, migration, core and rendering containers), imports the built dump there and renders it once per language.
 
 Prerequisites for Redacto: Docker running, the public Postgres image pulled (`verify prepare` does that), and the platform images from ajila's private registry pulled: `az acr login --name ajilaclouddev`, then `docker pull` each image the settings name (see `docker/redacto/README.md`).

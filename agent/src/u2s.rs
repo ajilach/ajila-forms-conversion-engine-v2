@@ -412,30 +412,29 @@ pub async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String
         for image in [&profile.aem_image, &profile.chromium_image] {
             image_problem(docker, image, &mut problems).await;
         }
-        match bollard::Docker::connect_with_local_defaults() {
-            Ok(client) => match client.inspect_volume(&settings.data_volume).await {
-                Ok(_) => {}
-                Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => {
-                    problems.push(format!(
-                        "the Docker volume {:?} does not exist; bake it with \
-                         docker/aem/bake-ubs-platform.sh (see docker/aem/README.md)",
-                        settings.data_volume
-                    ));
-                }
-                Err(e) => problems.push(format!(
-                    "could not inspect the Docker volume {:?}: {e}",
-                    settings.data_volume
-                )),
-            },
-            Err(e) => problems.push(format!("could not inspect Docker volumes: {e}")),
+        match docker.volume_exists(&settings.data_volume).await {
+            Ok(true) => {}
+            Ok(false) => problems.push(format!(
+                "the container volume {:?} does not exist; bake it with \
+                 docker/aem/bake-ubs-platform.sh (see docker/aem/README.md)",
+                settings.data_volume
+            )),
+            Err(e) => problems.push(format!(
+                "could not inspect the container volume {:?}: {e}",
+                settings.data_volume
+            )),
         }
     }
     pdf_problem(&mut problems);
     if !problems.is_empty() {
         return Err(problems.join("\n"));
     }
+    let engine = match &docker {
+        Some(docker) => docker.engine_description().await,
+        None => "container engine".into(),
+    };
     Ok(format!(
-        "AEM image {}, data volume {}, Docker reachable, pdfium loaded.",
+        "AEM image {}, data volume {}, {engine} reachable, pdfium loaded.",
         settings.image, settings.data_volume
     ))
 }
@@ -459,7 +458,7 @@ pub async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Resul
         return Err(problems.join("\n"));
     }
     let images = profile.map(|p| p.images.all().join(", ")).unwrap_or_default();
-    Ok(format!("Redacto platform images {images}, Docker reachable, pdfium loaded."))
+    Ok(format!("Redacto platform images {images}, container engine reachable, pdfium loaded."))
 }
 
 /// Pulls the public images the verifiers run: the AEM verifier's Chromium and
@@ -484,7 +483,7 @@ pub async fn pull_verifier_images(
     let platform = optional(&aem.platform).unwrap_or_else(|| "linux/amd64".into());
     let docker = DockerLifecycle::connect()
         .await
-        .map_err(|e| format!("Docker is not reachable: {e}"))?;
+        .map_err(|e| format!("No container engine (Docker or Podman) is reachable: {e}"))?;
     let images = [chromium, redacto.postgres_image.trim().to_string()];
     for image in &images {
         docker
@@ -499,7 +498,12 @@ async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> 
     match DockerLifecycle::connect().await {
         Ok(docker) if docker.is_reachable().await => Some(docker),
         Ok(_) | Err(_) => {
-            problems.push("Docker is not reachable; start Docker Desktop or the Docker daemon".into());
+            problems.push(
+                "no container engine is reachable; start Docker, or the Podman machine \
+                 (`podman machine start`, or Podman Desktop). A socket somewhere unusual \
+                 can be named with DOCKER_HOST=unix:///path/to/socket"
+                    .into(),
+            );
             None
         }
     }
@@ -511,7 +515,7 @@ async fn image_problem(docker: &DockerLifecycle, image: &str, problems: &mut Vec
         Ok(None) => problems.push(format!(
             "the image {image} is not present locally; pull it first (`verify prepare` pulls the \
              public images; the AEM and Redacto platform images need `az acr login` and \
-             `docker pull`, see docker/aem/README.md and docker/redacto/README.md)"
+             `docker pull` or `podman pull`, see docker/aem/README.md and docker/redacto/README.md)"
         )),
         Err(e) => problems.push(format!("could not look up the image {image}: {e}")),
     }

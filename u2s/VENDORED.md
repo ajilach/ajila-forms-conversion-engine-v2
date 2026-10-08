@@ -59,6 +59,14 @@ The dependency versions the crates inherit with `workspace = true` sit in the ro
   - `u2s-aem-verify-core`'s `AemVerifyServer` becomes public, with `with_parts`, `dispatch`
     and `shutdown`. Leftover containers of a crashed run are removed through upstream's own
     public `u2s_verify_core::session::remove_leftovers`.
+- `0003-podman-engine.patch`: lets the verifiers run on Podman as well as Docker.
+  `DockerLifecycle::connect` tries `DOCKER_HOST`/`CONTAINER_HOST`, `/var/run/docker.sock`,
+  Docker Desktop's per-user socket, a Podman machine's API socket on macOS
+  (`$TMPDIR/podman/*-api.sock`, `~/.local/share/containers/podman/machine/`), the Linux Podman
+  sockets and finally `podman machine inspect`, and keeps the first that answers
+  (`engine_sockets`). It adds `engine_description` and `volume_exists`. The AEM container
+  gets the `host.docker.internal:host-gateway` mapping only when a Redacto URL is configured,
+  since Podman before 5.3 refuses `host-gateway`.
 
 ## How the agent offers the vendored tools
 
