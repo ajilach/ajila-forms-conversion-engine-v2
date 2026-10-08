@@ -488,13 +488,29 @@ pub(crate) async fn run_stage(
     total_spend: &mut Spend,
 ) -> Option<String> {
 
-    let (specs, session_id) = {
+    let (specs, session_id, target) = {
         let agent = shared_agent.lock().await;
-        (agent.tools_for_stage(role.scope), agent.session_id().to_string())
+        (agent.tools_for_stage(role.scope), agent.session_id().to_string(), agent.target())
     };
-    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs);
+    // What a `rule_check` of this stage needs to dispatch its judges.
+    let judge_spend = Arc::new(std::sync::Mutex::new(Spend::default()));
+    let judges = crate::judge::JudgeContext {
+        target,
+        model: model.clone(),
+        price: price.clone(),
+        max_tokens,
+        context_budget: context_budget.clone(),
+        abort: abort.clone(),
+        obs: obs.clone(),
+        spend: judge_spend.clone(),
+    };
+    let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &judges);
 
-    let memory = stage_memory(&session_id, role.name, context_budget.policy());
+    let memory = if role.remember {
+        stage_memory(&session_id, role.name, context_budget.policy())
+    } else {
+        None
+    };
     let loaded: Vec<Message> = match &memory {
         // Repaired as it is loaded: a conversation stored before calls were
         // answered on the way out still holds unanswered ones.
@@ -529,6 +545,12 @@ pub(crate) async fn run_stage(
     .await;
     let history = answer_unanswered_tool_calls(history);
     store_stage(memory.as_ref(), &loaded, &history, role, obs).await;
+    // The judges this stage's `rule_check` dispatched spent on its behalf.
+    let judged = *judge_spend.lock().unwrap_or_else(|p| p.into_inner());
+    if judged.input_tokens + judged.output_tokens > 0 {
+        total_spend.merge(&judged);
+        obs.emit(RunEvent::Spend(*total_spend));
+    }
     outcome
 }
 
@@ -730,8 +752,9 @@ fn build_stage_agent(
     max_tokens: u32,
     shared_agent: &SharedAgent,
     specs: &[serde_json::Value],
+    judges: &crate::judge::JudgeContext,
 ) -> Agent {
-    let dynamic_tools = tools::dynamic_tools_for(shared_agent, specs);
+    let dynamic_tools = tools::dynamic_tools_with_judges(shared_agent, specs, judges);
     let builder = AgentBuilder::new(model).max_tokens(u64::from(max_tokens));
 
     let mut iter = dynamic_tools.into_iter();
@@ -1803,6 +1826,7 @@ mod controller {
         stuck_tool: None,
         stuck_activity: "testing",
         max_tokens_nudge: "nudge incrementally",
+        remember: true,
     };
 
     /// A restart after a turn already succeeded must not lose what that turn

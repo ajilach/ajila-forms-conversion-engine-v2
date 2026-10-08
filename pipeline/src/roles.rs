@@ -6,7 +6,7 @@
 //! and a stage here names a scope rather than carrying its own list.
 
 use agent::{
-    AUTHOR_ADDENDUM, REDACTO_AUTHOR_ADDENDUM, REDACTO_REVIEWER_ADDENDUM, REDACTO_SHARED_PREAMBLE,
+    AUTHOR_ADDENDUM, JUDGE_PREAMBLE, REDACTO_AUTHOR_ADDENDUM, REDACTO_REVIEWER_ADDENDUM, REDACTO_SHARED_PREAMBLE,
     REDACTO_SYSTEM_PROMPT, REVIEWER_ADDENDUM, SHARED_PREAMBLE, SYSTEM_PROMPT,
 };
 
@@ -79,6 +79,10 @@ pub(crate) struct Role {
     /// Injected when a turn overflows the output-token cap. Names the authoring
     /// tools this role actually has, so it must be per target.
     pub(crate) max_tokens_nudge: &'static str,
+    /// Whether the stage's conversation is stored under the session and loaded
+    /// when it runs again. A judge's is not: it is one-shot, and judges run in
+    /// parallel, so one stored conversation would mix them.
+    pub(crate) remember: bool,
 }
 
 pub(crate) const AUTHOR: Role = Role {
@@ -88,6 +92,7 @@ pub(crate) const AUTHOR: Role = Role {
     stuck_tool: Some("build_aem_package"),
     stuck_activity: "the package build",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
+    remember: true,
 };
 
 /// The Reviewer's budget covers a browser click-through of the deployed form
@@ -100,6 +105,7 @@ pub(crate) const REVIEWER: Role = Role {
     stuck_tool: Some("build_aem_package"),
     stuck_activity: "the package build",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
+    remember: true,
 };
 
 // ── Redacto roles ────────────────────────────────────────────────────────────
@@ -113,6 +119,7 @@ pub(crate) const REDACTO_AUTHOR: Role = Role {
     stuck_tool: Some("build_redacto_dump"),
     stuck_activity: "the dump build",
     max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
+    remember: true,
 };
 
 pub(crate) const REDACTO_REVIEWER: Role = Role {
@@ -122,12 +129,41 @@ pub(crate) const REDACTO_REVIEWER: Role = Role {
     stuck_tool: Some("build_redacto_dump"),
     stuck_activity: "the dump build",
     max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
+    remember: true,
 };
 
-/// The two stages for one output target.
+/// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
+/// ends with `submit_rule_verdict`. Same role for both targets but its scope.
+const JUDGE_TURNS: usize = 20;
+const JUDGE_NUDGE: &str = "Your previous turn was cut off at the output-token limit. Keep each \
+call small: read one part of the document at a time, then call submit_rule_verdict.";
+
+pub(crate) const JUDGE: Role = Role {
+    name: "Judge",
+    scope: agent::scope::AEM_JUDGE,
+    max_iterations: JUDGE_TURNS,
+    stuck_tool: None,
+    stuck_activity: "judging",
+    max_tokens_nudge: JUDGE_NUDGE,
+    remember: false,
+};
+
+pub(crate) const REDACTO_JUDGE: Role = Role {
+    name: "Judge",
+    scope: agent::scope::REDACTO_JUDGE,
+    max_iterations: JUDGE_TURNS,
+    stuck_tool: None,
+    stuck_activity: "judging",
+    max_tokens_nudge: JUDGE_NUDGE,
+    remember: false,
+};
+
+/// The stages for one output target.
 pub(crate) struct TargetRoles {
     pub(crate) author: &'static Role,
     pub(crate) reviewer: &'static Role,
+    /// The judge `rule_check` dispatches for each judged rule.
+    pub(crate) judge: &'static Role,
     /// What the Author stage header says it is doing.
     pub(crate) author_doing: &'static str,
     /// Seed message that starts a fresh Author stage.
@@ -147,6 +183,7 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
         OutputTarget::Aem => TargetRoles {
             author: &AUTHOR,
             reviewer: &REVIEWER,
+            judge: &JUDGE,
             author_doing: "building the AEM form",
             author_seed: "Inspect the source form, then author the full form in the document, \
                           then rule_check and build_aem_package.",
@@ -160,6 +197,7 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
         OutputTarget::Redacto => TargetRoles {
             author: &REDACTO_AUTHOR,
             reviewer: &REDACTO_REVIEWER,
+            judge: &REDACTO_JUDGE,
             author_doing: "building the Redacto document",
             author_seed: "Inspect the source document, then author the full document, then \
                           build_redacto_dump.",
@@ -225,6 +263,17 @@ pub(crate) fn sys_reviewer(target: OutputTarget, extra: &str, reviews: &[String]
     s
 }
 
+/// A judge's system prompt: its preamble, the document format, and the one
+/// rule it judges.
+pub(crate) fn sys_judge(target: OutputTarget, rule: &agent::rules::JudgedRule, judgement: &str) -> String {
+    format!(
+        "{JUDGE_PREAMBLE}{}\n\n## THE RULE\njudgement: {judgement}\n{}\n\n{}",
+        format_note(target),
+        rule.title,
+        rule.description
+    )
+}
+
 pub(crate) fn append_reviews(s: &mut String, heading: &str, reviews: &[String]) {
     use std::fmt::Write;
 
@@ -255,7 +304,7 @@ mod tests {
                 OutputTarget::Redacto,
             ] {
                 let roles = roles_for(target);
-                for role in [roles.author, roles.reviewer] {
+                for role in [roles.author, roles.reviewer, roles.judge] {
                     let tools = agent::tools_for(target, role.scope);
                     assert!(
                         !tools.is_empty(),
@@ -276,7 +325,7 @@ mod tests {
                 OutputTarget::Redacto,
             ] {
                 let roles = roles_for(target);
-                for role in [roles.author, roles.reviewer] {
+                for role in [roles.author, roles.reviewer, roles.judge] {
                     let Some(stuck) = role.stuck_tool else {
                         continue;
                     };
@@ -294,13 +343,15 @@ mod tests {
         }
 
     
-        /// The four stages must be four distinct scopes — pointing two stages at the
+        /// The six stages must be six distinct scopes — pointing two stages at the
         /// same scope would silently give one of them the other's tools.
         #[test]
-        fn the_four_stages_have_distinct_scopes() {
+        fn the_six_stages_have_distinct_scopes() {
             let scopes = [
                 AUTHOR.scope,
                 REVIEWER.scope,
+                JUDGE.scope,
+                REDACTO_JUDGE.scope,
                 REDACTO_AUTHOR.scope,
                 REDACTO_REVIEWER.scope,
             ];

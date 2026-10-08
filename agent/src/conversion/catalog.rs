@@ -34,9 +34,14 @@ pub mod scope {
     /// The read-only pass that writes a reference form's description. Sees the
     /// source and the package; edits nothing.
     pub const DESCRIBE: Mask = 1 << 5;
+    /// A judge agent checking one rule `rule_check` handed it: reads the
+    /// document and the source, edits nothing, ends with its verdict.
+    pub const AEM_JUDGE: Mask = 1 << 6;
+    pub const REDACTO_JUDGE: Mask = 1 << 7;
 
-    pub const AEM_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER;
-    pub const REDACTO_STAGES: Mask = REDACTO_AUTHOR | REDACTO_REVIEWER;
+    pub const AEM_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE;
+    pub const REDACTO_STAGES: Mask = REDACTO_AUTHOR | REDACTO_REVIEWER | REDACTO_JUDGE;
+    pub const JUDGES: Mask = AEM_JUDGE | REDACTO_JUDGE;
     pub const ALL_STAGES: Mask = AEM_STAGES | REDACTO_STAGES;
     /// Every caller, the read-only describe pass included.
     pub const EVERYWHERE: Mask = ALL_STAGES | MCP | DESCRIBE;
@@ -170,12 +175,12 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("xfa_search_text",                   target::BOTH,    EVERYWHERE, Read),
 
         // §1c PDFs the verifiers produce, through the vendored u2s PDF renderer.
-        ("pdf_info",                          target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
-        ("pdf_render_page",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
-        ("pdf_render_pages",                  target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
-        ("pdf_render_region",                 target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
-        ("pdf_page_text",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
-        ("pdf_search_text",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Read),
+        ("pdf_info",                          target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES | MCP, Read),
+        ("pdf_render_page",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES | MCP, Read),
+        ("pdf_render_pages",                  target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES | MCP, Read),
+        ("pdf_render_region",                 target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES | MCP, Read),
+        ("pdf_page_text",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES | MCP, Read),
+        ("pdf_search_text",                   target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES | MCP, Read),
 
         // §2 the run's output document: one revisioned JSON document per run,
         // read and patched with the json_* tools and held to the rules with the
@@ -184,7 +189,7 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("json_get",                          target::BOTH,    EVERYWHERE, Write),
         ("json_search",                       target::BOTH,    EVERYWHERE, Write),
         ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR | MCP, Write),
-        ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
+        ("json_validate",                     target::BOTH,    AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | JUDGES | MCP, Write),
         ("rule_list",                         target::BOTH,     AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
         ("rule_check",                        target::BOTH,     AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
         ("rule_autofix",                      target::AEM,     AEM_AUTHOR | MCP, Write),
@@ -192,9 +197,9 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         // §3 building the output through the UBS encoders.
         ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER | MCP, Write),
         ("build_aem_package",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
-        ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE, Write),
-        ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP | DESCRIBE, Write),
-        ("coverage_check",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | MCP, Write),
+        ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | MCP | DESCRIBE, Write),
+        ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | MCP | DESCRIBE, Write),
+        ("coverage_check",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | MCP, Write),
 
         // §6 verification through the vendored u2s verifiers (crate::u2s): the
         // AEM package against a Docker AEM, the Redacto dump against a throwaway
@@ -229,6 +234,7 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
 
         // §8 meta.
         ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER | MCP, Write),
+        ("submit_rule_verdict",               target::BOTH,    JUDGES, Write),
     ]
 };
 
@@ -343,6 +349,26 @@ fn tool_specs() -> Vec<serde_json::Value> {
         specs.extend(references_mcp::specs::tool_specs());
         specs.extend([
             // §8 control
+            t(
+                "submit_rule_verdict",
+                "Terminal step of a judge: call once, last, with your verdict on the one rule you \
+                 were given. pass=true when the document keeps the rule everywhere; otherwise \
+                 pass=false and one violation per place that breaks it, each with the JSON Pointer \
+                 of the node and a message saying what is wrong and how to fix it.",
+                serde_json::json!({
+                    "judgement": {"type": "string", "description": "The judgement id you were given with the rule."},
+                    "pass": {"type": "boolean"},
+                    "violations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {"pointer": {"type": "string"}, "message": {"type": "string"}},
+                            "required": ["pointer", "message"]
+                        }
+                    }
+                }),
+                serde_json::json!(["judgement", "pass", "violations"]),
+            ),
             t(
                 "submit_review",
                 "Terminal REVIEW step (Reviewer role) — call once, last, after building/validating/reviewing. approved=true means the form is fully correct and ends the run; approved=false returns your detailed issue list to the author for a fix round.",
@@ -502,6 +528,7 @@ mod catalog_guards {
             AUTHOR_ADDENDUM,
             REVIEWER_ADDENDUM,
             MCP_ADDENDUM,
+            JUDGE_PREAMBLE,
             REDACTO_MCP_ADDENDUM,
             REDACTO_SYSTEM_PROMPT,
             REDACTO_SHARED_PREAMBLE,
@@ -535,7 +562,9 @@ mod catalog_guards {
     #[test]
     fn each_stage_prompt_only_names_tools_that_stage_is_offered() {
         let names: BTreeSet<&str> = catalog().iter().map(|t| t.name()).collect();
-        let stages: [(OutputTarget, scope::Mask, &str, Vec<&str>); 6] = [
+        let stages: [(OutputTarget, scope::Mask, &str, Vec<&str>); 8] = [
+            (OutputTarget::Aem, scope::AEM_JUDGE, "AEM Judge", vec![JUDGE_PREAMBLE]),
+            (OutputTarget::Redacto, scope::REDACTO_JUDGE, "Redacto Judge", vec![JUDGE_PREAMBLE]),
             (OutputTarget::Aem, scope::AEM_AUTHOR, "AEM Author", vec![SYSTEM_PROMPT, AUTHOR_ADDENDUM]),
             (OutputTarget::Aem, scope::AEM_REVIEWER, "AEM Reviewer", vec![SHARED_PREAMBLE, REVIEWER_ADDENDUM]),
             (OutputTarget::Aem, scope::MCP, "AEM MCP", vec![SYSTEM_PROMPT, MCP_ADDENDUM]),
@@ -655,6 +684,18 @@ mod catalog_guards {
             assert!(has(OutputTarget::Aem, scope, "xfa_render_page"));
             assert!(has(OutputTarget::Aem, scope, "xfa_outline"));
         }
+
+        // A judge reads, never edits, never dispatches judges of its own, and
+        // ends with its verdict.
+        for (target, judge) in [(OutputTarget::Aem, scope::AEM_JUDGE), (OutputTarget::Redacto, scope::REDACTO_JUDGE)] {
+            for barred in ["json_patch", "rule_check", "rule_autofix", "submit_review", "build_aem_package", "build_redacto_dump"] {
+                assert!(!has(target, judge, barred), "a judge must not have {barred}");
+            }
+            for needed in ["submit_rule_verdict", "json_get", "json_outline", "xfa_page_text", "get_source_info"] {
+                assert!(has(target, judge, needed), "a judge needs {needed}");
+            }
+        }
+        assert!(!has(OutputTarget::Aem, scope::AEM_REVIEWER, "submit_rule_verdict"));
 
         // The describe pass reads and never edits.
         for writer in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {

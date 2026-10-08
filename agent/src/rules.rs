@@ -186,12 +186,33 @@ pub fn list_with_judged(mut listed: Value, judged: &[JudgedRule]) -> Value {
     listed
 }
 
-/// A judge's verdict on one rule.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+/// A judge's verdict on one rule, as `submit_rule_verdict` takes it (its
+/// `judgement` is the key it is stored under, not part of the verdict).
+#[derive(Debug, Clone, PartialEq, Deserialize, serde::Serialize)]
 pub struct RuleVerdict {
     pub pass: bool,
     #[serde(default)]
-    pub violations: Vec<Value>,
+    pub violations: Vec<Violation>,
+}
+
+/// One place a rule is broken.
+#[derive(Debug, Clone, PartialEq, Deserialize, serde::Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Violation {
+    pub pointer: String,
+    pub message: String,
+}
+
+impl RuleVerdict {
+    /// A verdict that says what it found: a kept rule has no violations, and a
+    /// broken one names at least one place to fix.
+    pub fn validate(&self) -> Result<(), String> {
+        match (self.pass, self.violations.is_empty()) {
+            (true, false) => Err("pass=true lists violations: a kept rule has none".into()),
+            (false, true) => Err("pass=false needs at least one violation saying where to fix it".into()),
+            _ => Ok(()),
+        }
+    }
 }
 
 /// One `rule_check` report from the scripts' verdicts and the judged rules':
@@ -199,13 +220,18 @@ pub struct RuleVerdict {
 /// `negative` with its violations), one without is `unchecked` with the
 /// reason. Every verdict says which kind of check made it.
 pub fn merge_rule_report(mut scripted: Value, judged: &[(JudgedRule, Result<RuleVerdict, String>)]) -> Value {
-    let verdicts = scripted
-        .as_object_mut()
-        .map(|o| o.entry("verdicts").or_insert_with(|| json!([])))
-        .and_then(Value::as_array_mut);
-    let Some(verdicts) = verdicts else {
-        return scripted;
-    };
+    // A script report of another shape keeps its place, but never swallows
+    // the judges' verdicts.
+    if !scripted.get("verdicts").is_some_and(Value::is_array) {
+        scripted = match scripted {
+            Value::Object(mut object) => {
+                object.insert("verdicts".into(), json!([]));
+                Value::Object(object)
+            }
+            other => json!({ "verdicts": [], "scripted_report": other }),
+        };
+    }
+    let verdicts = scripted["verdicts"].as_array_mut().expect("made an array above");
     for verdict in verdicts.iter_mut() {
         verdict["check"] = json!("script");
     }
@@ -284,7 +310,7 @@ mod tests {
         let merged = merge_rule_report(
             json!({"verdicts": [{"rule_id": "s", "verdict": "positive", "violations": []}], "package_findings": []}),
             &[
-                (judged("a"), Ok(RuleVerdict { pass: false, violations: vec![json!({"pointer": "/form", "message": "m"})] })),
+                (judged("a"), Ok(RuleVerdict { pass: false, violations: vec![Violation { pointer: "/form".into(), message: "m".into() }] })),
                 (judged("b"), Ok(RuleVerdict { pass: true, violations: vec![] })),
                 (judged("c"), Err("no judge in this run".into())),
             ],
@@ -296,5 +322,19 @@ mod tests {
         assert_eq!(v[2]["verdict"], "positive");
         assert_eq!((v[3]["verdict"].as_str(), v[3]["unchecked_reason"].as_str()), (Some("unchecked"), Some("no judge in this run")));
         assert_eq!(merged["package_findings"], json!([]));
+
+        // A script report of another shape does not swallow the judges' verdicts.
+        let merged = merge_rule_report(json!("broken"), &[(judged("a"), Err("x".into()))]);
+        assert_eq!(merged["verdicts"][0]["rule_id"], "id-a");
+        assert_eq!(merged["scripted_report"], "broken");
+    }
+
+    #[test]
+    fn a_verdict_says_what_it_found() {
+        let violation = || Violation { pointer: "/form".into(), message: "m".into() };
+        assert!(RuleVerdict { pass: true, violations: vec![] }.validate().is_ok());
+        assert!(RuleVerdict { pass: false, violations: vec![violation()] }.validate().is_ok());
+        assert!(RuleVerdict { pass: true, violations: vec![violation()] }.validate().is_err());
+        assert!(RuleVerdict { pass: false, violations: vec![] }.validate().is_err());
     }
 }

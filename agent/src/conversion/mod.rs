@@ -226,6 +226,13 @@ pub struct ConversionAgent {
     /// The Reviewer role's latest `submit_review` outcome, drained by the
     /// controller via [`take_review`](Self::take_review).
     review: Option<ReviewResult>,
+    /// The judgements `rule_check` has dispatched and not yet taken back, each
+    /// with the verdict its judge recorded, if it has. Keyed by a judgement id
+    /// of its own, not the rule's: two judges of one rule never collide, and a
+    /// verdict for a judgement nobody opened is refused.
+    judgements: HashMap<String, Option<crate::rules::RuleVerdict>>,
+    /// How many judgements this agent has opened, which numbers the next.
+    judgements_opened: u64,
 
     /// The vendored u2s tool servers, created on the first u2s call or
     /// `get_source_info` (see [`Self::u2s_tools`]).
@@ -285,6 +292,8 @@ impl ConversionAgent {
             session,
             references,
             review: None,
+            judgements: HashMap::new(),
+            judgements_opened: 0,
             u2s: None,
         })
     }
@@ -380,6 +389,32 @@ impl ConversionAgent {
     /// reads this after running the Reviewer stage).
     pub fn take_review(&mut self) -> Option<ReviewResult> {
         self.review.take()
+    }
+
+    /// Replaces the judged rules, for a test of what dispatches judges.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn set_judged_rules(&mut self, rules: Vec<crate::rules::JudgedRule>) {
+        self.judged = rules;
+    }
+
+    /// Opens a judgement for one judge to record its verdict under, and
+    /// returns its id.
+    pub fn open_judgement(&mut self) -> String {
+        self.judgements_opened += 1;
+        let id = format!("judgement-{}", self.judgements_opened);
+        self.judgements.insert(id.clone(), None);
+        id
+    }
+
+    /// Closes the judgement `id` and returns the verdict recorded under it, if
+    /// its judge recorded one.
+    pub fn take_judgement(&mut self, id: &str) -> Option<crate::rules::RuleVerdict> {
+        self.judgements.remove(id).flatten()
+    }
+
+    /// The document's revision, which a check reports against.
+    pub fn revision(&self) -> u64 {
+        self.document.revision().get()
     }
 
     /// The latest built AEM package.

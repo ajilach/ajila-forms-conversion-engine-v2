@@ -29,8 +29,13 @@
   or the normalize passes guarantee, and the parity tests upstream hold the encoder to the retired
   engine's output. `specs/feedback/rule-coverage.md` maps every enrolled problem to what guarantees
   it. What the templates guarantee is checked too: every build scans the rendered package
-  (`agent/src/package_checks.rs`) and reports a guard problem there as an engine defect. The check rules live here only (v3 keeps its rules in its database and ships none): add or change a rule in
-  `rules/aem/<slug>/` (`rule.toml`, `check.js`) with a test in `agent/tests/rules.rs`.
+  (`agent/src/package_checks.rs`) and reports a guard problem there as an engine defect. The check rules live here only (v3 keeps its rules in its database and ships none). A rule is
+  `rules/<target>/<slug>/rule.toml` plus, when a script can decide it, `check.js` (with a clean and a
+  violating test in `agent/tests/rules.rs`); a rule without a `check.js` is judged: `rule_check`
+  dispatches a judge agent (`pipeline/src/judge.rs`, read-only, one per rule, several at once) that
+  checks the document against the rule's description and reports through `submit_rule_verdict`.
+  Where no judge runs (the MCP server) such a rule is reported unchecked. Rules are not written into
+  the prompts: the agent reads them with `rule_list`.
 - Three of those rules are about a node's position among its siblings, so no template can satisfy
   them: they live in the UBS layer's `normalize.rs` and run over a copy of the tree on the way into
   the writer, which is what makes them hold for an agent-authored or loaded document as well.

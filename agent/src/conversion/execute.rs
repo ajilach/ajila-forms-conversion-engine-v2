@@ -339,6 +339,29 @@ impl ConversionAgent {
             }
 
             // §8 control
+            "submit_rule_verdict" => {
+                let Some(judgement) = input["judgement"].as_str() else {
+                    return ToolReply::Error("submit_rule_verdict needs the judgement id you were given".into());
+                };
+                let verdict = match serde_json::from_value::<crate::rules::RuleVerdict>(input.clone()) {
+                    Ok(verdict) => verdict,
+                    Err(e) => return ToolReply::Error(format!("submit_rule_verdict: {e}")),
+                };
+                if let Err(e) = verdict.validate() {
+                    return ToolReply::Error(format!("submit_rule_verdict: {e}"));
+                }
+                match self.judgements.get_mut(judgement) {
+                    Some(slot @ None) => {
+                        let pass = verdict.pass;
+                        *slot = Some(verdict);
+                        ToolReply::Text(format!("Verdict recorded: {}.", if pass { "kept" } else { "broken" }))
+                    }
+                    Some(Some(_)) => ToolReply::Error("this judgement already has its verdict".into()),
+                    None => ToolReply::Error(format!(
+                        "no open judgement {judgement:?}: use the judgement id you were given"
+                    )),
+                }
+            }
             "submit_review" => {
                 let approved = input["approved"].as_bool().unwrap_or(false);
                 let report = input["report"].as_str().unwrap_or_default().to_string();

@@ -96,4 +96,5 @@ const DESCRIBE: Role = Role {
     // Never reached: this stage authors nothing, so it has no oversized call to
     // break up. Present because every Role carries one.
     max_tokens_nudge: "Summarise what you have and finish the description.",
+    remember: true,
 };

@@ -214,6 +214,45 @@
     "name": "grep_reference_docs"
   },
   {
+    "description": "Terminal step of a judge: call once, last, with your verdict on the one rule you were given. pass=true when the document keeps the rule everywhere; otherwise pass=false and one violation per place that breaks it, each with the JSON Pointer of the node and a message saying what is wrong and how to fix it.",
+    "input_schema": {
+      "properties": {
+        "judgement": {
+          "description": "The judgement id you were given with the rule.",
+          "type": "string"
+        },
+        "pass": {
+          "type": "boolean"
+        },
+        "violations": {
+          "items": {
+            "properties": {
+              "message": {
+                "type": "string"
+              },
+              "pointer": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "pointer",
+              "message"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "judgement",
+        "pass",
+        "violations"
+      ],
+      "type": "object"
+    },
+    "name": "submit_rule_verdict"
+  },
+  {
     "description": "Terminal REVIEW step (Reviewer role) — call once, last, after building/validating/reviewing. approved=true means the form is fully correct and ends the run; approved=false returns your detailed issue list to the author for a fix round.",
     "input_schema": {
       "properties": {

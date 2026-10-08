@@ -274,11 +274,11 @@ impl AgentHook for StageHook {
             )));
         }
 
-        // `submit_review` ends the stage once its verdict is recorded — the
+        // A terminal tool ends the stage once its verdict is recorded; the
         // stop is not a failure, so the driver reads this sentinel reason as
         // a normal end rather than an error.
-        if event.tool_name == "submit_review" {
-            return ToolResultAction::stop(SUBMIT_REVIEW_SENTINEL);
+        if TERMINAL_TOOLS.contains(&event.tool_name) && event.raw_result.is_success() {
+            return ToolResultAction::stop(VERDICT_SENTINEL);
         }
 
         // A read neither builds nor interrupts building: reads finish in any
@@ -476,7 +476,11 @@ impl AgentHook for SharedHook {
 /// end rather than a failure — both are how the hand-rolled loop's `break`
 /// used to end a stage, and a stop is the only way rig can end one at all
 /// (see the module docs on `PromptError::PromptCancelled`).
-pub(crate) const SUBMIT_REVIEW_SENTINEL: &str = "submit_review recorded a verdict";
+pub(crate) const VERDICT_SENTINEL: &str = "a terminal tool recorded a verdict";
+
+/// The tools whose recorded verdict ends a stage: the Reviewer's review and a
+/// judge's verdict on its rule.
+const TERMINAL_TOOLS: &[&str] = &["submit_review", "submit_rule_verdict"];
 pub(crate) const STUCK_SENTINEL: &str = "stuck: repeated identical result";
 
 /// Characters of *text* content in a tool's presentation — the [`ToolOutput`]
@@ -634,6 +638,7 @@ mod tests {
         stuck_tool: Some("get_source_info"),
         stuck_activity: "testing",
         max_tokens_nudge: "nudge incrementally",
+        remember: true,
     };
 
     /// A role with no stuck tool, so a test's repeated calls never trip the
@@ -645,6 +650,7 @@ mod tests {
         stuck_tool: None,
         stuck_activity: "testing",
         max_tokens_nudge: "nudge incrementally",
+        remember: true,
     };
 
     fn agent_with(model: MockCompletionModel) -> Agent {

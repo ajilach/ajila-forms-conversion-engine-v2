@@ -62,6 +62,37 @@ pub fn dynamic_tools_for(agent: &SharedAgent, specs: &[serde_json::Value]) -> Ve
         .collect()
 }
 
+/// [`dynamic_tools_for`], with `rule_check` dispatching judges for the judged
+/// rules (see [`crate::judge`]) instead of reporting them unchecked.
+pub(crate) fn dynamic_tools_with_judges(
+    agent: &SharedAgent,
+    specs: &[serde_json::Value],
+    judges: &crate::judge::JudgeContext,
+) -> Vec<DynamicTool> {
+    specs
+        .iter()
+        .filter_map(|spec| match spec["name"].as_str() {
+            Some("rule_check") => Some(rule_check_tool(agent, spec, judges)),
+            _ => dynamic_tool_from(agent, spec),
+        })
+        .collect()
+}
+
+fn rule_check_tool(agent: &SharedAgent, spec: &serde_json::Value, judges: &crate::judge::JudgeContext) -> DynamicTool {
+    let agent = agent.clone();
+    let judges = judges.clone();
+    DynamicTool::new(
+        "rule_check".to_string(),
+        spec["description"].as_str().unwrap_or_default().to_string(),
+        spec["input_schema"].clone(),
+        move |_ctx, args| {
+            let agent = agent.clone();
+            let judges = judges.clone();
+            Box::pin(async move { reply_to_tool_output(crate::judge::rule_check(&agent, &judges, &args).await) })
+        },
+    )
+}
+
 fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value) -> Option<DynamicTool> {
     let name = spec["name"].as_str()?.to_string();
     let description = spec["description"].as_str().unwrap_or_default().to_string();
