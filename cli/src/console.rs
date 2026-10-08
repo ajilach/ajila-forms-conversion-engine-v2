@@ -155,6 +155,8 @@ impl RunObserver for ConsoleObserver {
                     self.transcript.push("\nRun aborted.\n".to_string());
                 }
             }
+            // The console keeps its log; the rule board is the app's view.
+            RunEvent::Rules(_) | RunEvent::Judging { .. } => {}
         }
     }
 

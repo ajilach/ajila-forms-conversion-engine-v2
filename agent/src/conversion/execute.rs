@@ -199,10 +199,13 @@ impl ConversionAgent {
                 Some(ids) => json!({ "rule_ids": ids }),
                 None => json!({}),
             };
-            u2s_doc_tools::native::check_rules(&input, self.document.value(), Some(&self.schema), &self.rules, runner)
-                .await
-                .map_err(|e| e.to_string())?
-                .value
+            let report =
+                u2s_doc_tools::native::check_rules(&input, self.document.value(), Some(&self.schema), &self.rules, runner)
+                    .await
+                    .map_err(|e| e.to_string())?
+                    .value;
+            self.record_scripted(&report);
+            report
         };
         // The document's build, when it has a current one, is checked too:
         // what the writer made of the document.
@@ -267,6 +270,7 @@ impl ConversionAgent {
                             .into_iter()
                             .map(|rule| (rule, Err(NO_JUDGE.to_string())))
                             .collect();
+                        self.record_judged(&judged, self.revision());
                         ToolReply::Text(crate::rules::merge_rule_report(scripted, &judged).to_string())
                     }
                     Err(e) => ToolReply::Error(e),
@@ -460,6 +464,7 @@ impl ConversionAgent {
         )
         .await
         .map_err(|e| e.to_string())?;
+        self.record_scripted(&outcome.value);
         Ok(outcome.value["verdicts"]
             .as_array()
             .cloned()
@@ -471,6 +476,29 @@ impl ConversionAgent {
                 (id, (verdict, v))
             })
             .collect())
+    }
+
+    /// Puts a scripted check's report (`check_rules`' output) on the rule
+    /// board, against the document's current revision.
+    fn record_scripted(&mut self, report: &Value) {
+        let revision = self.revision();
+        let verdicts = report["verdicts"].as_array().map(Vec::as_slice).unwrap_or_default();
+        self.rule_board.record_scripted(verdicts, revision);
+    }
+
+    /// Brings the rule board's scripted verdicts up to the current document,
+    /// when no check has yet: a stage starting on a seeded or resumed document
+    /// shows where it stands before its first edit.
+    pub async fn refresh_rules(&mut self) -> Result<(), String> {
+        if self.rules.is_empty() || self.rule_board.scripted_current(self.revision()) {
+            return Ok(());
+        }
+        // Before the run's first edit this check is also its lint baseline,
+        // which then need not be taken again.
+        if self.lint.is_none() {
+            return self.lint_baseline().await;
+        }
+        self.verdicts().await.map(|_| ())
     }
 
     /// Take the lint baseline from the document before this run's first edit.

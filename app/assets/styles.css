@@ -1462,3 +1462,71 @@ body > div, #main {
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* ---- Run status: the working agent and the rules ---- */
+.ag-st {
+    margin-top: var(--space-5);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--surface);
+    padding: 11px 14px;
+}
+.ag-st-agent { display: flex; align-items: center; gap: 10px; }
+.ag-st-role { font-weight: 600; font-size: 13.5px; color: var(--text); }
+.ag-st-doing { font-size: 13px; color: var(--muted); }
+.ag-st-head {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border);
+    font-size: var(--font-size-sm);
+    font-weight: 600;
+    color: var(--muted);
+}
+.ag-st-rules {
+    list-style: none;
+    margin: var(--space-2) 0 0;
+    padding: 0;
+    max-height: 360px;
+    overflow-y: auto;
+}
+.ag-st-rule {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 0;
+    font-size: 13px;
+    min-width: 0;
+}
+.ag-st-rule.outdated { opacity: 0.55; }
+.ag-st-mark {
+    flex: 0 0 auto;
+    width: 18px;
+    height: 18px;
+    display: grid;
+    place-items: center;
+    font-size: 12px;
+    font-weight: 700;
+}
+.ag-st-mark.ok { color: var(--success); }
+.ag-st-mark.err { color: var(--danger); }
+.ag-st-mark.warn { color: var(--warn-text); }
+.ag-st-mark.idle { color: var(--muted); }
+.ag-st-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ag-st-note {
+    flex: 0 1 auto;
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: var(--font-size-sm);
+    color: var(--muted);
+}
+.ag-st-tag {
+    flex: 0 0 auto;
+    font-size: 10.5px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+}

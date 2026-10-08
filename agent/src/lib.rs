@@ -23,6 +23,7 @@ pub mod package_checks;
 pub mod profiles;
 pub mod references;
 pub mod review;
+pub mod rule_board;
 pub mod rules;
 pub mod session;
 pub mod source;
@@ -36,3 +37,4 @@ pub use conversion::{
     target, tools_for, validate_package_bytes,
 };
 pub use output_target::OutputTarget;
+pub use rule_board::{RuleKind, RuleState, RuleView};

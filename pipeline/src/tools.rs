@@ -37,6 +37,7 @@ use rig_agent::tool::{DynamicTool, ToolExecutionError, ToolOutput};
 use rig_core::message::ToolResultContent;
 use tokio::sync::Mutex;
 
+use crate::observer::{RunEvent, SharedObserver};
 use crate::turns::media_media_type;
 
 /// How many of a turn's tool calls a stage runs at once. Only reads overlap
@@ -58,7 +59,7 @@ pub type SharedAgent = Arc<Mutex<ConversionAgent>>;
 pub fn dynamic_tools_for(agent: &SharedAgent, specs: &[serde_json::Value]) -> Vec<DynamicTool> {
     specs
         .iter()
-        .filter_map(|spec| dynamic_tool_from(agent, spec, true))
+        .filter_map(|spec| dynamic_tool_from(agent, spec, true, None))
         .collect()
 }
 
@@ -76,7 +77,9 @@ pub(crate) fn dynamic_tools_with_judges(
         .iter()
         .filter_map(|spec| match spec["name"].as_str() {
             Some("rule_check") => Some(rule_check_tool(agent, spec, judges)),
-            _ => dynamic_tool_from(agent, spec, records),
+            // A stage's edits move the rules; a judge's calls (not recorded
+            // as evidence) edit nothing, so they report nothing.
+            _ => dynamic_tool_from(agent, spec, records, records.then(|| judges.obs.clone())),
         })
         .collect()
 }
@@ -96,7 +99,14 @@ fn rule_check_tool(agent: &SharedAgent, spec: &serde_json::Value, judges: &crate
     )
 }
 
-fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value, records: bool) -> Option<DynamicTool> {
+/// `rules`, when given, is told where the rules stand after every call that
+/// may have changed the document.
+fn dynamic_tool_from(
+    agent: &SharedAgent,
+    spec: &serde_json::Value,
+    records: bool,
+    rules: Option<SharedObserver>,
+) -> Option<DynamicTool> {
     let name = spec["name"].as_str()?.to_string();
     let description = spec["description"].as_str().unwrap_or_default().to_string();
     let parameters = spec["input_schema"].clone();
@@ -110,6 +120,7 @@ fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value, records: boo
         move |_ctx, args| {
             let agent = agent.clone();
             let name = dispatch_name.clone();
+            let rules = rules.clone();
             Box::pin(async move {
                 let mut guard = agent.lock().await;
                 let reply = match guard.start_read_as(&name, &args, records).await {
@@ -117,7 +128,15 @@ fn dynamic_tool_from(agent: &SharedAgent, spec: &serde_json::Value, records: boo
                         drop(guard);
                         work.await
                     }
-                    None => guard.execute_as(&name, &args, records).await,
+                    None => {
+                        let reply = guard.execute_as(&name, &args, records).await;
+                        if let Some(obs) = &rules
+                            && agent::access_of(&name) == agent::Access::Write
+                        {
+                            obs.emit(RunEvent::Rules(guard.rule_board()));
+                        }
+                        reply
+                    }
                 };
                 reply_to_tool_output(reply)
             })

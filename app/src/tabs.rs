@@ -124,6 +124,9 @@ pub struct SavedTab {
     pub form_code: Option<String>,
     pub elapsed_secs: Option<u64>,
     pub warnings: Vec<String>,
+    /// Where every rule stood when the tab was saved: a finished run's final
+    /// check, or the live board of a run the window closed on.
+    pub rules: Vec<agent::RuleView>,
     /// Unsent feedback, so a half-typed note is not lost to a restart.
     pub feedback_draft: String,
     /// What every run this tab has made — the first upload and every
@@ -280,6 +283,7 @@ pub fn restored_run(saved: &SavedTab, view: RestoredView) -> RestoredRun {
             form_code: saved.form_code.clone(),
             elapsed_secs: saved.elapsed_secs,
             warnings: saved.warnings.clone(),
+            rules: saved.rules.clone(),
             ..ProcessingState::default()
         },
         // Reopening a workspace must not start anything.
@@ -612,6 +616,29 @@ mod tests {
 
         let json = serde_json::to_string(&original).unwrap();
         assert_eq!(SavedWorkspace::parse(Some(&json)), original);
+    }
+
+    /// A finished tab reopens on the rule verdicts its run ended with, and a
+    /// tab saved before rules were kept reopens with none.
+    #[test]
+    fn a_finished_tab_keeps_its_rule_verdicts_across_a_restart() {
+        let rules = vec![agent::RuleView {
+            rule_id: "r".into(),
+            title: "A rule".into(),
+            kind: agent::RuleKind::Judge,
+            state: agent::RuleState::Fail { violations: 2 },
+            outdated: false,
+        }];
+        let workspace = SavedWorkspace {
+            version: WORKSPACE_VERSION,
+            active: Some(1),
+            tabs: vec![SavedTab { rules: rules.clone(), ..saved(TabPhase::Finished, Some("s1")) }],
+        };
+        let back = SavedWorkspace::parse(Some(&serde_json::to_string(&workspace).unwrap()));
+        assert_eq!(restored_run(&back.tabs[0], RestoredView::Finished).state.rules, rules);
+
+        let older = SavedWorkspace::parse(Some(r#"{"version":1,"tabs":[{"id":1,"phase":"finished"}]}"#));
+        assert!(restored_run(&older.tabs[0], RestoredView::Finished).state.rules.is_empty());
     }
 
     /// A blob from another build, or a corrupt one, must not stop the app.

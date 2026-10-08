@@ -64,6 +64,11 @@ pub struct RunConfig {
     /// keeping what that looked like ([`RunOutcome::review`]). Off only where
     /// no verifier may be booted: the controller tests.
     pub capture_review: bool,
+    /// Whether the run ends by checking every rule, judged ones included, on
+    /// the final document ([`RunOutcome::rules`]). Off only in the controller
+    /// tests that pin a run's stages and model calls, since every judged rule
+    /// costs a judge's turns.
+    pub final_rule_check: bool,
 }
 
 /// What starts a run: a fresh conversion, feedback on the previous result, or
@@ -133,7 +138,12 @@ pub struct RunOutcome {
     /// What the final build looked like on the verifier, for a person to
     /// review; `None` when it was not captured (a warning says why).
     pub review: Option<agent::review::ReviewImages>,
+    /// Where every rule stands on the final document.
+    pub rules: Vec<agent::RuleView>,
 }
+
+/// The stage name the run's closing check of every rule reports under.
+pub const FINAL_CHECK: &str = "Final check";
 
 /// Sequence the pipeline over `shared_agent`.
 ///
@@ -182,12 +192,8 @@ async fn run_stages(
     }
 
     // ── Stage 1: Author → build the artefact ────────────────────────────────
-    obs.emit(RunEvent::Stage {
-        role: "Author",
-        doing: stages.author_doing.into(),
-    });
     let author_seed = author_seed_for(&seed, &reviews, &stages);
-    begin_stage(shared_agent).await;
+    begin_stage(shared_agent, obs, "Author", stages.author_doing.into()).await;
     run_stage(
         shared_agent,
         stages.author,
@@ -226,11 +232,7 @@ async fn run_stages(
                 })
             }
             Ok(()) => {
-                obs.emit(RunEvent::Stage {
-                    role: "Reviewer",
-                    doing: format!("reviewing (round {})", round + 1),
-                });
-                begin_stage(shared_agent).await;
+                begin_stage(shared_agent, obs, "Reviewer", format!("reviewing (round {})", round + 1)).await;
                 run_stage(
                     shared_agent,
                     stages.reviewer,
@@ -261,11 +263,13 @@ async fn run_stages(
                     round + 1
                 )));
                 reviews.push(r.report);
-                obs.emit(RunEvent::Stage {
-                    role: "Author",
-                    doing: format!("applying review feedback (round {})", round + 1),
-                });
-                begin_stage(shared_agent).await;
+                begin_stage(
+                    shared_agent,
+                    obs,
+                    "Author",
+                    format!("applying review feedback (round {})", round + 1),
+                )
+                .await;
                 run_stage(
                     shared_agent,
                     stages.author,
@@ -307,6 +311,9 @@ async fn run_stages(
     // failed build step on an otherwise successful run.
     if target == OutputTarget::Aem {
         tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
+    }
+    if config.final_rule_check && !config.abort.is_aborted() {
+        final_rule_check(shared_agent, config, obs, &mut spend, &mut warnings).await;
     }
 
     let mut outcome = finalize(shared_agent, config, warnings).await;
@@ -370,11 +377,48 @@ async fn wait_for_abort(abort: &AbortFlag) {
     while !sleep_unless_aborted(std::time::Duration::from_secs(60), abort).await {}
 }
 
-/// An Author or Reviewer stage begins: it gathers its own evidence for its
-/// terminal call (see `agent::ConversionAgent::begin_stage`). Not done in
-/// [`run_stage`], which also runs the judges a stage dispatches mid-way.
-async fn begin_stage(shared_agent: &SharedAgent) {
-    shared_agent.lock().await.begin_stage();
+/// An Author or Reviewer stage begins: the observer is told who works now
+/// and where the rules stand on the document it starts from, and the stage
+/// gathers its own evidence for its terminal call (see
+/// `agent::ConversionAgent::begin_stage`). Not done in [`run_stage`], which
+/// also runs the judges a stage dispatches mid-way.
+async fn begin_stage(shared_agent: &SharedAgent, obs: &SharedObserver, role: &'static str, doing: String) {
+    obs.emit(RunEvent::Stage { role, doing });
+    {
+        let mut agent = shared_agent.lock().await;
+        agent.begin_stage();
+        if let Err(e) = agent.refresh_rules().await {
+            obs.emit(RunEvent::Warning(format!("The rules could not be checked: {e}")));
+        }
+    }
+    crate::judge::report_rules(shared_agent, obs).await;
+}
+
+/// Checks every rule, judged ones included, on the final document, so the
+/// result reports where each one stands on what ships. A judge that fails
+/// leaves its rule unchecked; a check that cannot run at all is a warning.
+/// Neither fails the run: the conversion is complete.
+async fn final_rule_check(
+    shared_agent: &SharedAgent,
+    config: &RunConfig,
+    obs: &SharedObserver,
+    spend: &mut Spend,
+    warnings: &mut Vec<String>,
+) {
+    obs.emit(RunEvent::Stage { role: FINAL_CHECK, doing: "checking every rule".into() });
+    let judges = crate::judge::JudgeContext::new(
+        config.target,
+        config.model.clone(),
+        config.price.clone(),
+        config.max_tokens,
+        config.context_budget.clone(),
+        config.abort.clone(),
+        obs.clone(),
+    );
+    if let agent::ToolReply::Error(e) = crate::judge::rule_check(shared_agent, &judges, &serde_json::json!({})).await {
+        warn(obs, warnings, format!("The final rule check did not run: {e}"));
+    }
+    judges.fold_spend(spend);
 }
 
 /// An Author stage that ended without `finish_authoring` (its turn budget, the
@@ -418,6 +462,7 @@ async fn finalize(
         form_code: agent.form_code(),
         warnings,
         review: None,
+        rules: agent.rule_board(),
     }
 }
 
@@ -608,17 +653,15 @@ pub(crate) async fn run_stage(
         (agent.tools_for_stage(role.scope), agent.session_id().to_string(), agent.target())
     };
     // What a `rule_check` of this stage needs to dispatch its judges.
-    let judge_spend = Arc::new(std::sync::Mutex::new(Spend::default()));
-    let judges = crate::judge::JudgeContext {
+    let judges = crate::judge::JudgeContext::new(
         target,
-        model: model.clone(),
-        price: price.clone(),
+        model.clone(),
+        price.clone(),
         max_tokens,
-        context_budget: context_budget.clone(),
-        abort: abort.clone(),
-        obs: obs.clone(),
-        spend: judge_spend.clone(),
-    };
+        context_budget.clone(),
+        abort.clone(),
+        obs.clone(),
+    );
     let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &judges, records_evidence(role));
 
     let memory = if role.remember {
@@ -664,11 +707,7 @@ pub(crate) async fn run_stage(
     let history = answer_unanswered_tool_calls(history);
     store_stage(memory.as_ref(), &loaded, &history, role, obs).await;
     // The judges this stage's `rule_check` dispatched spent on its behalf.
-    let judged = *judge_spend.lock().unwrap_or_else(|p| p.into_inner());
-    if judged.input_tokens + judged.output_tokens > 0 {
-        total_spend.merge(&judged);
-        obs.emit(RunEvent::Spend(*total_spend));
-    }
+    judges.fold_spend(total_spend);
     outcome
 }
 
@@ -1641,6 +1680,7 @@ mod controller {
             max_tokens: 4096,
             context_budget: no_budget(),
             capture_review: false,
+            final_rule_check: false,
         }
     }
 
@@ -1764,6 +1804,87 @@ mod controller {
             !warnings.iter().any(|w| w.contains("without a clean review")),
             "{warnings:?}"
         );
+    }
+
+    /// The observer is told where the rules stand from the first stage on and
+    /// after every edit, and a finished run ends by checking every rule, the
+    /// judged ones by a judge, so its result holds a current verdict for each.
+    #[tokio::test]
+    async fn a_run_reports_the_rules_and_ends_with_a_check_of_every_rule() {
+        let judged = agent::rules::JudgedRule {
+            id: "id-judged".into(),
+            name: "judged".into(),
+            title: "Judged".into(),
+            description: "Judge me.".into(),
+        };
+        let agent = bare_agent();
+        agent.lock().await.set_judged_rules(vec![judged]);
+        let model = MockCompletionModel::from_stream_turns([
+            // An edit, refused for its arguments: still a write, so the board
+            // is reported after it.
+            vec![
+                MockStreamEvent::tool_call("call-edit", "json_patch", serde_json::json!({})),
+                MockStreamEvent::final_response(Usage::new()),
+            ],
+            text_turn("BUILT"),
+            review_turn(true, ""),
+            vec![
+                MockStreamEvent::tool_call(
+                    "verdict",
+                    "submit_rule_verdict",
+                    serde_json::json!({"judgement": "judgement-1", "pass": true, "violations": []}),
+                ),
+                MockStreamEvent::final_response(Usage::new()),
+            ],
+        ]);
+        let (obs, rec) = recorder();
+        let config = RunConfig { final_rule_check: true, ..config(AbortFlag::default(), 1, model.clone()) };
+
+        let outcome = run(agent, config, RunSeed::Fresh, obs).await.expect("the run finishes");
+
+        let rec = rec.lock().unwrap();
+        assert_eq!(rec.stages(), ["Author", "Reviewer", FINAL_CHECK]);
+        assert_eq!(model.request_count(), 4, "one judge for the one judged rule");
+        // The first stage reports the board before its first call.
+        let first_board = rec.events.iter().position(|e| matches!(e, RunEvent::Rules(_))).unwrap();
+        let first_call = rec.events.iter().position(|e| matches!(e, RunEvent::ToolStarted { .. })).unwrap();
+        assert!(first_board < first_call);
+        // The run's first call is the edit.
+        let edit_done = rec.events.iter().position(|e| matches!(e, RunEvent::ToolFinished { .. })).unwrap();
+        assert!(
+            rec.events[..edit_done].iter().filter(|e| matches!(e, RunEvent::Rules(_))).count() >= 2,
+            "the edit reported the board"
+        );
+        // Every rule has a current verdict on the shipped document.
+        assert!(!outcome.rules.is_empty());
+        assert!(
+            outcome.rules.iter().all(|r| r.state != agent::RuleState::NotChecked && !r.outdated),
+            "{:?}",
+            outcome.rules
+        );
+        let judged = outcome.rules.iter().find(|r| r.rule_id == "id-judged").unwrap();
+        assert_eq!(judged.state, agent::RuleState::Pass);
+    }
+
+    /// A stopped run checks nothing more: no closing check, no judge sent.
+    #[tokio::test]
+    async fn an_aborted_run_skips_the_final_check() {
+        let agent = bare_agent();
+        agent.lock().await.set_judged_rules(vec![agent::rules::JudgedRule {
+            id: "id-judged".into(),
+            name: "judged".into(),
+            title: "Judged".into(),
+            description: "Judge me.".into(),
+        }]);
+        let abort = AbortFlag::default();
+        abort.abort();
+        let model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
+        let (obs, rec) = recorder();
+        let config = RunConfig { final_rule_check: true, ..config(abort, 1, model.clone()) };
+
+        assert!(run(agent, config, RunSeed::Fresh, obs).await.is_none());
+        assert!(!rec.lock().unwrap().stages().contains(&FINAL_CHECK));
+        assert_eq!(model.request_count(), 0);
     }
 
     /// A run that captures its review images does so once, after every stage,

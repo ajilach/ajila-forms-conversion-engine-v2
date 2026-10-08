@@ -253,6 +253,7 @@ async fn drive(
         max_tokens: resolved.max_tokens,
         context_budget: resolved.context_budget,
         capture_review: true,
+        final_rule_check: true,
     };
 
     // A session's review images show its last finished run. This run will

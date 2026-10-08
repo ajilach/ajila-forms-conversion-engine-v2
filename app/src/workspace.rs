@@ -154,6 +154,7 @@ impl Tab {
             form_code: state.form_code.clone(),
             elapsed_secs: state.elapsed_secs,
             warnings: state.warnings.clone(),
+            rules: state.rules.clone(),
             feedback_draft: self.feedback.read().clone(),
             total_spend: Some(*self.total_spend.read()),
         }

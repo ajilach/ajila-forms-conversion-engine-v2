@@ -40,6 +40,39 @@ pub(crate) struct JudgeContext {
     pub(crate) spend: Arc<Mutex<Spend>>,
 }
 
+impl JudgeContext {
+    /// A context whose judges have spent nothing yet.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new(
+        target: OutputTarget,
+        model: ModelHandle,
+        price: PriceFn,
+        max_tokens: u32,
+        context_budget: Arc<dyn ContextBudget>,
+        abort: AbortFlag,
+        obs: SharedObserver,
+    ) -> Self {
+        let spend = Arc::new(Mutex::new(Spend::default()));
+        Self { target, model, price, max_tokens, context_budget, abort, obs, spend }
+    }
+
+    /// Folds what the judges spent into the run's `total`, and reports the new
+    /// total when they spent anything.
+    pub(crate) fn fold_spend(&self, total: &mut Spend) {
+        let judged = *self.spend.lock().unwrap_or_else(|p| p.into_inner());
+        if judged.input_tokens + judged.output_tokens > 0 {
+            total.merge(&judged);
+            self.obs.emit(RunEvent::Spend(*total));
+        }
+    }
+}
+
+/// Tells the observer where every rule stands now.
+pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
+    let board = agent.lock().await.rule_board();
+    obs.emit(RunEvent::Rules(board));
+}
+
 /// One `rule_check`: the scripts while holding the agent, then the judges
 /// without it (each judge's tools take the agent call by call).
 pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &JudgeContext, input: &serde_json::Value) -> ToolReply {
@@ -54,6 +87,7 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &JudgeContext, input: &
             Err(e) => return ToolReply::Error(e),
         }
     };
+    report_rules(agent, &ctx.obs).await;
     // `buffered`, not `buffer_unordered`: the report keeps the rules' order.
     let mut verdicts: Vec<(JudgedRule, Result<RuleVerdict, String>)> = futures_util::stream::iter(plan.judged)
         .map(|rule| judge(agent, ctx, rule))
@@ -62,16 +96,41 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &JudgeContext, input: &
         .await;
     // The judges read the live document. An edit made while they did (another
     // call of the same turn) means a verdict may describe neither revision.
-    if agent.lock().await.revision() != revision {
-        for (_, outcome) in &mut verdicts {
-            *outcome = Err("the document changed while it was judged: check this rule again".into());
+    {
+        let mut guard = agent.lock().await;
+        if guard.revision() != revision {
+            for (_, outcome) in &mut verdicts {
+                *outcome = Err("the document changed while it was judged: check this rule again".into());
+            }
         }
+        guard.record_judged(&verdicts, revision);
     }
+    report_rules(agent, &ctx.obs).await;
     ToolReply::Text(merge_rule_report(scripted, &verdicts).to_string())
 }
 
 /// Runs one judge on `rule` and takes the verdict it recorded.
 async fn judge(agent: &SharedAgent, ctx: &JudgeContext, rule: JudgedRule) -> (JudgedRule, Result<RuleVerdict, String>) {
+    ctx.obs.emit(RunEvent::Judging { rule_id: rule.id.clone(), running: true });
+    let _ended = JudgingEnds { obs: &ctx.obs, rule_id: rule.id.clone() };
+    let outcome = judge_rule(agent, ctx, &rule).await;
+    (rule, outcome)
+}
+
+/// Reports a judge's end however its future ends, a dropped one included, so
+/// no rule is left shown as being judged.
+struct JudgingEnds<'a> {
+    obs: &'a SharedObserver,
+    rule_id: String,
+}
+
+impl Drop for JudgingEnds<'_> {
+    fn drop(&mut self) {
+        self.obs.emit(RunEvent::Judging { rule_id: std::mem::take(&mut self.rule_id), running: false });
+    }
+}
+
+async fn judge_rule(agent: &SharedAgent, ctx: &JudgeContext, rule: &JudgedRule) -> Result<RuleVerdict, String> {
     let role = crate::roles::roles_for(ctx.target).judge;
     let failure = Arc::new(Mutex::new(None));
     let obs = SharedObserver::new(JudgeObserver {
@@ -84,7 +143,7 @@ async fn judge(agent: &SharedAgent, ctx: &JudgeContext, rule: JudgedRule) -> (Ju
     let ended = run_stage(
         agent,
         role,
-        &crate::roles::sys_judge(ctx.target, &rule, &judgement),
+        &crate::roles::sys_judge(ctx.target, rule, &judgement),
         &format!("Judge the rule \"{}\", then call submit_rule_verdict with judgement {judgement}.", rule.title),
         &ctx.abort,
         ctx.model.clone(),
@@ -98,13 +157,12 @@ async fn judge(agent: &SharedAgent, ctx: &JudgeContext, rule: JudgedRule) -> (Ju
     ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
     let verdict = agent.lock().await.take_judgement(&judgement);
     let failed = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
-    let outcome = match (verdict, ended, failed) {
+    match (verdict, ended, failed) {
         (Some(verdict), _, _) => Ok(verdict),
         (None, _, Some(error)) => Err(format!("the judge failed: {error}")),
         (None, None, None) => Err("the judge was stopped before it gave a verdict".to_string()),
         (None, Some(_), None) => Err("the judge ended without a verdict".to_string()),
-    };
-    (rule, outcome)
+    }
 }
 
 /// What a judge reports to the run's observer: its tool timeline and its
@@ -246,6 +304,65 @@ mod tests {
         };
         assert!(system.contains("judgement-1") && system.contains("Rule a") && system.contains("submit_rule_verdict"), "{system}");
         assert_eq!(ctx.spend.lock().unwrap().input_tokens, 100);
+    }
+
+    /// Records every event a check reports.
+    #[derive(Clone, Default)]
+    struct Recorder(Arc<Mutex<Vec<RunEvent>>>);
+    impl RunObserver for Recorder {
+        fn emit(&mut self, event: RunEvent) {
+            self.0.lock().unwrap().push(event);
+        }
+        fn retry_prompt(&mut self, _role: &str, _error: &str) {}
+        fn poll_retry(&mut self) -> Option<RetryAction> {
+            Some(RetryAction::Cancel)
+        }
+        fn retry_resolved(&mut self, _action: RetryAction) {}
+    }
+
+    /// The observer watches the check: the scripts' verdicts first, the rule
+    /// judged between its judge's start and end, and the board with the
+    /// judge's verdict last, current for the document it was judged on.
+    #[tokio::test]
+    async fn a_check_reports_the_judging_and_the_board() {
+        let model = MockCompletionModel::from_stream_turns([vec![
+            MockStreamEvent::tool_call(
+                "verdict",
+                "submit_rule_verdict",
+                serde_json::json!({"judgement": "judgement-1", "pass": true, "violations": []}),
+            ),
+            MockStreamEvent::final_response(Usage::new()),
+        ]]);
+        let recorder = Recorder::default();
+        let mut ctx = context(model, AbortFlag::default());
+        ctx.obs = SharedObserver::new(recorder.clone());
+        let agent = agent_with(vec![rule("a")]);
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+
+        let events = recorder.0.lock().unwrap().clone();
+        let judging: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                RunEvent::Judging { rule_id, running } => Some((rule_id.as_str(), *running)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(judging, [("id-a", true), ("id-a", false)]);
+        let boards: Vec<_> = events
+            .iter()
+            .filter_map(|e| match e {
+                RunEvent::Rules(board) => Some(board),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(boards.len(), 2, "one board after the scripts, one after the judges");
+        let judged_in = |board: &Vec<agent::RuleView>| board.iter().find(|r| r.rule_id == "id-a").unwrap().clone();
+        assert_eq!(judged_in(boards[0]).state, agent::RuleState::NotChecked);
+        let last = judged_in(boards[1]);
+        assert_eq!((last.state, last.outdated), (agent::RuleState::Pass, false));
+        // The scripted rules got their verdicts too.
+        assert!(boards[1].iter().filter(|r| r.kind == agent::RuleKind::Script).all(|r| r.state != agent::RuleState::NotChecked));
+        assert_eq!(agent.lock().await.rule_board(), *boards[1]);
     }
 
     /// A verdict under a judgement nobody opened, or with violations that do

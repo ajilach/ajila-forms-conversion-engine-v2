@@ -94,6 +94,11 @@ pub enum RunEvent {
     /// call, so a long run's cost is visible while it is still running rather
     /// than only in hindsight.
     Spend(Spend),
+    /// Where every rule stands on the document: emitted whenever a check may
+    /// have changed it (a stage start, an edit, a `rule_check`).
+    Rules(Vec<agent::RuleView>),
+    /// A judge started (`running`) or finished judging the rule `rule_id`.
+    Judging { rule_id: String, running: bool },
     /// The run stopped because the abort flag was set. May be emitted more than
     /// once — every abort checkpoint reports it, and implementations are
     /// expected to be idempotent.

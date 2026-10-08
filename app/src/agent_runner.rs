@@ -16,7 +16,7 @@ use pipeline::{AbortFlag, RetryAction, RunEvent, RunObserver, RunSeed};
 use runner::{LlmEndpoint, TurnPlan};
 
 use crate::models::{
-    AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, ProcessingStep, RunState,
+    AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, ProcessingStep, RunState, StageInfo,
 };
 
 /// The choices the user made before starting a run.
@@ -66,7 +66,10 @@ impl DioxusObserver {
 impl RunObserver for DioxusObserver {
     fn emit(&mut self, event: RunEvent) {
         match event {
-            RunEvent::Stage { role, doing } => self.thought(format!("── {role} — {doing} ──")),
+            RunEvent::Stage { role, doing } => {
+                self.thought(format!("── {role} — {doing} ──"));
+                self.state.write().stage = Some(StageInfo { role: role.to_string(), doing });
+            }
             RunEvent::Thought(text) => self.thought(text),
             RunEvent::ToolStarted {
                 id,
@@ -88,6 +91,15 @@ impl RunObserver for DioxusObserver {
             RunEvent::Warning(w) => self.state.write().warnings.push(w),
             RunEvent::ContextUsed(tokens) => self.state.write().context_used_tokens = tokens,
             RunEvent::Spend(spend) => self.state.write().spend = Some(spend),
+            RunEvent::Rules(rules) => self.state.write().rules = rules,
+            RunEvent::Judging { rule_id, running } => {
+                let mut s = self.state.write();
+                if running {
+                    s.judging.insert(rule_id);
+                } else {
+                    s.judging.remove(&rule_id);
+                }
+            }
             // Emitted at every abort checkpoint, so record it only once.
             RunEvent::Aborted => {
                 if !self.state.read().aborted {
@@ -188,6 +200,9 @@ fn apply_completed(
     completed: Result<runner::Completed, String>,
     target: agent::OutputTarget,
 ) -> Option<String> {
+    // However the run ended, no agent works for it any more.
+    state.stage = None;
+    state.judging.clear();
     let completed = match completed {
         Ok(completed) => completed,
         Err(e) => {
@@ -213,6 +228,7 @@ fn apply_completed(
     state.aem_package_bound = outcome.aem_package_bound;
     state.redacto_sql = outcome.redacto_sql;
     state.form_code = outcome.form_code;
+    state.rules = outcome.rules;
     state.elapsed_secs = Some(completed.elapsed_secs);
 
     Some(completed.session_id)
@@ -300,6 +316,42 @@ mod tests {
             ProcessingStep::Complete,
             "a failed run must not report a result"
         );
+    }
+
+    /// A finished run shows its final rule check, and no agent at work.
+    #[test]
+    fn a_finished_run_shows_its_final_rules_and_no_working_agent() {
+        let mut state = run_in_flight();
+        state.stage = Some(StageInfo { role: "Final check".into(), doing: "checking every rule".into() });
+        state.judging.insert("r".into());
+        let rules = vec![agent::RuleView {
+            rule_id: "r".into(),
+            title: "A rule".into(),
+            kind: agent::RuleKind::Judge,
+            state: agent::RuleState::Pass,
+            outdated: false,
+        }];
+        let outcome = pipeline::RunOutcome {
+            document: serde_json::Value::Null,
+            aem_package: None,
+            aem_package_bound: None,
+            xsd_schema: None,
+            redacto_sql: None,
+            form_code: None,
+            warnings: Vec::new(),
+            review: None,
+            rules: rules.clone(),
+        };
+
+        apply_completed(
+            &mut state,
+            Ok(runner::Completed { session_id: "s-1".into(), outcome: Some(outcome), elapsed_secs: 3 }),
+            agent::OutputTarget::Aem,
+        );
+
+        assert_eq!(state.rules, rules);
+        assert_eq!(state.stage, None);
+        assert!(state.judging.is_empty());
     }
 
     /// A stopped run leaves no result, but what it managed to do still has to be

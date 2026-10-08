@@ -133,4 +133,19 @@ pub struct ProcessingState {
     /// The model's context window in tokens — the denominator of the fill
     /// indicator. 0 until the agent run sets it.
     pub context_window: usize,
+    /// The stage working now; `None` before the first stage and once the run
+    /// has ended.
+    pub stage: Option<StageInfo>,
+    /// Where every rule stands on the run's document: live while the run goes,
+    /// the final check's verdicts once it has finished.
+    pub rules: Vec<agent::RuleView>,
+    /// The rules a judge is judging right now, by rule id.
+    pub judging: std::collections::BTreeSet<String>,
+}
+
+/// Which agent works now, and on what.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct StageInfo {
+    pub role: String,
+    pub doing: String,
 }

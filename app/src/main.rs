@@ -3,6 +3,7 @@ mod components;
 mod files;
 mod mcp_install;
 mod models;
+mod rule_status;
 mod run_status;
 mod tabs;
 mod upload;

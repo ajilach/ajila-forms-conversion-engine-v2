@@ -19,6 +19,7 @@ use u2s_doc_tools::native::{NativeJsonTool, RuleForCheck};
 use u2s_jsondoc::Document;
 use u2s_rules_host::runner::RuleRunner;
 
+use crate::rule_board::{RuleBoard, RuleView};
 use crate::source::SourceContext;
 
 /// Error returned by the package tools before a package is built. Public so the
@@ -192,6 +193,11 @@ enum Built {
     },
 }
 
+/// A board with every rule of the run unchecked.
+fn new_rule_board(scripted: &[RuleForCheck], judged: &[crate::rules::JudgedRule]) -> RuleBoard {
+    RuleBoard::new(scripted.iter().map(|r| (r.id.to_string(), r.title.clone())), judged)
+}
+
 /// One source PDF: its file name and what it says about itself (`None` for a
 /// PDF without XFA).
 type SourceDocument = (String, Option<SourceContext>);
@@ -215,6 +221,10 @@ pub struct ConversionAgent {
     /// changed rather than every standing finding. `None` until the first edit
     /// of this run takes it from the document as it stood.
     lint: Option<HashMap<String, String>>,
+    /// Where every rule stands on the document, for a person watching the run
+    /// (see [`crate::rule_board`]). Fed by the checks above, never by a check
+    /// of its own.
+    rule_board: RuleBoard,
 
     built: Option<Built>,
     session: String,
@@ -288,6 +298,7 @@ impl ConversionAgent {
             crate::references::store(),
             profile.clone().unwrap_or_default(),
         );
+        let rule_board = new_rule_board(&rules.scripted, &rules.judged);
         Ok(Self {
             target,
             current_pdfs: pdfs,
@@ -298,6 +309,7 @@ impl ConversionAgent {
             judged: rules.judged,
             runner: None,
             lint: None,
+            rule_board,
             built: None,
             session,
             references,
@@ -324,6 +336,7 @@ impl ConversionAgent {
         self.document = Document::new(value);
         self.set_built(None);
         self.lint = None;
+        self.rule_board = new_rule_board(&self.rules, &self.judged);
         Ok(())
     }
 
@@ -445,6 +458,7 @@ impl ConversionAgent {
     #[cfg(any(test, feature = "test-utils"))]
     pub fn set_judged_rules(&mut self, rules: Vec<crate::rules::JudgedRule>) {
         self.judged = rules;
+        self.rule_board = new_rule_board(&self.rules, &self.judged);
     }
 
     /// Opens a judgement for one judge to record its verdict under, and
@@ -465,6 +479,21 @@ impl ConversionAgent {
     /// The document's revision, which a check reports against.
     pub fn revision(&self) -> u64 {
         self.document.revision().get()
+    }
+
+    /// Where every rule stands on the document as it is now.
+    pub fn rule_board(&self) -> Vec<RuleView> {
+        self.rule_board.snapshot(self.revision())
+    }
+
+    /// Records the judges' outcomes of one `rule_check`, dispatched on
+    /// `revision`.
+    pub fn record_judged(
+        &mut self,
+        outcomes: &[(crate::rules::JudgedRule, Result<crate::rules::RuleVerdict, String>)],
+        revision: u64,
+    ) {
+        self.rule_board.record_judged(outcomes, revision);
     }
 
     /// The latest built AEM package.
@@ -709,6 +738,7 @@ pub fn check_document(target: OutputTarget, value: &Value) -> Result<(), String>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rule_board::{RuleKind, RuleState};
 
     /// Where the source forms the tests convert live.
     const SOURCE_FORMS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../forms");
@@ -879,7 +909,7 @@ mod tests {
             title: "A judged rule".into(),
             description: "Judge me.".into(),
         };
-        agent.judged = vec![judged.clone()];
+        agent.set_judged_rules(vec![judged.clone()]);
 
         let listed: Value = serde_json::from_str(&reply_text(agent.execute("rule_list", &json!({})).await)).unwrap();
         let rules = listed["rules"].as_array().unwrap();
@@ -1078,6 +1108,45 @@ mod tests {
         let renamed = patch(&mut agent, json!([{ "op": "replace", "path": "/form/children/0/name", "value": "PN_Details" }])).await;
         let resolved = renamed["lint"]["resolved"].as_array().unwrap();
         assert!(resolved.iter().any(|v| v["title"].as_str().unwrap().contains("prefix")), "{renamed}");
+    }
+
+    /// The rule board follows the edits: every scripted rule gets a verdict on
+    /// the edited revision, the prefix rule fails and then passes with its
+    /// fix, and the judged rules stay unchecked, since no judge ran.
+    #[tokio::test]
+    async fn the_rule_board_follows_the_edits() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let board = agent.rule_board();
+        assert!(board.iter().all(|r| r.state == RuleState::NotChecked), "{board:?}");
+        assert!(board.iter().any(|r| r.kind == RuleKind::Judge));
+
+        let prefix = |agent: &ConversionAgent| {
+            agent.rule_board().into_iter().find(|r| r.title.contains("prefix")).expect("the prefix rule")
+        };
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("Details") }])).await;
+        let board = agent.rule_board();
+        assert!(
+            board.iter().filter(|r| r.kind == RuleKind::Script).all(|r| r.state != RuleState::NotChecked && !r.outdated),
+            "{board:?}"
+        );
+        assert!(board.iter().filter(|r| r.kind == RuleKind::Judge).all(|r| r.state == RuleState::NotChecked));
+        assert!(matches!(prefix(&agent).state, RuleState::Fail { .. }), "{:?}", prefix(&agent));
+
+        patch(&mut agent, json!([{ "op": "replace", "path": "/form/children/0/name", "value": "PN_Details" }])).await;
+        assert_eq!(prefix(&agent).state, RuleState::Pass);
+    }
+
+    /// A seeded document's scripted verdicts are taken once, before any edit,
+    /// so a stage starting on it shows where it stands.
+    #[tokio::test]
+    async fn refreshing_the_rules_checks_a_seeded_document() {
+        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut seeded = agent.document().clone();
+        seeded["form"]["children"] = json!([page("Details")]);
+        agent.seed_document(seeded).unwrap();
+        agent.refresh_rules().await.unwrap();
+        let board = agent.rule_board();
+        assert!(board.iter().filter(|r| r.kind == RuleKind::Script).all(|r| r.state != RuleState::NotChecked));
     }
 
     /// An edit reports what it changed, not what the document already had: a

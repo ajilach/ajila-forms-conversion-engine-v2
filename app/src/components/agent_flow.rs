@@ -16,6 +16,7 @@ use crate::models::{
     AbortFlag, AgentStep, AgentStepKind, AgentStepStatus, ProcessingState, RetryAction,
     RunStateRead,
 };
+use crate::rule_status::{passing, rule_rows};
 use crate::run_status::{screen_for, RunStatus, Screen};
 use crate::tabs::RestoredView;
 use crate::workspace::Tab;
@@ -368,6 +369,7 @@ fn RunBox(
             }
             PhaseRail { status }
             SourceFiles { files }
+            RunStatusPanel { status, state }
             ActivityTimeline { status, state, total_spend, timeline_open }
 
             // ---- Failed request: retry (or give up) without losing the run ----
@@ -569,6 +571,69 @@ fn empty_activity(status: RunStatus) -> EmptyActivity {
         EmptyActivity::Starting
     } else {
         EmptyActivity::NotRecorded
+    }
+}
+
+/// Who is working, and where every rule stands on the document: the run's
+/// default view, above the activity history.
+#[component]
+fn RunStatusPanel(status: RunStatus, state: RunStateRead) -> Element {
+    let state = state.read();
+    let (agent, doing) = match (status, &state.stage) {
+        (RunStatus::Running, Some(stage)) => (stage.role.clone(), stage.doing.clone()),
+        (RunStatus::Running, None) => ("Starting".to_string(), "preparing the run".to_string()),
+        (RunStatus::Paused, Some(stage)) => (stage.role.clone(), "paused on a failed request".to_string()),
+        (RunStatus::Paused, None) => ("Paused".to_string(), String::new()),
+        (RunStatus::Done, _) => ("Finished".to_string(), String::new()),
+        (RunStatus::Failed, _) => ("Stopped".to_string(), String::new()),
+    };
+    let rows = rule_rows(&state.rules, &state.judging);
+    let (pass, total) = passing(&state.rules);
+
+    rsx! {
+        div { class: "ag-st",
+            div { class: "ag-st-agent",
+                span { class: "ag-tl-dot",
+                    if status == RunStatus::Running {
+                        Spinner { size: SpinnerSize::Sm }
+                    }
+                }
+                span { class: "ag-st-role", "{agent}" }
+                if !doing.is_empty() {
+                    span { class: "ag-st-doing", "{doing}" }
+                }
+            }
+            if !rows.is_empty() {
+                div { class: "ag-st-head", "Rules · {pass} of {total} pass" }
+                ul { class: "ag-st-rules",
+                    for row in rows {
+                        {
+                            let (class, glyph) = row.mark.badge();
+                            rsx! {
+                                li {
+                                    key: "{row.rule_id}",
+                                    class: if row.outdated { "ag-st-rule outdated" } else { "ag-st-rule" },
+                                    span { class: "ag-st-mark {class}",
+                                        match glyph {
+                                            Some(glyph) => rsx! { "{glyph}" },
+                                            None => rsx! { Spinner { size: SpinnerSize::Sm } },
+                                        }
+                                    }
+                                    span { class: "ag-st-title", "{row.title}" }
+                                    if let Some(note) = &row.note {
+                                        span { class: "ag-st-note", title: "{note}", "{note}" }
+                                    }
+                                    if row.outdated {
+                                        span { class: "ag-st-tag", "outdated" }
+                                    }
+                                    span { class: "ag-st-tag", "{row.kind}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
