@@ -381,7 +381,7 @@ mod tests {
     #[test]
     fn the_golden_documents_build_clean_packages() {
         let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../u2s/crates/u2s-aem-ubs-mcp/tests/fixtures/golden");
+            .join("../vendor/crates/u2s-aem-ubs-mcp/tests/fixtures/golden");
         for form in ["AAOS_033_IT", "AAEV_019_EN", "AABF_019"] {
             let json: serde_json::Value = serde_json::from_str(
                 &std::fs::read_to_string(golden.join(form).join("document.json")).unwrap(),

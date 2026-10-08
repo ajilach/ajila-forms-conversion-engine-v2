@@ -894,7 +894,7 @@ mod tests {
     fn a_template_package_becomes_the_starting_form() {
         let package = std::fs::read(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../u2s/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/AABF_019/package.zip"
+            "/../vendor/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/AABF_019/package.zip"
         ))
         .unwrap();
         let agent = agent_for(
