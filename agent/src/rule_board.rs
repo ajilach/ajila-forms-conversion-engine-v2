@@ -156,7 +156,7 @@ mod tests {
     use serde_json::json;
 
     fn judged(id: &str) -> JudgedRule {
-        JudgedRule { id: id.into(), name: id.into(), title: format!("title {id}"), description: String::new() }
+        JudgedRule { id: id.into(), name: id.into(), title: format!("title {id}"), ..Default::default() }
     }
 
     fn board() -> RuleBoard {

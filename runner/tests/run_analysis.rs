@@ -220,6 +220,7 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         name: "tables-are-split".into(),
         title: "Tables are split".into(),
         description: "Judge me.".into(),
+        ..Default::default()
     }]);
     let config = RunConfig {
         profile: None,

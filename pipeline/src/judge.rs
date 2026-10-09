@@ -133,9 +133,10 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
     ToolReply::Text(report.to_string())
 }
 
-/// Marks each judged verdict of `report` that came from the cache rather than
-/// a judge of this check with `"cached": true`, so whoever reads the report
-/// (the model, the run's analysis) sees which verdicts cost a judge.
+/// Names the judged rules whose verdict came from the cache rather than a
+/// judge of this check in `cached`, and marks the ones spelled out in
+/// `verdicts` with `"cached": true`, so whoever reads the report (the model,
+/// the run's analysis) sees which verdicts cost a judge.
 fn mark_reused(
     report: &mut serde_json::Value,
     verdicts: &[(JudgedRule, Result<RuleVerdict, String>)],
@@ -147,14 +148,17 @@ fn mark_reused(
         .filter(|((_, outcome), verdict)| outcome.is_ok() && verdict.is_some())
         .map(|((rule, _), _)| rule.id.as_str())
         .collect();
-    let Some(entries) = report.get_mut("verdicts").and_then(serde_json::Value::as_array_mut) else {
+    if reused.is_empty() {
         return;
-    };
-    for entry in entries.iter_mut().filter(|e| e["check"] == "agent") {
-        if entry["rule_id"].as_str().is_some_and(|id| reused.contains(&id)) {
-            entry["cached"] = serde_json::Value::Bool(true);
+    }
+    if let Some(entries) = report.get_mut("verdicts").and_then(serde_json::Value::as_array_mut) {
+        for entry in entries.iter_mut().filter(|e| e["check"] == "agent") {
+            if entry["rule_id"].as_str().is_some_and(|id| reused.contains(&id)) {
+                entry["cached"] = serde_json::Value::Bool(true);
+            }
         }
     }
+    report["cached"] = serde_json::json!(reused);
 }
 
 /// The judges' stage name, which their trace lines carry.
@@ -293,6 +297,7 @@ mod tests {
             name: name.into(),
             title: format!("Rule {name}"),
             description: "Judge me.".into(),
+            ..Default::default()
         }
     }
 
@@ -307,13 +312,28 @@ mod tests {
 
     /// The verdicts of the judged rules in `report`: the Redacto target has scripted rules too,
     /// whose verdicts stand beside them.
-    fn judged(report: &serde_json::Value) -> Vec<&serde_json::Value> {
-        report["verdicts"]
+    fn judged(report: &serde_json::Value) -> Vec<serde_json::Value> {
+        // The report names a positive rule only by id; the test rules' ids
+        // start with `id-`, the scripted rules' never do.
+        let cached = |id: &serde_json::Value| {
+            report["cached"].as_array().is_some_and(|c| c.contains(id)).then_some(serde_json::json!(true))
+        };
+        let mut all: Vec<serde_json::Value> = report["positive"]
             .as_array()
             .unwrap()
             .iter()
-            .filter(|v| v["check"] == "agent")
-            .collect()
+            .filter(|id| id.as_str().is_some_and(|id| id.starts_with("id-")))
+            .map(|id| {
+                let mut v = serde_json::json!({"rule_id": id, "verdict": "positive", "check": "agent"});
+                if let Some(c) = cached(id) {
+                    v["cached"] = c;
+                }
+                v
+            })
+            .collect();
+        all.extend(report["verdicts"].as_array().unwrap().iter().filter(|v| v["check"] == "agent").cloned());
+        all.sort_by(|a, b| a["rule_id"].as_str().cmp(&b["rule_id"].as_str()));
+        all
     }
 
     fn report(reply: ToolReply) -> serde_json::Value {
@@ -341,7 +361,7 @@ mod tests {
         let ctx = context(model.clone(), AbortFlag::default());
         let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
 
-        let verdict = judged(&report)[0];
+        let verdict = &judged(&report)[0];
         assert_eq!(verdict["rule_id"], "id-a");
         assert_eq!(verdict["check"], "agent");
         assert_eq!(verdict["verdict"], "negative");
@@ -545,7 +565,8 @@ mod tests {
         )]]);
         let ctx = context(model, AbortFlag::default());
         let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
-        let reason = judged(&report)[0]["unchecked_reason"].as_str().unwrap();
+        let judged = judged(&report);
+        let reason = judged[0]["unchecked_reason"].as_str().unwrap();
         assert!(reason.starts_with("the judge failed") && reason.contains("400"), "{reason}");
     }
 
@@ -558,7 +579,7 @@ mod tests {
         ]]);
         let ctx = context(model, AbortFlag::default());
         let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
-        let verdict = judged(&report)[0];
+        let verdict = &judged(&report)[0];
         assert_eq!(verdict["verdict"], "unchecked");
         assert_eq!(verdict["unchecked_reason"], "the judge ended without a verdict");
     }

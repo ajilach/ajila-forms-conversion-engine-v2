@@ -2064,6 +2064,7 @@ mod controller {
             name: "judged".into(),
             title: "Judged".into(),
             description: "Judge me.".into(),
+            ..Default::default()
         };
         let agent = bare_agent();
         agent.lock().await.set_judged_rules(vec![judged]);
@@ -2123,6 +2124,7 @@ mod controller {
             name: "judged".into(),
             title: "Judged".into(),
             description: "Judge me.".into(),
+            ..Default::default()
         }]);
         let abort = AbortFlag::default();
         abort.abort();

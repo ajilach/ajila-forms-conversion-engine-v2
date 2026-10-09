@@ -973,17 +973,23 @@ mod tests {
             name: "ubs-aem-test".into(),
             title: "A judged rule".into(),
             description: "Judge me.".into(),
+            ..Default::default()
         };
         agent.set_judged_rules(vec![judged.clone()]);
 
         let listed: Value = serde_json::from_str(&reply_text(agent.execute("rule_list", &json!({})).await)).unwrap();
-        let rules = listed["rules"].as_array().unwrap();
-        assert!(rules.iter().any(|r| r["check"] == "script"));
-        assert!(rules.iter().any(|r| r["id"] == "judged-id" && r["check"] == "agent"));
+        assert!(!listed["scripted"].as_array().unwrap().is_empty());
+        assert!(listed["judged"].as_array().unwrap().iter().any(|r| r["id"] == "judged-id"));
+
+        let got: Value =
+            serde_json::from_str(&reply_text(agent.execute("rule_get", &json!({"ids": ["judged-id"]})).await)).unwrap();
+        assert_eq!(got["rules"][0]["description"], "Judge me.");
+        assert!(matches!(agent.execute("rule_get", &json!({"ids": ["nope"]})).await, ToolReply::Error(_)));
 
         let checked: Value = serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({})).await)).unwrap();
         let verdicts = checked["verdicts"].as_array().unwrap();
-        assert!(verdicts.iter().any(|v| v["check"] == "script"));
+        let scripted = checked["summary"].as_object().unwrap().values().filter_map(Value::as_u64).sum::<u64>();
+        assert!(scripted > 1, "the scripts' verdicts are counted: {checked}");
         let unjudged = verdicts.iter().find(|v| v["rule_id"] == "judged-id").expect("the judged rule is reported");
         assert_eq!(unjudged["verdict"], "unchecked");
 
@@ -1264,7 +1270,7 @@ mod tests {
     fn a_cached_verdict_is_kept_for_its_rule_and_content() {
         let mut agent = agent_for(OutputTarget::Redacto, Vec::new());
         let rule =
-            crate::rules::JudgedRule { id: "r".into(), name: "n".into(), title: "t".into(), description: "d".into() };
+            crate::rules::JudgedRule { id: "r".into(), name: "n".into(), title: "t".into(), description: "d".into(), ..Default::default() };
         let verdict = crate::rules::RuleVerdict { pass: true, violations: vec![] };
         assert_eq!(agent.cached_verdict(&rule, 1), None);
         agent.cache_verdict(&rule, 1, verdict.clone());

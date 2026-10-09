@@ -192,6 +192,7 @@ const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
         ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Write),
         ("json_validate",                     target::BOTH,    MAIN_STAGES | JUDGES, Write),
         ("rule_list",                         target::BOTH,    MAIN_STAGES, Write),
+        ("rule_get",                          target::BOTH,    MAIN_STAGES, Write),
         ("rule_check",                        target::BOTH,    MAIN_STAGES, Write),
         ("rule_autofix",                      target::AEM,     AEM_AUTHOR, Write),
 
@@ -261,18 +262,22 @@ fn rule_tool_description(tool: u2s_doc_tools::native::NativeJsonTool) -> Option<
     use u2s_doc_tools::native::NativeJsonTool;
     match tool {
         NativeJsonTool::ListRules => Some(
-            "List every rule the document is held to, by id, title and description. Read them all \
-             before you author: the description says what is required and how to fix a break. \
-             `check` says how a rule is checked: `script` (its script decides it, on every edit \
-             too) or `agent` (a judge agent reads the document against the description).",
+            "Index of every rule the document is held to, by id and title, in two lists by how a \
+             rule is checked: `scripted` (its script decides it, on every edit too) and `judged` (a \
+             judge agent reads the document against the description). rule_get gives the \
+             descriptions, which say what is required, how it is judged and how to fix a break.",
         ),
         NativeJsonTool::CheckRules => Some(
-            "Check the document against its rules and return each rule's verdict and violations \
-             (a JSON Pointer and what to fix). A scripted rule runs its script; a judged rule is \
-             handed to a judge agent, several in parallel, which takes longer and costs a model \
-             run per rule, so name the rules you need with rule_ids when you do not need them all. \
-             Where no judge runs, a judged rule comes back `unchecked`. When the document has a \
-             current build, `package_findings` lists what its package breaks. Read-only.",
+            "Check the document against its rules. `summary` counts the verdicts by kind and \
+             `positive` names the rules that hold; `verdicts` spells out every other one: \
+             `negative` with its violations (a JSON Pointer and what to fix), `unchecked` or \
+             `broken` with the reason. A scripted rule runs its script; a judged rule is handed to \
+             a judge agent, several in parallel, which takes longer and costs a model run per rule, \
+             so name the rules you need with rule_ids when you do not need them all. A judged rule \
+             whose part of the document has not changed since a judge last checked it keeps that \
+             verdict without a new judge (`cached`). Where no judge runs, a judged rule comes back \
+             `unchecked`. When the document has a current build, `package_findings` lists what its \
+             package breaks. Read-only.",
         ),
         _ => None,
     }
@@ -305,6 +310,17 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 "get_source_info",
                 "The source PDFs: each one's file name, language, XFA template `variables` and the `doc_path` every xfa_* tool takes. Call this first.",
                 with_source(serde_json::json!({})),
+                serde_json::json!([]),
+            ),
+            // §2 the rules' full text, which rule_list only indexes.
+            t(
+                "rule_get",
+                "The full text of the rules you name: id, title, `check` and the description, which says \
+                 what is required, how it is judged and how to fix a break. Name the ids from rule_list \
+                 or from a rule_check verdict; omit ids for every rule.",
+                serde_json::json!({
+                    "ids": {"type": "array", "items": {"type": "string"}, "description": "Rule ids from rule_list; omit for every rule."}
+                }),
                 serde_json::json!([]),
             ),
             // §3 building the output
