@@ -1020,8 +1020,17 @@ mod tests {
         verify_everything(&mut agent);
         reply_text(agent.execute("submit_review", &approve).await);
         assert!(agent.take_review().is_some_and(|r| r.approved));
-        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done" })).await);
-        assert_eq!(agent.take_finish().as_deref(), Some("done"));
+        // The hand-over also needs every rule checked on this document and
+        // every broken one justified (see `execute`'s rule gate).
+        reply_text(agent.execute("rule_check", &json!({})).await);
+        let waivers: Vec<Value> = agent
+            .rule_board()
+            .into_iter()
+            .filter(|r| matches!(r.state, RuleState::Fail { .. } | RuleState::Unchecked { .. }))
+            .map(|r| json!({ "rule": r.rule_id, "why": "not this test's concern" }))
+            .collect();
+        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done", "waivers": waivers })).await);
+        assert!(agent.take_finish().is_some_and(|summary| summary.starts_with("done")));
 
         // A new stage earns its own.
         agent.begin_stage();
