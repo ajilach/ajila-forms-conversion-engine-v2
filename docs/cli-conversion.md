@@ -194,6 +194,7 @@ exactly as the desktop app names them in Downloads:
 | `aem` (default) | `forms-package-<code>.zip`, `forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd` |
 | `redacto` | `redacto-<code>.sql` |
 | both | `document-<code>.json` (the final document), `agent-log-<code>.md` (the Markdown run transcript) |
+| both | `run-analysis/<date>_<time>_<source>_<session>/` — the run recorded for analysis (report, timeline, per-stage transcripts, full trace, `evaluation.md` template), in this repository's `run-analysis/` unless `--analysis-dir` names another folder; see [run-analysis.md](run-analysis.md). Written while the run happens, so it exists for a stopped run too. Only with `--analysis` or `--analysis-dir`. |
 
 `forms-package-bindrefs` is the same package built with `bind_to_xsd` on: every
 field carries a `bindRef` and the schema is bundled. When the form code could
@@ -268,6 +269,8 @@ nothing.
 | `--aem-volume <VOLUME>` | the app's setting (default `u2s-aem-ubs-data`) | Docker data volume with the UBS platform; AEM target only |
 | `--session <ID>` | — | Resume an earlier session |
 | `--feedback <TEXT>` | — | Requires `--session` |
+| `--analysis` | off | Record the run for analysis into `run-analysis/` in this repository |
+| `--analysis-dir <DIR>` | `run-analysis/` in this repository | Where the run's analysis folder is created; implies `--analysis` |
 
 ---
 

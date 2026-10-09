@@ -10,7 +10,10 @@
 //! through one seam:
 //!
 //! * [`SharedObserver`] receives progress and answers retry prompts — the
-//!   consumer owns how that is displayed and decided.
+//!   consumer owns how that is displayed and decided. It also receives the
+//!   run's structured [`trace`] — every turn, tool call and control decision
+//!   with its duration and full content — for a consumer that records runs
+//!   for analysis.
 //!
 //! That is what makes the sequencing testable: [`run`] can be driven end to end
 //! by rig's own [`rig_core::test_utils::MockCompletionModel`] and a recording
@@ -25,6 +28,7 @@ pub mod roles;
 pub mod run;
 mod substage;
 pub mod tools;
+pub mod trace;
 pub mod turns;
 
 pub use hooks::PriceFn;
@@ -32,3 +36,4 @@ pub use memory::ContextBudget;
 pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver, SharedObserver, Spend};
 pub use run::{RunConfig, RunOutcome, RunSeed, describe_completion_error, is_transient_error, run};
 pub use tools::SharedAgent;
+pub use trace::{ControlKind, StageEnd, TraceEvent, TracedToolCall, TurnUsage};

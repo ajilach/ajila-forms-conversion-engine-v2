@@ -6,7 +6,9 @@
 //! limits it reads ([`models`]), the operator settings that configure them
 //! ([`settings`]), [`turns::TurnPlan`] resolving an endpoint to what
 //! `pipeline` needs to drive a stage, and the run entry points ([`run`]) that
-//! build the agent, open an edit-history session and record the result.
+//! build the agent, open an edit-history session and record the result —
+//! and, through [`analysis`], record the run itself into a folder of report,
+//! timeline, transcripts and trace for analysing it afterwards.
 //!
 //! So the desktop app and the CLI start a run through the same code and differ
 //! only in how they report it and where they put the artefacts.
@@ -18,6 +20,7 @@
 //! executors). A rig-native memory/compaction policy taking over per-turn
 //! shaping is tracked separately, not yet built.
 
+pub mod analysis;
 pub mod artifacts;
 pub mod client;
 pub mod models;
