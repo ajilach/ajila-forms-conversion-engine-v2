@@ -348,7 +348,17 @@ fn App() -> Element {
             }
         }
 
-        EnvironmentBanner { readiness }
+        EnvironmentBanner {
+            readiness,
+            enabled_targets: app_settings.read().enabled_targets(),
+            on_switch_off: move |target: agent::OutputTarget| {
+                let mut next = app_settings.read().clone();
+                if next.set_target_enabled(target, false) {
+                    next.save();
+                    app_settings.set(next);
+                }
+            },
+        }
 
         // Settings, the references manager, or the workspace — full-page views
         // under the persistent header.
@@ -389,6 +399,7 @@ fn App() -> Element {
                 ai_available: !app_settings.read().active_api_key().is_empty(),
                 // Unknown again while a re-check runs, so Start waits for it.
                 readiness: if readiness.pending() { None } else { readiness.value().read().clone() },
+                enabled_targets: app_settings.read().enabled_targets(),
                 on_ai_process: move |files: Vec<(String, Vec<u8>)>| {
                     on_ai_process(active, files);
                 },
