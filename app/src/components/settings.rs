@@ -452,6 +452,18 @@ pub fn SettingsPage(
                         }
                         div { class: "settings-section",
                             h3 { class: "settings-section-title", "Verifier tooling" }
+                            SelectRow {
+                                label: "Container engine",
+                                desc: "What runs the verifier containers. Docker by default; Podman (5.3 or newer, its machine started) is found through its API socket unless DOCKER_HOST is set. Takes effect when the app is restarted.",
+                                value: s.container_engine.as_str().to_string(),
+                                options: vec!["docker".to_string(), "podman".to_string()],
+                                labels: vec!["Docker".to_string(), "Podman".to_string()],
+                                on_change: move |v: String| {
+                                    if let Ok(engine) = agent::container_engine::ContainerEngine::parse(&v) {
+                                        update.call(Box::new(move |s| s.container_engine = engine));
+                                    }
+                                },
+                            }
                             div { class: "row",
                                 RowInfo {
                                     label: "Pull images",

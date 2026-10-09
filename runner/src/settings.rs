@@ -90,6 +90,11 @@ pub struct AppSettings {
     /// (see [`crate::analysis::default_root`]).
     #[serde(default)]
     pub run_analysis_dir: String,
+    /// The container engine the verifiers run on: Docker unless switched to
+    /// Podman. Read once at start (see [`agent::container_engine::select`]), so
+    /// a change takes effect on the next start.
+    #[serde(default)]
+    pub container_engine: agent::container_engine::ContainerEngine,
 }
 
 
@@ -116,6 +121,7 @@ impl Default for AppSettings {
             agent_instructions: String::new(),
             run_analysis: false,
             run_analysis_dir: String::new(),
+            container_engine: agent::container_engine::ContainerEngine::default(),
         }
     }
 }

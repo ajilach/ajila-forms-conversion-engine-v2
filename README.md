@@ -108,7 +108,7 @@ set values, advance pages, submit, close, screenshot). The PDF a submission prod
 is read with the `pdf_*` tools. The source form is read with the `xfa_*` tools.
 
 Prerequisites on the machine running an AEM conversion:
-- Docker running
+- Docker running — or Podman 5.3+, selected in Settings → Verification → Container engine or with `--container-engine podman` (see [docs/podman.md](docs/podman.md))
 - The AEM Forms image from ajila's private Azure registry pulled locally: `az login`, `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`, then `docker pull ajila.azurecr.io/aemforms-arm:6.5.17.0`
 - The Docker data volume with the UBS platform baked in (one-time setup: `docker/aem/bake-ubs-platform.sh`, see `docker/aem/README.md`)
 - Only an ARM image exists today, so AEM conversions currently run only on Apple Silicon hosts

@@ -467,8 +467,10 @@ async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, No
         return Err(NotReady(problems));
     }
     Ok(format!(
-        "AEM image {}, data volume {}, Docker reachable, pdfium loaded.",
-        settings.image, settings.data_volume
+        "AEM image {}, data volume {}, {} reachable, pdfium loaded.",
+        settings.image,
+        settings.data_volume,
+        crate::container_engine::selected().label()
     ))
 }
 
@@ -491,7 +493,10 @@ async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Result<St
         return Err(NotReady(problems));
     }
     let images = profile.map(|p| p.images.all().join(", ")).unwrap_or_default();
-    Ok(format!("Redacto platform images {images}, Docker reachable, pdfium loaded."))
+    Ok(format!(
+        "Redacto platform images {images}, {} reachable, pdfium loaded.",
+        crate::container_engine::selected().label()
+    ))
 }
 
 /// Pulls the public images the verifiers run: the AEM verifier's Chromium and
@@ -516,7 +521,7 @@ pub async fn pull_verifier_images(
     let platform = optional(&aem.platform).unwrap_or_else(|| "linux/amd64".into());
     let docker = DockerLifecycle::connect()
         .await
-        .map_err(|e| format!("Docker is not reachable: {e}"))?;
+        .map_err(|e| format!("{}: {e}", crate::container_engine::unreachable_hint()))?;
     let images = [chromium, redacto.postgres_image.trim().to_string()];
     for image in &images {
         docker
@@ -529,9 +534,15 @@ pub async fn pull_verifier_images(
 
 async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> {
     match DockerLifecycle::connect().await {
-        Ok(docker) if docker.is_reachable().await => Some(docker),
+        Ok(docker) if docker.is_reachable().await => {
+            problems.extend(crate::container_engine::problems());
+            Some(docker)
+        }
         Ok(_) | Err(_) => {
-            problems.push("Docker is not reachable; start Docker Desktop or the Docker daemon".into());
+            problems.extend(crate::container_engine::problems());
+            if problems.is_empty() {
+                problems.push(crate::container_engine::unreachable_hint());
+            }
             None
         }
     }
