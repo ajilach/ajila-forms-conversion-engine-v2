@@ -17,7 +17,7 @@
 
 use std::path::{Path, PathBuf};
 
-use u2s_aem_ubs_mcp::aem::{AemNode, generate_aem_xml_with_passthrough, parse_aem_zip};
+use u2s_aem_ubs_mcp::aem::{generate_aem_xml_with_passthrough, parse_aem_zip};
 use u2s_aem_ubs_mcp::{UbsAemBuild, UbsAemDocument, encode};
 
 mod support;
@@ -70,12 +70,9 @@ fn reloaded_form(zip: &[u8]) -> String {
     let languages = support::lift_languages(&package);
     let lifted = support::lift_package(&package);
     let (lowered, _dictionary) = lifted.lower(&package.language, &languages);
-    let form_code = match &lowered {
-        AemNode::Root { title, .. } => title.clone(),
-        _ => String::new(),
-    };
+    let form_code = support::package_form_code(zip);
     let config = support::ubs_config_for(&package.language, &languages, &form_code);
-    let xml = generate_aem_xml_with_passthrough(&lowered, &config, &lifted.passthrough_map());
+    let xml = generate_aem_xml_with_passthrough(&lowered, &config, &lifted.passthrough_map()).expect("the form is written");
     format!("== form\n{}", structure_without(&xml, &[]))
 }
 

@@ -146,22 +146,26 @@ pub fn encode(doc: &UbsAemDocument) -> Result<UbsAemBuild, Error> {
     }
     let passthrough = doc.form.passthrough_map();
     let package =
-        generate_aem_package_from_node_with_passthrough(&node, &config, translations, &passthrough);
+        generate_aem_package_from_node_with_passthrough(&node, &config, translations, &passthrough)
+            .map_err(Error::InvalidDocument)?;
 
     // The bound twin needs its own lowering: `bindRef`s are only derived when
     // `bind_to_xsd` is on.
-    let bound = (!config.bind_to_xsd && config.xsd_path.is_some()).then(|| {
-        let mut bound_config = config.clone();
-        bound_config.bind_to_xsd = true;
-        let (bound_node, bound_translations, _) = lower(doc, &bound_config);
-        let bound_package = generate_aem_package_from_node_with_passthrough(
-            &bound_node,
-            &bound_config,
-            bound_translations,
-            &passthrough,
-        );
-        (bound_package, bound_node)
-    });
+    let bound = (!config.bind_to_xsd && config.xsd_path.is_some())
+        .then(|| {
+            let mut bound_config = config.clone();
+            bound_config.bind_to_xsd = true;
+            let (bound_node, bound_translations, _) = lower(doc, &bound_config);
+            let bound_package = generate_aem_package_from_node_with_passthrough(
+                &bound_node,
+                &bound_config,
+                bound_translations,
+                &passthrough,
+            )
+            .map_err(Error::InvalidDocument)?;
+            Ok::<_, Error>((bound_package, bound_node))
+        })
+        .transpose()?;
 
     let xsd = config.xsd_config.as_ref().map(|xsd_config| {
         let schema_tree = bound.as_ref().map_or(&node, |(_, bound_node)| bound_node);
@@ -213,8 +217,8 @@ fn check_package_chars(package: &[u8]) -> Result<(), Error> {
 /// slot the preface writes from it: the issuing entity and what qualifies it.
 /// The header's validity line never reaches the slot, so it does not come back.
 ///
-/// What the profile's templates write is folded back into the nodes they write
-/// it for (see [`crate::aem::unexpand`]), and what they regenerate is not kept:
+/// What the writer expands is folded back into the nodes it is written for
+/// (see [`crate::aem::unexpand`]), and what it regenerates is not kept:
 /// a fragment's Initialize script, for one, becomes the profile's again.
 pub fn decode(package: &[u8]) -> Result<UbsAemDocument, Error> {
     let parsed = parse_aem_zip(package).map_err(Error::Package)?;
@@ -255,7 +259,7 @@ pub fn decode(package: &[u8]) -> Result<UbsAemDocument, Error> {
     })
 }
 
-/// The name `preface.xml` gives the DoR header slot it writes.
+/// The name the preface lowering gives the DoR header slot it writes.
 const HEADER_SLOT: &str = "ST_HeaderSlot2";
 
 /// The page header as far as the DoR header slot records it, or `None` for a
@@ -337,7 +341,7 @@ fn form_languages(metadata: &BTreeMap<String, String>) -> Result<Vec<String>, Er
         .ok_or_else(|| {
             Error::Package("the form metadata names no languages (`formrange_language`)".into())
         })?;
-    let (profile, _) = crate::profiles::load_aem_profile(PROFILE).map_err(Error::Profile)?;
+    let profile = crate::profiles::load_aem_profile(PROFILE).map_err(Error::Profile)?;
     let mut languages: Vec<String> = Vec::new();
     for code in listed.split(',').map(|c| c.trim().to_lowercase()) {
         let iso = profile
@@ -565,6 +569,65 @@ mod tests {
             }
         });
         assert_eq!(hidden, ["PN_EntityBasic", "PN_Address"]);
+    }
+
+    /// The value of `name` on the first `tag` element of `xml`.
+    fn attribute(xml: &str, tag: &str, name: &str) -> Option<String> {
+        let element = xml.split(&format!("<{tag}")).nth(1)?.split('>').next()?;
+        let value = element.split(&format!(" {name}=\"")).nth(1)?;
+        Some(value.split('"').next()?.to_owned())
+    }
+
+    /// The bound package names the schema it binds to the way the issued
+    /// corpus does (`AFForms/<code>.xsd`, root `UBSAF_<code>`), the schema is
+    /// in the package at that path, and every `bindRef` is a path under its
+    /// root element. The unbound package names no schema.
+    #[test]
+    fn the_bound_package_names_the_schema_its_bind_refs_use() {
+        use std::io::Read;
+        let field = json!({
+            "type": "TextField", "uuid": "00000000-0000-0000-0000-000000000020",
+            "name": "TXT_Name", "label": {"en": "Name"}, "mandatory": false, "visible": true,
+            "max_chars": null, "colspan": 12, "dor_colspan": null, "bind_ref": null
+        });
+        let doc = UbsAemDocument::from_json(&document(json!([{
+            "type": "Panel", "uuid": "00000000-0000-0000-0000-000000000010", "name": "PN_Client",
+            "title": {"en": "Client"}, "is_page": true, "visible": true, "is_conditional": false,
+            "dor_num_cols": null, "colspan": 12, "dor_colspan": null, "bind_ref": null,
+            "frag_ref": null, "children": [field]
+        }])))
+        .unwrap();
+        let build = encode(&doc).unwrap();
+
+        let unbound = form_xml(&build.package);
+        assert_eq!(attribute(&unbound, "guideContainer", "xsdRef"), None);
+        assert!(!unbound.contains("bindRef="));
+
+        let bound_zip = build.bound_package.expect("the profile builds a bound twin");
+        let bound = form_xml(&bound_zip);
+        let xsd_ref = "/content/dam/formsanddocuments/afforms_xsd/AFForms/AAEV.xsd";
+        assert_eq!(attribute(&bound, "guideContainer", "schemaType").as_deref(), Some("xmlschema"));
+        assert_eq!(attribute(&bound, "guideContainer", "xsdRef").as_deref(), Some(xsd_ref));
+        assert_eq!(
+            attribute(&bound, "guideContainer", "xsdRootElement").as_deref(),
+            Some("UBSAF_AAEV")
+        );
+        let bind_refs: Vec<&str> = bound
+            .split("bindRef=\"")
+            .skip(1)
+            .filter_map(|rest| rest.split('"').next())
+            .collect();
+        assert!(!bind_refs.is_empty(), "the bound form binds its fields:\n{bound}");
+        assert!(bind_refs.iter().all(|r| r.starts_with("/UBSAF_AAEV/")), "{bind_refs:?}");
+
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&bound_zip)).unwrap();
+        let mut schema = String::new();
+        archive
+            .by_name(&format!("jcr_root{xsd_ref}"))
+            .expect("the schema is where xsdRef points")
+            .read_to_string(&mut schema)
+            .unwrap();
+        assert!(schema.contains("name=\"UBSAF_AAEV\""), "{schema}");
     }
 
     /// The same document builds the same package: nothing in it depends on

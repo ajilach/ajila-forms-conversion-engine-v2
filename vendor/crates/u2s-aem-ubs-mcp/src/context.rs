@@ -1,4 +1,4 @@
-//! What the profile's templates read about the source form: its language, its
+//! What the writer reads about the source form: its language, its
 //! XFA template variables and its master-page header.
 
 use serde::{Deserialize, Serialize};

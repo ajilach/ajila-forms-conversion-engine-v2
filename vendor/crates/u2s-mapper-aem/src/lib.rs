@@ -102,6 +102,7 @@ pub fn encode(form: &ValidForm) -> Result<EncodedPackage, EncodeError> {
     let ctx = xml_writer::WriteCtx {
         master: &master,
         bind_refs: &xsd.bind_refs,
+        spell_defaults: true,
     };
 
     let form_xml = xml_writer::write_form_xml(form, &ctx)?;
@@ -342,7 +343,9 @@ pub mod test_support {
     pub fn a_page_named(name: &str, children: Vec<Node>) -> Page {
         Page {
             name: component_name(name),
+            jcr_name: None,
             properties: BTreeMap::new(),
+            passthrough: Default::default(),
             children,
         }
     }
@@ -376,6 +379,9 @@ pub mod test_support {
             root_panel_layout: None,
             chrome: Default::default(),
             dam_chrome: Default::default(),
+            page_content: Default::default(),
+            root_panel: Default::default(),
+            toolbar_chrome: Default::default(),
         };
         AemForm { metadata, pages }
             .validate()

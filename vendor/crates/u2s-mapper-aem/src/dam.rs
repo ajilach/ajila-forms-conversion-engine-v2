@@ -135,6 +135,7 @@ mod tests {
                     .collect(),
                 children: Vec::new(),
             }],
+            ..Default::default()
         };
         form = inner.validate().expect("still valid");
         let xml = write_dam_xml(&form, &lang("en")).expect("writes");

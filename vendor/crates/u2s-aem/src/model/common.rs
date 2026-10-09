@@ -119,16 +119,38 @@ fn default_true() -> bool {
 /// is an ordered list (sibling order is semantic — a wizard step's position
 /// among its siblings, an option's position in its list — so it cannot be
 /// a map).
+///
+/// An element the encoder writes holds, besides these, one child the
+/// encoder generates itself: a component's or a page's `items` (its typed
+/// children), `jcr:content`'s `guideContainer`, `guideContainer`'s
+/// `rootPanel`, `rootPanel`'s `items`. `slot` says where among
+/// `raw_children` that child goes, and `items` describes a generated
+/// `items` element's own attributes and raw children, so a real package's
+/// sibling order and `items` attributes survive a round trip. A raw
+/// attribute overrides an attribute the encoder would write itself under
+/// the same name.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields, default)]
 pub struct Passthrough {
     pub raw_attributes: BTreeMap<String, String>,
     pub raw_children: Vec<RawJcrNode>,
+    /// How many of `raw_children` come before the generated child; the
+    /// rest come after it. `None` puts the generated child first.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slot: Option<usize>,
+    /// The generated `items` element's own remainder: its attributes, and
+    /// raw children around the typed ones (by its own `slot`). `None`
+    /// writes a plain `items`, and only when there are typed children.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Box<Passthrough>>,
 }
 
 impl Passthrough {
     pub fn is_empty(&self) -> bool {
-        self.raw_attributes.is_empty() && self.raw_children.is_empty()
+        self.raw_attributes.is_empty()
+            && self.raw_children.is_empty()
+            && self.slot.is_none()
+            && self.items.is_none()
     }
 }
 

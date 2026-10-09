@@ -286,7 +286,7 @@ struct ParseContext<'a> {
     raw_by_uuid: HashMap<Uuid, Passthrough>,
     /// Every uuid handed out so far, so a recovered one is never handed out twice.
     issued: std::collections::HashSet<Uuid>,
-    /// The conditional panels `conditional.xml` wrote, in document order, each
+    /// The conditional panels the writer wrote, in document order, each
     /// with the (trigger field, value) pairs its show rule tests.
     show_triggers: Vec<(String, Vec<(String, String)>)>,
     /// See [`ParsedAemPackage::fragment_init`].
@@ -390,7 +390,8 @@ fn parse_form_xml(xml: &str, ctx: &mut ParseContext) -> Result<(AemNode, String,
         .ok_or("No guideContainer found in form XML")?;
 
     // The form title is the rich-text `formTitle` draw; `jcr:title` is the
-    // form code (`root.xml`). Older packages without the draw fall back to it.
+    // form code (the form chrome). Older packages without the draw fall back
+    // to it.
     let form_title = find_node_by_name(&jcr_tree, "formTitle")
         .and_then(|draw| draw.attr("_value"))
         .map(|value| {
@@ -472,9 +473,9 @@ use u2s_mapper_aem::jcr::tree::JcrNode;
 /// (reproduced from `colspan`).
 const REGENERATED_CHILD_TAGS: &[&str] = &["items", "layout", "cq:responsive"];
 
-/// An empty `fd:rules` or `fd:scripts`: a placeholder the templates write
+/// An empty `fd:rules` or `fd:scripts`: a placeholder the writer writes
 /// themselves wherever a node has none of its own, carrying nothing. Kept as
-/// passthrough it would stop the template from writing its own and come back
+/// passthrough it would stop the writer from writing its own and come back
 /// in a different place.
 fn is_empty_placeholder(node: &JcrNode) -> bool {
     matches!(node.tag_name.as_str(), "fd:rules" | "fd:scripts")
@@ -484,8 +485,8 @@ fn is_empty_placeholder(node: &JcrNode) -> bool {
 
 /// Attributes the repeating-panel archetype owns on the inner repeating panel.
 ///
-/// `profiles/<name>/aem/repeatable.xml` writes each of these unconditionally
-/// (`addButton` / `removeButton` only when the panel is not a signature twin),
+/// The repeatable lowering writes each of these unconditionally (`addButton`
+/// / `removeButton` only when the panel is not a signature twin),
 /// so a loaded value is regenerated on the way back out and must not be kept as
 /// unmodeled passthrough. See `PROBLEM-repeating-panel` in the feedback repo.
 const REPEATING_PANEL_ARCHETYPE_ATTRS: &[&str] = &[
@@ -1231,12 +1232,12 @@ fn convert_panel(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<AemNod
                 "dorColspan",
                 "fragRef",
             ][..],
-            // The repeating-panel archetype. `repeatable.xml` writes all five
-            // itself and stamps the rules it generates "Do not edit: will be
+            // The repeating-panel archetype. The repeatable lowering writes all
+            // five itself and stamps the rules it generates "Do not edit: will be
             // overwritten", so they are engine-owned, not authored: capturing
             // them as unmodeled passthrough would carry a stale value forward
             // and would make load -> save -> load stop being a fixpoint the
-            // moment the template gained an attribute the deployed corpus
+            // moment the writer gained an attribute the deployed corpus
             // predates. Only on a repeatable -- an ordinary panel that carries
             // an `accessibilityLabel` authored it, and keeps it.
             if is_repeatable {
@@ -1281,7 +1282,7 @@ fn convert_panel(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<AemNod
     // Parse children
     let children = convert_items_to_aem_nodes(node, ctx)?;
 
-    // The DoR's column count, which the templates write as the layout's
+    // The DoR's column count, which the writer writes as the layout's
     // `dorNumCols` (its `columns` is the screen layout's, always 1).
     let dor_num_cols = node
         .children
@@ -1304,7 +1305,7 @@ fn convert_panel(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<AemNod
             frag_ref: None,
         }))
     } else {
-        // A panel hidden by an authored rule rather than `conditional.xml`'s may
+        // A panel hidden by an authored rule rather than the writer's may
         // be conditional too.
         let is_conditional = match show_triggers {
             Some(triggers) => {
@@ -1350,9 +1351,9 @@ fn convert_fragment(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<Aem
             ATTR_NAMES,
         ]
         .concat(),
-        // `fragment.xml` always writes a fragment's one `fd:scripts` itself (the
-        // profile's Initialize rule for its kind, or an empty one), and JCR holds
-        // no second child of that name, so a loaded one is regenerated rather
+        // The fragment lowering always writes a fragment's one `fd:scripts`
+        // itself (the profile's Initialize rule for its kind, or an empty one),
+        // and JCR holds no second child of that name, so a loaded one is regenerated rather
         // than kept: an authored fragment script gives way to the profile's.
         &[REGENERATED_CHILD_TAGS, &["fd:scripts"]].concat(),
     );
@@ -1632,7 +1633,8 @@ fn parse_visibility_rules(raw: &str, ctx: &mut ParseContext) {
     }
 }
 
-/// The (trigger field, value) pairs of the show rule `conditional.xml` writes,
+/// The (trigger field, value) pairs of the show rule the writer writes
+/// ([`super::scripts::show`]),
 /// `if (F.value == "v" || G.value == "w") { showAFShowDor ... }`, or `None`
 /// when the panel carries no such rule. The rule is read through its three
 /// layers (`u2s_mapper_aem::script`), so a value carrying a quote, a comma or
@@ -1683,6 +1685,17 @@ fn show_triggers(node: &JcrNode) -> Result<Option<Vec<(String, String)>>, String
         .collect::<Result<Vec<_>, String>>()?;
     if triggers.is_empty() {
         return Err(unreadable("it tests no `F.value == \"v\"`".into()));
+    }
+    // What was read is the writer's rule only if the writer, given these
+    // triggers, writes it back; anything else in the rule would be lost when
+    // it is regenerated. Hand-authored rules in the corpus lay the same
+    // statements out differently, and that layout is all regeneration drops.
+    let (rebuilt, _) = super::scripts::show(panel, &triggers);
+    let statements = |js: &str| js.split_whitespace().collect::<String>();
+    if statements(&rebuilt.content) != statements(&content) {
+        return Err(unreadable(format!(
+            "it is not the rule the writer writes for {triggers:?}"
+        )));
     }
     Ok(Some(triggers))
 }
@@ -1997,10 +2010,10 @@ fn parse_jcr_array(value: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    /// The show rule exactly as `conditional.xml` writes it, as the parser
-    /// reads the attribute back.
+    /// The show rule exactly as the writer writes it, as the parser reads the
+    /// attribute back.
     #[test]
-    fn show_triggers_reads_the_conditional_templates_rule() {
+    fn show_triggers_reads_the_writers_show_rule() {
         let xml = r#"<panel_1 name="PN_A"><fd:scripts jcr:primaryType="nt:unstructured" fd:visible="[{&quot;script&quot;:{&quot;field&quot;:&quot;PN_A&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;SHOW_EXPRESSION&quot;}\,&quot;content&quot;:&quot;if (RB_Order.value == \\&quot;RB_1\\&quot; || CB_Block.value == \\&quot;true\\&quot;) {\\n  window.forms.ubs.showAFShowDor(this);\\n  true;\\n} else {\\n  window.forms.ubs.hideAFHideDor(this);\\n  false;\\n}\\n&quot;}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true}]"/></panel_1>"#;
         let tree = parse_jcr_xml(xml).unwrap();
         assert_eq!(
@@ -2010,6 +2023,28 @@ mod tests {
                 ("CB_Block".to_string(), "true".to_string())
             ]))
         );
+    }
+
+    /// A show rule that does more than the writer's would lose the rest when
+    /// it is regenerated from its triggers, so it is refused.
+    #[test]
+    fn a_show_rule_with_more_than_the_writers_is_an_error() {
+        let rule = u2s_mapper_aem::script::EventScript {
+            model: Some("SHOW_EXPRESSION".into()),
+            ..u2s_mapper_aem::script::EventScript::event(
+                "PN_A",
+                u2s_mapper_aem::script::ScriptEvent::Visibility,
+                "if (RB_Order.value == \"1\") {\n  window.forms.ubs.showAFShowDor(this);\n  TXT_A.value = '';\n  true;\n} else {\n  window.forms.ubs.hideAFHideDor(this);\n  false;\n}\n",
+            )
+        };
+        let mut tree = parse_jcr_xml(r#"<panel_1 name="PN_A"/>"#).unwrap();
+        let mut scripts = parse_jcr_xml(r#"<fd:scripts jcr:primaryType="nt:unstructured"/>"#).unwrap();
+        scripts
+            .attributes
+            .push(("fd:visible".into(), super::super::scripts::attribute_value(&[rule])));
+        tree.children.push(scripts);
+        let error = show_triggers(&tree).unwrap_err();
+        assert!(error.contains("not the rule the writer writes"), "{error}");
     }
 
     /// A show rule whose list is broken is an error naming the panel, not a

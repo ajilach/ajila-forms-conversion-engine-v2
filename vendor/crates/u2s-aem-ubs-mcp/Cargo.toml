@@ -71,7 +71,6 @@ quick-xml = "0.36"
 regex-lite = "0.1"
 rust_decimal = "1.40"
 semver = "1"
-tera = "1"
 toml = "0.8"
 
 [dependencies.boa_engine]
@@ -108,6 +107,9 @@ features = [
     "macros",
     "sync",
 ]
+
+[dependencies.u2s-aem]
+path = "../u2s-aem"
 
 [dependencies.u2s-blob]
 path = "../u2s-blob"

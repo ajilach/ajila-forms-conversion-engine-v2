@@ -1,29 +1,30 @@
-//! The inverse of the profile's template expansions, applied to a parsed
+//! The inverse of the writer's expansions, applied to a parsed
 //! package on the way into a document.
 //!
 //! The parser reads a package as the writer wrote it, so every node the
-//! templates expand comes back expanded: a page's step title as a child panel,
+//! writer expands comes back expanded: a page's step title as a child panel,
 //! a repeatable as three nested panels, the preface as its banking-relationship
 //! fragment, each fragment with its library content inlined, and the root's
-//! fixed form metadata and summary as content. Encoding such a tree expands all of it a
-//! second time. These passes fold each expansion back into the node it came
-//! from, recognising it by the constants the templates write (fixed names,
+//! fixed form metadata and summary as content. Encoding such a tree expands
+//! all of it a second time. These passes fold each expansion back into the node it came
+//! from, recognising it by the constants the writer writes (fixed names,
 //! fragment paths, the repeat panels' derived names), never by uuid: the parser
 //! mints its own.
 //!
-//! Each pass is the counterpart of one template; see `profiles/ubs/aem/`.
+//! Each pass is the counterpart of one expansion in `super::lower`.
 
 use super::xml_writer::{repeat_panel_name, repeat_row_name};
 use super::{AemAttrs, AemNode};
 
-/// The form metadata fragment `root.xml` writes into every form.
+/// The form metadata fragment the form chrome writes into every form.
 const FORM_METADATA: &str = "FormMetadata";
-/// The summary `root.xml` writes when the profile turns the summary on.
+/// The summary the form chrome writes when the profile turns the summary on.
 const SUMMARY_PANEL: &str = "summaryPanel";
-/// The preface's wrapper and fragment, as `preface.xml` writes them.
+/// The preface's wrapper and fragment, as the preface lowering writes them.
 const PREFACE_PANEL: &str = "PN_BR";
 const BANKING_RELATIONSHIP_FRAGMENT: &str = "affrg_BankingRelationship1";
-/// The step title's class, and the first page's subtitle class, in `panel.xml`.
+/// The step title's class, and the first page's subtitle class, as the page
+/// lowering writes them.
 const STEP_TITLE_CSS: &str = "stepTitle";
 const SUBTITLE_CSS: &str = "subtitle-after-form-title";
 
@@ -42,8 +43,8 @@ pub fn unexpand(root: AemNode) -> AemNode {
     }
 }
 
-/// A panel directly under the root is a wizard step: undo `panel.xml`'s step
-/// title, which it writes as the page's first child.
+/// A panel directly under the root is a wizard step: undo the page lowering's
+/// step title, which it writes as the page's first child.
 fn page(node: AemNode) -> AemNode {
     let AemNode::Panel {
         uuid,
@@ -90,8 +91,8 @@ fn page(node: AemNode) -> AemNode {
     }
 }
 
-/// The page title, if `node` is the step-title panel `panel.xml` writes for
-/// the page named `page`: `{page}Title`, holding just the title draw.
+/// The page title, if `node` is the step-title panel the page lowering writes
+/// for the page named `page`: `{page}Title`, holding just the title draw.
 fn step_title_of(node: &AemNode, page: &str) -> Option<String> {
     let AemNode::Panel { name, children, .. } = node else {
         return None;
@@ -236,7 +237,7 @@ fn fold_children(node: AemNode) -> AemNode {
     }
 }
 
-/// `repeatable.xml` writes a repeatable `X` as a panel `X`, holding the
+/// The repeatable lowering writes a repeatable `X` as a panel `X`, holding the
 /// instance-managed panel `RCP_X_repeat` (which carries the occurrences, the
 /// subject and the `bindRef`), holding the row `RCP_X_inner` with the content.
 /// Fold that back into one repeatable, if `panel` is one.

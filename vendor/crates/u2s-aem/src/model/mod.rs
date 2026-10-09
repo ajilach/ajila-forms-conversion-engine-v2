@@ -32,7 +32,7 @@ pub use newtypes::{
     OptionValue, ResourceType, TextPattern, XmlName,
 };
 pub use text::{I18nRichText, I18nText, Language, PlainText, RichText};
-pub use validate::{ValidForm, Violation};
+pub use validate::{NameScope, ValidForm, ValidateOptions, Violation};
 
 /// The AEM output document. `schema_for!(AemForm)` (see [`crate::schema`])
 /// IS the format schema published in the format server's manifest — there
@@ -115,6 +115,23 @@ pub struct FormMetadata {
     /// would otherwise need to keep inventing.
     #[serde(default)]
     pub chrome: Passthrough,
+    /// The page's `jcr:content` remainder: attributes beyond the ones the
+    /// encoder writes (which these override), and its children other than
+    /// `guideContainer` (a header and footer paragraph system, say), placed
+    /// around it by `slot`.
+    #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
+    pub page_content: Passthrough,
+    /// `rootPanel`'s remainder: attributes (overriding the encoder's), raw
+    /// children around its `items` (by `slot`), and that `items` element's
+    /// own attributes and raw children around the pages (by its `slot`): a
+    /// form's own non-step panels, say, before or after the steps.
+    #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
+    pub root_panel: Passthrough,
+    /// The toolbar's remainder: attributes (overriding the encoder's), raw
+    /// children around its `items` (by `slot`), and that `items` element's
+    /// own remainder. A raw `layout` child replaces the encoder's own.
+    #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
+    pub toolbar_chrome: Passthrough,
     /// The DAM asset's own `<metadata>` node's remainder: every attribute
     /// beyond what the encoder already derives mechanically from this form
     /// itself (`allowedRenderFormat`, `dorType`, `formmodel`,
@@ -147,8 +164,15 @@ pub struct FormMetadata {
 #[serde(deny_unknown_fields)]
 pub struct Page {
     pub name: ComponentName,
+    /// The page's JCR element name, when it is not `name`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub jcr_name: Option<JcrName>,
     #[serde(default)]
     pub properties: BTreeMap<JcrName, JcrValue>,
+    /// The page's remainder, as a [`Common::passthrough`]: a property or raw
+    /// attribute overrides an attribute the encoder writes itself.
+    #[serde(default, skip_serializing_if = "Passthrough::is_empty")]
+    pub passthrough: Passthrough,
     /// Non-empty — checked in [`AemForm::validate`].
     pub children: Vec<Node>,
 }

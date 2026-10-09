@@ -32,7 +32,7 @@ pub const CONTRACT_VERSION: &str = "1.0.0";
 ///
 /// Bumped `0.2.0` -> `0.3.0` when the format became the UBS document
 /// (`UbsAemDocument`: the XFA variables, the header, the languages and the
-/// multilingual form tree) encoded through the UBS templates, in place of the
+/// multilingual form tree) encoded through the UBS writer, in place of the
 /// generic model. A `0.2.0` document does not read as a `0.3.0` one.
 ///
 /// Bumped `0.3.0` -> `0.4.0` when a partner generic's `Fragment` gained
@@ -50,8 +50,8 @@ pub fn tool_specs() -> Vec<Value> {
                  Exactly one of `artifact_blob` (a u2s blob handle) or `artifact_path` (a \
                  filesystem path, for conformance test vectors) must be given. The form's \
                  variables and languages come from the metadata the profile writes into every \
-                 package, the header from the DoR header slot, and what the UBS templates \
-                 write (step titles, repeatable wrappers, the preface, fragment content, the \
+                 package, the header from the DoR header slot, and what the UBS writer \
+                 writes (step titles, repeatable wrappers, the preface, fragment content, the \
                  form chrome) is folded back into the nodes it is written for; anything the \
                  model does not type is kept as passthrough. A package that is not a UBS \
                  adaptive form returns a tool error. The decoded document is returned as a \
@@ -83,7 +83,7 @@ pub fn tool_specs() -> Vec<Value> {
             "name": "encode",
             "description":
                 "Encode a finished aem-ubs document into the UBS AEM FileVault content \
-                 package, through the UBS templates. A document with unknown fields, a text in \
+                 package, through the UBS writer. A document with unknown fields, a text in \
                  a language `languages` does not list, a master text translated two ways, or a \
                  variable the profile needs missing returns a tool error saying which, instead \
                  of a package. The package, the same form bound to its schema \
@@ -161,7 +161,7 @@ pub fn manifest() -> Value {
             "description_md":
                 "UBS AEM Adaptive Forms. The delivered artefact is a FileVault content \
                  package (a ZIP of JCR XML); this JSON is the UBS document the encoder \
-                 lowers into it through the UBS templates: the source form's XFA variables \
+                 lowers into it through the UBS writer: the source form's XFA variables \
                  (which name and place the form), its master-page header, its languages, and \
                  the multilingual form tree (`form`, a `Root`). The step titles, the toolbar, \
                  the DAM metadata, the dictionaries and the schema are the profile's. The \

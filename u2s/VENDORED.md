@@ -3,7 +3,7 @@
 Source: `ajilach/ajila-forms-conversion-engine-v3` (local checkout usually at
 `../unstructured-to-structured`).
 
-Upstream commit: `1b50e14653380a801c0f2461e9e087eec34191d4`
+Upstream commit: `fcc5498b8bd51297c72b494e698b670aff55547b`
 
 The u2s crates are git dependencies at that one revision (`[workspace.dependencies]` in the root
 `Cargo.toml`, which `agent` inherits), and their sources are checked in under `vendor/crates/`,
@@ -40,7 +40,7 @@ documents and a generated PDF from there, so they follow the pinned revision.
 | `u2s-render-pdf`, `u2s-render-pdf-mcp` | Viewing the PDFs the verifiers produce (`pdf_*`); pdfium is embedded by agent/build.rs |
 | `u2s-aem-ubs-verify-mcp`, `u2s-aem-verify-core`, `u2s-mapper-aem`, `u2s-aem` | AEM verification against a Docker AEM + Chromium |
 | `u2s-redacto-ubs-verify-mcp`, `u2s-redacto-verify-core`, `u2s-mapper-redacto`, `u2s-redacto` | Redacto dump verification: imports and renders the dump on a Redacto platform (Postgres, migration, core, rendering) booted per session, see `docker/redacto/README.md` |
-| `u2s-aem-ubs-mcp` | The UBS AEM format: the authored `UbsAemDocument`, `encode` into a FileVault package through the UBS templates, `decode` back. It ships no check rules (v3 keeps rules in its database); this repo's live in `rules/aem/` |
+| `u2s-aem-ubs-mcp` | The UBS AEM format: the authored `UbsAemDocument`, `encode` into a FileVault package (lowered onto the generic AEM model, encoded by `u2s-mapper-aem`), `decode` back. It ships no check rules (v3 keeps rules in its database); this repo's live in `rules/aem/` |
 | `u2s-redacto-ubs-mcp` | The UBS Redacto format: the authored `UbsRedactoDocument`, `encode` into the platform's dump with the UBS metadata and page furniture, `decode` back |
 | `u2s-doc-tools`, `u2s-jsondoc`, `u2s-schema` | The `json_*` document tools and `rule_*` rule tools over one revisioned JSON document, schema validation, and the loader for rules checked in as files |
 | `u2s-rules`, `u2s-rules-host`, `u2s-facts` | The rule sandbox and the worker process each rule runs in, with its memory and time ceiling; the converting binaries are their own worker (`u2s_rules_host::worker`), the agent tests use the `u2s-rules-worker` binary |

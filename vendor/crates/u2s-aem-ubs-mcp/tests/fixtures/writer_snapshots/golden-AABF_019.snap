@@ -1470,7 +1470,7 @@ Manifest-Version: 1.0
 Content-Package-Id: fd/export:AABF
 Content-Package-Roots: /content/forms/af/afforms_germany_all/af_aa/AF_AA
  BF,/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AABF,/co
- ntent/dam/formsanddocuments/afforms_xsd/AFForms/AF_AABF.xsd
+ ntent/dam/formsanddocuments/afforms_xsd/AFForms/AABF.xsd
 Content-Package-Type: content
 
 
@@ -1509,12 +1509,12 @@ Content-Package-Type: content
   <filter jcr:primaryType="nt:unstructured">
     <f0 jcr:primaryType="nt:unstructured" mode="replace" root="/content/forms/af/afforms_germany_all/af_aa/AF_AABF" rules="[]">
     <f1 jcr:primaryType="nt:unstructured" mode="replace" root="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AABF" rules="[]">
-    <f2 jcr:primaryType="nt:unstructured" mode="replace" root="/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AABF.xsd" rules="[]">
+    <f2 jcr:primaryType="nt:unstructured" mode="replace" root="/content/dam/formsanddocuments/afforms_xsd/AFForms/AABF.xsd" rules="[]">
 == bound META-INF/vault/filter.xml
 <workspaceFilter version="1.0">
   <filter root="/content/forms/af/afforms_germany_all/af_aa/AF_AABF">
   <filter root="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AABF">
-  <filter root="/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AABF.xsd">
+  <filter root="/content/dam/formsanddocuments/afforms_xsd/AFForms/AABF.xsd">
 == bound META-INF/vault/nodetypes.cnd
 <'sling'='http://sling.apache.org/jcr/sling/1.0'>
 <'cq'='http://www.day.com/jcr/cq/1.0'>
@@ -1668,12 +1668,12 @@ Content-Package-Type: content
       <en jcr:primaryType="nt:unstructured">
       <es jcr:primaryType="nt:unstructured">
       <sp jcr:primaryType="nt:unstructured">
-    <metadata allowedRenderFormat="HTML" author="blueprint" availableInMobileApp="{Boolean}false" availableStylings="[ajila-forms-ubs-ebanking-styling]" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AABF/jcr:content/renditions/dorTemplate" dorType="generate" fd:version="1.1" formmodel="xsd" hasCustomThumbnail="{Boolean}false" jcr:mixinTypes="[mix:created,mix:lastModified]" jcr:primaryType="nt:unstructured" menuOptions="[ajila-forms-ubs-menu-option-save]" redactoSummary="true" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" title="AABF" xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AABF.xsd">
+    <metadata allowedRenderFormat="HTML" author="blueprint" availableInMobileApp="{Boolean}false" availableStylings="[ajila-forms-ubs-ebanking-styling]" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AABF/jcr:content/renditions/dorTemplate" dorType="generate" fd:version="1.1" formmodel="xsd" hasCustomThumbnail="{Boolean}false" jcr:mixinTypes="[mix:created,mix:lastModified]" jcr:primaryType="nt:unstructured" menuOptions="[ajila-forms-ubs-menu-option-save]" redactoSummary="true" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" title="AABF" xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFForms/AABF.xsd">
 == bound jcr_root/content/dam/formsanddocuments/afforms_xsd/.content.xml
 <jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
 == bound jcr_root/content/dam/formsanddocuments/afforms_xsd/AFForms/.content.xml
 <jcr:root jcr:primaryType="sling:Folder" lcFolder="{Long}0" type="lcFolder" xmlns:jcr="http://www.jcp.org/jcr/1.0" xmlns:sling="http://sling.apache.org/jcr/sling/1.0">
-== bound jcr_root/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AABF.xsd
+== bound jcr_root/content/dam/formsanddocuments/afforms_xsd/AFForms/AABF.xsd
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
   <xs:include schemaLocation="../AFSimpleTypeElements/AFSimpleElements.xsd"/>
@@ -1809,7 +1809,7 @@ Content-Package-Type: content
     <parsys1 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
       <guideheader jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guideheader">
       <guideformtitle _value="<p>Standing Order</p>" css="guideformtitle container" guideNodeClass="guideTextDraw" jcr:primaryType="nt:unstructured" name="formTitle" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/formtitle" textIsRich="true">
-    <guideContainer actionType="ajila-forms-customers/ajila-forms-ubs/components/actions/submit" autoSaveStrategyType="fd/fp/components/actions/autosave/timebased" clientLibRef="ajila-forms-ubs" disableSwipeGesture="{Boolean}false" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AABF/jcr:content/renditions/dorTemplate" dorType="generate" enableFocusOnFirstField="{Boolean}true" enableLayoutLayer="false" fd:version="1.1" guideCss="guideContainer" guideNodeClass="guideContainerNode" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="guide1" redirect="/content/forms/af/afforms_global_common/confirm-successful-submission" sling:resourceType="fd/af/components/guideContainer" textIsRich="true" thankYouMessage="Thank you for submitting the form." thankYouOption="page" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" useExistingAF="false">
+    <guideContainer actionType="ajila-forms-customers/ajila-forms-ubs/components/actions/submit" autoSaveStrategyType="fd/fp/components/actions/autosave/timebased" clientLibRef="ajila-forms-ubs" disableSwipeGesture="{Boolean}false" dorTemplateRef="/content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AABF/jcr:content/renditions/dorTemplate" dorType="generate" enableFocusOnFirstField="{Boolean}true" enableLayoutLayer="false" fd:version="1.1" guideCss="guideContainer" guideNodeClass="guideContainerNode" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="guide1" redirect="/content/forms/af/afforms_global_common/confirm-successful-submission" schemaType="xmlschema" sling:resourceType="fd/af/components/guideContainer" textIsRich="true" thankYouMessage="Thank you for submitting the form." thankYouOption="page" themeRef="/content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme" useExistingAF="false" xsdRef="/content/dam/formsanddocuments/afforms_xsd/AFForms/AABF.xsd" xsdRootElement="UBSAF_AABF">
       <layout jcr:primaryType="nt:unstructured" mobileLayout="fd/af/layouts/mobile/step" sling:resourceType="fd/af/layouts/defaultGuideLayout" toolbarPosition="Bottom">
       <rootPanel completionExpReq="{Boolean}true" dorExcludeDescription="true" dorExcludeTitle="true" guideNodeClass="rootPanelNode" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Root Panel" name="guideRootPanel" panelSetType="Navigable" sling:resourceType="fd/af/components/rootPanel" validateOnStepCompletion="{Boolean}true">
         <layout enableLayoutOptimization="true" guideNavigatorTab="wizard-tab" jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/layouts/panel/wizard" toolbarPosition="Bottom">

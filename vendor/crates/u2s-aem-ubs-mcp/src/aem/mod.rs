@@ -3,7 +3,8 @@
 //! The authored tree is [`AemNodeTranslated`], which carries every text in
 //! each language. Lowering it gives the single-language [`AemNode`] tree plus
 //! the dictionary keyed by master text; the writer renders that tree through
-//! the profile's templates into the form's JCR content XML, and the package
+//! the UBS lowering (`lower`) onto the generic AEM model, which
+//! `u2s-mapper-aem` encodes into the form's JCR content XML; the package
 //! writer wraps it with the dictionaries, the DAM asset and the schema.
 //!
 //! ```text
@@ -13,19 +14,21 @@
 //! ```
 
 pub mod fragment_parser;
+pub mod identity;
+mod lower;
 pub mod normalize;
 mod package_writer;
 pub mod parser;
 pub mod partner;
 pub mod profile;
 pub mod script_engine;
+pub mod scripts;
 pub mod to_translated;
 pub mod translated;
 mod unexpand;
 pub mod xml_validation;
 mod xml_writer;
 
-pub use crate::template;
 pub use fragment_parser::{ParsedFragment, parse_fragment_content};
 pub use package_writer::{
     generate_aem_package_from_node, generate_aem_package_from_node_with_passthrough,
@@ -55,6 +58,13 @@ use uuid::Uuid;
 use crate::value::InputValue;
 use crate::xsd::XsdConfig;
 
+/// Every attribute name some UBS component writes itself, whatever it writes
+/// for a given node: a loaded raw attribute of one of these names gives way to
+/// the writer's own value.
+pub fn writer_owned_attributes() -> std::collections::HashSet<&'static str> {
+    lower::owned_attribute_names().collect()
+}
+
 // ============================================================================
 // Configuration
 // ============================================================================
@@ -62,8 +72,7 @@ use crate::xsd::XsdConfig;
 
 /// Configuration for AEM Forms XML generation.
 ///
-/// Created from an [`AemProfile`] directory.  All template-rendered output
-/// is driven by Tera template files loaded from the profile directory.
+/// Created from an [`AemProfile`] and the form's own variables.
 #[derive(Debug, Clone)]
 pub struct AemConfig {
     // -- Form identity -------------------------------------------------------
@@ -125,7 +134,7 @@ pub struct AemConfig {
     /// JCR path segment between `content/forms/af/` and the form directory.
     pub form_path: String,
 
-    /// JCR folder name for this form (from the profile's `form_dir` template).
+    /// JCR folder name for this form ([`identity::FormIdentity::form_dir`]).
     pub form_dir: String,
 
     /// JCR file path of the generated XSD used in DAM metadata `xsdRef`
@@ -150,17 +159,12 @@ pub struct AemConfig {
     /// validity date.
     pub header_slot_text: Option<String>,
 
-    // -- Template-based XML generation ---------------------------------------
-    /// Tera template strings keyed by component name
-    /// (e.g. `"root"`, `"panel"`, `"textbox"`, …).
-    /// Loaded from `*.xml` files in the profile directory.
-    pub component_templates: HashMap<String, String>,
-
-    // -- Variables (available in Tera templates) ------------------------------
-    /// Raw XFA variables extracted from the PDF (`xfa.*` in templates).
+    // -- Variables -------------------------------------------------------------
+    /// Raw XFA variables extracted from the PDF.
     pub xfa_vars: HashMap<String, String>,
 
-    /// Resolved user-defined variables (`variables.*` in templates).
+    /// The profile's constants and what the form's identity decides
+    /// ([`identity::FormIdentity::variables`]), by name.
     pub user_vars: HashMap<String, String>,
 
     // -- XSD binding ---------------------------------------------------------
@@ -198,39 +202,29 @@ pub struct AemConfig {
 }
 
 impl AemConfig {
-    /// Create an `AemConfig` from an [`AemProfile`], component templates,
-    /// and a [`Context`](crate::context::Context).
-    ///
-    /// The profile provides customer-specific settings. XFA variables from
-    /// the context are available in template expressions as `xfa.*`.
-    /// Component templates (loaded from `*.xml` files in the profile directory)
-    /// drive all XML output.
+    /// Create an `AemConfig` from an [`AemProfile`] and a
+    /// [`Context`](crate::context::Context): the profile's constants, and
+    /// what the form's own XFA variables decide
+    /// ([`identity::FormIdentity`]).
     pub fn from_profile(
         profile: &AemProfile,
-        templates: HashMap<String, String>,
         ctx: &crate::context::Context,
     ) -> Result<Self, crate::Error> {
         let xfa_vars = ctx.variables.clone();
-        let user_vars = template::resolve_variables(&profile.variables, &xfa_vars)?;
-        let tera_ctx = template::build_context(&xfa_vars, &user_vars);
+        let identity = identity::FormIdentity::from_xfa(&xfa_vars).map_err(crate::Error::AemConfig)?;
+        let mut user_vars = profile.variables.clone();
+        user_vars.extend(identity.variables());
 
-        // --- form identity ---
-        let form_title = template::render_string(&profile.title, &tera_ctx)?;
-
+        let form_title = identity.code.clone();
         let form_code = form_title.clone();
-
-        let form_path = match &profile.form_path {
-            Some(tmpl) => template::render_string(tmpl, &tera_ctx)?,
-            None => String::new(),
-        };
-
-        let form_dir = template::render_string(&profile.form_dir, &tera_ctx)?;
+        let form_path = identity.form_path();
+        let form_dir = identity.form_dir();
 
         let bind_to_xsd = profile.bind_to_xsd.unwrap_or(false);
-        let xsd_path = match &profile.xsd_path {
-            Some(tmpl) => Some(template::render_string(tmpl, &tera_ctx)?),
-            None => None,
-        };
+        let xsd_path = profile
+            .xsd_dir
+            .as_ref()
+            .map(|dir| format!("{dir}{form_code}.xsd"));
 
         let mandator = xfa_vars
             .get("formrange_entity")
@@ -271,7 +265,6 @@ impl AemConfig {
             theme_ref: user_vars.get("theme_ref").cloned().unwrap_or_default(),
             header_slot_text: ctx.header.as_deref().and_then(header_slot_text),
 
-            component_templates: templates,
             xfa_vars,
             user_vars,
 
@@ -283,24 +276,20 @@ impl AemConfig {
                 .fragment_ref_prefix
                 .clone()
                 .unwrap_or_else(|| "/content/dam/formsanddocuments/".into()),
-            fragment_paths: match &profile.fragment_paths {
-                Some(tmpl) => {
-                    let rendered = template::render_string(tmpl, &tera_ctx)?;
-                    rendered
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect()
-                }
-                None => Vec::new(),
-            },
+            fragment_paths: profile
+                .fragment_paths
+                .iter()
+                .flat_map(|paths| paths.split(','))
+                .map(|path| path.trim().to_string())
+                .filter(|path| !path.is_empty())
+                .collect(),
             fragments: Vec::new(),
 
             default_translations: profile.default_translations.clone(),
         })
     }
 
-    /// The JCR folder name for this form (from the profile's `form_dir` template).
+    /// The JCR folder name for this form.
     pub fn form_dir(&self) -> String {
         self.form_dir.clone()
     }
@@ -347,8 +336,8 @@ impl AemConfig {
     ///
     /// The word order is the profile's business: `Add {subject}` in English,
     /// `{subject} hinzufügen` in German. Without a pattern the caller keeps
-    /// whatever its template says, which is how a profile that never configured
-    /// this keeps its old output.
+    /// whatever the writer would write, which is how a profile that never
+    /// configured this keeps its old output.
     /// The language a label the engine writes should be phrased in: the
     /// profile's master language when the form actually ships it, otherwise the
     /// first language it does ship.
@@ -470,9 +459,17 @@ impl AemConfig {
             theme_ref: String::new(),
             header_slot_text: None,
 
-            component_templates: HashMap::new(),
             xfa_vars: HashMap::new(),
-            user_vars: HashMap::new(),
+            // The embedded UBS profile's constants, and what a form of this
+            // code and no entity decides: what every writer test runs with.
+            user_vars: {
+                let mut vars = crate::profiles::load_aem_profile("ubs")
+                    .expect("the embedded UBS profile loads")
+                    .variables;
+                let identity = identity::FormIdentity { code: form_code.into(), entity: None };
+                vars.extend(identity.variables());
+                vars
+            },
 
             bind_to_xsd: false,
             xsd_config: None,
@@ -496,7 +493,7 @@ impl AemConfig {
 /// A form's PDF source has no type for an email address or a phone number — both
 /// arrive as plain text — so the kind is decided from the field's label in the
 /// structured model ([`crate::structured::contact_field`]) and carried through
-/// here. It selects the template, and with it the resource type, the validation
+/// here. It selects the component, and with it the resource type, the validation
 /// clause, the `autofillFieldKeyword` and the phonebox styling.
 #[derive(
     Debug,
@@ -525,20 +522,15 @@ pub enum TextFieldKind {
 }
 
 impl TextFieldKind {
-    /// The profile template that renders this kind.
-    pub fn template_key(self) -> &'static str {
+    /// The JCR element-name stem, the way AEM's own export names the
+    /// component (`email_<uuid>`, `telephone_<uuid>`).
+    pub fn element_stem(self) -> &'static str {
         match self {
             TextFieldKind::Plain => "textbox",
             TextFieldKind::Email => "email",
             TextFieldKind::Telephone => "telephone",
             TextFieldKind::Multiline => "textbox_multiline",
         }
-    }
-
-    /// The JCR element-name stem, mirroring the template key so a package reads
-    /// the way AEM's own export does (`email_<uuid>`, `telephone_<uuid>`).
-    pub fn element_stem(self) -> &'static str {
-        self.template_key()
     }
 }
 
@@ -1035,7 +1027,7 @@ pub enum AemNode {
     ///
     /// The source marks such a note `relevant="-print"` — it addresses whoever
     /// fills the form and never the printed document, which is why it carries
-    /// `dorExclusion` and `summaryExclusion` from its template. Rendering it as
+    /// `dorExclusion` and `summaryExclusion` from the writer. Rendering it as
     /// an ordinary static draw would put it in the DoR.
     MessageBox {
         uuid: Uuid,
@@ -1120,7 +1112,7 @@ pub enum AemNode {
     },
 
     /// Optional profile-driven snippet inserted as the first item in the
-    /// first page panel when the `preface` template exists.
+    /// first page panel.
     Preface { uuid: Uuid, name: String },
 
     /// Footnote placeholder component, placed at the end of a page panel
@@ -1190,8 +1182,7 @@ impl AemNode {
 
     /// The node's presentation attributes ([`AemAttrs`]), or `None` for the
     /// variants that have none: `Root` and the profile-driven `Preface` /
-    /// `FootnotePlaceholder` snippets, whose whole tag is fixed by their
-    /// template.
+    /// `FootnotePlaceholder` snippets, whose whole tag the writer fixes.
     pub fn attrs(&self) -> Option<&AemAttrs> {
         match self {
             AemNode::Panel { attrs, .. }

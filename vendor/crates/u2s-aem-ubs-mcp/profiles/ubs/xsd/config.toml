@@ -43,15 +43,9 @@
 
 schemaLocationPrefix = "../"
 
-# rootElementName — template for the XSD root element name.
-# May contain {{ form_code }} which is replaced with the actual form code.
-rootElementName = "UBSAF_{{ form_code }}"
-
-# fragmentBindRefPrefix — prefix used for fragment bindRef paths.
-# Fragments use a generic prefix so they can be reused across forms.
-# May contain {{ form_code }} for expansion.  When omitted, fragments
-# use the same root element name as the form.
-fragmentBindRefPrefix = "UBSAF_{{ form_code }}"
+# rootElementPrefix: the XSD root element is this prefix followed by the
+# form code (UBSAF_AABF). Fragments' bindRef paths use the same root.
+rootElementPrefix = "UBSAF_"
 
 masterLanguage = "en"
 

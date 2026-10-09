@@ -1,55 +1,26 @@
 //! AEM profile configuration loaded from a TOML file.
 //!
-//! Defines the schema for AEM output profiles and handles deserialization.
-//! Profile values use [Tera](https://keats.github.io/tera/) template syntax
-//! and can reference two namespaces:
-//!
-//! - `xfa.*`  — raw XFA `<variables><text>` values extracted from the PDF
-//! - `variables.*` — user-defined intermediate values (themselves Tera templates)
-//!
-//! Runtime values injected automatically:
-//! - `master_language` — primary language code (from profile)
-//! - `languages` — comma-separated list of all detected language codes
-//! - `author` — authoring user name
+//! Plain data: the profile's constants. What follows from a form's own XFA
+//! variables (its code, folders and DoR templates) is
+//! [`super::identity::FormIdentity`], in Rust.
 
 use serde::Deserialize;
 use std::collections::HashMap;
 
 /// An AEM output profile loaded from a TOML file.
-///
-/// All template-typed fields accept Tera syntax. Non-template fields are
-/// plain strings passed through as-is.
 #[derive(Debug, Clone, Deserialize)]
 pub struct AemProfile {
     /// Master / primary language code (e.g. `"en"`, `"de"`).
     /// Default: `"en"`.
     pub master_language: Option<String>,
 
-    /// Tera template for the human-readable form title / form code.
-    ///
-    /// Required. Example: `"{{ xfa.formrange_code }}"`.
-    pub title: String,
+    /// The DAM folder the form's schema lives in: the schema file is
+    /// `<form code>.xsd` there. Required when `bind_to_xsd = true`.
+    pub xsd_dir: Option<String>,
 
-    /// Tera template for the JCR path segment between
-    /// `content/forms/af/` and the form directory.
-    pub form_path: Option<String>,
-
-    /// Tera template for the JCR folder name
-    /// (e.g. `"AF_{{ xfa.formrange_code }}"`).
-    ///
-    /// Required.
-    pub form_dir: String,
-
-    /// Tera template for the generated form XSD file path.
-    ///
-    /// This is a full JCR file path used in DAM metadata `xsdRef`
-    /// (e.g. `"/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_{{ variables.form_code }}.xsd"`).
-    ///
-    /// Required when `bind_to_xsd = true`.
-    pub xsd_path: Option<String>,
-
-    /// Reusable intermediate variables. Each value is a Tera template that
-    /// can reference `xfa.*` and previously resolved `variables.*`.
+    /// The profile's constants the components write (resource types, CSS
+    /// classes, validation clauses, ...), each as it is written between an
+    /// attribute's quotes.
     #[serde(default)]
     pub variables: HashMap<String, String>,
 
@@ -62,8 +33,8 @@ pub struct AemProfile {
     ///
     /// A repeatable's Add button has to name what it adds, and the word order
     /// differs per language, so the phrasing is profile data rather than
-    /// something a template can compose. Absent, or absent for the master
-    /// language, the button keeps its bare template label.
+    /// something the writer can compose. Absent, or absent for the master
+    /// language, the button keeps its bare label.
     #[serde(default)]
     pub add_label_patterns: HashMap<String, String>,
 
@@ -105,23 +76,13 @@ pub struct AemProfile {
     /// The `fragRef` is built as `{prefix}{relative_fragment_dir_path}`.
     pub fragment_ref_prefix: Option<String>,
 
-    /// Tera template that evaluates to a comma-separated list of fragment
-    /// paths relative to `fragments/`. Each path can be:
-    /// - A fragment library directory (scanned recursively): `"afforms_ubs_fragmentlib"`
-    /// - A specific fragment: `"afforms_ubs_fragmentlib/affrg_Address1"`
+    /// A comma-separated list of fragment paths relative to `fragments/`.
+    /// Each path can be a fragment library directory (scanned recursively,
+    /// `"afforms_ubs_fragmentlib"`) or a specific fragment
+    /// (`"afforms_ubs_fragmentlib/affrg_Address1"`).
     ///
-    /// When set, only the listed paths are scanned.
-    /// When absent, ALL subdirectories are scanned (backward-compatible default).
-    ///
-    /// Example using conditional logic:
-    /// ```toml
-    /// fragment_paths = """{% if xfa.formrange_entity == "019" %}afforms_ubs_fragmentlib,afforms_germany_fragmentlib{% elif xfa.formrange_entity == "033" %}afforms_ubs_fragmentlib,afforms_italy_fragmentlib{% else %}afforms_ubs_fragmentlib,afforms_ch_fragmentlib{% endif %}"""
-    /// ```
-    ///
-    /// Example selecting specific fragments:
-    /// ```toml
-    /// fragment_paths = "afforms_ubs_fragmentlib/affrg_Address1,afforms_ubs_fragmentlib/affrg_IBAN1"
-    /// ```
+    /// When set, only the listed paths are scanned. When absent, every
+    /// subdirectory is.
     pub fragment_paths: Option<String>,
 
     /// Default translations for predefined UI elements (toolbar buttons,

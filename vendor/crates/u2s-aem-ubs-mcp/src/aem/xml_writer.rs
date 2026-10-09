@@ -1,24 +1,18 @@
 //! XML serialization of an `AemNode` tree into AEM JCR content XML.
 //!
-//! Uses Tera templates loaded from the profile directory. Each `AemNode` type
-//! is rendered by its corresponding `*.xml` template file. The `root.xml`
-//! template is the entire XML document — the writer itself generates no XML
-//! tags.
+//! The tree is normalized and analysed here ([`RenderIndex`]), lowered onto
+//! the generic `u2s_aem` model (`super::lower`), and encoded by
+//! `u2s_mapper_aem`: this crate writes no XML tags of its own for the form.
 
 use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
-use super::{
-    AemAttrs, AemConfig, AemI18nText, AemNode, AemOption, ConditionRule, OptionAlignment,
-    Passthrough, TextFieldKind,
-};
-use crate::aem::template;
-use u2s_mapper_aem::jcr::escape_attribute_value as xml_escape;
+use super::{AemConfig, AemNode, AemOption, ConditionRule, OptionAlignment, Passthrough};
 use crate::value::InputValue;
 
-/// No fidelity passthrough (the engine / from-XFA path): every node renders
-/// purely from its template, exactly as before.
+/// No fidelity passthrough (an authored document): every node is written
+/// from its own fields alone.
 fn no_passthrough() -> &'static HashMap<Uuid, Passthrough> {
     use std::sync::OnceLock;
     static EMPTY: OnceLock<HashMap<Uuid, Passthrough>> = OnceLock::new();
@@ -29,13 +23,11 @@ fn no_passthrough() -> &'static HashMap<Uuid, Passthrough> {
 // Public API
 // ============================================================================
 
-/// Serialize an `AemNode` tree (starting from `Root`) into a complete AEM
-/// JCR content XML string.
-///
-/// Each node is rendered by the correspondingly named template from
-/// `config.component_templates`. Attributes are post-processed to appear
-/// one per line (matching AEM's export style).
-pub fn generate_aem_xml(root: &AemNode, config: &AemConfig) -> String {
+/// The form page `.content.xml` of an `AemNode` tree (starting from `Root`):
+/// the tree lowered to the generic AEM model (`super::lower`) and written by
+/// the generic writer. An error names what the generic model or writer
+/// refused.
+pub fn generate_aem_xml(root: &AemNode, config: &AemConfig) -> Result<String, String> {
     generate_aem_xml_with_passthrough(root, config, no_passthrough())
 }
 
@@ -48,21 +40,16 @@ pub fn generate_aem_xml_with_passthrough(
     root: &AemNode,
     config: &AemConfig,
     pass: &HashMap<Uuid, Passthrough>,
-) -> String {
+) -> Result<String, String> {
     // Three of the swept feedback rules are about a node's position among its
     // siblings, or about a node that has to exist twice in different roles, so
-    // no template can satisfy them. They are applied here, to a copy, which is
+    // no single node can satisfy them. They are applied here, to a copy, which is
     // what makes them hold for an agent-authored and a loaded tree as well as
     // for one built from an XFA source. See `super::normalize`.
     let mut root = root.clone();
     super::normalize::normalize(&mut root);
-    let root = &root;
-
-    // Invert the trigger-field condition rules into a per-panel map so each
-    // conditional panel can carry its own AABO-style `fd:visible` SHOW_EXPRESSION.
-    let index = RenderIndex::build(root);
-    let rendered = render_node(root, config, &index, pass);
-    reformat_attributes(&rendered)
+    let index = RenderIndex::build(&root);
+    super::lower::form_xml(&root, config, &index, pass)
 }
 
 // ============================================================================
@@ -79,36 +66,36 @@ type PanelVisibilityMap = HashMap<String, Vec<(String, InputValue)>>;
 /// Both answer a question a single node cannot: which trigger values reveal this
 /// panel, and which panels does this choice decide. They are built once, from the
 /// root, because a node's own subtree does not contain the answer.
-struct RenderIndex {
-    visibility: PanelVisibilityMap,
+pub(super) struct RenderIndex {
+    pub(super) visibility: PanelVisibilityMap,
     /// Every node's AEM guide path (`guide.guideRootPanel.PN_Page.PN_Address`),
     /// keyed by uuid. A rule that names the component it runs on -- the address
-    /// fragment's Initialize is the one that must, see `fragment.xml` -- needs
+    /// fragment's Initialize is the one that must, see `scripts::fragment_init` -- needs
     /// the path from the root, which a node cannot know on its own.
-    guide_paths: HashMap<Uuid, String>,
+    pub(super) guide_paths: HashMap<Uuid, String>,
     /// Trigger field name → the panels it decides, for approved configurator
     /// choices only. Absent means "no reset for this field".
-    resets: HashMap<String, Vec<ResetTarget>>,
+    pub(super) resets: HashMap<String, Vec<ResetTarget>>,
     /// Repeatable name → what a reader would say it repeats. Absent means
     /// nothing on screen names it.
-    add_subjects: HashMap<String, String>,
+    pub(super) add_subjects: HashMap<String, String>,
     /// Repeatable name → the signature panel that repeats in step with it, under
     /// the name AEM knows it by. Absent means the form holds no such panel.
-    signature_twins: HashMap<String, String>,
+    pub(super) signature_twins: HashMap<String, String>,
     /// The inverse, by node name: a signature twin → the data panel driving it.
     /// A twin has no buttons of its own, and takes its title from that panel.
-    twin_data_panels: HashMap<String, String>,
+    pub(super) twin_data_panels: HashMap<String, String>,
     /// The repeatables that carry the jump-to-field button, which on a page with
     /// repeatables is where it belongs — one per row, rather than one above the
     /// step heading. Only the page knows, so it is decided here.
-    jump_to_field_repeatables: HashSet<String>,
+    pub(super) jump_to_field_repeatables: HashSet<String>,
     /// Configurator choice name → the value of the option that opens selected.
     /// Absent means nothing is preselected.
-    preselect: HashMap<String, String>,
+    pub(super) preselect: HashMap<String, String>,
 }
 
 impl RenderIndex {
-    fn build(root: &AemNode) -> Self {
+    pub(super) fn build(root: &AemNode) -> Self {
         let twins = collect_signature_twins(root);
         Self {
             visibility: collect_panel_visibility(root),
@@ -282,7 +269,7 @@ fn collect_jump_to_field_repeatables(root: &AemNode) -> HashSet<String> {
 
 /// Every repeatable at or below `node`, nested ones included — the owner chose
 /// every one over outermost-only.
-fn collect_repeatable_names(node: &AemNode, out: &mut HashSet<String>) {
+pub(super) fn collect_repeatable_names(node: &AemNode, out: &mut HashSet<String>) {
     if let AemNode::Repeatable { name, .. } = node {
         out.insert(name.clone());
     }
@@ -316,7 +303,7 @@ fn node_children(node: &AemNode) -> &[AemNode] {
 /// throws and takes the rest of the click with it.
 fn collect_signature_twins(root: &AemNode) -> (HashMap<String, String>, HashMap<String, String>) {
     // Every name in the tree, and the node that repeats under it: a
-    // repeatable's rows live in the inner panel the template emits, not in the
+    // repeatable's rows live in the inner panel the writer emits, not in the
     // node the tree names.
     let mut repeating_names: HashMap<String, Repeats> = HashMap::new();
     collect_repeating_names(root, &mut repeating_names);
@@ -428,31 +415,6 @@ fn signature_twin_candidates(data_panel: &str) -> Vec<String> {
     names
 }
 
-/// A text as it has to be written inside a JavaScript string literal of a rule
-/// body, escaped once for every layer between here and the browser.
-///
-/// A repeating panel's buttons pass their subject to the accessibility helpers
-/// as a JavaScript string, and a conditional panel compares its trigger with an
-/// option value as one. That string sits inside a JSON document, inside a
-/// FileVault multi-value property, inside an XML attribute. Each layer owns
-/// different characters: a `"` ends the JSON string, and a comma, unescaped,
-/// ends the property value, so AEM reads the rest of the rule as a second one.
-fn in_rule_string(subject: &str) -> String {
-    // The JavaScript string literal, then the JSON document that carries it:
-    // JSON's string escaping (`\\`, `\"`, `\n`, other control characters) is
-    // valid JavaScript too, so one escaper serves both.
-    let js = json_string_body(subject);
-    let json = json_string_body(&js);
-    // The multi-value property, where a backslash escapes and a comma separates.
-    let vault = json.replace('\\', "\\\\").replace(',', "\\,");
-    xml_escape(&vault)
-}
-
-/// `text` escaped as the inside of a JSON string, without the quotes.
-fn json_string_body(text: &str) -> String {
-    let quoted = serde_json::to_string(text).expect("a string serialises");
-    quoted[1..quoted.len() - 1].to_owned()
-}
 
 /// Drop any tags from a rich-text title and collapse the whitespace.
 fn strip_markup(text: &str) -> String {
@@ -652,7 +614,7 @@ fn collect_panel_visibility_rec(node: &AemNode, map: &mut PanelVisibilityMap) {
 ///
 /// Draws, footnotes and prefaces are static text and count for
 /// nothing, which is exactly the case this exists to detect.
-fn holds_input(node: &AemNode) -> bool {
+pub(super) fn holds_input(node: &AemNode) -> bool {
     match node {
         AemNode::TextField { .. }
         | AemNode::NumberField { .. }
@@ -713,11 +675,7 @@ const APPROVED_CONFIGURATOR_LABEL_SETS: &[&[&str]] = &[
 /// The repeatables are reset first: a repeatable has to drop its added rows, not
 /// just blank them, so the row count is back to its declared minimum before the
 /// remaining fields are cleared.
-#[derive(serde::Serialize)]
-struct ResetTarget {
-    panel: String,
-    repeats: Vec<String>,
-}
+use super::scripts::ResetTarget;
 
 /// Whether a choice's option labels are one of the approved configurator sets.
 fn is_approved_configurator(options: &[AemOption]) -> bool {
@@ -825,19 +783,19 @@ fn with_repeat_prefix(name: &str) -> String {
     }
 }
 
-/// The instance-managed panel's name, as `repeatable.xml` writes it.
+/// The instance-managed panel's name, as the repeatable lowering writes it.
 pub(crate) fn repeat_panel_name(name: &str) -> String {
     format!("{}_repeat", with_repeat_prefix(name))
 }
 
-/// The row panel's name, as `repeatable.xml` writes it. One row of the repeat,
+/// The row panel's name, as the repeatable lowering writes it. One row of the repeat,
 /// holding the repeated fields.
 pub(crate) fn repeat_row_name(name: &str) -> String {
     format!("{}_inner", with_repeat_prefix(name))
 }
 
 /// The instance-managed panel of every repeatable in a subtree, in document
-/// order. `repeatable.xml` names it after the repeatable, and that is the node
+/// order. The repeatable lowering names it after the repeatable, and that is the node
 /// `resetAllPanelInstances` has to be given.
 fn repeatable_panels(children: &[AemNode]) -> Vec<String> {
     let mut out = Vec::new();
@@ -862,182 +820,13 @@ fn repeatable_panels(children: &[AemNode]) -> Vec<String> {
     out
 }
 
-// ============================================================================
-// Template-based node rendering
-// ============================================================================
-
-/// Render a single node using its template from `config.component_templates`.
-///
-/// If no template exists for the node type, an empty string is returned
-/// (the component is omitted from the output).
-fn render_node(
-    node: &AemNode,
-    config: &AemConfig,
-    index: &RenderIndex,
-    pass: &HashMap<Uuid, Passthrough>,
-) -> String {
-    let template_key = match node {
-        AemNode::Root { .. } => "root",
-        AemNode::Panel {
-            is_conditional: true,
-            ..
-        } => "conditional",
-        AemNode::Panel { .. } => "panel",
-        AemNode::TextField { kind, .. } => kind.template_key(),
-        AemNode::NumberField { .. } => "numericbox",
-        AemNode::DatePicker { .. } => "datepicker",
-        AemNode::Dropdown { .. } => "dropdownlist",
-        AemNode::Checkbox { .. } => "checkbox",
-        AemNode::RadioButton { .. } => "radiobutton",
-        AemNode::TextDraw { .. } => "textdraw",
-        AemNode::TitleDraw { .. } => "titledraw",
-        AemNode::HtmlDisplayer { .. } => "htmldisplayer",
-        AemNode::MessageBox { .. } => "messagebox",
-        AemNode::Repeatable { .. } => "repeatable",
-        AemNode::Fragment { .. } => "fragment",
-        AemNode::Preface { .. } => "preface",
-        AemNode::FootnotePlaceholder { .. } => "footnoteplaceholder",
-    };
-
-    let template = match config.component_templates.get(template_key) {
-        Some(tmpl) => tmpl,
-        // A typed text input falls back to the plain text box when the profile
-        // ships no template for its kind. A missing template otherwise means the
-        // field is dropped from the output entirely, and losing a field is far
-        // worse than losing its validation clause.
-        None => match node {
-            AemNode::TextField { kind, .. } if *kind != TextFieldKind::Plain => {
-                log::warn!(
-                    "profile has no '{}' template; falling back to 'textbox'",
-                    template_key
-                );
-                match config.component_templates.get("textbox") {
-                    Some(tmpl) => tmpl,
-                    None => return String::new(),
-                }
-            }
-            _ => return String::new(),
-        },
-    };
-
-    let mut ctx = build_node_context(node, config, index, pass);
-    insert_passthrough(&mut ctx, node, pass, template);
-    match template::render_string(template, &ctx) {
-        Ok(rendered) => rendered,
-        Err(e) => {
-            log::error!("Failed to render template '{}': {}", template_key, e);
-            String::new()
-        }
-    }
-}
-
-/// Collect the attribute names a template writes itself, by scanning its text
-/// for `name="` tokens (both hard-coded attributes and Tera-guarded ones like
-/// `{% if x %}foo="…"`). A loaded node's [`Passthrough`] must NOT re-emit any of
-/// these — the template already writes them — or the element would have a
-/// duplicate attribute (invalid XML). Everything else the template does not own
-/// flows through `extra_attributes`.
-///
-/// Deriving the set from the template text (rather than a hand-maintained global
-/// list) keeps it precise per template: an attribute one template owns (e.g.
-/// `dorExclusion` on a field) is not wrongly suppressed on another template that
-/// never writes it (e.g. a panel), so that attribute survives via passthrough.
-///
-/// (Preserving a template-owned value *exactly* when it differs from the
-/// template's own output is a separate override step; for engine-origin packages
-/// they already match.)
-fn template_owned_attrs(template: &str) -> std::collections::HashSet<&str> {
-    let bytes = template.as_bytes();
-    let mut set = std::collections::HashSet::new();
-    let mut i = 0;
-    while i < bytes.len() {
-        // An attribute is written as `name="`; find each `="` and walk left over
-        // the identifier characters to recover the name.
-        if bytes[i] == b'=' && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-            let mut start = i;
-            while start > 0 {
-                let c = bytes[start - 1];
-                if c.is_ascii_alphanumeric() || matches!(c, b'_' | b':' | b'.' | b'-') {
-                    start -= 1;
-                } else {
-                    break;
-                }
-            }
-            if start < i {
-                set.insert(&template[start..i]);
-            }
-        }
-        i += 1;
-    }
-    set
-}
-
-/// Insert the node's captured fidelity passthrough into its render context as two
-/// pre-escaped strings the templates emit verbatim: `extra_attributes` (raw
-/// attributes the typed model + template don't own) and `raw_children` (unmodeled
-/// child XML). Empty when the node carries no passthrough (engine-built nodes).
-fn insert_passthrough(
-    ctx: &mut tera::Context,
-    node: &AemNode,
-    pass: &HashMap<Uuid, Passthrough>,
-    template: &str,
-) {
-    let pt = node.uuid().and_then(|u| pass.get(&u));
-    let (extra, children) = match pt {
-        Some(p) => {
-            // Only the node's OWN opening tag owns attributes; nested child
-            // elements in the template (e.g. a panel's `panel_title`) must not
-            // count. `{{ extra_attributes }}` was inserted immediately before the
-            // opening tag's closing `>`, so it bounds the own-tag region.
-            let head = template
-                .split("{{ extra_attributes }}")
-                .next()
-                .unwrap_or(template);
-            let owned = template_owned_attrs(head);
-            let extra: String = p
-                .raw_attributes
-                .iter()
-                .filter(|(k, _)| !owned.contains(k.as_str()))
-                .map(|(k, v)| format!(" {}=\"{}\"", k, xml_escape(v)))
-                .collect();
-            (extra, p.raw_children.join("\n"))
-        }
-        None => (String::new(), String::new()),
-    };
-    // Templates that hard-code an empty `<fd:rules/>` must suppress it when the
-    // node's passthrough already carries an `fd:rules` element — otherwise every
-    // save would append another empty one (unbounded growth) and the real rules
-    // would be duplicated.
-    ctx.insert("has_passthrough_rules", &children.contains("<fd:rules"));
-    ctx.insert("extra_attributes", &extra);
-    ctx.insert("raw_children", &children);
-}
-
-/// Put the node's [`AemAttrs`] into its render context, one Tera variable per
-/// attribute, so every template writes them the same way
-/// (`{% if summary_exclude %}summaryExclusion="true"{% endif %}`).
-///
-/// Called for every node before the per-variant context is built, which is why
-/// no variant arm inserts these itself: a template that grows a new attribute
-/// needs no Rust change, and a node type cannot quietly lose one.
-fn insert_attrs(ctx: &mut tera::Context, attrs: &AemAttrs) {
-    ctx.insert("dor_exclude", &attrs.dor_exclude);
-    ctx.insert("summary_exclude", &attrs.summary_exclude);
-    ctx.insert("dor_exclude_title", &attrs.dor_exclude_title);
-    ctx.insert("always_in_pdf", &attrs.always_in_pdf);
-    ctx.insert("show_if_hidden", &attrs.show_if_hidden);
-    ctx.insert("jump_to_field", &attrs.jump_to_field);
-    ctx.insert("css", &attrs.css.as_deref().map(xml_escape));
-    ctx.insert("dor_header_slot", &attrs.dor_header_slot);
-}
-
 /// Map every node to its AEM guide path.
 ///
 /// The path is what AEM calls a component by from the form root
 /// (`guide.guideRootPanel.<panel>.<…>.<component>`), and it is how a rule names
 /// the component it is attached to. Segments come from the JCR nesting, so a
 /// repeatable contributes three of them -- the wrapper, the instance-managed
-/// panel and the row -- exactly as `repeatable.xml` writes them.
+/// panel and the row -- exactly as the repeatable lowering writes them.
 fn collect_guide_paths(root: &AemNode) -> HashMap<Uuid, String> {
     fn walk(node: &AemNode, prefix: &[String], out: &mut HashMap<Uuid, String>) {
         let own = node.name().unwrap_or("");
@@ -1076,586 +865,6 @@ fn collect_guide_paths(root: &AemNode) -> HashMap<Uuid, String> {
     out
 }
 
-/// Render all children of a node and concatenate the results.
-fn render_children(
-    children: &[AemNode],
-    config: &AemConfig,
-    index: &RenderIndex,
-    pass: &HashMap<Uuid, Passthrough>,
-) -> String {
-    children
-        .iter()
-        .map(|c| render_node(c, config, index, pass))
-        .collect()
-}
-
-/// Build a Tera context for a single node.
-///
-/// The context contains:
-/// - Global variables: `xfa.*`, `variables.*`, `author`, `master_language`,
-///   `languages`, `expanded_languages`
-/// - Node-specific variables depending on the variant
-fn build_node_context(
-    node: &AemNode,
-    config: &AemConfig,
-    index: &RenderIndex,
-    pass: &HashMap<Uuid, Passthrough>,
-) -> tera::Context {
-    let mut ctx = tera::Context::new();
-
-    // ── Global context ─────────────────────────────────────────────────
-    ctx.insert("xfa", &config.xfa_vars);
-    ctx.insert("variables", &config.user_vars);
-    ctx.insert("author", &config.author);
-    ctx.insert("master_language", &config.master_language);
-    if let Some(attrs) = node.attrs() {
-        insert_attrs(&mut ctx, attrs);
-    }
-    // The DoR's second header slot, for the banking-relationship preface.
-    ctx.insert("header_slot_text", &config.header_slot_text);
-    // What a rule attached to this node calls it (see `collect_guide_paths`).
-    if let Some(path) = node.uuid().and_then(|u| index.guide_paths.get(&u)) {
-        ctx.insert("guide_path", path);
-    }
-    // The canonical codes, not the detected ones: a language that reached the
-    // tree under a synonym (`es`) must be named on the form under the code the
-    // platform files it as (`sp`).
-    ctx.insert("languages", &config.canonical_languages().join(","));
-    ctx.insert("expanded_languages", &config.expand_languages().join(","));
-
-    // ── Node-specific context ──────────────────────────────────────────
-    ctx.insert("element_name", &node.element_name());
-
-    match node {
-        AemNode::Root { title, children } => {
-            ctx.insert("title", &xml_escape(title));
-            ctx.insert("form_code", &config.form_code);
-            ctx.insert("children", &render_children(children, config, index, pass));
-        }
-
-        AemNode::Panel {
-            uuid,
-            name,
-            title,
-            children,
-            is_page,
-            attrs: _,
-            visible,
-            is_conditional,
-            dor_num_cols,
-            colspan,
-            dor_colspan,
-            bind_ref,
-            frag_ref: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("title", &xml_escape(title));
-            ctx.insert("is_page", is_page);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_num_cols", dor_num_cols);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-            ctx.insert("children", &render_children(children, config, index, pass));
-            ctx.insert("has_input", &children.iter().any(holds_input));
-            // A page with repeatables hands the jump-to-field button to them, so
-            // its own step-title panel gives it up rather than showing a second
-            // one above the heading.
-            let mut repeatables = HashSet::new();
-            for child in children {
-                collect_repeatable_names(child, &mut repeatables);
-            }
-            ctx.insert("has_repeatable", &!repeatables.is_empty());
-            // The banking-relationship fragment marks the FIRST page. A heading
-            // rendered there as an `h2` step title does not appear in the finished
-            // DoR, so on that page the heading is a `subtitle-after-form-title`
-            // static text instead (PROBLEM-banking-subtitle, owner directive
-            // 2026-08-24). The wrapper panel stays -- it is what carries the
-            // jump-to-field button -- but loses its own title, or the subtitle
-            // would exist twice.
-            let is_first_page = children
-                .iter()
-                .any(|c| matches!(c, AemNode::Preface { .. }));
-            ctx.insert("is_first_page", &is_first_page);
-            // The form configurator is the step that asks what the form is for.
-            // It is excluded from the summary and gets no Edit button -- but it
-            // is only the configurator when it is the FIRST page: a later step
-            // that merely holds a "Tipo" choice is ordinary content, and
-            // PROBLEM-jump-to-field-button expects its title panel to behave
-            // like any other (the same first-page gate the rule itself applies).
-            ctx.insert(
-                "is_form_configurator",
-                &(is_first_page && name.starts_with("PN_FormConfigurator")),
-            );
-
-            // Conditional panels carry an AABO-style `fd:visible` SHOW_EXPRESSION
-            // that toggles both form visibility and DOR inclusion via the UBS
-            // `showAFShowDor`/`hideAFHideDor` helpers. Only the structured
-            // `(trigger_field, value)` pairs are passed here — the SHOW_EXPRESSION
-            // JSON is assembled by the `conditional` template. When present, the
-            // expression governs visibility, so the static `visible` attribute is
-            // suppressed (see conditional.xml).
-            if *is_conditional
-                && let Some(triggers) = index.visibility.get(name)
-                && !triggers.is_empty()
-            {
-                let trigger_ctx: Vec<HashMap<&str, String>> = triggers
-                    .iter()
-                    .map(|(field, value)| {
-                        HashMap::from([
-                            ("field", field.clone()),
-                            ("value", in_rule_string(&condition_value_str(value))),
-                        ])
-                    })
-                    .collect();
-                ctx.insert("visibility_triggers", &trigger_ctx);
-            }
-        }
-
-        AemNode::TextField {
-            uuid,
-            name,
-            label,
-            mandatory,
-            visible,
-            max_chars,
-            colspan,
-            dor_colspan,
-            bind_ref,
-            kind: _,
-            attrs: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("label", &xml_escape(label));
-            ctx.insert("mandatory", mandatory);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("max_chars", max_chars);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-        }
-
-        AemNode::NumberField {
-            uuid,
-            name,
-            label,
-            mandatory,
-            visible,
-            colspan,
-            dor_colspan,
-            bind_ref,
-            attrs: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("label", &xml_escape(label));
-            ctx.insert("mandatory", mandatory);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-        }
-
-        AemNode::DatePicker {
-            uuid,
-            name,
-            label,
-            mandatory,
-            visible,
-            colspan,
-            dor_colspan,
-            bind_ref,
-            attrs: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("label", &xml_escape(label));
-            ctx.insert("mandatory", mandatory);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-        }
-
-        AemNode::Dropdown {
-            uuid,
-            name,
-            label,
-            options,
-            mandatory,
-            visible,
-            colspan,
-            dor_colspan,
-            // Visibility is now emitted on the target panel (AABO-style
-            // `fd:visible` SHOW_EXPRESSION), not as a `fd:valueCommit` on the
-            // trigger field. See `collect_panel_visibility`.
-            conditions: _,
-            bind_ref,
-            attrs: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("label", &xml_escape(label));
-            ctx.insert("mandatory", mandatory);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-            insert_options_context(&mut ctx, options);
-        }
-
-        AemNode::Checkbox {
-            uuid,
-            name,
-            label,
-            options,
-            alignment,
-            visible,
-            colspan,
-            dor_colspan,
-            conditions: _,
-            bind_ref,
-            attrs: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("label", &xml_escape(label));
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-            ctx.insert("alignment", alignment_str(*alignment));
-            insert_options_context(&mut ctx, options);
-            // text_is_rich: array of booleans indicating rich text options
-            let text_is_rich: Vec<bool> = options.iter().map(|o| o.label.contains('<')).collect();
-            let text_is_rich_str = format!(
-                "[{}]",
-                text_is_rich
-                    .iter()
-                    .map(|b| b.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-            ctx.insert("text_is_rich", &text_is_rich_str);
-        }
-
-        AemNode::RadioButton {
-            uuid,
-            name,
-            label,
-            options,
-            alignment,
-            mandatory,
-            visible,
-            colspan,
-            dor_colspan,
-            conditions: _,
-            bind_ref,
-            attrs: _,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("label", &xml_escape(label));
-            ctx.insert("mandatory", mandatory);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("bind_ref", bind_ref);
-            ctx.insert("alignment", alignment_str(*alignment));
-            insert_options_context(&mut ctx, options);
-            // The option this choice opens on, when it is the form configurator.
-            // Empty for every other radio, which opens on nothing.
-            ctx.insert(
-                "preselect_value",
-                &index
-                    .preselect
-                    .get(name)
-                    .map(|value| xml_escape(value))
-                    .unwrap_or_default(),
-            );
-            // text_is_rich
-            let text_is_rich: Vec<bool> = options.iter().map(|o| o.label.contains('<')).collect();
-            let text_is_rich_str = format!(
-                "[{}]",
-                text_is_rich
-                    .iter()
-                    .map(|b| b.to_string())
-                    .collect::<Vec<_>>()
-                    .join(",")
-            );
-            ctx.insert("text_is_rich", &text_is_rich_str);
-        }
-
-        AemNode::TextDraw {
-            uuid,
-            name,
-            content,
-            attrs: _,
-            visible,
-            colspan,
-            dor_colspan,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("content", &xml_escape(content));
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-        }
-
-        AemNode::MessageBox {
-            uuid,
-            name,
-            content,
-            attrs: _,
-            visible,
-            colspan,
-            dor_colspan,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("content", &xml_escape(content));
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-        }
-
-        AemNode::TitleDraw {
-            uuid,
-            name,
-            content,
-            heading_level,
-            colspan,
-            dor_colspan,
-            attrs: _,
-            visible,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("content", &xml_escape(content));
-            ctx.insert("heading_level", heading_level);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-        }
-
-        AemNode::HtmlDisplayer {
-            uuid,
-            name,
-            content,
-            attrs: _,
-            visible,
-            colspan,
-            dor_colspan,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("visible", visible);
-            ctx.insert("colspan", colspan);
-            ctx.insert("dor_colspan", dor_colspan);
-            ctx.insert("locale_content", &locale_content(content, config));
-        }
-
-        AemNode::Repeatable {
-            uuid,
-            name,
-            // The subject the panel is titled with is the one `RenderIndex`
-            // resolved, which reads this title first and falls back to what
-            // names the block on screen.
-            title: _,
-            children,
-            min_occur,
-            max_occur,
-            bind_ref,
-            frag_ref: _,
-            attrs: _,
-            visible,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("visible", visible);
-            ctx.insert("min_occur", min_occur);
-            // AEM spells an unbounded repeat `maxOccur="-1"`; the model carries
-            // that as `UNBOUNDED_OCCUR`, so map it back on the way out.
-            let max_occur_attr = if *max_occur == AemNode::UNBOUNDED_OCCUR {
-                "-1".to_string()
-            } else {
-                max_occur.to_string()
-            };
-            ctx.insert("max_occur", &max_occur_attr);
-            ctx.insert("children", &render_children(children, config, index, pass));
-            ctx.insert("bind_ref", bind_ref);
-
-            // Both inner panels are named by the engine, from the repeatable's
-            // own stem under a repeat-container prefix.
-            ctx.insert("panel_name", &repeat_panel_name(name));
-            ctx.insert("row_name", &repeat_row_name(name));
-
-            // A signature twin repeats in step with a data panel and is driven
-            // entirely by that panel's buttons: it has none of its own, and one
-            // there would let the two desync (PROBLEM-repeating-panel §8).
-            let data_panel = index.twin_data_panels.get(name);
-            ctx.insert("is_signature_twin", &data_panel.is_some());
-
-            // What the block repeats, which the archetype writes in three places
-            // on the repeating panel: `jcr:title`, which AEM renders as the row
-            // heading and the client library numbers; `accessibilityLabel`,
-            // which a screen reader announces; and `ajilaPanelSubject`, the
-            // record of what the engine derived. The Add button's label is built
-            // from the same subject, so the wording is decided once.
-            //
-            // A twin borrows its data panel's subject: they are the same rows,
-            // so the two panels must announce and number them the same way.
-            let subject = index
-                .add_subjects
-                .get(data_panel.unwrap_or(name))
-                .or_else(|| index.add_subjects.get(name))
-                .map(String::as_str);
-
-            // A panel with no subject still carries a title, because a heading
-            // AEM renders empty reads as a missing one; the placeholder says a
-            // person has to name it. Parentheses, not brackets: a vault property
-            // value opening with `[` is read back as a multi-value. The Add
-            // button is built from this SAME final subject (placeholder
-            // included), not the pre-fallback one: a button phrased in the bare,
-            // unlocalised template default ("Add") on a page otherwise entirely
-            // in Italian is its own defect, and downstream tooling that reads
-            // `ajilaPanelSubject` back out (PROBLEM-repeatable-add-label) already
-            // treats the placeholder as the panel's stated subject, so leaving
-            // the button off it just means the two disagree.
-            let subject = subject.unwrap_or("(Repeatable name)");
-
-            // Empty only when the profile configures no wording for this
-            // language — the template keeps its own label then.
-            let add_label = config
-                .add_label(&config.base_language(), subject)
-                .unwrap_or_default();
-            ctx.insert("add_label", &xml_escape(&add_label));
-            ctx.insert("subject", &xml_escape(subject));
-            ctx.insert("rule_label", &in_rule_string(subject));
-
-            // The signature panel this one's buttons also drive, if the form has
-            // one. Empty otherwise, and the buttons then name only their own
-            // panel — an `addInstance` on a panel the form does not hold throws
-            // and takes the rest of the click with it.
-            ctx.insert(
-                "signature_twin",
-                index
-                    .signature_twins
-                    .get(name)
-                    .map(String::as_str)
-                    .unwrap_or_default(),
-            );
-
-            // On a page with repeatables the jump-to-field button belongs to the
-            // rows, one per instance.
-            ctx.insert(
-                "jump_to_field_button",
-                &index.jump_to_field_repeatables.contains(name),
-            );
-        }
-
-        AemNode::Fragment {
-            uuid,
-            name,
-            title,
-            frag_ref,
-            bind_ref,
-            attrs: _,
-            visible,
-            init_hide,
-            init_show,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("title", title);
-            ctx.insert("frag_ref", frag_ref);
-            let sub_panels = super::partner::sub_panels(&config.fragments, frag_ref).unwrap_or(&[]);
-            ctx.insert(
-                "init_calls",
-                &super::partner::init_calls(sub_panels, init_hide, init_show),
-            );
-            ctx.insert("visible", visible);
-            ctx.insert("bind_ref", bind_ref);
-        }
-
-        AemNode::Preface { uuid, name } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-        }
-
-        AemNode::FootnotePlaceholder {
-            uuid,
-            name,
-            colspan,
-        } => {
-            ctx.insert("uuid", &uuid.as_simple().to_string());
-            ctx.insert("name", name);
-            ctx.insert("colspan", colspan);
-        }
-
-    }
-
-    // A form-configurator choice must empty every panel it decides, so switching
-    // option and coming back never presents one option's panel carrying
-    // another's data (feedback #107). Keyed on the node's own name, so only the
-    // choices `RenderIndex` approved get the script.
-    if let Some(name) = node.name()
-        && let Some(targets) = index.resets.get(name)
-    {
-        ctx.insert("reset_targets", targets);
-    }
-
-    ctx
-}
-
-/// The HTML component's `localeContent` items, in locale order: one
-/// `{locale, html}` pair per locale the form ships.
-///
-/// Synonyms get their own item, for the same reason
-/// `generate_dictionary_xml` writes a synonym dictionary file: the component
-/// renders nothing at all for a locale it has no item for, so a reader on
-/// `de-ch` must not fall off the end. The markup for a synonym comes from its
-/// canonical language.
-///
-/// A locale with no markup and no master fallback is skipped rather than
-/// emitted empty -- an empty item would render a blank block, which reads as a
-/// broken table rather than as an absent translation.
-fn locale_content(content: &AemI18nText, config: &AemConfig) -> Vec<HashMap<&'static str, String>> {
-    let mut items = Vec::new();
-    for lang in config.expand_languages() {
-        let markup = content
-            .get(&lang)
-            .or_else(|| content.get(&config.canonical_language(&lang)))
-            .unwrap_or_else(|| content.master(&config.master_language));
-        if markup.trim().is_empty() {
-            continue;
-        }
-        items.push(HashMap::from([
-            ("locale", config.html_locale(&lang)),
-            ("html", xml_escape(markup)),
-        ]));
-    }
-    items
-}
-
-/// Insert options-related variables into a Tera context.
-fn insert_options_context(ctx: &mut tera::Context, options: &[AemOption]) {
-    ctx.insert("options_attr", &format_options_attr(options));
-    ctx.insert("options_count", &options.len());
-    let opt_list: Vec<HashMap<&str, &str>> = options
-        .iter()
-        .map(|o| {
-            let mut m = HashMap::new();
-            m.insert("label", o.label.as_str());
-            m.insert("value", o.value.as_str());
-            m
-        })
-        .collect();
-    ctx.insert("options", &opt_list);
-}
 
 // ============================================================================
 // Conditional visibility scripts (fd:scripts fd:visible SHOW_EXPRESSION)
@@ -1666,12 +875,11 @@ fn insert_options_context(ctx: &mut tera::Context, options: &[AemOption]) {
 // returns the boolean visibility AND, as a side effect, calls the UBS DOR
 // helpers so the panel is included/excluded from the Document of Record.
 //
-// The full SHOW_EXPRESSION JSON is assembled by the `conditional` template from
-// the `visibility_triggers` context list; the only Rust-side concern is turning
-// each trigger value into its string form for the `==` comparison.
+// The rule itself is `scripts::show`; what is left here is turning each
+// trigger value into its string form for the `==` comparison.
 
 /// Render a single `InputValue` as the string used in a `==` comparison.
-fn condition_value_str(value: &InputValue) -> String {
+pub(super) fn condition_value_str(value: &InputValue) -> String {
     match value {
         InputValue::Text(s) => s.clone(),
         InputValue::Number(n) => n.to_string(),
@@ -1683,35 +891,13 @@ fn condition_value_str(value: &InputValue) -> String {
 // Attribute helpers
 // ============================================================================
 
-fn alignment_str(a: OptionAlignment) -> &'static str {
+pub(super) fn alignment_str(a: OptionAlignment) -> &'static str {
     match a {
         OptionAlignment::Horizontal => "horizontal",
         OptionAlignment::Vertical => "vertical",
     }
 }
 
-/// Escape a string for use inside a JCR comma-separated list.
-///
-/// Backslashes and commas must be backslash-escaped so that the list can be
-/// split unambiguously on unescaped commas when parsed back.
-fn jcr_escape(s: &str) -> String {
-    s.replace('\\', "\\\\").replace(',', "\\,")
-}
-
-/// Format options for checkbox/radio/dropdown as `[value1=label1,value2=label2,...]`.
-fn format_options_attr(options: &[AemOption]) -> String {
-    let inner: Vec<String> = options
-        .iter()
-        .map(|o| {
-            format!(
-                "{}={}",
-                jcr_escape(&xml_escape(&o.value)),
-                jcr_escape(&xml_escape(&o.label)),
-            )
-        })
-        .collect();
-    format!("[{}]", inner.join(","))
-}
 
 // ============================================================================
 // Attribute reformatting (one-per-line)
@@ -1869,80 +1055,44 @@ fn parse_attributes(s: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::aem::AemAttrs;
+
+    /// The element of `xml` whose `name` is `name`.
+    fn element(xml: &str, name: &str) -> u2s_mapper_aem::jcr::tree::JcrNode {
+        fn find(node: &u2s_mapper_aem::jcr::tree::JcrNode, name: &str) -> Option<u2s_mapper_aem::jcr::tree::JcrNode> {
+            if node.attr("name") == Some(name) {
+                return Some(node.clone());
+            }
+            node.children.iter().find_map(|c| find(c, name))
+        }
+        let tree = u2s_mapper_aem::jcr::tree::parse_jcr_xml(xml).expect("well-formed form XML");
+        find(&tree, name).unwrap_or_else(|| panic!("no element named {name} in:\n{xml}"))
+    }
+
+    /// The form XML of a form holding just `node`, written as it would be
+    /// inside any form.
+    fn render_one(node: &AemNode, config: &AemConfig) -> String {
+        let root = AemNode::Root {
+            title: "Form".into(),
+            children: vec![node.clone()],
+        };
+        generate_aem_xml(&root, config).expect("the form is written")
+    }
     use crate::aem::{
         AemConfig, AemI18nText, AemNode, AemOption, ConditionRule, OptionAlignment, TextFieldKind,
     };
     use uuid::Uuid;
 
-    /// Create a test config with minimal templates for testing.
+    /// A uuid of its own for each name: JCR holds one child per element name,
+    /// and the writer names a node's element after its uuid.
+    fn uuid_of(name: &str) -> Uuid {
+        Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes())
+    }
+
+    /// A minimal config with deterministic ids.
     fn test_config() -> AemConfig {
         let mut config = AemConfig::test_default("TEST");
         config.deterministic_uuids = true;
-        // Simple templates for testing — just enough to verify data flow
-        config
-            .component_templates
-            .insert("root".into(), "{{ children }}".into());
-        config.component_templates.insert(
-            "panel".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ title }}\"{% if not visible %} visible=\"{Boolean}false\"{% endif %}{% if dor_exclude %} dorExclusion=\"true\"{% endif %}{% if dor_num_cols %} dorNumCols=\"{{ dor_num_cols }}\"{% endif %}{% if dor_colspan %} dorColspan=\"{{ dor_colspan }}\"{% endif %}>{{ children }}</{{ element_name }}>".into(),
-        );
-        config.component_templates.insert(
-            "conditional".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ title }}\"{% if not visible and not visibility_triggers %} visible=\"{Boolean}false\"{% endif %}{% if dor_exclude %} dorExclusion=\"true\"{% endif %}{% if dor_num_cols %} dorNumCols=\"{{ dor_num_cols }}\"{% endif %}{% if dor_colspan %} dorColspan=\"{{ dor_colspan }}\"{% endif %}>{{ children }}{% if visibility_triggers %}<fd:scripts fd:visible=\"[{&quot;script&quot;:{&quot;field&quot;:&quot;{{ name }}&quot;\\,&quot;event&quot;:&quot;Visibility&quot;\\,&quot;model&quot;:{&quot;nodeName&quot;:&quot;SHOW_EXPRESSION&quot;}\\,&quot;content&quot;:&quot;if ({% for t in visibility_triggers %}{{ t.field }}.value == \\\\&quot;{{ t.value }}\\\\&quot;{% if not loop.last %} || {% endif %}{% endfor %}) {\\\\n  window.forms.ubs.showAFShowDor(this);\\\\n  true;\\\\n} else {\\\\n  window.forms.ubs.hideAFHideDor(this);\\\\n  false;\\\\n}\\\\n&quot;}\\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\\,&quot;version&quot;:1\\,&quot;enabled&quot;:true}]\" jcr:primaryType=\"nt:unstructured\"/>{% endif %}</{{ element_name }}>".into(),
-        );
-        config.component_templates.insert(
-            "textbox".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ label }}\"{% if mandatory %} mandatory=\"{Boolean}true\"{% endif %}{% if max_chars %} maxChars=\"{{ max_chars }}\"{% endif %}{% if dor_colspan %} dorColspan=\"{{ dor_colspan }}\"{% endif %}><cq:responsive jcr:primaryType=\"nt:unstructured\"><default jcr:primaryType=\"nt:unstructured\" offset=\"0\" width=\"{{ colspan }}\"/></cq:responsive></{{ element_name }}>".into(),
-        );
-        config.component_templates.insert(
-            "numericbox".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ label }}\"/>".into(),
-        );
-        config.component_templates.insert(
-            "datepicker".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ label }}\"/>".into(),
-        );
-        config.component_templates.insert(
-            "dropdownlist".into(),
-            "<{{ element_name }} guideNodeClass=\"guideDropDownList\" name=\"{{ name }}\" jcr:title=\"{{ label }}\" options=\"{{ options_attr }}\"{% if conditions_script %}>{% if conditions_script %}<fd:scripts fd:valueCommit=\"{{ conditions_script }}\" jcr:primaryType=\"nt:unstructured\"/>{% endif %}</{{ element_name }}>{% else %}/>{% endif %}".into(),
-        );
-        config.component_templates.insert(
-            "checkbox".into(),
-            "<{{ element_name }} guideNodeClass=\"guideCheckBox\" name=\"{{ name }}\"{% if label %} jcr:title=\"{{ label }}\"{% endif %} options=\"{{ options_attr }}\" alignment=\"{{ alignment }}\"{% if conditions_script %}>{% if conditions_script %}<fd:scripts fd:valueCommit=\"{{ conditions_script }}\" jcr:primaryType=\"nt:unstructured\"/>{% endif %}</{{ element_name }}>{% else %}/>{% endif %}".into(),
-        );
-        config.component_templates.insert(
-            "radiobutton".into(),
-            "<{{ element_name }} guideNodeClass=\"guideRadioButton\" name=\"{{ name }}\" jcr:title=\"{{ label }}\" options=\"{{ options_attr }}\" alignment=\"{{ alignment }}\"{% if conditions_script %}>{% if conditions_script %}<fd:scripts fd:valueCommit=\"{{ conditions_script }}\" jcr:primaryType=\"nt:unstructured\"/>{% endif %}</{{ element_name }}>{% else %}/>{% endif %}".into(),
-        );
-        config.component_templates.insert(
-            "textdraw".into(),
-            "<{{ element_name }} guideNodeClass=\"guideTextDraw\" name=\"{{ name }}\" _value=\"{{ content }}\"/>".into(),
-        );
-        config.component_templates.insert(
-            "titledraw".into(),
-            "<{{ element_name }} guideNodeClass=\"guideTextDraw\" name=\"{{ name }}\" _value=\"{{ content }}\" headingLevel=\"{{ heading_level }}\"/>".into(),
-        );
-        config.component_templates.insert(
-            "textbox_multiline".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ label }}\" multiLine=\"{Boolean}true\"/>".into(),
-        );
-        config.component_templates.insert(
-            "htmldisplayer".into(),
-            concat!(
-                "<{{ element_name }} guideNodeClass=\"guideTextBox\" name=\"{{ name }}\">\n",
-                "<localeContent jcr:primaryType=\"nt:unstructured\">\n",
-                "{%- for item in locale_content %}\n",
-                "<item{{ loop.index0 }} jcr:primaryType=\"nt:unstructured\" html=\"{{ item.html }}\" locale=\"{{ item.locale }}\"/>\n",
-                "{%- endfor %}\n",
-                "</localeContent>\n",
-                "</{{ element_name }}>",
-            )
-            .into(),
-        );
-        config.component_templates.insert(
-            "repeatable".into(),
-            "<{{ element_name }} name=\"{{ name }}\" jcr:title=\"{{ subject }}\" minOccur=\"{{ min_occur }}\" maxOccur=\"{{ max_occur }}\">{{ children }}</{{ element_name }}>".into(),
-        );
         config
     }
 
@@ -1978,7 +1128,7 @@ mod tests {
             ])],
         };
 
-        let xml = generate_aem_xml(&root, &config);
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
 
         assert!(
             xml.contains("<item0") && xml.contains("<item1"),
@@ -2018,7 +1168,7 @@ mod tests {
             )])],
         };
 
-        let xml = generate_aem_xml(&root, &config);
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
 
         assert!(
             xml.contains("locale=\"de\"") && xml.contains("locale=\"de-ch\""),
@@ -2048,7 +1198,7 @@ mod tests {
             )])],
         };
 
-        let xml = generate_aem_xml(&root, &config);
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
 
         assert!(
             xml.contains("locale=\"en-us\""),
@@ -2078,7 +1228,7 @@ mod tests {
             )])],
         };
 
-        let xml = generate_aem_xml(&root, &config);
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
 
         assert!(
             xml.contains("locale=\"en\"") && xml.contains("locale=\"it\""),
@@ -2104,9 +1254,16 @@ mod tests {
             children: vec![html_node(&[("en", "   ")])],
         };
 
-        let xml = generate_aem_xml(&root, &config);
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
 
-        assert!(!xml.contains("<item0"), "no markup, no item:\n{xml}");
+        let displayer = element(&xml, "TBL_Plans");
+        let items: Vec<&str> = displayer
+            .children
+            .iter()
+            .filter(|c| c.tag_name == "localeContent")
+            .flat_map(|c| c.children.iter().map(|i| i.tag_name.as_str()))
+            .collect();
+        assert!(items.is_empty(), "no markup, no item: {items:?}");
     }
 
     fn fixed_uuid() -> Uuid {
@@ -2127,7 +1284,7 @@ mod tests {
                 dor_colspan: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(xml.contains("guideTextDraw"));
         assert!(xml.contains("ST_1"));
     }
@@ -2150,7 +1307,7 @@ mod tests {
                 kind: TextFieldKind::Plain,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(xml.contains("cq:responsive"));
         assert!(xml.contains("width=\"6\""));
         assert!(xml.contains("maxChars=\"100\""));
@@ -2183,7 +1340,7 @@ mod tests {
                 bind_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(xml.contains("options=\"[1=Yes,0=No]\""));
         assert!(xml.contains("alignment=\"horizontal\""));
     }
@@ -2216,7 +1373,7 @@ mod tests {
                 bind_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         // Commas inside labels must be escaped as \, so the list stays parseable
         assert!(
             xml.contains(r#"options="[1=Yes\, definitely,2=No\, thanks]""#),
@@ -2252,7 +1409,7 @@ mod tests {
                 bind_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(
             xml.contains(r#"options="[a=Option A\, first,b=Option B]""#),
             "Commas in dropdown labels must be backslash-escaped. Got:\n{}",
@@ -2287,7 +1444,7 @@ mod tests {
                 bind_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(
             xml.contains(r#"options="[1=I agree\, fully,0=No]""#),
             "Commas in checkbox labels must be backslash-escaped. Got:\n{}",
@@ -2312,7 +1469,7 @@ mod tests {
                 frag_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(xml.contains("minOccur=\"1\""), "missing minOccur");
         assert!(xml.contains("maxOccur=\"10\""), "missing maxOccur");
         assert!(xml.contains("name=\"RCP_1\""));
@@ -2345,7 +1502,7 @@ mod tests {
                 bind_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(xml.contains("guideDropDownList"));
         assert!(xml.contains("options=\"[a=A,b=B]\""));
     }
@@ -2373,7 +1530,7 @@ mod tests {
                 frag_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(
             xml.contains("visible=\"{Boolean}false\""),
             "Hidden panel should have visible={{Boolean}}false. Got:\n{}",
@@ -2446,7 +1603,7 @@ mod tests {
                 conditional_panel("COND_TargetPanel"),
             ],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         // AABO mechanism: the SHOW_EXPRESSION lives on the target panel, not as
         // a valueCommit on the trigger field.
         assert!(
@@ -2493,9 +1650,10 @@ mod tests {
                 bind_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
+        let radio = element(&xml, "RB_Simple");
         assert!(
-            !xml.contains("fd:scripts"),
+            radio.children.iter().all(|c| c.tag_name != "fd:scripts"),
             "Radio without conditions should NOT emit fd:scripts. Got:\n{}",
             xml
         );
@@ -2537,7 +1695,7 @@ mod tests {
                 conditional_panel("COND_PanelA"),
             ],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(
             xml.contains("fd:visible") && xml.contains("SHOW_EXPRESSION"),
             "Conditional panel for a dropdown trigger should emit fd:visible. Got:\n{}",
@@ -2580,7 +1738,7 @@ mod tests {
                 conditional_panel("COND_AcceptPanel"),
             ],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(
             xml.contains("fd:visible") && xml.contains("SHOW_EXPRESSION"),
             "Conditional panel for a checkbox trigger should emit fd:visible. Got:\n{}",
@@ -2639,7 +1797,7 @@ mod tests {
                 conditional_panel("COND_Entity"),
             ],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         // The rendered expression OR-s both comparisons (AABO escaping `\\&quot;`).
         assert!(
             xml.contains(
@@ -2686,8 +1844,8 @@ mod tests {
                 conditional_panel("PN_Cond"),
             ],
         };
-        let xml = generate_aem_xml(&root, &test_config());
-        // The SHOW_EXPRESSION SCRIPTMODEL envelope, rendered entirely by the template.
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
+        // The SHOW_EXPRESSION SCRIPTMODEL envelope, as `scripts::show` builds it.
         assert!(
             xml.contains("&quot;field&quot;:&quot;PN_Cond&quot;"),
             "field should be the target panel name. Got:\n{}",
@@ -2715,7 +1873,7 @@ mod tests {
         let root = AemNode::Root {
             title: "Form".into(),
             children: vec![AemNode::Panel {
-                uuid: fixed_uuid(),
+                uuid: uuid_of("GridPanel"),
                 name: "GridPanel".into(),
                 title: "Grid Panel".into(),
                 is_page: false,
@@ -2730,7 +1888,7 @@ mod tests {
                 children: vec![
                     AemNode::TextField {
                         attrs: AemAttrs::default(),
-                        uuid: fixed_uuid(),
+                        uuid: uuid_of("Street"),
                         name: "Street".into(),
                         label: "Street".into(),
                         mandatory: false,
@@ -2743,7 +1901,7 @@ mod tests {
                     },
                     AemNode::TextField {
                         attrs: AemAttrs::default(),
-                        uuid: fixed_uuid(),
+                        uuid: uuid_of("No"),
                         name: "No".into(),
                         label: "No".into(),
                         mandatory: false,
@@ -2757,7 +1915,7 @@ mod tests {
                 ],
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(
             xml.contains("dorNumCols=\"3\""),
             "Panel should have dorNumCols=3. Got:\n{}",
@@ -2793,7 +1951,7 @@ mod tests {
                 kind: TextFieldKind::Plain,
             }],
         };
-        let xml = generate_aem_xml(&root, &test_config());
+        let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
         assert!(
             !xml.contains("dorColspan"),
             "Field without dor_colspan should not emit dorColspan. Got:\n{}",
@@ -2801,45 +1959,16 @@ mod tests {
         );
     }
 
-    #[test]
-    fn missing_template_omits_component() {
-        let mut config = test_config();
-        config.component_templates.remove("textdraw");
 
-        let root = AemNode::Root {
-            title: "Form".into(),
-            children: vec![AemNode::TextDraw {
-                visible: true,
-                uuid: fixed_uuid(),
-                name: "ST_1".into(),
-                content: "Hello".into(),
-                attrs: AemAttrs::default(),
-                colspan: 12,
-                dor_colspan: None,
-            }],
-        };
-        let xml = generate_aem_xml(&root, &config);
-        assert!(
-            !xml.contains("ST_1"),
-            "Component with missing template should be omitted. Got:\n{}",
-            xml
-        );
-    }
-
-    /// Verify the preface template renders a fragment panel with `fragRef`
-    /// always pointing to affrg_BankingRelationship1.
+    /// The preface's fragment panel points at affrg_BankingRelationship1
+    /// whatever the entity.
     #[test]
     fn preface_renders_entity_based_banking_relationship_fragment() {
-        let preface_template = include_str!("../../profiles/ubs/aem/preface.xml");
-
         let expected_frag_ref =
             "/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1";
 
         for entity in &["033", "019", "001"] {
             let mut config = test_config();
-            config
-                .component_templates
-                .insert("preface".into(), preface_template.into());
             config
                 .xfa_vars
                 .insert("formrange_entity".into(), entity.to_string());
@@ -2860,7 +1989,7 @@ mod tests {
                 name: "PN_Preface_abcdef01".into(),
             };
 
-            let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+            let xml = render_one(&node, &config);
 
             assert!(
                 xml.contains(&format!("fragRef=\"{}\"", expected_frag_ref)),
@@ -2886,10 +2015,6 @@ mod tests {
     #[test]
     fn preface_wraps_banking_relationship_in_excluded_panel() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "preface".into(),
-            include_str!("../../profiles/ubs/aem/preface.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -2903,7 +2028,7 @@ mod tests {
             uuid: fixed_uuid(),
             name: "PN_Preface_abcdef01".into(),
         };
-        let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+        let xml = render_one(&node, &config);
 
         // The wrapper panel exists and carries both exclusions.
         assert!(
@@ -2944,10 +2069,6 @@ mod tests {
     #[test]
     fn preface_fragment_panel_is_dor_excluded() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "preface".into(),
-            include_str!("../../profiles/ubs/aem/preface.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -2961,7 +2082,7 @@ mod tests {
             uuid: fixed_uuid(),
             name: "PN_Preface_abcdef01".into(),
         };
-        let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+        let xml = render_one(&node, &config);
 
         let frag_at = xml
             .find("affrg_BankingRelationship1")
@@ -2985,10 +2106,6 @@ mod tests {
     #[test]
     fn preface_wrapper_carries_ubs_margin_class() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "preface".into(),
-            include_str!("../../profiles/ubs/aem/preface.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -3002,16 +2119,12 @@ mod tests {
             uuid: fixed_uuid(),
             name: "PN_Preface_abcdef01".into(),
         };
-        let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+        let xml = render_one(&node, &config);
 
-        let pn_br = xml.find("name=\"PN_BR\"").expect("PN_BR wrapper missing");
-        let css = xml
-            .find("css=\"ubs-margin-20\"")
-            .unwrap_or_else(|| panic!("PN_BR wrapper must carry ubs-margin-20. Got:\n{}", xml));
-        assert!(
-            css < pn_br,
-            "the margin class must sit on the PN_BR wrapper. Got:\n{}",
-            xml
+        assert_eq!(
+            element(&xml, "PN_BR").attr("css"),
+            Some("ubs-margin-20"),
+            "the margin class must sit on the PN_BR wrapper. Got:\n{xml}"
         );
     }
 
@@ -3022,10 +2135,6 @@ mod tests {
     #[test]
     fn datepicker_does_not_default_to_current_date() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "datepicker".into(),
-            include_str!("../../profiles/ubs/aem/datepicker.xml").into(),
-        );
         config.user_vars.insert(
             "custom_resource_type_base".into(),
             "ajila-forms-customers/ajila-forms-ubs/components".into(),
@@ -3048,11 +2157,11 @@ mod tests {
             dor_colspan: None,
             bind_ref: None,
         };
-        let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+        let xml = render_one(&node, &config);
 
         assert!(
             xml.contains("guideNodeClass=\"guideDatePicker\""),
-            "expected the real datepicker template to render. Got:\n{}",
+            "expected the date picker component. Got:\n{}",
             xml
         );
         assert!(
@@ -3065,15 +2174,11 @@ mod tests {
     /// For a `PN_FormConfigurator` page panel, the full `dorExclusion` must sit
     /// on the generated `…Title` sub-panel, NOT on the parent panel (the parent
     /// only carries `dorExcludeTitle`/`dorExcludeDescription`). This mirrors the
-    /// reference packages; the previous template wrongly excluded the whole
+    /// reference packages; an earlier writer wrongly excluded the whole
     /// configurator subtree from the DOR.
     #[test]
     fn form_configurator_excludes_title_subpanel_not_parent_from_dor() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "panel".into(),
-            include_str!("../../profiles/ubs/aem/panel.xml").into(),
-        );
         config.user_vars.insert(
             "custom_resource_type_base".into(),
             "ajila-forms-customers/ajila-forms-ubs/components".into(),
@@ -3090,7 +2195,12 @@ mod tests {
             uuid: fixed_uuid(),
             name: "PN_FormConfigurator_abcdef01".into(),
             title: "Form configurator".into(),
-            children: vec![],
+            // The configurator is the first page, which the banking preface
+            // marks.
+            children: vec![AemNode::Preface {
+                uuid: uuid::Uuid::from_u128(2),
+                name: "PN_Preface".into(),
+            }],
             is_page: true,
             attrs: AemAttrs::default(),
             visible: true,
@@ -3101,32 +2211,16 @@ mod tests {
             bind_ref: None,
             frag_ref: None,
         };
-        let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+        let xml = render_one(&node, &config);
 
-        // The parent FormConfigurator panel element (up to the first `>`) must
-        // NOT carry dorExclusion; it keeps only dorExcludeTitle/Description.
-        let parent_tag = &xml[..xml.find('>').expect("panel open tag")];
-        assert!(
-            !parent_tag.contains("dorExclusion=\"true\""),
-            "FormConfigurator parent panel must NOT be DOR-excluded. Got tag:\n{}",
-            parent_tag
-        );
-        assert!(
-            parent_tag.contains("dorExcludeTitle=\"true\""),
-            "FormConfigurator parent panel should keep dorExcludeTitle. Got tag:\n{}",
-            parent_tag
-        );
-        // The generated Title sub-panel must carry the full dorExclusion.
-        assert!(
-            xml.contains("name=\"PN_FormConfigurator_abcdef01Title\""),
-            "expected generated Title sub-panel. Got:\n{}",
-            xml
-        );
-        assert!(
-            xml.contains("dorExclusion=\"true\""),
-            "FormConfigurator Title sub-panel must be DOR-excluded. Got:\n{}",
-            xml
-        );
+        // The FormConfigurator panel itself is NOT excluded from the DoR; it
+        // keeps only its title excluded.
+        let parent = element(&xml, "PN_FormConfigurator_abcdef01");
+        assert_eq!(parent.attr("dorExclusion"), None, "the configurator must reach the DoR");
+        assert_eq!(parent.attr("dorExcludeTitle"), Some("true"));
+        // The generated title sub-panel carries the full exclusion.
+        let title = element(&xml, "PN_FormConfigurator_abcdef01Title");
+        assert_eq!(title.attr("dorExclusion"), Some("true"));
     }
 
     /// The two panels the engine names for a repeatable carry a repeat-container
@@ -3152,10 +2246,6 @@ mod tests {
         assert_eq!(with_repeat_prefix("Portfolio_ID"), "RCP_Portfolio_ID");
 
         let mut config = test_config();
-        config.component_templates.insert(
-            "repeatable".into(),
-            include_str!("../../profiles/ubs/aem/repeatable.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -3180,7 +2270,7 @@ mod tests {
             bind_ref: None,
             frag_ref: None,
         };
-        let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+        let xml = render_one(&node, &config);
 
         for name in ["RCP_Individual_repeat", "RCP_Individual_inner"] {
             assert!(
@@ -3213,14 +2303,6 @@ mod tests {
     fn the_add_button_names_what_it_adds() {
         let label_for = |children: Vec<AemNode>, panel_title: &str| {
             let mut config = test_config();
-            config.component_templates.insert(
-                "repeatable".into(),
-                include_str!("../../profiles/ubs/aem/repeatable.xml").into(),
-            );
-            config.component_templates.insert(
-                "titledraw".into(),
-                "<{{ element_name }} name=\"{{ name }}\"/>".into(),
-            );
             config.user_vars.insert(
                 "default_layout".into(),
                 "fd/af/layouts/gridFluidLayout2".into(),
@@ -3254,7 +2336,7 @@ mod tests {
                     frag_ref: None,
                 }],
             };
-            let xml = generate_aem_xml(&root, &config);
+            let xml = generate_aem_xml(&root, &config).expect("the form is written");
             xml.split("jcr:title=\"")
                 .find(|part| part.starts_with("Add"))
                 .and_then(|part| part.split('"').next())
@@ -3333,10 +2415,6 @@ mod tests {
     #[test]
     fn repeatable_inner_panels_keep_the_repeatable_prefix() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "repeatable".into(),
-            include_str!("../../profiles/ubs/aem/repeatable.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -3362,7 +2440,7 @@ mod tests {
             bind_ref: None,
             frag_ref: None,
         };
-        let xml = render_node(&node, &config, &RenderIndex::build(&node), no_passthrough());
+        let xml = render_one(&node, &config);
 
         assert!(
             xml.contains("name=\"RCP_Clients_inner\""),
@@ -3384,13 +2462,9 @@ mod tests {
         }
     }
 
-    /// A tree rendered through the profile's own repeatable template.
+    /// A tree written through the UBS repeatable lowering.
     fn render_tree(children: Vec<AemNode>) -> String {
         let mut config = test_config();
-        config.component_templates.insert(
-            "repeatable".into(),
-            include_str!("../../profiles/ubs/aem/repeatable.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -3410,7 +2484,7 @@ mod tests {
             title: "Form".into(),
             children,
         };
-        generate_aem_xml(&root, &config)
+        generate_aem_xml(&root, &config).expect("the form is written")
     }
 
     /// One repeatable, rendered the way an engine-authored tree holds it: inside
@@ -3539,7 +2613,7 @@ mod tests {
             .split("<repeatableInner")
             .nth(1)
             .and_then(|rest| rest.split('>').next())
-            .expect("the template must emit the repeating panel");
+            .expect("the writer must emit the repeating panel");
 
         for attr in [
             "jcr:title=\"Client\"",
@@ -3679,14 +2753,6 @@ mod tests {
     #[test]
     fn a_page_with_repeatables_gives_them_the_jump_to_field_button() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "repeatable".into(),
-            include_str!("../../profiles/ubs/aem/repeatable.xml").into(),
-        );
-        config.component_templates.insert(
-            "panel".into(),
-            include_str!("../../profiles/ubs/aem/panel.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -3746,12 +2812,12 @@ mod tests {
             title: "Form".into(),
             children: vec![page("PN_Parties", vec![repeatable.clone()])],
         };
-        let xml = generate_aem_xml(&root, &config);
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
         let row = xml
             .split("<repeatableInner")
             .nth(1)
             .and_then(|rest| rest.split('>').next())
-            .expect("the template must emit the repeating panel");
+            .expect("the writer must emit the repeating panel");
         assert!(
             row.contains("jumpToFieldButtonVisible=\"true\""),
             "the row must carry the button. Got:\n{}",
@@ -3769,7 +2835,7 @@ mod tests {
             title: "Form".into(),
             children: vec![page("PN_Details", vec![field()])],
         };
-        let xml = generate_aem_xml(&plain, &config);
+        let xml = generate_aem_xml(&plain, &config).expect("the form is written");
         assert!(
             xml.contains("name=\"PN_DetailsTitle\"")
                 && xml.contains("jumpToFieldButtonVisible=\"true\""),
@@ -3805,7 +2871,7 @@ mod tests {
                 }],
             )],
         };
-        let xml = generate_aem_xml(&text_only, &config);
+        let xml = generate_aem_xml(&text_only, &config).expect("the form is written");
         assert!(
             !xml.contains("jumpToFieldButtonVisible"),
             "a step with nothing to fill in offers no button. Got:\n{}",
@@ -3825,14 +2891,6 @@ mod tests {
     #[test]
     fn a_repeatable_on_the_configurator_page_still_gets_the_jump_to_field_button() {
         let mut config = test_config();
-        config.component_templates.insert(
-            "repeatable".into(),
-            include_str!("../../profiles/ubs/aem/repeatable.xml").into(),
-        );
-        config.component_templates.insert(
-            "panel".into(),
-            include_str!("../../profiles/ubs/aem/panel.xml").into(),
-        );
         config.user_vars.insert(
             "default_layout".into(),
             "fd/af/layouts/gridFluidLayout2".into(),
@@ -3893,12 +2951,12 @@ mod tests {
                 frag_ref: None,
             }],
         };
-        let xml = generate_aem_xml(&root, &config);
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
         let row = xml
             .split("<repeatableInner")
             .nth(1)
             .and_then(|rest| rest.split('>').next())
-            .expect("the template must emit the repeating panel");
+            .expect("the writer must emit the repeating panel");
         assert!(
             row.contains("jumpToFieldButtonVisible=\"true\""),
             "a repeatable on the configurator's own page must still get the button. Got:\n{}",
@@ -4009,7 +3067,7 @@ mod tests {
     #[test]
     fn a_signature_fragment_names_the_repeatable_that_wraps_it() {
         let fragment = |name: &str, frag_ref: &str| AemNode::Fragment {
-            uuid: fixed_uuid(),
+            uuid: uuid_of(name),
             name: name.into(),
             title: String::new(),
             frag_ref: frag_ref.into(),
@@ -4022,7 +3080,7 @@ mod tests {
         let repeatable = |name: &str, child: AemNode| AemNode::Repeatable {
             attrs: AemAttrs::default(),
             visible: true,
-            uuid: fixed_uuid(),
+            uuid: uuid_of(name),
             name: name.into(),
             title: "Account holder".into(),
             children: vec![child],
@@ -4063,7 +3121,7 @@ mod tests {
         let party = |name: &str, title: &str| AemNode::Repeatable {
             attrs: AemAttrs::default(),
             visible: true,
-            uuid: fixed_uuid(),
+            uuid: uuid_of(name),
             name: name.into(),
             title: title.into(),
             children: vec![],

@@ -40,6 +40,10 @@ name = "roundtrip_real_package"
 path = "tests/roundtrip_real_package.rs"
 
 [[test]]
+name = "scaffold"
+path = "tests/scaffold.rs"
+
+[[test]]
 name = "script_encoding"
 path = "tests/script_encoding.rs"
 

@@ -222,6 +222,9 @@ mod tests {
                 root_panel_layout: None,
                 chrome: Default::default(),
                 dam_chrome: Default::default(),
+                page_content: Default::default(),
+                root_panel: Default::default(),
+                toolbar_chrome: Default::default(),
             },
             pages: vec![page],
         }

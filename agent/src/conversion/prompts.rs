@@ -244,7 +244,7 @@ occurs; a `replace` op changes one field (`/form/children/2/label/de`), an `add`
 or drops a node. json_validate checks the whole document against the schema. Authoring and \
 packaging as-is is a failure: compare the whole field set, the grouping and all languages with the \
 source.\n\
-4. Package: build_aem_package encodes the document through the UBS templates into the AEM form \
+4. Package: build_aem_package encodes the document through the UBS writer into the AEM form \
 plus a per-language translation dictionary, and checks the package structure and the form and DAM \
 content XML against the AEM contract. A document the encoder refuses builds nothing and says why; \
 fix it with json_patch and rebuild; never verify or export an invalid package. Inspect with \
@@ -309,12 +309,12 @@ except an ENGINE DEFECT (below). A rule that stays unchecked after a re-run is r
 not as the Author's issue. Judge ANALOGY to the source, and confirm every point in any prior \
 REVIEW FEEDBACK is now fixed; it is a list of points to re-verify, not a verdict. \
 Some defects come from the engine itself and the Author cannot change them by editing the \
-document: the UBS templates guarantee a set of shapes by construction, every build checks the \
+document: the UBS writer guarantees a set of shapes by construction, every build checks the \
 package for them, rule_check lists a broken one as `package_findings`, and each is an ENGINE \
 DEFECT to report. \
-ENGINE-INTRINSIC issues: some defects come from the conversion engine itself (fixed template output, \
+ENGINE-INTRINSIC issues: some defects come from the conversion engine itself (fixed writer output, \
 resourceType assignments, lowering behaviour) and CANNOT be changed by the Author editing the document. \
-An engine-intrinsic issue is one you can point at in the profile templates or the lowering, not one you \
+An engine-intrinsic issue is one you can point at in the writer's output or the lowering, not one you \
 assume. Do not send such issues back to the Author and do not block approval on them, but do NOT use \
 the label as a catch-all, and do NOT treat it as \"fine\": before calling something engine-intrinsic, \
 check what the built package actually contains (get_package_info, read_package_file), because a shape the engine gets \

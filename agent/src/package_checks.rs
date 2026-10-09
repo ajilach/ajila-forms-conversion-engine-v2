@@ -1,10 +1,10 @@
 //! The feedback guard's problems, checked on the package a build wrote.
 //!
-//! The check rules (`rules/aem/`) see the authored document; the templates, the
-//! writer and the normalize passes are trusted to turn it into the shapes the
+//! The check rules (`rules/aem/`) see the authored document; the writer and
+//! the normalize passes are trusted to turn it into the shapes the
 //! deployed corpus is held to. This is where that trust is checked: every build
-//! scans the form's rendered `.content.xml` for the problems a template or
-//! writer regression would bring back. A finding here is an engine defect, not
+//! scans the form's rendered `.content.xml` for the problems a writer
+//! regression would bring back. A finding here is an engine defect, not
 //! something the Author can fix by editing the document, so the build reports it
 //! rather than refusing.
 //!

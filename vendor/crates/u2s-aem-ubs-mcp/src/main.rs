@@ -14,8 +14,8 @@
 //!   hand-typed JSON) is what this tool exists for.
 //! - `encode` -- the format's `encode`-role tool: `output_json` in, a
 //!   FileVault package blob out. The work is this crate's library: the UBS
-//!   document (`UbsAemDocument`) lowered through the UBS templates, the
-//!   writer the forms conversion engine refined against the deployed corpus.
+//!   document (`UbsAemDocument`) lowered onto the generic AEM model and
+//!   encoded by `u2s-mapper-aem`, held to the deployed corpus.
 //! - `fragment_search` -- a `query`-role tool letting the Conversion Agent
 //!   browse the fragment library itself. This is deliberately **not**
 //!   part of `encode`: matching a fragment to a panel is a judgment call,
@@ -235,7 +235,7 @@ impl ServerHandler for AemUbsServer {
             "Defines the `aem-ubs` output format. Its JSON Schema and description live in \
              the `u2s://manifest` resource, under `format`; read that to learn the shape a \
              conversion must produce. `encode` lowers a finished, valid document through the \
-             UBS templates into a FileVault package; `decode` is its inverse, for seeding a reference run \
+             UBS writer into a FileVault package; `decode` is its inverse, for seeding a reference run \
              from a real, delivered package instead of hand-typed JSON; `fragment_search` \
              lets you browse the fragment library yourself before referencing one in a \
              Fragment node -- neither this server nor any rule script judges which fragment \

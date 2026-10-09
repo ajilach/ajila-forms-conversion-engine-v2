@@ -1,6 +1,7 @@
 //! Shape corrections applied to a finished tree on the way out.
 //!
-//! Three of the swept feedback rules cannot be satisfied by a template alone:
+//! Three of the swept feedback rules cannot be satisfied by lowering one node
+//! at a time:
 //! they are about a node's POSITION among its siblings, or about a node that has
 //! to exist twice in different roles. Doing them here rather than in the
 //! converter means they hold for every tree the writer sees -- one built from an
@@ -31,9 +32,8 @@ use super::{AemAttrs, AemNode};
 /// exemption `static_text_wrap.py` makes.
 const SUBTITLE_CSS: &str = "subtitle-after-form-title";
 
-/// The CSS class the step-title template stamps on a step's own canonical
-/// heading (`panel.xml`). It is synthesised entirely from the panel's `title`
-/// field -- never a node in `children` -- so a `TitleDraw` carrying it can only
+/// The CSS class the page lowering stamps on a step's own canonical heading.
+/// It is synthesised entirely from the panel's `title` field -- never a node in `children` -- so a `TitleDraw` carrying it can only
 /// reach `is_run_member` from an agent-authored or loaded tree, never from this
 /// engine's own conversion.
 ///
@@ -380,7 +380,7 @@ fn walk_panels(node: &mut AemNode, f: &mut impl FnMut(&str, &mut Vec<AemNode>, b
     if node.attrs().is_some_and(|a| a.dor_exclude) {
         return;
     }
-    // A page and a conditional panel carry `dorExcludeTitle` from their template,
+    // A page and a conditional panel carry `dorExcludeTitle` from the writer,
     // and so does a repeatable's row panel; an ordinary panel says so itself.
     let excludes_title = match node {
         AemNode::Panel {
@@ -631,7 +631,7 @@ mod tests {
 
     /// An h2 with no `stepTitle` class is an ordinary sub-heading, not the
     /// step's own title -- and this engine never puts the real one in
-    /// `children` at all; the template synthesises it from the panel's own
+    /// `children` at all; the writer synthesises it from the panel's own
     /// `title` field. So any level-2 draw reaching this code is agent-authored
     /// content, and joins the run like any other body text
     /// (PROBLEM-static-text-orphan-step, 2026-09-02): reading every h2 as a step

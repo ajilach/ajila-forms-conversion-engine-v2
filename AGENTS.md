@@ -18,17 +18,17 @@
 - When running tests, use `cargo test --release` such that they are faster. Also make sure to save the entire output to a log file to avoid needing to re-run the tests if output information is required. Do NOT run tests if you only modified the app/cli wrappers.
 - Before reading XFA semantics into a tool or prompt, consult the [XFA specs](./specs/XFA-3_3.txt) (text extraction of `specs/XFA-3_3.pdf`).
 - Tests should never work with the output files. Instead they should analyze the documents and intermediate structures directly.
-- The conversion is AI-guided end to end: a run authors one JSON document in its target's UBS format (`UbsAemDocument` or `UbsRedactoDocument`) with the `json_*` tools, and the vendored UBS layers (`u2s/crates/u2s-aem-ubs-mcp`, `u2s/crates/u2s-redacto-ubs-mcp`) encode it. There is no deterministic conversion to fall back on. The UBS writer, its templates (`profiles/ubs/aem`), the normalize passes, the XSD and the Redacto furniture live in those crates upstream, in `ajila-forms-conversion-engine-v3`: change them there and re-sync, never here. AEM output belongs in the templates as much as possible.
+- The conversion is AI-guided end to end: a run authors one JSON document in its target's UBS format (`UbsAemDocument` or `UbsRedactoDocument`) with the `json_*` tools, and the vendored UBS layers (`u2s/crates/u2s-aem-ubs-mcp`, `u2s/crates/u2s-redacto-ubs-mcp`) encode it. There is no deterministic conversion to fall back on. The UBS writer (its lowering onto the generic AEM model, which `u2s-mapper-aem` encodes), its profile (`profiles/ubs/aem`), the normalize passes, the XSD and the Redacto furniture live in those crates upstream, in `ajila-forms-conversion-engine-v3`: change them there and re-sync, never here. AEM output belongs in the UBS layer's lowering as much as possible.
 - The AEM output is judged by the feedback repo's CI guard, because a converted form joins the
   corpus that guard polices. Run it on a package a conversion wrote with
   `python3 scripts/check_feedback_rules.py <package.zip> forms/AAOS_033_IT.pdf` (it needs
   `../ajila-forms-conversion-feedback`); every enrolled rule must be clean, bar the two exceptions below. The rules themselves are
   in `specs/feedback/consistent-problems.md`, and the shapes a person still applies by hand in
   `specs/feedback/manual-changes-italy-033.md`. The ones a document can break are also checked on
-  every edit, as the check rules in `rules/aem/` (`rule_check`); the rest the templates, the writer
+  every edit, as the check rules in `rules/aem/` (`rule_check`); the rest the writer
   or the normalize passes guarantee, and the parity tests upstream hold the encoder to the retired
   engine's output. `specs/feedback/rule-coverage.md` maps every enrolled problem to what guarantees
-  it. What the templates guarantee is checked too: every build scans the rendered package
+  it. What the writer guarantees is checked too: every build scans the rendered package
   (`agent/src/package_checks.rs`) and reports a guard problem there as an engine defect. The check rules live here only (v3 keeps its rules in its database and ships none). A rule is
   `rules/<target>/<slug>/rule.toml` plus, when a script can decide it, `check.js` (with a clean and a
   violating test in `agent/tests/rules.rs`); a rule without a `check.js` is judged: `rule_check`
@@ -36,10 +36,10 @@
   checks the document against the rule's description and reports through `submit_rule_verdict`.
   Where no judge runs (the agent on its own, outside a pipeline stage) such a rule is reported unchecked. Rules are not written into
   the prompts: the agent reads them with `rule_list`.
-- Three of those rules are about a node's position among its siblings, so no template can satisfy
+- Three of those rules are about a node's position among its siblings, so lowering one node at a time cannot satisfy
   them: they live in the UBS layer's `normalize.rs` and run over a copy of the tree on the way into
   the writer, which is what makes them hold for an agent-authored or loaded document as well.
-- Where a node shows up is `AemAttrs` on the node, not a template guess: `summary_exclude` is what
+- Where a node shows up is `AemAttrs` on the node, not a writer guess: `summary_exclude` is what
   keeps content out of the UBS DoR (Redacto renders it from the summary), `dor_exclude` is Adobe's
   own switch, and `always_in_pdf` is how a hidden node still reaches the printed document.
 - Partner and signature blocks follow the UBS general-fragments directive (specs/"AF Fragments and Common Fields with XSD List.md", 2026-08-20), and the document authors them from ordinary nodes: there are no custom elements. A party is a `Repeatable` wrapping one of the four `afforms_ubs_fragmentlib` partner generics, whose `init_hide` lists the sub-panels its one Initialize `hideAFHideDor` rule hides (only a partner generic takes it); its signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, both named after the party (`RCP_SGN_CPGRP`/`PN_SGN_CPGRP` for `PN_CPGRP`, `RCP_Sign_AHGRP`/`PN_Sign_AHGRP` for `PN_AHGRP`, `PN_SGN_BOGRP` and `PN_SGN_PAGRP` for the beneficial owner and the POA), and the UBS layer pairs the two by that name, so the party's Add and Remove drive both. The `ubs-aem-retired-market-fragments` and `ubs-aem-global-internal-bank-use` rules check every document; do not reintroduce germany/italy person or signature fragments.

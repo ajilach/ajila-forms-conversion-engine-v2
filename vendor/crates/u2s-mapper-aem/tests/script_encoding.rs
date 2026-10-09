@@ -128,16 +128,21 @@ fn is_this_encoders_spelling(item: &str) -> bool {
     let top = shape.keys == ["script", "nodeName", "version", "enabled"]
         || shape.keys == ["script", "nodeName", "version", "enabled", "_archetype"];
     let fixed = is("/nodeName", "SCRIPTMODEL".into()) && is("/version", 1.into()) && is("/enabled", true.into());
+    // A model, when there is one, is `{"nodeName": ...}` and nothing else.
+    let model_ok = value.pointer("/script/model").is_none_or(|m| {
+        m.as_object().is_some_and(|m| m.len() == 1) && shape.model.is_some()
+    });
     let field_first = shape.script_keys == ["field", "event", "model", "content"]
-        && shape.model.as_deref() == Some("EVENT_SCRIPTS")
-        && value.pointer("/script/model").and_then(|m| m.as_object()).is_some_and(|m| m.len() == 1);
-    let content_first = shape.script_keys == ["content", "event", "field"];
+        || shape.script_keys == ["field", "event", "content"];
+    let content_first = shape.script_keys == ["content", "event", "field"]
+        || shape.script_keys == ["content", "event", "field", "model"];
     shape.compact
         && top
         && fixed
         && shape.event.as_deref().and_then(ScriptEvent::from_name).is_some()
         && strings(&["field", "event", "content"])
         && (value.get("_archetype").is_none() || shape.archetype.is_some())
+        && model_ok
         && (field_first || content_first)
 }
 
@@ -256,6 +261,11 @@ fn generated_script(generator: &mut Generator) -> EventScript {
         } else {
             BodyOrder::ContentFirst
         },
+        model: match generator.below(3) {
+            0 => None,
+            1 => Some("EVENT_SCRIPTS".into()),
+            _ => Some("SHOW_EXPRESSION".into()),
+        },
         archetype: (generator.below(3) == 0).then(|| "generated, \"marker\"".into()),
     }
 }
@@ -354,7 +364,7 @@ fn a_validation_message_beside_a_carried_fd_rules_is_refused() {
     let master = form.form().metadata.master_language.clone();
     let result = u2s_mapper_aem::xml_writer::write_form_xml(
         &form,
-        &u2s_mapper_aem::xml_writer::WriteCtx { master: &master, bind_refs: &Default::default() },
+        &u2s_mapper_aem::xml_writer::WriteCtx { master: &master, bind_refs: &Default::default(), spell_defaults: true },
     );
     let error = result.expect_err("the form must be refused").to_string();
     assert!(error.contains("TXT_Field"), "{error}");
@@ -386,7 +396,7 @@ fn generated_rules_survive_the_form_writer_on_panels_and_fields() {
         let master = form.form().metadata.master_language.clone();
         let xml = u2s_mapper_aem::xml_writer::write_form_xml(
             &form,
-            &u2s_mapper_aem::xml_writer::WriteCtx { master: &master, bind_refs: &Default::default() },
+            &u2s_mapper_aem::xml_writer::WriteCtx { master: &master, bind_refs: &Default::default(), spell_defaults: true },
         )
         .unwrap();
         let root = parse_jcr_xml(&xml).expect("the written form is well-formed");

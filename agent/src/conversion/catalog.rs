@@ -328,7 +328,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "build_aem_package",
-                "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS templates, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing), or a package that fails the XML checks, is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
+                "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS writer, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing), or a package that fails the XML checks, is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
                 serde_json::json!({}),
                 serde_json::json!([]),
             ),

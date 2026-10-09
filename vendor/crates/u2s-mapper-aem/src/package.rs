@@ -363,6 +363,7 @@ mod tests {
         let ctx = crate::xml_writer::WriteCtx {
             master: &master,
             bind_refs: &xsd.bind_refs,
+            spell_defaults: true,
         };
         let form_xml = crate::xml_writer::write_form_xml(&form, &ctx).expect("writes");
         let dam_xml = crate::dam::write_dam_xml(&form, &master).expect("writes");
@@ -411,6 +412,7 @@ mod tests {
         let ctx = crate::xml_writer::WriteCtx {
             master: &master,
             bind_refs: &xsd.bind_refs,
+            spell_defaults: true,
         };
         let form_xml = crate::xml_writer::write_form_xml(&form, &ctx).expect("writes");
         let dam_xml = crate::dam::write_dam_xml(&form, &master).expect("writes");
@@ -439,6 +441,7 @@ mod tests {
         let ctx = crate::xml_writer::WriteCtx {
             master: &master,
             bind_refs: &std::collections::HashMap::new(),
+            spell_defaults: true,
         };
         let form_xml = crate::xml_writer::write_form_xml(&form, &ctx).expect("writes");
         let dam_xml = crate::dam::write_dam_xml(&form, &master).expect("writes");

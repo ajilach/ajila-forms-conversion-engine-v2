@@ -3,7 +3,7 @@
 //! commit `f5f596a`, the last commit before `core/` was deleted).
 //!
 //! Every test here builds its `AemNode` tree by hand or from a small inline
-//! XML fixture and renders it through the real UBS profile templates -- none
+//! XML fixture and renders it through the real UBS profile and writer -- none
 //! of them go through the mechanical PDF/XFA -> `StructuredNode` pipeline,
 //! which no longer exists in this crate.
 
@@ -85,7 +85,7 @@ fn aem_node_json_round_trips() {
 }
 
 /// `form_code`/`form_title`/`form_path`/`form_dir()`/`xsd_path` are all
-/// derived from the profile's templates against the source's XFA variables.
+/// derived from the source's XFA variables (`aem::identity`).
 #[test]
 fn test_aaab_aem_config_form_path_title_code() {
     let mut variables = HashMap::new();
@@ -93,8 +93,8 @@ fn test_aaab_aem_config_form_path_title_code() {
     variables.insert("formrange_entity".to_string(), "019".to_string());
     let ctx = Context::new("de".to_string(), variables);
 
-    let (profile, templates) = support::ubs_profile();
-    let config = AemConfig::from_profile(&profile, templates, &ctx)
+    let profile = support::ubs_profile();
+    let config = AemConfig::from_profile(&profile, &ctx)
         .expect("Failed to create AemConfig");
 
     assert_eq!(config.form_code, "AAAB", "form_code should be 'AAAB'");
@@ -113,8 +113,8 @@ fn test_aaab_aem_config_form_path_title_code() {
     );
     assert_eq!(
         config.xsd_path.as_deref(),
-        Some("/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_AAAB.xsd"),
-        "xsd_path should be rendered from the profile with the form code"
+        Some("/content/dam/formsanddocuments/afforms_xsd/AFForms/AAAB.xsd"),
+        "the schema is named by the form code, as in the issued corpus"
     );
     assert!(
         !config.bind_to_xsd,
@@ -134,12 +134,12 @@ fn test_aaab_aem_config_form_path_title_code() {
 #[test]
 fn the_metadata_control_masters_the_issuing_regions_language() {
     let master_for = |entity: &str, languages: &[&str]| {
-        let (profile, templates) = support::ubs_profile();
+        let profile = support::ubs_profile();
         let mut vars = HashMap::new();
         vars.insert("formrange_code".into(), "TEST".into());
         vars.insert("formrange_entity".into(), entity.to_string());
         let ctx = Context::new(languages[0].to_string(), vars);
-        let mut config = AemConfig::from_profile(&profile, templates, &ctx)
+        let mut config = AemConfig::from_profile(&profile, &ctx)
             .expect("profile config");
         config.languages = languages.iter().map(|l| l.to_string()).collect();
 
@@ -147,9 +147,8 @@ fn the_metadata_control_masters_the_issuing_regions_language() {
             title: "TEST".into(),
             children: vec![],
         };
-        let xml = generate_aem_xml(&root, &config);
-        // The Tera block that computes the value must not eat the whitespace
-        // separating this attribute from the one before it.
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
+        // The attribute stays separated from the one before it.
         assert!(
             xml.contains(" formrange_afmasterlanguage=\""),
             "the master-language attribute must stay separated from its neighbour:\n{}",
@@ -182,12 +181,12 @@ fn the_metadata_control_masters_the_issuing_regions_language() {
 /// the preview step is the only preview there is, so it stays.
 #[test]
 fn a_form_that_renders_its_dor_through_redacto_has_no_preview_step() {
-    let (profile, templates) = support::ubs_profile();
+    let profile = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "TEST".into());
     vars.insert("formrange_entity".into(), "033".into());
     let ctx = Context::new("it".to_string(), vars);
-    let mut config = AemConfig::from_profile(&profile, templates, &ctx)
+    let mut config = AemConfig::from_profile(&profile, &ctx)
         .expect("profile config");
 
     let root = AemNode::Root {
@@ -200,7 +199,7 @@ fn a_form_that_renders_its_dor_through_redacto_has_no_preview_step() {
         Some("true"),
         "the UBS profile is expected to run with the summary enabled"
     );
-    let xml = generate_aem_xml(&root, &config);
+    let xml = generate_aem_xml(&root, &config).expect("the form is written");
     assert!(
         xml.contains("<summarypanel"),
         "the summary step must be there. Got:\n{}",
@@ -229,7 +228,7 @@ fn a_form_that_renders_its_dor_through_redacto_has_no_preview_step() {
     config
         .user_vars
         .insert("use_summary".into(), "false".into());
-    let xml = generate_aem_xml(&root, &config);
+    let xml = generate_aem_xml(&root, &config).expect("the form is written");
     assert!(
         xml.contains("<previewpanel") && xml.contains("initializeForPreview"),
         "a profile without the summary keeps the preview step. Got:\n{}",
@@ -243,12 +242,12 @@ fn a_form_that_renders_its_dor_through_redacto_has_no_preview_step() {
 /// synonym.
 #[test]
 fn the_metadata_control_names_languages_by_their_canonical_codes() {
-    let (profile, templates) = support::ubs_profile();
+    let profile = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "TEST".into());
     vars.insert("formrange_entity".into(), "019".into());
     let ctx = Context::new("de".to_string(), vars);
-    let mut config = AemConfig::from_profile(&profile, templates, &ctx)
+    let mut config = AemConfig::from_profile(&profile, &ctx)
         .expect("profile config");
     // As the merge hands them over: ISO codes, Spanish among them.
     config.languages = vec!["de".into(), "en".into(), "es".into()];
@@ -257,7 +256,7 @@ fn the_metadata_control_names_languages_by_their_canonical_codes() {
         title: "TEST".into(),
         children: vec![],
     };
-    let xml = generate_aem_xml(&root, &config);
+    let xml = generate_aem_xml(&root, &config).expect("the form is written");
 
     let value = xml
         .split("formrange_language=\"")
@@ -274,14 +273,14 @@ fn the_metadata_control_names_languages_by_their_canonical_codes() {
 
 #[test]
 fn test_ubs_profile_entity_folder_mapping() {
-    let (profile, _) = support::ubs_profile();
+    let profile = support::ubs_profile();
 
     let config_for = |code: &str, entity: &str, lang: &str| {
         let mut vars = HashMap::new();
         vars.insert("formrange_code".into(), code.to_string());
         vars.insert("formrange_entity".into(), entity.to_string());
         let ctx = Context::new(lang.to_string(), vars);
-        AemConfig::from_profile(&profile, HashMap::new(), &ctx).unwrap()
+        AemConfig::from_profile(&profile, &ctx).unwrap()
     };
 
     assert_eq!(
@@ -307,8 +306,6 @@ fn test_aem_profile_allows_bind_to_xsd_without_xsd_path() {
     use u2s_aem_ubs_mcp::aem::AemProfile;
 
     let toml_str = r#"
-title = "{{ xfa.formrange_code }}"
-form_dir = "AF_{{ xfa.formrange_code }}"
 bind_to_xsd = true
 "#;
 
@@ -317,7 +314,7 @@ bind_to_xsd = true
     vars.insert("formrange_code".to_string(), "AAAB".to_string());
     let ctx = Context::new("en".to_string(), vars);
 
-    let config = AemConfig::from_profile(&profile, HashMap::new(), &ctx)
+    let config = AemConfig::from_profile(&profile, &ctx)
         .expect("bind_to_xsd=true without xsd_path should succeed");
 
     assert!(config.bind_to_xsd);
@@ -662,13 +659,13 @@ fn the_first_page_heading_is_a_subtitle_not_a_step_title() {
 /// gets no draw.
 #[test]
 fn the_banking_preface_carries_the_dor_header_slot_text() {
-    let (profile, templates) = support::ubs_profile();
+    let profile = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "AAOS".into());
     vars.insert("formrange_entity".into(), "033".into());
     let mut ctx = Context::new("it".to_string(), vars);
     ctx.header = Some("UBS Europe SE (Succursale Italia)".to_string());
-    let config = AemConfig::from_profile(&profile, templates, &ctx)
+    let config = AemConfig::from_profile(&profile, &ctx)
         .expect("profile config");
 
     let root = AemNode::Root {
@@ -678,7 +675,7 @@ fn the_banking_preface_carries_the_dor_header_slot_text() {
             name: "PN_BR".into(),
         }],
     };
-    let xml = generate_aem_xml(&root, &config);
+    let xml = generate_aem_xml(&root, &config).expect("the form is written");
 
     let draw = support::open_tags(&xml)
         .into_iter()
@@ -702,7 +699,7 @@ fn the_banking_preface_carries_the_dor_header_slot_text() {
         "the slot-2 draw exists to reach the DoR:\n{draw}"
     );
     assert!(
-        draw.contains("&lt;b>UBS Europe SE&lt;/b> (Succursale Italia)"),
+        draw.contains("&lt;b&gt;UBS Europe SE&lt;/b&gt; (Succursale Italia)"),
         "the slot-2 text is not the source's own header:\n{draw}"
     );
 }
@@ -785,56 +782,17 @@ fn the_configurator_reset_carries_its_archetype() {
     );
 }
 
-/// A profile that ships no `email`/`telephone` template must still emit the
-/// field. Dropping it is the failure mode this guards: `render_node` returns
-/// an empty string for a missing template, so without the fallback an email
-/// field would vanish from the package with nothing but a log line to show
-/// for it.
-#[test]
-fn a_profile_without_contact_templates_falls_back_to_the_text_box() {
-    let (profile, mut templates) = support::ubs_profile();
-    templates.remove("email");
-    templates.remove("telephone");
-    let mut vars = HashMap::new();
-    vars.insert("formrange_code".into(), "AAEI".into());
-    vars.insert("formrange_entity".into(), "019".into());
-    let ctx = Context::new("de".to_string(), vars);
-    let config = AemConfig::from_profile(&profile, templates, &ctx)
-        .expect("build AemConfig from the UBS profile");
-
-    let root = AemNode::Root {
-        title: "Contact".into(),
-        children: vec![AemNode::TextField {
-            attrs: AemAttrs::default(),
-            uuid: Uuid::new_v5(&Uuid::NAMESPACE_URL, b"EML_Email"),
-            name: "EML_Email".into(),
-            label: "E-Mail".into(),
-            mandatory: false,
-            visible: true,
-            max_chars: None,
-            colspan: 6,
-            dor_colspan: None,
-            bind_ref: None,
-            kind: TextFieldKind::Email,
-        }],
-    };
-    let xml = generate_aem_xml(&root, &config);
-    assert!(
-        xml.contains("name=\"EML_Email\"") && xml.contains("controls/textbox"),
-        "the field must survive as a plain text box:\n{xml}"
-    );
-}
 
 /// The form configurator opens on the individual option whichever path
 /// emitted the radio, recognised by its option labels, not by one field name.
 #[test]
 fn an_authored_configurator_radio_also_preselects_private_person() {
-    let (profile, templates) = support::ubs_profile();
+    let profile = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "TEST".into());
     vars.insert("formrange_entity".into(), "019".into());
     let ctx = Context::new("de".to_string(), vars);
-    let config = AemConfig::from_profile(&profile, templates, &ctx)
+    let config = AemConfig::from_profile(&profile, &ctx)
         .expect("profile config");
 
     let choice = |name: &str, labels: &[&str], first_key: usize| AemNode::RadioButton {
@@ -872,7 +830,7 @@ fn an_authored_configurator_radio_also_preselects_private_person() {
                 children: vec![node],
             },
             &config,
-        )
+        ).expect("the form is written")
     };
 
     let tag_of = |node: AemNode, name: &str| {
@@ -927,7 +885,7 @@ fn a_loaded_message_box_round_trips_as_a_notice() {
         title: "AABF".into(),
         children: vec![node],
     };
-    let xml = generate_aem_xml(&root, &config);
+    let xml = generate_aem_xml(&root, &config).expect("the form is written");
     let zip = support::aem_zip_from_form_xml(&config.form_code, &xml);
     let parsed = parse_aem_zip(&zip).expect("parse the package back");
 

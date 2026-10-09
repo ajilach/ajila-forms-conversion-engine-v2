@@ -15,7 +15,6 @@ use zip::write::SimpleFileOptions;
 
 use super::{AemConfig, AemNode};
 use crate::aem::generate_aem_xml;
-use crate::aem::template;
 use crate::aem::xml_writer::reformat_attributes;
 
 // ============================================================================
@@ -42,7 +41,7 @@ fn xsd_for_tree(root: &AemNode, config: &AemConfig) -> Option<String> {
 /// Generate a package from an [`AemNode`] tree with no form-content
 /// translations: the tree carries only master-language strings, so only the
 /// profile's `default_translations` are emitted.
-pub fn generate_aem_package_from_node(root: &AemNode, config: &AemConfig) -> Vec<u8> {
+pub fn generate_aem_package_from_node(root: &AemNode, config: &AemConfig) -> Result<Vec<u8>, String> {
     let xsd = xsd_for_tree(root, config);
     assemble_package(root, config, I18nDictionary::new(), xsd, None)
 }
@@ -54,7 +53,7 @@ pub fn generate_aem_package_from_node_with_translations(
     root: &AemNode,
     config: &AemConfig,
     translations: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, String> {
     let xsd = xsd_for_tree(root, config);
     assemble_package(root, config, translations, xsd, None)
 }
@@ -71,7 +70,7 @@ pub fn generate_aem_package_from_node_with_xml(
     config: &AemConfig,
     translations: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     form_xml: String,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, String> {
     let xsd = xsd_for_tree(root, config);
     assemble_package(root, config, translations, xsd, Some(form_xml))
 }
@@ -86,9 +85,9 @@ pub fn generate_aem_package_from_node_with_passthrough(
     config: &AemConfig,
     translations: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
     passthrough: &std::collections::HashMap<uuid::Uuid, super::Passthrough>,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, String> {
     let form_xml =
-        crate::aem::xml_writer::generate_aem_xml_with_passthrough(root, config, passthrough);
+        crate::aem::xml_writer::generate_aem_xml_with_passthrough(root, config, passthrough)?;
     let xsd = xsd_for_tree(root, config);
     assemble_package(root, config, translations, xsd, Some(form_xml))
 }
@@ -101,9 +100,12 @@ fn assemble_package(
     translations: I18nDictionary,
     xsd_content: Option<String>,
     custom_form_xml: Option<String>,
-) -> Vec<u8> {
-    let form_xml = custom_form_xml.unwrap_or_else(|| generate_aem_xml(root, config));
-    let dam_xml = generate_dam_xml(config);
+) -> Result<Vec<u8>, String> {
+    let form_xml = match custom_form_xml {
+        Some(xml) => xml,
+        None => generate_aem_xml(root, config)?,
+    };
+    let dam_xml = generate_dam_xml(config)?;
 
     let package_name = config.form_code.clone();
 
@@ -401,7 +403,7 @@ fn assemble_package(
         write_entry(&mut zip, &opts, &mut written, &xsd_zip_path, xsd_content);
     }
 
-    zip.finish().expect("finalize zip").into_inner()
+    Ok(zip.finish().expect("finalize zip").into_inner())
 }
 
 // ============================================================================
@@ -449,107 +451,85 @@ fn write_intermediate_folders(
 // DAM Asset XML generation
 // ============================================================================
 
-/// Generate the DAM `.content.xml` using a Tera template if available in the
-/// profile (`dam.xml`), otherwise fall back to the hard-coded builder.
-fn generate_dam_xml(config: &AemConfig) -> String {
-    if let Some(dam_template) = config.component_templates.get("dam") {
-        let mut ctx = tera::Context::new();
-        ctx.insert("xfa", &config.xfa_vars);
-        ctx.insert("variables", &config.user_vars);
-        ctx.insert("author", &config.author);
-        ctx.insert("master_language", &config.master_language);
-        // The canonical codes, not the detected ones: a language that reached
-        // the tree under a synonym (`es`) must be named on the form under the
-        // code the platform files it as (`sp`).
-        ctx.insert("languages", &config.canonical_languages().join(","));
-        ctx.insert("expanded_languages", &config.expand_languages().join(","));
-        ctx.insert("form_code", &config.form_code);
-        ctx.insert("bind_to_xsd", &config.bind_to_xsd);
-        // Advertise the schema only when the package actually binds to one.
-        // `xsd_path` names where the schema *would* live, which is needed to
-        // build a bound package on demand; a package built without binding must
-        // not claim `formmodel="xsd"` and point at a file it does not contain.
-        let xsd_ref = config
-            .bind_to_xsd
-            .then(|| config.xsd_ref())
-            .flatten()
-            .unwrap_or_default();
-        ctx.insert("xsd_ref", &xsd_ref);
-
-        match template::render_string(dam_template, &ctx) {
-            Ok(rendered) => return reformat_attributes(&rendered),
-            Err(e) => {
-                log::error!("Failed to render dam.xml template: {}", e);
-                // fall through to hard-coded generator
-            }
+/// The DAM asset `.content.xml` of the form: the asset, its dictionary
+/// folders, and the metadata AEM lists and renders the form by.
+fn generate_dam_xml(config: &AemConfig) -> Result<String, String> {
+    use u2s_aem::model::RawJcrNode;
+    fn raw(tag: &str, attrs: &[(&str, &str)], children: Vec<RawJcrNode>) -> RawJcrNode {
+        RawJcrNode {
+            tag_name: tag.to_owned(),
+            attributes: attrs.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
+            children,
         }
     }
-
-    generate_dam_asset_xml(config)
-}
-
-/// Generate the `dam:Asset` `.content.xml` for the DAM entry of the form.
-fn generate_dam_asset_xml(config: &AemConfig) -> String {
-    let mut buf = Cursor::new(Vec::new());
-    {
-        let mut w = Writer::new_with_indent(&mut buf, b' ', 4);
-
-        w.write_event(Event::Decl(BytesDecl::new("1.0", Some("UTF-8"), None)))
-            .unwrap();
-
-        // <jcr:root>
-        let mut root = BytesStart::new("jcr:root");
-        root.push_attribute(("xmlns:sling", "http://sling.apache.org/jcr/sling/1.0"));
-        root.push_attribute(("xmlns:fd", "http://www.adobe.com/aemfd/fd/1.0"));
-        root.push_attribute(("xmlns:dam", "http://www.day.com/dam/1.0"));
-        root.push_attribute(("xmlns:jcr", "http://www.jcp.org/jcr/1.0"));
-        root.push_attribute(("xmlns:nt", "http://www.jcp.org/jcr/nt/1.0"));
-        root.push_attribute(("jcr:primaryType", "dam:Asset"));
-        w.write_event(Event::Start(root)).unwrap();
-
-        // <jcr:content>
-        let mut jcr_content = BytesStart::new("jcr:content");
-        jcr_content.push_attribute(("jcr:primaryType", "dam:AssetContent"));
-        jcr_content.push_attribute(("sling:resourceType", "fd/fm/af/render"));
-        jcr_content.push_attribute(("guide", "1"));
-        jcr_content.push_attribute(("type", "guide"));
-        w.write_event(Event::Start(jcr_content)).unwrap();
-
-        // <metadata>
-        let mut meta = BytesStart::new("metadata");
-        meta.push_attribute(("fd:version", "1.1"));
-        meta.push_attribute(("jcr:mixinTypes", "[mix:created,mix:lastModified]"));
-        meta.push_attribute(("jcr:primaryType", "nt:unstructured"));
-        meta.push_attribute(("allowedRenderFormat", "HTML"));
-        meta.push_attribute(("author", config.author.as_str()));
-        meta.push_attribute(("availableInMobileApp", "{Boolean}false"));
-        if !config.dor_template_ref.is_empty() {
-            meta.push_attribute(("dorTemplateRef", config.dor_template_ref.as_str()));
+    // The schema is advertised only when the package binds to it: `xsd_path`
+    // names where it would live, and a package built without binding must not
+    // claim `formmodel="xsd"` and point at a file it does not contain.
+    let xsd_ref = config.bind_to_xsd.then(|| config.xsd_ref()).flatten();
+    let use_summary = config.user_vars.get("use_summary").map(String::as_str) == Some("true");
+    let mut metadata = raw(
+        "metadata",
+        &[
+            ("fd:version", "1.1"),
+            ("jcr:mixinTypes", "[mix:created,mix:lastModified]"),
+            ("jcr:primaryType", "nt:unstructured"),
+            ("allowedRenderFormat", "HTML"),
+            ("author", &config.author),
+            ("availableInMobileApp", "{Boolean}false"),
+            ("dorType", &config.dor_type),
+            ("formmodel", if xsd_ref.is_some() { "xsd" } else { "none" }),
+            ("hasCustomThumbnail", "{Boolean}false"),
+            ("availableStylings", "[ajila-forms-ubs-ebanking-styling]"),
+            ("menuOptions", "[ajila-forms-ubs-menu-option-save]"),
+            ("title", &config.form_code),
+        ],
+        Vec::new(),
+    );
+    let optional = [
+        ("dorTemplateRef", Some(config.dor_template_ref.clone()).filter(|v| !v.is_empty())),
+        ("xsdRef", xsd_ref),
+        ("redactoSummary", use_summary.then(|| "true".to_owned())),
+        ("themeRef", Some(config.theme_ref.clone()).filter(|v| !v.is_empty())),
+    ];
+    for (key, value) in optional {
+        if let Some(value) = value {
+            metadata.attributes.insert(key.to_owned(), value);
         }
-        meta.push_attribute(("dorType", config.dor_type.as_str()));
-        let has_xsd_path = config.xsd_path.is_some();
-        meta.push_attribute(("formmodel", if has_xsd_path { "xsd" } else { "none" }));
-        if has_xsd_path {
-            let xsd_ref = config.xsd_ref().unwrap();
-            meta.push_attribute(("xsdRef", xsd_ref.as_str()));
-        }
-        meta.push_attribute(("hasCustomThumbnail", "{Boolean}false"));
-        if !config.theme_ref.is_empty() {
-            meta.push_attribute(("themeRef", config.theme_ref.as_str()));
-        }
-        meta.push_attribute(("title", config.form_title.as_str()));
-        w.write_event(Event::Empty(meta)).unwrap();
-
-        // </jcr:content>
-        w.write_event(Event::End(BytesEnd::new("jcr:content")))
-            .unwrap();
-        // </jcr:root>
-        w.write_event(Event::End(BytesEnd::new("jcr:root")))
-            .unwrap();
     }
-
-    let raw = String::from_utf8(buf.into_inner()).expect("UTF-8 dam xml");
-    reformat_attributes(&raw)
+    let dictionary = raw(
+        "dictionary",
+        &[("jcr:primaryType", "nt:unstructured")],
+        config
+            .expand_languages()
+            .iter()
+            .map(|lang| raw(lang, &[("jcr:primaryType", "nt:unstructured")], Vec::new()))
+            .collect(),
+    );
+    let root = raw(
+        "jcr:root",
+        &[
+            ("xmlns:sling", "http://sling.apache.org/jcr/sling/1.0"),
+            ("xmlns:fd", "http://www.adobe.com/aemfd/fd/1.0"),
+            ("xmlns:dam", "http://www.day.com/dam/1.0"),
+            ("xmlns:jcr", "http://www.jcp.org/jcr/1.0"),
+            ("xmlns:mix", "http://www.jcp.org/jcr/mix/1.0"),
+            ("xmlns:nt", "http://www.jcp.org/jcr/nt/1.0"),
+            ("jcr:primaryType", "dam:Asset"),
+        ],
+        vec![raw(
+            "jcr:content",
+            &[
+                ("jcr:primaryType", "dam:AssetContent"),
+                ("sling:resourceType", "fd/fm/af/render"),
+                ("guide", "1"),
+                ("type", "guide"),
+            ],
+            vec![dictionary, metadata],
+        )],
+    );
+    let xml = u2s_mapper_aem::xml_writer::raw_node_xml(&root)
+        .map_err(|e| format!("the DAM asset cannot be written: {e}"))?;
+    Ok(format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n{xml}"))
 }
 
 // ============================================================================
@@ -973,7 +953,7 @@ mod tests {
     fn dam_asset_xml_has_correct_resource_type() {
         let mut config = AemConfig::test_default("TEST_FORM");
         config.form_title = "TEST_FORM".into();
-        let xml = generate_dam_asset_xml(&config);
+        let xml = generate_dam_xml(&config).unwrap();
         assert!(
             xml.contains("jcr:primaryType=\"dam:Asset\""),
             "root must be dam:Asset"
@@ -1013,7 +993,7 @@ mod tests {
             title: "TEST".into(),
             children: vec![],
         };
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
+        let zip_bytes = generate_aem_package_from_node(&root, &config).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
 
@@ -1076,7 +1056,7 @@ mod tests {
             &config,
             std::collections::HashMap::new(),
             custom.clone(),
-        );
+        ).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
 
@@ -1106,7 +1086,7 @@ mod tests {
             children: vec![],
         };
 
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
+        let zip_bytes = generate_aem_package_from_node(&root, &config).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
 
@@ -1140,7 +1120,7 @@ mod tests {
         config.xsd_path =
             Some("/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_TEST_FORM.xsd".into());
 
-        let xml = generate_dam_asset_xml(&config);
+        let xml = generate_dam_xml(&config).unwrap();
 
         assert!(
             xml.contains("formmodel=\"xsd\""),
@@ -1161,12 +1141,8 @@ mod tests {
         config.bind_to_xsd = true;
         config.xsd_path =
             Some("/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_TEST.xsd".into());
-        config.component_templates.insert(
-            "dam".into(),
-            "<jcr:root><jcr:content><metadata {% if bind_to_xsd %}xsdRef=\"{{ xsd_ref }}\"{% endif %}/></jcr:content></jcr:root>".into(),
-        );
 
-        let xml = generate_dam_xml(&config);
+        let xml = generate_dam_xml(&config).unwrap();
 
         assert!(
             xml.contains(
@@ -1185,7 +1161,7 @@ mod tests {
         config.xsd_path =
             Some("content/dam/formsanddocuments/afforms_xsd/AFForms/AF_TEST.xsd".into());
 
-        let xml = generate_dam_asset_xml(&config);
+        let xml = generate_dam_xml(&config).unwrap();
         assert!(
             xml.contains(
                 "xsdRef=\"/content/dam/formsanddocuments/afforms_xsd/AFForms/AF_TEST.xsd\""
@@ -1198,7 +1174,7 @@ mod tests {
             title: "TEST".into(),
             children: vec![],
         };
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
+        let zip_bytes = generate_aem_package_from_node(&root, &config).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
 
@@ -1222,7 +1198,7 @@ mod tests {
             children: vec![],
         };
 
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
+        let zip_bytes = generate_aem_package_from_node(&root, &config).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
 
@@ -1250,61 +1226,22 @@ mod tests {
             .expect("AFForms intermediate folder must exist");
     }
 
+    /// A form bound to a schema it cannot name would be a package bound to
+    /// nothing: it is refused, not written without its binding.
     #[test]
-    fn bind_to_xsd_without_xsd_path_omits_xsd_from_package() {
-        use std::io::Read;
-
+    fn bind_to_xsd_without_xsd_path_is_refused() {
         let mut config = AemConfig::test_default("TEST");
         config.bind_to_xsd = true;
         config.xsd_config = Some(XsdConfig::from_profile(XsdProfile::default()));
-        config.xsd_path = None; // no xsd_path
+        config.xsd_path = None;
 
         let root = AemNode::Root {
             title: "TEST".into(),
             children: vec![],
         };
 
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
-        let reader = std::io::Cursor::new(zip_bytes);
-        let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
-
-        // No XSD file should be in the package
-        let mut names = Vec::new();
-        for i in 0..archive.len() {
-            let entry = archive.by_index(i).expect("zip entry");
-            names.push(entry.name().to_string());
-        }
-        assert!(
-            !names.iter().any(|n| n.ends_with(".xsd")),
-            "package must NOT contain any XSD file when xsd_path is empty. Entries: {:?}",
-            names
-        );
-
-        // filter.xml must NOT contain an XSD filter root
-        let mut filter_xml = String::new();
-        archive
-            .by_name("META-INF/vault/filter.xml")
-            .expect("filter.xml")
-            .read_to_string(&mut filter_xml)
-            .unwrap();
-        assert!(
-            !filter_xml.contains("afforms_xsd"),
-            "filter.xml must NOT reference xsd path when xsd_path is empty, got: {}",
-            filter_xml
-        );
-
-        // DAM metadata must use formmodel="none" and no xsdRef
-        let dam_xml = generate_dam_asset_xml(&config);
-        assert!(
-            dam_xml.contains("formmodel=\"none\""),
-            "DAM metadata should use formmodel=none when xsd_path is empty, got: {}",
-            dam_xml
-        );
-        assert!(
-            !dam_xml.contains("xsdRef"),
-            "DAM metadata should NOT include xsdRef when xsd_path is empty, got: {}",
-            dam_xml
-        );
+        let error = generate_aem_package_from_node(&root, &config).unwrap_err();
+        assert!(error.contains("xsd_dir"), "{error}");
     }
 
     #[test]
@@ -1337,7 +1274,7 @@ mod tests {
         };
 
         // No form content — only default translations should appear
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
+        let zip_bytes = generate_aem_package_from_node(&root, &config).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
 
@@ -1423,7 +1360,7 @@ mod tests {
             lm
         });
 
-        let zip_bytes = generate_aem_package_from_node_with_translations(&root, &config, content);
+        let zip_bytes = generate_aem_package_from_node_with_translations(&root, &config, content).expect("the form is written");
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).expect("valid zip");
         let dict_base = format!(
             "jcr_root/content/forms/af/{}/AF_TEST/_jcr_content/guideContainer/assets/dictionary",
@@ -1532,7 +1469,7 @@ mod tests {
         });
 
         let de_xml = dictionary_xml(
-            generate_aem_package_from_node_with_translations(&root, &config, content),
+            generate_aem_package_from_node_with_translations(&root, &config, content).expect("the form is written"),
             &config,
             "de",
         );
@@ -1551,7 +1488,7 @@ mod tests {
         let (config, root) = add_button_fixture();
 
         let de_xml = dictionary_xml(
-            generate_aem_package_from_node_with_translations(&root, &config, HashMap::new()),
+            generate_aem_package_from_node_with_translations(&root, &config, HashMap::new()).expect("the form is written"),
             &config,
             "de",
         );
@@ -1586,7 +1523,7 @@ mod tests {
         );
 
         let package =
-            generate_aem_package_from_node_with_translations(&root, &config, HashMap::new());
+            generate_aem_package_from_node_with_translations(&root, &config, HashMap::new()).expect("the form is written");
         for locale in ["sp", "es"] {
             let xml = dictionary_xml(package.clone(), &config, locale);
             assert!(
@@ -1642,7 +1579,7 @@ mod tests {
             lm
         });
 
-        let zip_bytes = generate_aem_package_from_node_with_translations(&root, &config, content);
+        let zip_bytes = generate_aem_package_from_node_with_translations(&root, &config, content).expect("the form is written");
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).expect("valid zip");
         let dict_base = format!(
             "jcr_root/content/forms/af/{}/AF_TEST/_jcr_content/guideContainer/assets/dictionary",
@@ -1697,7 +1634,7 @@ mod tests {
             children: vec![],
         };
 
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
+        let zip_bytes = generate_aem_package_from_node(&root, &config).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let mut archive = zip::ZipArchive::new(reader).expect("valid zip");
 
@@ -1739,7 +1676,7 @@ mod tests {
         };
 
         // Must not panic
-        let zip_bytes = generate_aem_package_from_node(&root, &config);
+        let zip_bytes = generate_aem_package_from_node(&root, &config).expect("the form is written");
         let reader = std::io::Cursor::new(zip_bytes);
         let archive = zip::ZipArchive::new(reader).expect("valid zip");
 

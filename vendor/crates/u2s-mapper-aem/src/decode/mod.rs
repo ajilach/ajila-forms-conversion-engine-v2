@@ -187,8 +187,11 @@ pub fn decode(bytes: &[u8]) -> Result<ValidForm, DecodeError> {
         toolbar,
         folder_path,
         root_panel_layout,
-        chrome: Passthrough { raw_attributes: chrome_attrs, raw_children: chrome_children },
+        chrome: Passthrough { raw_attributes: chrome_attrs, raw_children: chrome_children, ..Default::default() },
         dam_chrome,
+        page_content: Default::default(),
+        root_panel: Default::default(),
+        toolbar_chrome: Default::default(),
     };
 
     let mut form = AemForm { metadata, pages };
@@ -416,7 +419,7 @@ fn decode_dam_chrome(
         .map(form::to_raw_node)
         .collect();
 
-    Ok(Passthrough { raw_attributes, raw_children })
+    Ok(Passthrough { raw_attributes, raw_children, ..Default::default() })
 }
 
 fn decode_data_model(
@@ -517,6 +520,9 @@ mod tests {
                 root_panel_layout: None,
                 chrome: Default::default(),
                 dam_chrome: Default::default(),
+                page_content: Default::default(),
+                root_panel: Default::default(),
+                toolbar_chrome: Default::default(),
             },
             pages: vec![page],
         }
@@ -600,6 +606,9 @@ mod tests {
                 root_panel_layout: None,
                 chrome: Default::default(),
                 dam_chrome: Default::default(),
+                page_content: Default::default(),
+                root_panel: Default::default(),
+                toolbar_chrome: Default::default(),
             },
             pages: vec![page],
         }
@@ -629,6 +638,7 @@ mod tests {
                     .collect(),
                 children: Vec::new(),
             }],
+            ..Default::default()
         };
         let page = a_page_named("Page1", vec![a_text_field("Name")]);
         let form = AemForm {
@@ -650,6 +660,9 @@ mod tests {
                 ),
                 chrome,
                 dam_chrome: Default::default(),
+                page_content: Default::default(),
+                root_panel: Default::default(),
+                toolbar_chrome: Default::default(),
             },
             pages: vec![page],
         }

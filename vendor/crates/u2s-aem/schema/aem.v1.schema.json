@@ -341,6 +341,14 @@
           "pattern": "^[a-z]{2}(-[A-Za-z]{2})?$",
           "type": "string"
         },
+        "page_content": {
+          "$ref": "#/$defs/Passthrough",
+          "description": "The page's `jcr:content` remainder: attributes beyond the ones the\nencoder writes (which these override), and its children other than\n`guideContainer` (a header and footer paragraph system, say), placed\naround it by `slot`."
+        },
+        "root_panel": {
+          "$ref": "#/$defs/Passthrough",
+          "description": "`rootPanel`'s remainder: attributes (overriding the encoder's), raw\nchildren around its `items` (by `slot`), and that `items` element's\nown attributes and raw children around the pages (by its `slot`): a\nform's own non-step panels, say, before or after the steps."
+        },
         "root_panel_layout": {
           "default": null,
           "description": "`rootPanel`'s own separate `layout` child (distinct from its\n`items` child, which always carries\n`fd/af/layouts/gridFluidLayout2` -- mechanical, so the mapper still\nowns it unconditionally). A real package's own wizard forms use a\ncustomer-specific layout type here\n(`.../layouts/panel/wizard`, say); `None` means no such child at\nall, this crate's own encoder's behaviour prior to this field's\naddition.",
@@ -369,6 +377,10 @@
             "$ref": "#/$defs/Node"
           },
           "type": "array"
+        },
+        "toolbar_chrome": {
+          "$ref": "#/$defs/Passthrough",
+          "description": "The toolbar's remainder: attributes (overriding the encoder's), raw\nchildren around its `items` (by `slot`), and that `items` element's\nown remainder. A raw `layout` child replaces the encoder's own."
         }
       },
       "required": [
@@ -999,9 +1011,21 @@
           },
           "type": "array"
         },
+        "jcr_name": {
+          "description": "The page's JCR element name, when it is not `name`.",
+          "pattern": "^[A-Za-z_][A-Za-z0-9_.:-]*$",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "name": {
           "pattern": "^[A-Za-z][A-Za-z0-9_]{0,63}$",
           "type": "string"
+        },
+        "passthrough": {
+          "$ref": "#/$defs/Passthrough",
+          "description": "The page's remainder, as a [`Common::passthrough`]: a property or raw\nattribute overrides an attribute the encoder writes itself."
         },
         "properties": {
           "additionalProperties": false,
@@ -1022,8 +1046,19 @@
     },
     "Passthrough": {
       "additionalProperties": false,
-      "description": "A node's raw remainder: every JCR attribute and child element decode did\nnot fold into a typed field (on [`Common`] or on the specific\n[`super::Node`] variant), carried verbatim so a round trip through\n`u2s-mapper-aem`'s decoder and encoder loses nothing. Never\ninterpreted by this crate or by `AemForm::validate` -- what a passthrough\nattribute *means* is profile/customer knowledge this model deliberately\ndoes not have (see `u2s-mapper-aem`'s own module doc).\n\n`raw_attributes` is a plain string map (order does not matter for JCR\nattributes, and a map reads naturally as a JSON object); `raw_children`\nis an ordered list (sibling order is semantic — a wizard step's position\namong its siblings, an option's position in its list — so it cannot be\na map).",
+      "description": "A node's raw remainder: every JCR attribute and child element decode did\nnot fold into a typed field (on [`Common`] or on the specific\n[`super::Node`] variant), carried verbatim so a round trip through\n`u2s-mapper-aem`'s decoder and encoder loses nothing. Never\ninterpreted by this crate or by `AemForm::validate` -- what a passthrough\nattribute *means* is profile/customer knowledge this model deliberately\ndoes not have (see `u2s-mapper-aem`'s own module doc).\n\n`raw_attributes` is a plain string map (order does not matter for JCR\nattributes, and a map reads naturally as a JSON object); `raw_children`\nis an ordered list (sibling order is semantic — a wizard step's position\namong its siblings, an option's position in its list — so it cannot be\na map).\n\nAn element the encoder writes holds, besides these, one child the\nencoder generates itself: a component's or a page's `items` (its typed\nchildren), `jcr:content`'s `guideContainer`, `guideContainer`'s\n`rootPanel`, `rootPanel`'s `items`. `slot` says where among\n`raw_children` that child goes, and `items` describes a generated\n`items` element's own attributes and raw children, so a real package's\nsibling order and `items` attributes survive a round trip. A raw\nattribute overrides an attribute the encoder would write itself under\nthe same name.",
       "properties": {
+        "items": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Passthrough"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The generated `items` element's own remainder: its attributes, and\nraw children around the typed ones (by its own `slot`). `None`\nwrites a plain `items`, and only when there are typed children."
+        },
         "raw_attributes": {
           "additionalProperties": {
             "type": "string"
@@ -1037,6 +1072,15 @@
             "$ref": "#/$defs/RawJcrNode"
           },
           "type": "array"
+        },
+        "slot": {
+          "description": "How many of `raw_children` come before the generated child; the\nrest come after it. `None` puts the generated child first.",
+          "format": "uint",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"

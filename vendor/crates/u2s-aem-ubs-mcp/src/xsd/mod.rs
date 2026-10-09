@@ -18,7 +18,7 @@
 //!   cannot yield, and occurrence overrides
 //! - `[defaultTypes]` — XSD type per AEM component kind
 //! - `[elements.<name>]` — synonym mappings
-//! - `rootElementName`, `maxOccursValue`, `alwaysInclude`, `schemaLocationPrefix`
+//! - `rootElementName` or `rootElementPrefix`, `maxOccursValue`, `alwaysInclude`, `schemaLocationPrefix`
 //!
 //! `xs:include` directives are generated automatically by indexing all `*.xsd`
 //! files in `profiles/{name}/xsd/types/`. `alwaysInclude` entries come first;
@@ -307,23 +307,22 @@ pub struct XsdProfile {
     #[serde(default)]
     pub master_language: Option<String>,
 
-    /// Template for the root element name in generated XSD schemas.
-    ///
-    /// May contain `{{ form_code }}` which is replaced at generation time
-    /// with the actual form code.  Defaults to `"form"`.
-    ///
-    /// Example: `rootElementName = "UBSAF_{{ form_code }}"`
+    /// The root element name in generated XSD schemas, when it does not
+    /// depend on the form. Defaults to `"form"`; [`Self::root_element_prefix`]
+    /// takes precedence.
     #[serde(default = "default_root_element_name")]
     pub root_element_name: String,
 
-    /// Prefix used for fragment `bindRef` paths.
+    /// When set, the root element is this prefix followed by the form code
+    /// (`rootElementPrefix = "UBSAF_"` names the root `UBSAF_AABF`).
+    #[serde(default)]
+    pub root_element_prefix: Option<String>,
+
+    /// The root of fragment `bindRef` paths, as a literal name.
     ///
-    /// In reference forms, fragments use a generic prefix (e.g. `/UBSAF/`)
-    /// instead of the form-specific root so the same fragment can be reused
-    /// across forms.  May contain `{{ form_code }}`.
-    ///
-    /// Defaults to the same value as `root_element_name` (i.e. fragments
-    /// use the form-specific root unless overridden).
+    /// In reference forms, fragments may use a generic root (e.g. `UBSAF`)
+    /// instead of the form-specific one so the same fragment can be reused
+    /// across forms. Defaults to the form's own root element name.
     #[serde(default)]
     pub fragment_bind_ref_prefix: Option<String>,
 
@@ -617,6 +616,7 @@ impl Default for XsdProfile {
             schema_location_prefix: default_schema_location_prefix(),
             master_language: None,
             root_element_name: default_root_element_name(),
+            root_element_prefix: None,
             fragment_bind_ref_prefix: None,
             aem_elements: Vec::new(),
             max_occurs_value: default_max_occurs_value(),
@@ -742,8 +742,7 @@ pub struct XsdConfig {
 
     /// Optional form code (e.g. `"ABFA"`).
     ///
-    /// Used to expand `{{ form_code }}` in the profile's `root_element_name`
-    /// template.
+    /// Appended to the profile's `root_element_prefix`.
     pub form_code: Option<String>,
 }
 
@@ -815,31 +814,20 @@ impl XsdConfig {
         self
     }
 
-    /// Render a profile template string, exposing `form_code` to Tera.
-    ///
-    /// When no form code is set, `form_code` is bound to an empty string so
-    /// `{{ form_code }}` renders as empty. If the template has a syntax error,
-    /// the raw template is returned unchanged.
-    fn render_template(&self, template: &str) -> String {
-        let mut ctx = tera::Context::new();
-        ctx.insert("form_code", self.form_code.as_deref().unwrap_or(""));
-        tera::Tera::one_off(template, &ctx, false).unwrap_or_else(|_| template.to_string())
-    }
-
-    /// Compute the root element name by rendering the profile's
-    /// `root_element_name` template (e.g. `UBSAF_{{ form_code }}`).
+    /// The root element name: the profile's prefix followed by the form
+    /// code, or its fixed name.
     pub fn root_element_name(&self) -> String {
-        self.render_template(&self.profile.root_element_name)
+        match &self.profile.root_element_prefix {
+            Some(prefix) => format!("{prefix}{}", self.form_code.as_deref().unwrap_or_default()),
+            None => self.profile.root_element_name.clone(),
+        }
     }
 
-    /// Compute the fragment bind-ref prefix.
-    ///
-    /// If the profile specifies `fragmentBindRefPrefix`, render it as a Tera
-    /// template. Otherwise fall back to the root element name (so fragments
-    /// use the same root as the form by default).
+    /// The root of fragment `bindRef` paths: the profile's own, or the form's
+    /// root element name.
     pub fn fragment_bind_ref_prefix(&self) -> String {
         match &self.profile.fragment_bind_ref_prefix {
-            Some(template) => self.render_template(template),
+            Some(prefix) => prefix.clone(),
             None => self.root_element_name(),
         }
     }

@@ -265,7 +265,7 @@ pub enum AemNodeTranslated {
         dor_colspan: Option<u32>,
     },
     /// An on-screen notice: the UBS message box. Screen-only by construction,
-    /// so its template carries `dorExclusion` and `summaryExclusion`.
+    /// so the writer gives it `dorExclusion` and `summaryExclusion`.
     /// See [`AemNode::MessageBox`].
     MessageBox {
         uuid: Uuid,
@@ -426,10 +426,10 @@ fn emit_translations(
     }
 }
 
-/// Record the translations of a title the templates also write as a rich-text
-/// `_value` (`<p>title</p>`: the form title in `root.xml`, a step title in
-/// `panel.xml`). AEM resolves a rich text by its exact markup, so the key is the
-/// master title wrapped the way the template wraps it. The template inserts the
+/// Record the translations of a title the writer also writes as a rich-text
+/// `_value` (`<p>title</p>`: the form title in the form chrome, a step title
+/// in the page lowering). AEM resolves a rich text by its exact markup, so the
+/// key is the master title wrapped the way the writer wraps it. The writer inserts the
 /// title XML-escaped into the attribute, so the value AEM reads, and therefore
 /// the key, holds the raw title.
 fn emit_rich_title_translations(
@@ -1083,9 +1083,9 @@ mod tests {
         }
     }
 
-    /// The form title and a page's step title are written as rich-text `_value`s
-    /// (`<p>title</p>`, `root.xml` and `panel.xml`), and AEM resolves a rich
-    /// text through the dictionary by that exact markup. Without the wrapped keys
+    /// The form title and a page's step title are written as rich-text
+    /// `_value`s (`<p>title</p>`, the form chrome and the page lowering), and
+    /// AEM resolves a rich text through the dictionary by that exact markup. Without the wrapped keys
     /// both headings stay in the master language in every other locale.
     #[test]
     fn rich_text_titles_get_their_wrapped_dictionary_keys() {
@@ -1428,7 +1428,7 @@ mod tests {
         );
 
         let zip_bytes =
-            crate::aem::generate_aem_package_from_node_with_translations(&root, &config, dict);
+            crate::aem::generate_aem_package_from_node_with_translations(&root, &config, dict).expect("the form is written");
         let mut archive = zip::ZipArchive::new(std::io::Cursor::new(zip_bytes)).unwrap();
         let de_path = format!(
             "jcr_root/content/forms/af/{}/AF_TEST/_jcr_content/guideContainer/assets/dictionary/de.xml",

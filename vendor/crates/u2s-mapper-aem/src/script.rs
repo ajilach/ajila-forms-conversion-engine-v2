@@ -209,9 +209,9 @@ impl ScriptEvent {
 /// Both occur in the deployed forms, and the order is part of the bytes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BodyOrder {
-    /// `field, event, model, content`: the code editor's own order.
+    /// `field, event, [model,] content`: the code editor's own order.
     FieldFirst,
-    /// `content, event, field`: no `model`.
+    /// `content, event, field[, model]`.
     ContentFirst,
 }
 
@@ -223,22 +223,30 @@ pub struct EventScript {
     pub event: ScriptEvent,
     pub content: String,
     pub order: BodyOrder,
+    /// The `script.model.nodeName` (`EVENT_SCRIPTS` for an event rule,
+    /// `SHOW_EXPRESSION` for a visibility expression), or `None` when the
+    /// rule names no model.
+    pub model: Option<String>,
     /// An `_archetype` marker after `enabled`, naming the generator of a
     /// rule that is regenerated rather than edited.
     pub archetype: Option<String>,
 }
 
+/// The model every event rule of the code editor names.
+pub const EVENT_SCRIPTS: &str = "EVENT_SCRIPTS";
+
 #[derive(Serialize)]
-struct Model {
+struct Model<'a> {
     #[serde(rename = "nodeName")]
-    node_name: &'static str,
+    node_name: &'a str,
 }
 
 #[derive(Serialize)]
 struct FieldFirstBody<'a> {
     field: &'a str,
     event: &'static str,
-    model: Model,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<Model<'a>>,
     content: &'a str,
 }
 
@@ -247,20 +255,35 @@ struct ContentFirstBody<'a> {
     content: &'a str,
     event: &'static str,
     field: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    model: Option<Model<'a>>,
 }
 
 #[derive(Serialize)]
-struct ScriptModel<B> {
+struct ScriptModel<'a, B> {
     script: B,
     #[serde(rename = "nodeName")]
     node_name: &'static str,
     version: u8,
     enabled: bool,
     #[serde(rename = "_archetype", skip_serializing_if = "Option::is_none")]
-    archetype: Option<String>,
+    archetype: Option<&'a str>,
 }
 
 impl EventScript {
+    /// An event rule as the code editor writes it: `field, event, model,
+    /// content`, the model `EVENT_SCRIPTS`, no archetype.
+    pub fn event(field: impl Into<String>, event: ScriptEvent, content: impl Into<String>) -> Self {
+        EventScript {
+            field: field.into(),
+            event,
+            content: content.into(),
+            order: BodyOrder::FieldFirst,
+            model: Some(EVENT_SCRIPTS.to_owned()),
+            archetype: None,
+        }
+    }
+
     /// The rule as one JSON object, compact, keys in [`Self::order`].
     pub fn to_json(&self) -> String {
         fn model<B: Serialize>(script: &EventScript, body: B) -> String {
@@ -269,19 +292,18 @@ impl EventScript {
                 node_name: "SCRIPTMODEL",
                 version: 1,
                 enabled: true,
-                archetype: script.archetype.clone(),
+                archetype: script.archetype.as_deref(),
             })
             .expect("a SCRIPTMODEL serialises")
         }
+        let model_name = self.model.as_deref().map(|node_name| Model { node_name });
         match self.order {
             BodyOrder::FieldFirst => model(
                 self,
                 FieldFirstBody {
                     field: &self.field,
                     event: self.event.name(),
-                    model: Model {
-                        node_name: "EVENT_SCRIPTS",
-                    },
+                    model: model_name,
                     content: &self.content,
                 },
             ),
@@ -291,6 +313,7 @@ impl EventScript {
                     content: &self.content,
                     event: self.event.name(),
                     field: &self.field,
+                    model: model_name,
                 },
             ),
         }
@@ -308,6 +331,16 @@ impl EventScript {
             None => None,
             Some(value) => Some(value.as_str()?.to_owned()),
         };
+        let model = match script.get("model") {
+            None => None,
+            Some(model) => {
+                let model = model.as_object()?;
+                if model.len() != 1 {
+                    return None;
+                }
+                Some(model.get("nodeName")?.as_str()?.to_owned())
+            }
+        };
         let event = ScriptEvent::from_name(&text("event")?)?;
         let (field, content) = (text("field")?, text("content")?);
         [BodyOrder::FieldFirst, BodyOrder::ContentFirst]
@@ -317,6 +350,7 @@ impl EventScript {
                 event,
                 content: content.clone(),
                 order,
+                model: model.clone(),
                 archetype: archetype.clone(),
             })
             .find(|candidate| candidate.to_json() == json)
@@ -508,14 +542,17 @@ mod tests {
     #[test]
     fn a_script_round_trips_through_its_typed_view_in_both_orders() {
         for order in [BodyOrder::FieldFirst, BodyOrder::ContentFirst] {
-            let script = EventScript {
-                field: "guide.guideRootPanel.p".into(),
-                event: ScriptEvent::ValueCommit,
-                content: "a(\"x, y\");\nb('\\\\');".into(),
-                order,
-                archetype: Some("gen".into()),
-            };
-            assert_eq!(EventScript::from_json(&script.to_json()), Some(script));
+            for model in [None, Some("EVENT_SCRIPTS".to_owned()), Some("SHOW_EXPRESSION".to_owned())] {
+                let script = EventScript {
+                    field: "guide.guideRootPanel.p".into(),
+                    event: ScriptEvent::ValueCommit,
+                    content: "a(\"x, y\");\nb('\\\\');".into(),
+                    order,
+                    model,
+                    archetype: Some("gen".into()),
+                };
+                assert_eq!(EventScript::from_json(&script.to_json()), Some(script));
+            }
         }
     }
 }

@@ -219,7 +219,7 @@ fn decode_common_attrs(path: &str, node: &JcrNode) -> Result<Common, DecodeError
         bind_ref,
         passthrough: Passthrough {
             raw_attributes: pool.into_remaining(),
-            raw_children: Vec::new(),
+            ..Default::default()
         },
     })
 }
@@ -695,5 +695,5 @@ pub fn decode_page(path: &str, node: &JcrNode, ctx: &DecodeCtx) -> Result<Page, 
         children.push(decode_node(&format!("{path}/children/{index}"), child, ctx)?);
     }
 
-    Ok(Page { name: common.name, properties, children })
+    Ok(Page { name: common.name, jcr_name: None, properties, passthrough: Default::default(), children })
 }

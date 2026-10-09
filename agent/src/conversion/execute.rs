@@ -684,8 +684,8 @@ impl ConversionAgent {
             Ok(findings) if findings.is_empty() => {}
             Ok(findings) => {
                 report.push_str(
-                    "\nENGINE DEFECTS: the package breaks the feedback guard in shapes the templates \
-                     and the writer own, so editing the document cannot fix them; report each one:",
+                    "\nENGINE DEFECTS: the package breaks the feedback guard in shapes the writer \
+                     owns, so editing the document cannot fix them; report each one:",
                 );
                 for f in findings {
                     report.push_str(&format!("\n- {} on `{}`: {}", f.problem, f.node, f.detail));

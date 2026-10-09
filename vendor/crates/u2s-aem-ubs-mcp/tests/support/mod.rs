@@ -18,9 +18,9 @@ use u2s_aem_ubs_mcp::aem::{AemConfig, AemNode, AemProfile, ParsedAemPackage, Par
 use u2s_aem_ubs_mcp::context::Context;
 use u2s_aem_ubs_mcp::xsd::XsdConfig;
 
-/// Load the UBS AEM profile (config.toml + component templates), embedded in
+/// Load the UBS AEM profile (config.toml and translations), embedded in
 /// the crate, the same way production does.
-pub fn ubs_profile() -> (AemProfile, HashMap<String, String>) {
+pub fn ubs_profile() -> AemProfile {
     u2s_aem_ubs_mcp::profiles::load_aem_profile("ubs").expect("load the embedded UBS AEM profile")
 }
 
@@ -33,7 +33,7 @@ pub fn ubs_xsd_config() -> XsdConfig {
 /// Load the UBS profile's parsed fragment library, the way `load_aem_config`
 /// does for a config with `use_fragments = true`.
 pub fn ubs_fragments() -> Vec<ParsedFragment> {
-    let (profile, _) = ubs_profile();
+    let profile = ubs_profile();
     let prefix = profile
         .fragment_ref_prefix
         .as_deref()
@@ -53,12 +53,12 @@ pub fn ubs_fragments() -> Vec<ParsedFragment> {
 /// Build an `AemConfig` from the real UBS profile, for a form with the given
 /// master language and XFA variables (`formrange_code`, `formrange_entity`).
 pub fn ubs_config(master_language: &str, form_code: &str, entity: &str) -> AemConfig {
-    let (profile, templates) = ubs_profile();
+    let profile = ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".to_string(), form_code.to_string());
     vars.insert("formrange_entity".to_string(), entity.to_string());
     let ctx = Context::new(master_language.to_string(), vars);
-    AemConfig::from_profile(&profile, templates, &ctx)
+    AemConfig::from_profile(&profile, &ctx)
         .expect("build AemConfig from the UBS profile")
 }
 
@@ -67,10 +67,8 @@ pub fn ubs_config(master_language: &str, form_code: &str, entity: &str) -> AemCo
 /// production actually ships, used by the lift/lower/passthrough round-trip
 /// tests.
 pub fn ubs_config_for(master_language: &str, languages: &[String], form_code: &str) -> AemConfig {
-    // The UBS profile derives form identity/paths from XFA variables.
-    // `formrange_code` becomes the form/root title, so feed the package's own
-    // code so the Root title round-trips; `formrange_entity` only affects
-    // container paths.
+    // The UBS profile derives the form's identity and paths from its XFA
+    // variables; `formrange_entity` only affects the folders.
     let mut vars = HashMap::new();
     vars.insert("formrange_code".to_string(), form_code.to_string());
     vars.insert("formrange_entity".to_string(), "019".to_string());
@@ -82,7 +80,7 @@ pub fn ubs_config_for(master_language: &str, languages: &[String], form_code: &s
     config
 }
 
-/// Render `children` under a `Root` through the real UBS profile templates,
+/// Render `children` under a `Root` through the real UBS profile and writer,
 /// with a fixed default form identity (`AAAI`, Germany, English) -- for tests
 /// that only care about the scaffolding (root/toolbar/summary) or about one
 /// hand-built node's own tag.
@@ -92,7 +90,7 @@ pub fn ubs_xml(children: Vec<AemNode>) -> String {
         title: "Test Form".into(),
         children,
     };
-    u2s_aem_ubs_mcp::aem::generate_aem_xml(&root, &config)
+    u2s_aem_ubs_mcp::aem::generate_aem_xml(&root, &config).expect("the form is written")
 }
 
 /// [`ubs_xml`] with no children at all -- for assertions that only concern
@@ -136,6 +134,24 @@ pub fn read_fixture(subpath: &str) -> String {
 }
 
 /// Read a real deployed UBS package fixture (`tests/fixtures/ubs-packages/`).
+/// The form code of a package: its form folder, `.../AF_<code>/.content.xml`
+/// under `jcr_root/content/forms/af` (some packages nest `jcr_root` in a
+/// folder of their own). The deployed packages predate the metadata draw
+/// that names it, and the form's title is not its code.
+#[allow(dead_code)]
+pub fn package_form_code(zip_bytes: &[u8]) -> String {
+    let archive = zip::ZipArchive::new(Cursor::new(zip_bytes)).expect("the package is a zip");
+    let codes: std::collections::BTreeSet<String> = archive
+        .file_names()
+        .filter(|name| name.contains("jcr_root/content/forms/af/") && !name.starts_with("__MACOSX/"))
+        .filter_map(|name| name.strip_suffix("/.content.xml"))
+        .filter_map(|dir| dir.rsplit('/').next()?.strip_prefix("AF_"))
+        .map(str::to_owned)
+        .collect();
+    assert_eq!(codes.len(), 1, "a package holds one form folder: {codes:?}");
+    codes.into_iter().next().unwrap()
+}
+
 pub fn read_package_fixture(name: &str) -> Vec<u8> {
     let path = fixture_path("ubs-packages").join(name);
     std::fs::read(&path).unwrap_or_else(|e| panic!("read package fixture {path:?}: {e}"))

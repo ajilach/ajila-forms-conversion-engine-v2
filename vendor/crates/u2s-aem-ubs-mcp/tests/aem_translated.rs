@@ -188,7 +188,7 @@ fn presentation_attributes_survive_a_load_save_round_trip() {
     );
     let (lowered, _dict) = lifted.lower(&package.language, &languages);
     let config = support::ubs_config_for(&package.language, &languages, "ATTR");
-    let xml = generate_aem_xml_with_passthrough(&lowered, &config, &lifted.passthrough_map());
+    let xml = generate_aem_xml_with_passthrough(&lowered, &config, &lifted.passthrough_map()).expect("the form is written");
 
     let dups = duplicate_attribute_elements(&xml);
     assert!(
@@ -459,44 +459,31 @@ fn loaded_subtree_diff(
     None
 }
 
-/// The union of attribute names every component template writes on its own
-/// opening tag. Used to exclude template-owned attributes -- whose exact
-/// value is a deferred override step -- from the "unmodeled attributes
-/// round-trip" assertion.
-fn template_owned_names(
-    config: &u2s_aem_ubs_mcp::aem::AemConfig,
-) -> std::collections::HashSet<String> {
-    let mut set = std::collections::HashSet::new();
-    for template in config.component_templates.values() {
-        let head = template
-            .split("{{ extra_attributes }}")
-            .next()
-            .unwrap_or(template);
-        let bytes = head.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == b'=' && i + 1 < bytes.len() && bytes[i + 1] == b'"' {
-                let mut start = i;
-                while start > 0 {
-                    let c = bytes[start - 1];
-                    if c.is_ascii_alphanumeric() || matches!(c, b'_' | b':' | b'.' | b'-') {
-                        start -= 1;
-                    } else {
-                        break;
-                    }
-                }
-                if start < i {
-                    set.insert(head[start..i].to_string());
-                }
-            }
-            i += 1;
+/// Every attribute name the writer writes itself: each component's own, and
+/// those of the chrome it writes around every form (the summary and preview
+/// panels and their message boxes, which this test's loader keeps as panels).
+fn writer_owned_names(config: &u2s_aem_ubs_mcp::aem::AemConfig) -> std::collections::HashSet<String> {
+    let mut names: std::collections::HashSet<String> = u2s_aem_ubs_mcp::aem::writer_owned_attributes()
+        .into_iter()
+        .map(str::to_owned)
+        .collect();
+    let empty = AemNode::Root { title: "Chrome".into(), children: vec![] };
+    let chrome = u2s_aem_ubs_mcp::aem::generate_aem_xml(&empty, config).expect("the chrome is written");
+    for piece in chrome.split("=\"").map(|p| p.trim_end()) {
+        let name: String = piece
+            .chars()
+            .rev()
+            .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | ':' | '.' | '-'))
+            .collect();
+        if !name.is_empty() {
+            names.insert(name.chars().rev().collect());
         }
     }
-    set
+    names
 }
 
 /// The core losslessness guarantee: loading a package into the working tree,
-/// saving it back through the templates (carrying each node's
+/// saving it back through the writer (carrying each node's
 /// `Passthrough`), and loading the result again yields the **identical**
 /// working tree. Because `AemNodeTranslated` embeds `passthrough`, this
 /// proves every attribute and unmodeled child the loader captured is
@@ -522,12 +509,9 @@ fn passthrough_load_save_load_is_a_fixpoint() {
         let lifted = support::lift_package(&package);
         let (lowered, _dict) = lifted.lower(&package.language, &languages);
         let passthrough = lifted.passthrough_map();
-        let form_code = match &lowered {
-            AemNode::Root { title, .. } => title.clone(),
-            _ => String::new(),
-        };
+        let form_code = support::package_form_code(&zip_bytes);
         let config = support::ubs_config_for(&package.language, &languages, &form_code);
-        let regen = generate_aem_xml_with_passthrough(&lowered, &config, &passthrough);
+        let regen = generate_aem_xml_with_passthrough(&lowered, &config, &passthrough).expect("the form is written");
 
         if let Err(violations) = validate_aem_form_xml(&regen) {
             panic!(
@@ -557,7 +541,7 @@ fn passthrough_load_save_load_is_a_fixpoint() {
             panic!("{fixture}: load→save→load dropped/altered a loaded node at {path}: {msg}");
         }
 
-        let owned_global = template_owned_names(&config);
+        let owned_global = writer_owned_names(&config);
         let unmodeled_attrs = |m: &std::collections::HashMap<Uuid, Passthrough>| {
             let mut v: Vec<(String, String)> = m
                 .values()
@@ -606,7 +590,7 @@ fn passthrough_preserves_previously_dropped_details() {
     let lifted = support::lift_package(&package);
     let (lowered, _dict) = lifted.lower(&package.language, &languages);
     let passthrough = lifted.passthrough_map();
-    let regen = generate_aem_xml_with_passthrough(&lowered, &config, &passthrough);
+    let regen = generate_aem_xml_with_passthrough(&lowered, &config, &passthrough).expect("the form is written");
 
     assert!(
         regen.contains("guideNodeClass="),
@@ -832,7 +816,7 @@ fn the_html_component_survives_a_load_save_load_round_trip() {
     );
 
     let config = support::ubs_config_for(&package.language, &languages, "AAOV");
-    let regen = generate_aem_xml_with_passthrough(&lowered, &config, &lifted.passthrough_map());
+    let regen = generate_aem_xml_with_passthrough(&lowered, &config, &lifted.passthrough_map()).expect("the form is written");
     if let Err(violations) = validate_aem_form_xml(&regen) {
         panic!(
             "the re-rendered form is invalid AEM XML:\n{}",

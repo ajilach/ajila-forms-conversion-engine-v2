@@ -59,12 +59,50 @@ pub type XmlResult<T> = Result<T, quick_xml::Error>;
 pub struct WriteCtx<'a> {
     pub master: &'a Language,
     pub bind_refs: &'a HashMap<ComponentName, String>,
+    /// Whether an attribute at its default is written anyway: `visible` and
+    /// `enabled` when true, `dorExclusion` and `summaryExclusion` when
+    /// false. AEM reads an absent one as its default either way; a profile
+    /// whose packages leave defaults out sets this to false.
+    pub spell_defaults: bool,
 }
 
 impl WriteCtx<'_> {
     fn bind_ref(&self, name: &ComponentName) -> Option<&str> {
         self.bind_refs.get(name).map(String::as_str)
     }
+}
+
+/// Writes `el` as a start tag, each attribute once ([`last_wins`]).
+fn start(w: &mut Writer<Cursor<Vec<u8>>>, el: BytesStart<'_>) -> XmlResult<()> {
+    w.write_event(Event::Start(last_wins(el)))
+}
+
+/// Writes `el` as an empty element, each attribute once ([`last_wins`]).
+fn empty(w: &mut Writer<Cursor<Vec<u8>>>, el: BytesStart<'_>) -> XmlResult<()> {
+    w.write_event(Event::Empty(last_wins(el)))
+}
+
+/// `el` with each attribute once: a later one replaces an earlier one of
+/// the same name. Every writer here pushes the attributes it derives
+/// first and the authored ones (`properties`, a passthrough's raw
+/// attributes) after, so an authored value overrides a derived one, and
+/// JCR never sees a name twice on one element.
+fn last_wins(el: BytesStart<'_>) -> BytesStart<'static> {
+    let name = String::from_utf8_lossy(el.name().as_ref()).into_owned();
+    let mut attributes: Vec<(Vec<u8>, Vec<u8>)> = Vec::new();
+    for attribute in el.attributes().with_checks(false).flatten() {
+        let key = attribute.key.as_ref().to_vec();
+        attributes.retain(|(k, _)| *k != key);
+        attributes.push((key, attribute.value.into_owned()));
+    }
+    let mut out = BytesStart::new(name);
+    for (key, value) in &attributes {
+        out.push_attribute(quick_xml::events::attributes::Attribute {
+            key: quick_xml::name::QName(key),
+            value: std::borrow::Cow::Borrowed(value),
+        });
+    }
+    out
 }
 
 /// The whole form page `.content.xml`, from `<jcr:root>` down.
@@ -81,7 +119,7 @@ pub fn write_form_xml(form: &ValidForm, ctx: &WriteCtx) -> XmlResult<String> {
     root.push_attribute(crate::jcr::xml_attribute("xmlns:nt", ns::NT));
     root.push_attribute(crate::jcr::xml_attribute("xmlns:fd", ns::FD));
     root.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "cq:Page"));
-    w.write_event(Event::Start(root))?;
+    start(&mut w, root)?;
 
     let mut content = BytesStart::new("jcr:content");
     content.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "cq:PageContent"));
@@ -93,9 +131,12 @@ pub fn write_form_xml(form: &ValidForm, ctx: &WriteCtx) -> XmlResult<String> {
     // `jcr:content` node -- not an attribute this crate invented, unlike
     // an earlier draft's own `masterLanguage` on `guideContainer`.
     content.push_attribute(crate::jcr::xml_attribute("jcr:language", ctx.master.as_str()));
-    w.write_event(Event::Start(content))?;
+    push_passthrough_attributes(&mut content, &inner.metadata.page_content);
+    start(&mut w, content)?;
 
-    write_guide_container(&mut w, inner, ctx, &title)?;
+    write_around(&mut w, &inner.metadata.page_content, |w| {
+        write_guide_container(w, inner, ctx, &title)
+    })?;
 
     w.write_event(Event::End(BytesEnd::new("jcr:content")))?;
     w.write_event(Event::End(BytesEnd::new("jcr:root")))?;
@@ -141,19 +182,22 @@ fn write_guide_container(
     for (key, value) in &form.metadata.chrome.raw_attributes {
         container.push_attribute(crate::jcr::xml_attribute(key.as_str(), value.as_str()));
     }
-    w.write_event(Event::Start(container))?;
+    start(w, container)?;
 
-    write_root_panel(w, form, ctx, title)?;
-    write_raw_children(w, &form.metadata.chrome.raw_children)?;
+    write_around(w, &form.metadata.chrome, |w| write_root_panel(w, form, ctx, title))?;
 
     // Confirmed against the real fixture: `guideContainer`'s own `layout`
     // child, mechanical and always this one resource type (unlike
     // `rootPanel`'s own `layout`, which varies -- see
-    // `FormMetadata::root_panel_layout`'s own doc).
+    // `FormMetadata::root_panel_layout`'s own doc). A carried `layout`
+    // replaces it.
+    if carries(&form.metadata.chrome, "layout") {
+        return w.write_event(Event::End(BytesEnd::new("guideContainer")));
+    }
     let mut guide_layout = BytesStart::new("layout");
     guide_layout.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
     guide_layout.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/af/layouts/defaultGuideLayout"));
-    w.write_event(Event::Empty(guide_layout))?;
+    empty(w, guide_layout)?;
 
     w.write_event(Event::End(BytesEnd::new("guideContainer")))
 }
@@ -173,33 +217,44 @@ fn write_root_panel(
     root_panel.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/af/components/rootPanel"));
     root_panel.push_attribute(crate::jcr::xml_attribute("guideNodeClass", "guideRootPanel"));
     root_panel.push_attribute(crate::jcr::xml_attribute("jcr:title", title));
-    root_panel.push_attribute(crate::jcr::xml_attribute("textIsRich", "true"));
-    w.write_event(Event::Start(root_panel))?;
+    // No `textIsRich`: the real fixture's `rootPanel` carries none.
+    push_passthrough_attributes(&mut root_panel, &form.metadata.root_panel);
+    start(w, root_panel)?;
 
     // `rootPanel`'s own, separate `layout` child -- present only when the
     // form carries one (a real package's own wizard layout, say). Written
     // before `items`, matching the real fixture's own child order.
-    if let Some(layout_type) = &form.metadata.root_panel_layout {
+    if let Some(layout_type) = &form.metadata.root_panel_layout
+        && !carries(&form.metadata.root_panel, "layout")
+    {
         let mut layout = BytesStart::new("layout");
         layout.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
         layout.push_attribute(crate::jcr::xml_attribute("sling:resourceType", layout_type.as_str()));
-        w.write_event(Event::Empty(layout))?;
+        empty(w, layout)?;
     }
 
     // Confirmed against the real fixture: `items` itself carries
     // `gridFluidLayout2`, unconditionally -- mechanical, unlike the
     // `layout` child above, which is what actually varies.
-    let mut items = BytesStart::new("items");
-    items.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    items.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/af/layouts/gridFluidLayout2"));
-    w.write_event(Event::Start(items))?;
-    for page in &form.pages {
-        write_page(w, page, ctx)?;
-    }
-    w.write_event(Event::End(BytesEnd::new("items")))?;
+    write_around(w, &form.metadata.root_panel, |w| {
+        write_items(
+            w,
+            form.metadata.root_panel.items.as_deref(),
+            &[
+                ("jcr:primaryType", "nt:unstructured"),
+                ("sling:resourceType", "fd/af/layouts/gridFluidLayout2"),
+            ],
+            |w| {
+                for page in &form.pages {
+                    write_page(w, page, ctx)?;
+                }
+                Ok(())
+            },
+        )
+    })?;
 
     if !form.metadata.toolbar.is_empty() {
-        write_toolbar(w, &form.metadata.toolbar, ctx)?;
+        write_toolbar(w, &form.metadata.toolbar, &form.metadata.toolbar_chrome, ctx)?;
     }
 
     w.write_event(Event::End(BytesEnd::new("rootPanel")))
@@ -212,24 +267,38 @@ fn write_root_panel(
 /// `items`/`layout` pair (both `toolbar/defaultToolbarLayout`, confirmed
 /// against the real fixture, unconditionally -- mechanical, no variation
 /// observed) are the fixed JCR structure this function still owns.
-fn write_toolbar(w: &mut Writer<Cursor<Vec<u8>>>, actions: &[Node], ctx: &WriteCtx) -> XmlResult<()> {
+fn write_toolbar(
+    w: &mut Writer<Cursor<Vec<u8>>>,
+    actions: &[Node],
+    chrome: &u2s_aem::model::Passthrough,
+    ctx: &WriteCtx,
+) -> XmlResult<()> {
     let mut toolbar = BytesStart::new("toolbar");
     toolbar.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
     toolbar.push_attribute(crate::jcr::xml_attribute("guideNodeClass", "guideToolbar"));
     toolbar.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/af/layouts/toolbar/defaultToolbarLayout"));
-    w.write_event(Event::Start(toolbar))?;
+    push_passthrough_attributes(&mut toolbar, chrome);
+    start(w, toolbar)?;
 
-    let mut items = BytesStart::new("items");
-    items.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    items.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/af/layouts/toolbar/defaultToolbarLayout"));
-    w.write_event(Event::Start(items))?;
-    write_children(w, actions, ctx)?;
-    w.write_event(Event::End(BytesEnd::new("items")))?;
+    write_around(w, chrome, |w| {
+        write_items(
+            w,
+            chrome.items.as_deref(),
+            &[
+                ("jcr:primaryType", "nt:unstructured"),
+                ("sling:resourceType", "fd/af/layouts/toolbar/defaultToolbarLayout"),
+            ],
+            |w| write_children(w, actions, ctx),
+        )
+    })?;
 
+    if carries(chrome, "layout") {
+        return w.write_event(Event::End(BytesEnd::new("toolbar")));
+    }
     let mut layout = BytesStart::new("layout");
     layout.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
     layout.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/af/layouts/toolbar/defaultToolbarLayout"));
-    w.write_event(Event::Empty(layout))?;
+    empty(w, layout)?;
 
     w.write_event(Event::End(BytesEnd::new("toolbar")))
 }
@@ -242,23 +311,78 @@ fn write_toolbar(w: &mut Writer<Cursor<Vec<u8>>>, actions: &[Node], ctx: &WriteC
 /// use (see [`write_property_attributes`]); this function assumes none of
 /// it, per this crate's redesign.
 fn write_page(w: &mut Writer<Cursor<Vec<u8>>>, page: &Page, ctx: &WriteCtx) -> XmlResult<()> {
-    let tag = page.name.as_str();
+    let tag = page.jcr_name.as_ref().map_or(page.name.as_str(), |n| n.as_str());
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
     el.push_attribute(crate::jcr::xml_attribute("sling:resourceType", "fd/af/components/panel"));
     el.push_attribute(crate::jcr::xml_attribute("guideNodeClass", "guidePanel"));
-    el.push_attribute(crate::jcr::xml_attribute("name", tag));
+    el.push_attribute(crate::jcr::xml_attribute("name", page.name.as_str()));
     let property_attrs = write_property_attributes(&page.properties, ctx.master);
     for (key, value) in &property_attrs {
         el.push_attribute(crate::jcr::xml_attribute(key.as_str(), value.as_str()));
     }
-    w.write_event(Event::Start(el))?;
+    push_passthrough_attributes(&mut el, &page.passthrough);
+    start(w, el)?;
 
-    w.write_event(Event::Start(BytesStart::new("items")))?;
-    write_children(w, &page.children, ctx)?;
-    w.write_event(Event::End(BytesEnd::new("items")))?;
+    // As for a component: a plain `items` only around typed children, and
+    // carried `items` chrome writes one even when there are none.
+    let writes_items = !page.children.is_empty() || page.passthrough.items.is_some();
+    write_around(w, &page.passthrough, |w| {
+        if writes_items {
+            write_items(w, page.passthrough.items.as_deref(), &[], |w| {
+                write_children(w, &page.children, ctx)
+            })
+        } else {
+            Ok(())
+        }
+    })?;
 
     w.write_event(Event::End(BytesEnd::new(tag)))
+}
+
+/// `chrome`'s raw children with `generated` written at its `slot`: the
+/// first `slot` of them, then `generated`, then the rest (`None` puts
+/// `generated` first). A slot past the raw children is refused.
+fn write_around(
+    w: &mut Writer<Cursor<Vec<u8>>>,
+    chrome: &u2s_aem::model::Passthrough,
+    generated: impl FnOnce(&mut Writer<Cursor<Vec<u8>>>) -> XmlResult<()>,
+) -> XmlResult<()> {
+    let slot = chrome.slot.unwrap_or(0);
+    let (before, after) = chrome
+        .raw_children
+        .split_at_checked(slot)
+        .ok_or_else(|| invalid(format!("a slot of {slot} past {} raw children", chrome.raw_children.len())))?;
+    write_raw_children(w, before)?;
+    generated(w)?;
+    write_raw_children(w, after)
+}
+
+/// An `items` element around `children`: `defaults` and then `chrome`'s
+/// raw attributes on it, and `chrome`'s raw children around the typed ones
+/// by its `slot`.
+fn write_items(
+    w: &mut Writer<Cursor<Vec<u8>>>,
+    chrome: Option<&u2s_aem::model::Passthrough>,
+    defaults: &[(&str, &str)],
+    children: impl FnOnce(&mut Writer<Cursor<Vec<u8>>>) -> XmlResult<()>,
+) -> XmlResult<()> {
+    let mut items = BytesStart::new("items");
+    for (key, value) in defaults {
+        items.push_attribute(crate::jcr::xml_attribute(key, value));
+    }
+    let empty_chrome = u2s_aem::model::Passthrough::default();
+    let chrome = chrome.unwrap_or(&empty_chrome);
+    push_passthrough_attributes(&mut items, chrome);
+    start(w, items)?;
+    write_around(w, chrome, children)?;
+    w.write_event(Event::End(BytesEnd::new("items")))
+}
+
+/// Does `chrome` carry a raw child named `tag`, replacing the one the
+/// encoder would write itself?
+fn carries(chrome: &u2s_aem::model::Passthrough, tag: &str) -> bool {
+    chrome.raw_children.iter().any(|c| c.tag_name == tag)
 }
 
 /// Spells a [`Node::Component`]'s (or a [`Page`]'s) `properties` map as
@@ -379,18 +503,30 @@ fn write_node(w: &mut Writer<Cursor<Vec<u8>>>, node: &Node, ctx: &WriteCtx) -> X
 
 // ------------------------------------------------------------- shared attrs
 
-fn push_presence(el: &mut BytesStart, presence: &Presence) {
-    el.push_attribute(crate::jcr::xml_attribute("dorExclusion", typed_bool(presence.dor_exclusion)));
+fn push_presence(el: &mut BytesStart, presence: &Presence, spell_defaults: bool) {
+    if spell_defaults || presence.dor_exclusion {
+        el.push_attribute(crate::jcr::xml_attribute("dorExclusion", typed_bool(presence.dor_exclusion)));
+    }
     if presence.dor_exclude_title {
         el.push_attribute(crate::jcr::xml_attribute("dorExcludeTitle", "true"));
     }
     if presence.dor_exclude_description {
         el.push_attribute(crate::jcr::xml_attribute("dorExcludeDescription", "true"));
     }
-    el.push_attribute(crate::jcr::xml_attribute("summaryExclusion", typed_bool(presence.summary_exclusion)));
+    if spell_defaults || presence.summary_exclusion {
+        el.push_attribute(crate::jcr::xml_attribute(
+            "summaryExclusion",
+            typed_bool(presence.summary_exclusion),
+        ));
+    }
 }
 
-fn push_common<'a>(el: &mut BytesStart<'a>, common: &'a Common, bind_ref: Option<&'a str>) {
+fn push_common<'a>(
+    el: &mut BytesStart<'a>,
+    common: &'a Common,
+    bind_ref: Option<&'a str>,
+    spell_defaults: bool,
+) {
     // `sling:resourceType`/`guideNodeClass` are agent-authored now (see
     // `Common`'s own doc on why this crate no longer chooses them), so
     // every node kind reads them from `common` here, in one place, rather
@@ -402,8 +538,12 @@ fn push_common<'a>(el: &mut BytesStart<'a>, common: &'a Common, bind_ref: Option
         el.push_attribute(crate::jcr::xml_attribute("guideNodeClass", guide_node_class.as_str()));
     }
     el.push_attribute(crate::jcr::xml_attribute("name", common.name.as_str()));
-    el.push_attribute(crate::jcr::xml_attribute("visible", typed_bool(common.visible)));
-    el.push_attribute(crate::jcr::xml_attribute("enabled", typed_bool(common.enabled)));
+    if spell_defaults || !common.visible {
+        el.push_attribute(crate::jcr::xml_attribute("visible", typed_bool(common.visible)));
+    }
+    if spell_defaults || !common.enabled {
+        el.push_attribute(crate::jcr::xml_attribute("enabled", typed_bool(common.enabled)));
+    }
     // `css` is not pushed here: a `push_attribute` value must outlive
     // `el`, and the joined class list is a computed `String` the caller
     // owns only for the duration of its own function -- so every caller
@@ -487,9 +627,9 @@ pub(crate) fn write_raw_node(w: &mut Writer<Cursor<Vec<u8>>>, node: &RawJcrNode)
         el.push_attribute(crate::jcr::xml_attribute(key.as_str(), value.as_str()));
     }
     if node.children.is_empty() {
-        w.write_event(Event::Empty(el))
+        empty(w, el)
     } else {
-        w.write_event(Event::Start(el))?;
+        start(w, el)?;
         write_raw_children(w, &node.children)?;
         w.write_event(Event::End(BytesEnd::new(node.tag_name.as_str())))
     }
@@ -515,14 +655,14 @@ fn css_value(common: &Common) -> Option<String> {
 }
 
 fn write_responsive(w: &mut Writer<Cursor<Vec<u8>>>, layout: &FieldLayout) -> XmlResult<()> {
-    w.write_event(Event::Start(BytesStart::new("cq:responsive")))?;
+    start(w, BytesStart::new("cq:responsive"))?;
     let width = layout.width.value().to_string();
     let offset = layout.offset.map(|o| o.value()).unwrap_or(0).to_string();
     let mut default_el = BytesStart::new("default");
     default_el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
     default_el.push_attribute(crate::jcr::xml_attribute("width", width.as_str()));
     default_el.push_attribute(crate::jcr::xml_attribute("offset", offset.as_str()));
-    w.write_event(Event::Empty(default_el))?;
+    empty(w, default_el)?;
     w.write_event(Event::End(BytesEnd::new("cq:responsive")))
 }
 
@@ -563,28 +703,33 @@ fn write_component(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
     for (key, value) in &property_attrs {
         el.push_attribute(crate::jcr::xml_attribute(key.as_str(), value.as_str()));
     }
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
 
-    let has_content = !children.is_empty() || !common.passthrough.raw_children.is_empty();
-    if !has_content {
-        return w.write_event(Event::Empty(el));
+    // A plain `items` only around typed children; carried `items` chrome
+    // writes the element even when it holds none.
+    let writes_items = !children.is_empty() || common.passthrough.items.is_some();
+    if !writes_items && common.passthrough.raw_children.is_empty() {
+        return empty(w, el);
     }
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
 
-    if !children.is_empty() {
-        w.write_event(Event::Start(BytesStart::new("items")))?;
-        write_children(w, children, ctx)?;
-        w.write_event(Event::End(BytesEnd::new("items")))?;
-    }
-    write_raw_children(w, &common.passthrough.raw_children)?;
+    write_around(w, &common.passthrough, |w| {
+        if writes_items {
+            write_items(w, common.passthrough.items.as_deref(), &[], |w| {
+                write_children(w, children, ctx)
+            })
+        } else {
+            Ok(())
+        }
+    })?;
 
     w.write_event(Event::End(BytesEnd::new(tag)))
 }
@@ -623,7 +768,7 @@ fn write_text_field(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
@@ -646,9 +791,9 @@ fn write_text_field(
     if let Some(validation) = validation {
         el.push_attribute(crate::jcr::xml_attribute("validatePictureClause", validation.pattern.as_str()));
     }
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     if let Some(validation) = validation
         && let Some(message) = validation.message.as_ref().and_then(|m| master_text(m, ctx.master))
@@ -674,12 +819,12 @@ fn write_text_field(
 /// writes the equivalent as a validation rule instead of inventing a
 /// third attribute name with no spec support either way.
 fn write_validation_message(w: &mut Writer<Cursor<Vec<u8>>>, message: &str) -> XmlResult<()> {
-    w.write_event(Event::Start(BytesStart::new("fd:rules")))?;
+    start(w, BytesStart::new("fd:rules"))?;
     let mut validate = BytesStart::new("fd:validate");
     validate.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
     validate.push_attribute(crate::jcr::xml_attribute("fdType", "validate"));
     validate.push_attribute(crate::jcr::xml_attribute("jcr:title", message));
-    w.write_event(Event::Empty(validate))?;
+    empty(w, validate)?;
     w.write_event(Event::End(BytesEnd::new("fd:rules")))
 }
 
@@ -732,7 +877,7 @@ fn write_number_field(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
@@ -746,9 +891,9 @@ fn write_number_field(
     if let Some(validation) = validation {
         el.push_attribute(crate::jcr::xml_attribute("validatePictureClause", validation.pattern.as_str()));
     }
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     write_raw_children(w, &common.passthrough.raw_children)?;
     w.write_event(Event::End(BytesEnd::new(tag)))
@@ -797,7 +942,7 @@ fn write_date_picker(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
@@ -820,9 +965,9 @@ fn write_date_picker(
     if let Some(after) = after.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("yearRangeTo", after));
     }
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     write_raw_children(w, &common.passthrough.raw_children)?;
     w.write_event(Event::End(BytesEnd::new(tag)))
@@ -869,7 +1014,7 @@ fn write_dropdown(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
@@ -887,9 +1032,9 @@ fn write_dropdown(
             },
         ));
     }
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     write_raw_children(w, &common.passthrough.raw_children)?;
     w.write_event(Event::End(BytesEnd::new(tag)))
@@ -928,7 +1073,7 @@ fn write_checkbox(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
@@ -944,9 +1089,9 @@ fn write_checkbox(
     ));
     el.push_attribute(crate::jcr::xml_attribute("hideTitle", plain_bool(hide_title)));
     el.push_attribute(crate::jcr::xml_attribute("richTextOptions", plain_bool(rich_text_options)));
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     write_raw_children(w, &common.passthrough.raw_children)?;
     w.write_event(Event::End(BytesEnd::new(tag)))
@@ -977,7 +1122,7 @@ fn write_radio_button(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
@@ -993,9 +1138,9 @@ fn write_radio_button(
         },
     ));
     el.push_attribute(crate::jcr::xml_attribute("richTextOptions", plain_bool(rich_text_options)));
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     write_raw_children(w, &common.passthrough.raw_children)?;
     w.write_event(Event::End(BytesEnd::new(tag)))
@@ -1026,7 +1171,7 @@ fn write_static_text(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, None);
+    push_common(&mut el, common, None, ctx.spell_defaults);
     if let Some(css) = css.as_deref() {
         el.push_attribute(crate::jcr::xml_attribute("css", css));
     }
@@ -1038,9 +1183,9 @@ fn write_static_text(
     if let Some(level) = heading_level {
         el.push_attribute(crate::jcr::xml_attribute("headingLevel", heading_level_str(level)));
     }
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     write_raw_children(w, &common.passthrough.raw_children)?;
     w.write_event(Event::End(BytesEnd::new(tag)))
@@ -1081,12 +1226,12 @@ fn write_signature(
 
     let mut el = BytesStart::new(tag);
     el.push_attribute(crate::jcr::xml_attribute("jcr:primaryType", "nt:unstructured"));
-    push_common(&mut el, common, bind_ref.as_deref());
+    push_common(&mut el, common, bind_ref.as_deref(), ctx.spell_defaults);
     el.push_attribute(crate::jcr::xml_attribute("jcr:title", label));
     el.push_attribute(crate::jcr::xml_attribute("mandatory", plain_bool(field.mandatory)));
-    push_presence(&mut el, &common.presence);
+    push_presence(&mut el, &common.presence, ctx.spell_defaults);
     push_passthrough_attributes(&mut el, &common.passthrough);
-    w.write_event(Event::Start(el))?;
+    start(w, el)?;
     write_responsive(w, layout)?;
     write_raw_children(w, &common.passthrough.raw_children)?;
     w.write_event(Event::End(BytesEnd::new(tag)))
@@ -1098,7 +1243,7 @@ mod tests {
     use crate::test_support::*;
 
     fn ctx_for<'a>(master: &'a Language, bind_refs: &'a HashMap<ComponentName, String>) -> WriteCtx<'a> {
-        WriteCtx { master, bind_refs }
+        WriteCtx { master, bind_refs, spell_defaults: true }
     }
 
     #[test]
