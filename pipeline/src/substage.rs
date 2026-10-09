@@ -15,6 +15,7 @@ use crate::observer::{AbortFlag, RetryAction, RunEvent, RunObserver, SharedObser
 use crate::roles::Role;
 use crate::run::run_stage_as;
 use crate::tools::SharedAgent;
+use crate::trace::TraceEvent;
 
 /// What a sub-stage needs from the stage that dispatches it.
 #[derive(Clone)]
@@ -64,6 +65,10 @@ pub(crate) struct SubStageEnd {
     ended: Option<String>,
     /// The error it gave up on, when it failed.
     failure: Option<String>,
+    /// The model turns it took.
+    pub(crate) turns: usize,
+    /// What it spent on its own (already folded into the context's spend).
+    pub(crate) spend: Spend,
 }
 
 impl SubStageEnd {
@@ -91,7 +96,13 @@ pub(crate) async fn run_sub_stage(
     label: String,
 ) -> SubStageEnd {
     let failure = Arc::new(Mutex::new(None));
-    let obs = SharedObserver::new(SubStageObserver { inner: ctx.obs.clone(), label, failure: failure.clone() });
+    let turns = Arc::new(Mutex::new(0));
+    let obs = SharedObserver::new(SubStageObserver {
+        inner: ctx.obs.clone(),
+        label,
+        failure: failure.clone(),
+        turns: turns.clone(),
+    });
     let mut spend = Spend::default();
     let ended = run_stage_as(
         agent,
@@ -110,19 +121,25 @@ pub(crate) async fn run_sub_stage(
     .await;
     ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
     let failure = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
-    SubStageEnd { ended, failure }
+    let turns = *turns.lock().unwrap_or_else(|p| p.into_inner());
+    SubStageEnd { ended, failure, turns, spend }
 }
 
 /// What a sub-stage reports to the run's observer: its tool timeline and its
 /// warnings and thoughts, labelled with what it was handed. Not its stage
 /// header, its spend (cumulative per stage, so it would read as the run's
 /// total; the dispatching stage folds it in instead) or its context fill, and
-/// never a retry prompt: a sub-stage that fails permanently gives up.
+/// never a retry prompt: a sub-stage that fails permanently gives up. Nor its
+/// trace: several run at once inside the dispatching stage's tool call, so
+/// their stages would interleave with it; the dispatcher traces each one as a
+/// whole instead (see `crate::judge`), from the turns kept here.
 struct SubStageObserver {
     inner: SharedObserver,
     label: String,
     /// The error the sub-stage gave up on.
     failure: Arc<Mutex<Option<String>>>,
+    /// The turns the sub-stage took, from its own `StageFinished`.
+    turns: Arc<Mutex<usize>>,
 }
 
 impl RunObserver for SubStageObserver {
@@ -151,6 +168,12 @@ impl RunObserver for SubStageObserver {
     }
 
     fn retry_resolved(&mut self, _action: RetryAction) {}
+
+    fn trace(&mut self, event: TraceEvent) {
+        if let TraceEvent::StageFinished { turns, .. } = event {
+            *self.turns.lock().unwrap_or_else(|p| p.into_inner()) = turns;
+        }
+    }
 }
 
 #[cfg(test)]

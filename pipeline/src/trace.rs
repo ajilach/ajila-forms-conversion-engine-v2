@@ -63,7 +63,10 @@ impl TurnUsage {
 pub enum StageEnd {
     /// The model gave its final answer on its own.
     Finished,
-    /// The Reviewer called `submit_review`.
+    /// A terminal tool recorded the stage's result and ended it: the
+    /// Reviewer's `submit_review`, and also the Author's `finish_authoring`
+    /// (the name predates it, and is kept for the files already recorded).
+    /// The run recorder tells the two apart by the call that ended the stage.
     ReviewSubmitted,
     /// The stuck watch ended it: the watched tool kept returning the same result.
     Stuck,
@@ -82,7 +85,7 @@ impl StageEnd {
     pub fn describe(&self) -> String {
         match self {
             Self::Finished => "finished on its own".into(),
-            Self::ReviewSubmitted => "submitted a review".into(),
+            Self::ReviewSubmitted => "ended by its terminal tool".into(),
             Self::Stuck => "stopped by the stuck watch".into(),
             Self::TurnBudgetExhausted => "ran out of turns".into(),
             Self::Aborted => "aborted".into(),
@@ -137,6 +140,30 @@ impl ControlKind {
             Self::ContextBudgetFailed => "context budget failed",
             Self::Aborted => "aborted",
             Self::StageError => "stage error",
+        }
+    }
+}
+
+/// What a judge decided about its rule.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JudgeVerdict {
+    /// The document keeps the rule.
+    Positive,
+    /// The document breaks the rule.
+    Negative,
+    /// No verdict: the judge failed, was stopped, ended without one, or the
+    /// document changed while it judged.
+    Unchecked,
+}
+
+impl JudgeVerdict {
+    /// A short, stable label for tables.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Positive => "positive",
+            Self::Negative => "negative",
+            Self::Unchecked => "unchecked",
         }
     }
 }
@@ -243,7 +270,52 @@ pub enum TraceEvent {
         kind: ControlKind,
         detail: String,
     },
-    /// A stage ended. `spend` is this stage's own share, not the run's total.
+    /// A `rule_check` ran its scripts and is about to hand its judged rules
+    /// to judges. `stage` is the judges' stage name; the stage that called
+    /// `rule_check` is the one the recorder files the line under. `check`
+    /// numbers the checks of the process, so a judge's line finds its check;
+    /// `partial` is a check of chosen `rule_ids` rather than of every rule.
+    RuleCheckStarted {
+        stage: String,
+        check: u64,
+        partial: bool,
+        scripted: usize,
+        judged: usize,
+        /// The document revision the check runs on.
+        revision: u64,
+    },
+    /// One judge ended: its rule, its own verdict on `revision` (the
+    /// document it judged), and what it took. `spend` is the judge's own,
+    /// which the calling stage's spend also includes. When the check ends
+    /// `outdated`, it reports the rule unchecked whatever this says.
+    JudgeFinished {
+        stage: String,
+        check: u64,
+        rule_id: String,
+        /// The `rule.toml` id.
+        rule_name: String,
+        rule_title: String,
+        verdict: JudgeVerdict,
+        violations: usize,
+        /// Why there is no verdict, when there is none.
+        unchecked_reason: Option<String>,
+        turns: usize,
+        duration_ms: u64,
+        revision: u64,
+        spend: Spend,
+    },
+    /// A `rule_check`'s judges all ended. `judges_spend` is what they spent
+    /// together; `outdated` says the document changed while they judged, so
+    /// every judged rule came back unchecked.
+    RuleCheckFinished {
+        stage: String,
+        check: u64,
+        duration_ms: u64,
+        judges_spend: Spend,
+        outdated: bool,
+    },
+    /// A stage ended. `spend` is this stage's own share, not the run's total:
+    /// the judges its `rule_check`s dispatched included.
     StageFinished {
         stage: String,
         ended: StageEnd,
@@ -267,6 +339,9 @@ impl TraceEvent {
             | Self::RequestFailed { stage, .. }
             | Self::ReviewVerdict { stage, .. }
             | Self::Control { stage, .. }
+            | Self::RuleCheckStarted { stage, .. }
+            | Self::JudgeFinished { stage, .. }
+            | Self::RuleCheckFinished { stage, .. }
             | Self::StageFinished { stage, .. } => stage,
         }
     }
@@ -292,8 +367,9 @@ pub fn stable_hash(text: &str) -> String {
 }
 
 /// The difference between two cumulative spends — one stage's share, given
-/// the run's total before and after it.
-pub(crate) fn spend_between(before: &Spend, after: &Spend) -> Spend {
+/// the run's total before and after it, or a stage's own share given its
+/// judges' (`before`) and its whole (`after`).
+pub fn spend_between(before: &Spend, after: &Spend) -> Spend {
     Spend {
         input_tokens: after.input_tokens.saturating_sub(before.input_tokens),
         output_tokens: after.output_tokens.saturating_sub(before.output_tokens),

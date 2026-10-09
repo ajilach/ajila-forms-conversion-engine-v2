@@ -7,6 +7,7 @@
 
 use std::collections::BTreeMap;
 
+use pipeline::trace::JudgeVerdict;
 use pipeline::{ControlKind, Spend, StageEnd, TraceEvent};
 
 use serde::Serialize;
@@ -19,6 +20,11 @@ const ARGS_EXCERPT: usize = 240;
 const ERROR_EXCERPT: usize = 400;
 /// Tool-name prefixes that change the form, for the edit-activity figures.
 const WRITE_PREFIXES: &[&str] = &["set_", "insert_", "replace_", "remove_", "write_", "seed_"];
+/// The stage-level tools whose recorded result ends a stage (`TERMINAL_TOOLS`
+/// in `pipeline::hooks`, less the judges' `submit_rule_verdict`, whose calls
+/// are not traced), which the trace reports alike as
+/// [`StageEnd::ReviewSubmitted`].
+const TERMINAL_TOOLS: &[&str] = &["finish_authoring", "submit_review"];
 /// Argument keys that usually name what a write tool changes.
 const TARGET_KEYS: &[&str] = &[
     "path", "node_path", "node_id", "id", "target", "name", "field", "panel", "parent",
@@ -51,13 +57,40 @@ pub struct StageStats {
     /// took to fail.
     pub failed_requests: usize,
     pub failed_request_ms: u64,
+    /// Everything the stage spent: its own turns and its judges'.
     pub spend: Spend,
+    /// What its own turns spent: `spend` without `judges_spend`.
+    pub agent_spend: Spend,
+    /// What the judges of its `rule_check`s spent.
+    pub judges_spend: Spend,
+    /// Judges its `rule_check`s ran, and their durations summed (they run
+    /// several at once, so this is more than the wall time they took).
+    pub judge_runs: usize,
+    pub judge_ms: u64,
+    /// `rule_check`s it called (with judged rules or not).
+    pub rule_checks: usize,
+    /// The terminal tool whose call ended the stage, when one did
+    /// (`finish_authoring`, `submit_review`).
+    pub ended_by: Option<String>,
     /// The largest prompt any turn of the stage sent, in tokens.
     pub max_prompt_tokens: u64,
     /// Turns whose history the context budget had to shorten.
     pub shaped_turns: usize,
     pub system_prompt_chars: usize,
     pub tools_offered: usize,
+}
+
+impl StageStats {
+    /// How the stage ended, for tables: the trace says only that a terminal
+    /// tool ended it, the call says which.
+    pub fn ended_label(&self) -> String {
+        match (&self.ended, self.ended_by.as_deref()) {
+            (None, _) => "-".into(),
+            (Some(StageEnd::ReviewSubmitted), Some("submit_review")) => "submitted a review".into(),
+            (Some(StageEnd::ReviewSubmitted), Some(tool)) => format!("called {tool}"),
+            (Some(ended), _) => ended.describe(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -126,6 +159,72 @@ impl VerdictRecord {
             None => "no verdict",
         }
     }
+}
+
+/// One judge: a judged rule a `rule_check` handed to a judge agent.
+#[derive(Clone, Debug, Serialize)]
+pub struct JudgeRecord {
+    pub seq: u64,
+    pub at_ms: u64,
+    /// The stage whose `rule_check` dispatched the judge (0: the final rule
+    /// check, which runs after the last stage).
+    pub stage_index: usize,
+    pub stage: String,
+    /// The run's number for the check (1-based), as the report's
+    /// "By rule_check" table lists it.
+    pub check: usize,
+    pub rule_id: String,
+    pub rule_name: String,
+    pub rule_title: String,
+    pub verdict: JudgeVerdict,
+    pub violations: usize,
+    pub unchecked_reason: Option<String>,
+    pub turns: usize,
+    pub duration_ms: u64,
+    pub revision: u64,
+    pub spend: Spend,
+}
+
+/// One `rule_check`, with judged rules or not.
+#[derive(Clone, Debug, Serialize)]
+pub struct RuleCheckRecord {
+    /// The run's number for the check, 1-based.
+    pub check: usize,
+    pub seq: u64,
+    pub at_ms: u64,
+    pub stage_index: usize,
+    pub stage: String,
+    /// A check of chosen `rule_ids` rather than of every rule.
+    pub partial: bool,
+    pub scripted: usize,
+    pub judged: usize,
+    pub revision: u64,
+    /// `None` while the check is still running.
+    pub duration_ms: Option<u64>,
+    pub judges_spend: Spend,
+    /// The document changed while it judged: every judged rule came back
+    /// unchecked.
+    pub outdated: bool,
+    pub positive: usize,
+    pub negative: usize,
+    pub unchecked: usize,
+}
+
+/// One judged rule across the run's checks.
+#[derive(Clone, Debug, Default, Serialize)]
+pub struct JudgedRuleStats {
+    pub rule_id: String,
+    pub rule_name: String,
+    pub rule_title: String,
+    pub runs: usize,
+    pub positive: usize,
+    pub negative: usize,
+    pub unchecked: usize,
+    pub turns: usize,
+    pub max_turns: usize,
+    pub total_ms: u64,
+    pub max_ms: u64,
+    pub spend: Spend,
 }
 
 /// A request that failed before the model answered.
@@ -208,6 +307,12 @@ pub struct Stats {
     pub controls: Vec<ControlRecord>,
     pub verdicts: Vec<VerdictRecord>,
     pub failed_requests: Vec<FailedRequest>,
+    pub judges: Vec<JudgeRecord>,
+    pub rule_checks: Vec<RuleCheckRecord>,
+    /// The final rule check the controller runs after the last stage, which
+    /// is no stage of its own in the trace: its judges and their spend, so
+    /// they are not filed under the stage that ended before it.
+    pub final_check: Option<StageStats>,
     pub warnings: Vec<(u64, String)>,
     /// The run's cumulative spend, as last reported.
     pub spend: Spend,
@@ -217,6 +322,9 @@ pub struct Stats {
     /// What the next stage to start was announced as doing.
     #[serde(skip)]
     pending_doing: Option<String>,
+    /// The run's number for each check the trace numbered, by its trace id.
+    #[serde(skip)]
+    check_numbers: BTreeMap<u64, usize>,
 }
 
 impl Stats {
@@ -236,6 +344,25 @@ impl Stats {
 
     fn stage_mut(&mut self) -> Option<&mut StageStats> {
         self.stages.last_mut()
+    }
+
+    /// The run's number for the check the trace numbered `check` (0 for one
+    /// it never saw start).
+    pub fn check_number(&self, check: u64) -> usize {
+        self.check_numbers.get(&check).copied().unwrap_or(0)
+    }
+
+    /// The stage a `rule_check` and its judges belong to: the running one,
+    /// or — when none is running — the final rule check.
+    fn checking_stage(&mut self) -> &mut StageStats {
+        if self.stages.last().is_some_and(|s| s.ended.is_none()) {
+            return self.stages.last_mut().expect("checked above");
+        }
+        self.final_check.get_or_insert_with(|| StageStats {
+            name: pipeline::run::FINAL_CHECK.into(),
+            doing: "checking every rule".into(),
+            ..StageStats::default()
+        })
     }
 
     /// Fold one trace event in. `seq` is its line in `trace.jsonl`, `at_ms`
@@ -379,6 +506,10 @@ impl Stats {
                     if !ok {
                         s.tool_failures += 1;
                     }
+                    // A refused call (the evidence gate) ends nothing.
+                    if *ok && TERMINAL_TOOLS.contains(&name.as_str()) {
+                        s.ended_by = Some(name.clone());
+                    }
                 }
                 let tool = self.tools.entry(name.clone()).or_insert_with(|| ToolStats {
                     name: name.clone(),
@@ -419,6 +550,112 @@ impl Stats {
                     detail: detail.clone(),
                 });
             }
+            TraceEvent::RuleCheckStarted {
+                check,
+                partial,
+                scripted,
+                judged,
+                revision,
+                ..
+            } => {
+                let number = self.rule_checks.len() + 1;
+                self.check_numbers.insert(*check, number);
+                let s = self.checking_stage();
+                s.rule_checks += 1;
+                let (stage_index, stage) = (s.index, s.name.clone());
+                self.rule_checks.push(RuleCheckRecord {
+                    check: number,
+                    seq,
+                    at_ms,
+                    stage_index,
+                    stage,
+                    partial: *partial,
+                    scripted: *scripted,
+                    judged: *judged,
+                    revision: *revision,
+                    duration_ms: None,
+                    judges_spend: Spend::default(),
+                    outdated: false,
+                    positive: 0,
+                    negative: 0,
+                    unchecked: 0,
+                });
+            }
+            TraceEvent::JudgeFinished {
+                check,
+                rule_id,
+                rule_name,
+                rule_title,
+                verdict,
+                violations,
+                unchecked_reason,
+                turns,
+                duration_ms,
+                revision,
+                spend,
+                ..
+            } => {
+                let number = self.check_number(*check);
+                let s = self.checking_stage();
+                s.judge_runs += 1;
+                s.judge_ms += duration_ms;
+                s.judges_spend.merge(spend);
+                if s.index == 0 {
+                    // The final check spends nothing but its judges.
+                    s.spend.merge(spend);
+                }
+                let (stage_index, stage) = (s.index, s.name.clone());
+                if let Some(c) = self.rule_checks.iter_mut().find(|c| c.check == number) {
+                    match verdict {
+                        JudgeVerdict::Positive => c.positive += 1,
+                        JudgeVerdict::Negative => c.negative += 1,
+                        JudgeVerdict::Unchecked => c.unchecked += 1,
+                    }
+                }
+                self.judges.push(JudgeRecord {
+                    seq,
+                    at_ms,
+                    stage_index,
+                    stage,
+                    check: number,
+                    rule_id: rule_id.clone(),
+                    rule_name: rule_name.clone(),
+                    rule_title: rule_title.clone(),
+                    verdict: *verdict,
+                    violations: *violations,
+                    unchecked_reason: unchecked_reason.as_deref().map(|r| format::excerpt(r, ERROR_EXCERPT)),
+                    turns: *turns,
+                    duration_ms: *duration_ms,
+                    revision: *revision,
+                    spend: *spend,
+                });
+            }
+            TraceEvent::RuleCheckFinished {
+                check,
+                duration_ms,
+                judges_spend,
+                outdated,
+                ..
+            } => {
+                let number = self.check_number(*check);
+                let in_final_check = self.rule_checks.iter().any(|c| c.check == number && c.stage_index == 0);
+                if let Some(f) = self.final_check.as_mut().filter(|_| in_final_check) {
+                    f.duration_ms += duration_ms;
+                    f.ended = Some(StageEnd::Finished);
+                }
+                if let Some(c) = self.rule_checks.iter_mut().find(|c| c.check == number) {
+                    c.duration_ms = Some(*duration_ms);
+                    c.judges_spend = *judges_spend;
+                    c.outdated = *outdated;
+                    if *outdated {
+                        // The check reported every judged rule unchecked,
+                        // whatever its judges said.
+                        c.unchecked = c.judged;
+                        c.positive = 0;
+                        c.negative = 0;
+                    }
+                }
+            }
             TraceEvent::StageFinished {
                 ended,
                 turns,
@@ -433,6 +670,7 @@ impl Stats {
                     s.attempts = s.attempts.max(*attempts);
                     s.duration_ms = *duration_ms;
                     s.spend = *spend;
+                    s.agent_spend = pipeline::trace::spend_between(&s.judges_spend, spend);
                 }
             }
         }
@@ -603,6 +841,59 @@ impl Stats {
         out
     }
 
+    /// What the judges spent, over the whole run.
+    pub fn judges_spend(&self) -> Spend {
+        let mut total = Spend::default();
+        for judge in &self.judges {
+            total.merge(&judge.spend);
+        }
+        total
+    }
+
+    /// What the stages' own turns spent, over the whole run: the run's spend
+    /// without the judges'.
+    pub fn agent_spend(&self) -> Spend {
+        pipeline::trace::spend_between(&self.judges_spend(), &self.spend)
+    }
+
+    /// Wall time the judges ran, summed over every judge (they overlap).
+    pub fn judge_ms(&self) -> u64 {
+        self.judges.iter().map(|j| j.duration_ms).sum()
+    }
+
+    /// The judged rules, most expensive first.
+    pub fn judged_rules(&self) -> Vec<JudgedRuleStats> {
+        let mut rules: BTreeMap<&str, JudgedRuleStats> = BTreeMap::new();
+        for judge in &self.judges {
+            let rule = rules.entry(judge.rule_id.as_str()).or_insert_with(|| JudgedRuleStats {
+                rule_id: judge.rule_id.clone(),
+                rule_name: judge.rule_name.clone(),
+                rule_title: judge.rule_title.clone(),
+                ..JudgedRuleStats::default()
+            });
+            rule.runs += 1;
+            match judge.verdict {
+                JudgeVerdict::Positive => rule.positive += 1,
+                JudgeVerdict::Negative => rule.negative += 1,
+                JudgeVerdict::Unchecked => rule.unchecked += 1,
+            }
+            rule.turns += judge.turns;
+            rule.max_turns = rule.max_turns.max(judge.turns);
+            rule.total_ms += judge.duration_ms;
+            rule.max_ms = rule.max_ms.max(judge.duration_ms);
+            rule.spend.merge(&judge.spend);
+        }
+        let mut rules: Vec<JudgedRuleStats> = rules.into_values().collect();
+        rules.sort_by(|a, b| {
+            b.spend
+                .cost_usd
+                .unwrap_or(0.0)
+                .total_cmp(&a.spend.cost_usd.unwrap_or(0.0))
+                .then(b.total_ms.cmp(&a.total_ms))
+        });
+        rules
+    }
+
     /// How many control events of each kind the run had.
     pub fn control_counts(&self) -> BTreeMap<&'static str, usize> {
         let mut counts = BTreeMap::new();
@@ -619,9 +910,10 @@ impl Stats {
     }
 }
 
-/// "3. Author", the label a stage goes by in every table.
+/// "3. Author", the label a stage goes by in every table; the final rule
+/// check, numbered 0, goes by its name.
 pub fn stage_label(index: usize, name: &str) -> String {
-    format!("{index}. {name}")
+    if index == 0 { name.to_string() } else { format!("{index}. {name}") }
 }
 
 fn is_write_tool(name: &str) -> bool {
@@ -814,6 +1106,104 @@ mod tests {
         verdict(&mut stats, 1, None);
         assert_eq!(stats.approved(), None);
         assert_eq!(stats.verdicts[0].describe(), "no verdict");
+    }
+
+    fn check_started(check: u64, judged: usize) -> TraceEvent {
+        TraceEvent::RuleCheckStarted {
+            stage: "Judge".into(),
+            check,
+            partial: false,
+            scripted: 3,
+            judged,
+            revision: 7,
+        }
+    }
+
+    fn judge(check: u64, rule: &str, verdict: JudgeVerdict, cost: f64) -> TraceEvent {
+        TraceEvent::JudgeFinished {
+            stage: "Judge".into(),
+            check,
+            rule_id: format!("id-{rule}"),
+            rule_name: rule.into(),
+            rule_title: rule.into(),
+            verdict,
+            violations: usize::from(verdict == JudgeVerdict::Negative),
+            unchecked_reason: None,
+            turns: 4,
+            duration_ms: 10_000,
+            revision: 7,
+            spend: Spend { input_tokens: 1_000, cost_usd: Some(cost), ..Spend::default() },
+        }
+    }
+
+    fn check_finished(check: u64, cost: f64, outdated: bool) -> TraceEvent {
+        TraceEvent::RuleCheckFinished {
+            stage: "Judge".into(),
+            check,
+            duration_ms: 20_000,
+            judges_spend: Spend { input_tokens: 2_000, cost_usd: Some(cost), ..Spend::default() },
+            outdated,
+        }
+    }
+
+    fn finished(ended: StageEnd, cost: f64) -> TraceEvent {
+        TraceEvent::StageFinished {
+            stage: "Author".into(),
+            ended,
+            turns: 3,
+            attempts: 1,
+            duration_ms: 60_000,
+            spend: Spend { input_tokens: 5_000, cost_usd: Some(cost), ..Spend::default() },
+        }
+    }
+
+    /// The judges are counted per rule and per check, numbered by the run
+    /// rather than by the process, and taken out of their stage's cost.
+    #[test]
+    fn judges_are_tallied_and_split_out_of_their_stage() {
+        let mut stats = Stats::default();
+        stats.record(0, 0, &stage("Author"));
+        stats.record(1, 1, &check_started(41, 2));
+        stats.record(2, 2, &judge(41, "a", JudgeVerdict::Negative, 0.3));
+        stats.record(3, 3, &judge(41, "b", JudgeVerdict::Positive, 0.2));
+        stats.record(4, 4, &check_finished(41, 0.5, false));
+        stats.record(5, 5, &check_started(42, 1));
+        stats.record(6, 6, &judge(42, "a", JudgeVerdict::Positive, 0.3));
+        stats.record(7, 7, &check_finished(42, 0.3, true));
+        stats.record(8, 8, &finished(StageEnd::Finished, 1.0));
+
+        let author = &stats.stages[0];
+        assert_eq!((author.judge_runs, author.rule_checks, author.judge_ms), (3, 2, 30_000));
+        assert!((author.judges_spend.cost_usd.unwrap() - 0.8).abs() < 1e-9);
+        assert!((author.agent_spend.cost_usd.unwrap() - 0.2).abs() < 1e-9);
+        assert_eq!(author.agent_spend.input_tokens, 2_000);
+
+        let checks: Vec<_> = stats.rule_checks.iter().map(|c| (c.check, c.positive, c.negative, c.unchecked)).collect();
+        assert_eq!(checks, [(1, 1, 1, 0), (2, 0, 0, 1)], "an outdated check reports every judged rule unchecked");
+        assert_eq!(stats.judges[2].check, 2);
+
+        let rules = stats.judged_rules();
+        assert_eq!(rules[0].rule_name, "a", "the most expensive rule first");
+        assert_eq!((rules[0].runs, rules[0].positive, rules[0].negative, rules[0].turns), (2, 1, 1, 8));
+    }
+
+    /// The trace says only that a terminal tool ended a stage; the call that
+    /// did says which one, and a refused call ends nothing.
+    #[test]
+    fn a_stage_ended_by_finish_authoring_is_not_a_review() {
+        let mut stats = Stats::default();
+        stats.record(0, 0, &stage("Author"));
+        call(&mut stats, 1, "finish_authoring", json!({}), false, "refused: verify first");
+        assert_eq!(stats.stages[0].ended_by, None);
+        call(&mut stats, 3, "finish_authoring", json!({}), true, "handed over");
+        stats.record(5, 5, &finished(StageEnd::ReviewSubmitted, 1.0));
+        assert_eq!(stats.stages[0].ended_label(), "called finish_authoring");
+
+        stats.record(6, 6, &stage("Reviewer"));
+        call(&mut stats, 7, "submit_review", json!({}), true, "recorded");
+        stats.record(9, 9, &finished(StageEnd::ReviewSubmitted, 1.0));
+        assert_eq!(stats.stages[1].ended_label(), "submitted a review");
+        assert!((stats.stages[1].agent_spend.cost_usd.unwrap() - 1.0).abs() < 1e-9, "no judges: all the agent's");
     }
 
     #[test]
