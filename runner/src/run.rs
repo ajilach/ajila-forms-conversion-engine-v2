@@ -253,6 +253,7 @@ async fn drive(
         context_budget: resolved.context_budget,
         capture_review: true,
         final_rule_check: true,
+        finish_nudge: true,
     };
 
     // A session's review images show its last finished run. This run will
