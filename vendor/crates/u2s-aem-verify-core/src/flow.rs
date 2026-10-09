@@ -1602,7 +1602,7 @@ fn keep_pdf_artefact(
                 ErrorKind::DownloadBlank.as_str(),
                 format!(
                     "{label} is a PDF of {pages} page(s) that shows no text or image on any of \
-                     them: the summary rendered empty (AEM's ubsbundle.log has the render)"
+                     them: the render came back empty (the AEM container's error.log has the cause)"
                 ),
             ));
         }

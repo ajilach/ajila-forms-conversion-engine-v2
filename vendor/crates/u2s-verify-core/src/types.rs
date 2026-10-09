@@ -363,6 +363,7 @@ mod tests {
             ErrorKind::RenderTimeout,
             ErrorKind::NoDownload,
             ErrorKind::DownloadNotPdf,
+            ErrorKind::DownloadBlank,
             ErrorKind::StorageFailed,
             ErrorKind::RedactoUnreachable,
             ErrorKind::RedactoNotReady,

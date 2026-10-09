@@ -7,9 +7,9 @@ git-fetch-with-cli = true
 
 # Builds take the u2s crates from vendor/crates and never fetch them. crates.io
 # is not replaced.
-[source."git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=d011549e4f20ae772a0bb63b19410d13e2e67949"]
+[source."git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=345c4c1fa23fa8952dfde9b0ed7f01b77234eecd"]
 git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git"
-rev = "d011549e4f20ae772a0bb63b19410d13e2e67949"
+rev = "345c4c1fa23fa8952dfde9b0ed7f01b77234eecd"
 replace-with = "vendored-u2s"
 
 [source.vendored-u2s]
