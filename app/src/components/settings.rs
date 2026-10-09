@@ -256,6 +256,35 @@ pub fn SettingsPage(
 
                     SettingsTab::Aem => rsx! {
                         div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Output formats" }
+                            ToggleRow {
+                                label: "AEM Adaptive Form",
+                                desc: "Offer AEM as an output and check this machine for its verifier (the AEM image and data volume). At least one format stays on.",
+                                checked: s.target_enabled(agent::OutputTarget::Aem),
+                                on_toggle: move |v: bool| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.set_target_enabled(agent::OutputTarget::Aem, v);
+                                            }),
+                                        )
+                                },
+                            }
+                            ToggleRow {
+                                label: "Redacto Document",
+                                desc: "Offer Redacto as an output and check this machine for its verifier (the Redacto platform images). Switch it off when you do not convert to Redacto, and the readiness banner stops asking for its images.",
+                                checked: s.target_enabled(agent::OutputTarget::Redacto),
+                                on_toggle: move |v: bool| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.set_target_enabled(agent::OutputTarget::Redacto, v);
+                                            }),
+                                        )
+                                },
+                            }
+                        }
+                        div { class: "settings-section",
                             h3 { class: "settings-section-title", "AEM verification" }
                             TextRow {
                                 label: "AEM image",

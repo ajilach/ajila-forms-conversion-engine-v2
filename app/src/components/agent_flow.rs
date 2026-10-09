@@ -76,6 +76,8 @@ pub fn AgentFlow(
     /// Whether each target can run on this machine; `None` until the first
     /// check finishes.
     readiness: Option<super::Readiness>,
+    /// The output targets the settings offer; the Output picker shows only these.
+    enabled_targets: Vec<agent::OutputTarget>,
     /// Start a fresh agent run in this tab from its uploaded files.
     on_ai_process: EventHandler<Vec<(String, Vec<u8>)>>,
     /// Re-run the agent in the same session with the user's feedback.
@@ -114,6 +116,7 @@ pub fn AgentFlow(
                                 selected_target: tab.target,
                                 ai_available,
                                 readiness,
+                                enabled_targets,
                                 uploaded_files,
                                 on_start: move |files: Vec<(String, Vec<u8>)>| on_ai_process.call(files),
                             }
@@ -165,6 +168,7 @@ fn UploadBox(
     selected_target: Signal<agent::OutputTarget>,
     ai_available: bool,
     readiness: Option<super::Readiness>,
+    enabled_targets: Vec<agent::OutputTarget>,
     mut uploaded_files: Signal<Vec<(String, Vec<u8>)>>,
     on_start: EventHandler<Vec<(String, Vec<u8>)>>,
 ) -> Element {
@@ -183,7 +187,11 @@ fn UploadBox(
     // The runner refuses a target that is not ready anyway; this says so
     // before the files are dropped, and the banner says why.
     let target = *selected_target.read();
-    let target_ready = readiness.as_ref().map(|r| r.of(target).is_ok());
+    // A switched-off target is not checked; the picker moves off it, and until
+    // it has, it counts as not ready.
+    let target_ready = readiness
+        .as_ref()
+        .map(|r| r.of(target).is_some_and(|result| result.is_ok()));
     let start_disabled =
         files.is_empty() || (!has_pdf && !has_template) || !ai_available || target_ready != Some(true);
     let start_title = if !ai_available {
@@ -246,6 +254,7 @@ fn UploadBox(
                 }
                 super::OutputTargetSelector {
                     profile: selected_profile.read().clone(),
+                    enabled: enabled_targets,
                     selected_target,
                     disabled: false,
                 }
