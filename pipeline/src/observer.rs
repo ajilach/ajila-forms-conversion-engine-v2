@@ -191,6 +191,13 @@ pub trait RunObserver {
 
     /// The pause ended, either by an answer or by the run being aborted.
     fn retry_resolved(&mut self, action: RetryAction);
+
+    /// One entry of the run's structured trace — see [`crate::trace`].
+    ///
+    /// Defaults to discarding it: only an observer that records a run for
+    /// analysis (`runner`'s run recorder) has any use for the full content,
+    /// and every other observer keeps compiling unchanged.
+    fn trace(&mut self, _event: crate::trace::TraceEvent) {}
 }
 
 /// A [`RunObserver`] shared between the stage driver and a rig hook.
@@ -245,6 +252,10 @@ impl SharedObserver {
 
     pub fn retry_resolved(&self, action: RetryAction) {
         self.lock().retry_resolved(action);
+    }
+
+    pub fn trace(&self, event: crate::trace::TraceEvent) {
+        self.lock().trace(event);
     }
 }
 

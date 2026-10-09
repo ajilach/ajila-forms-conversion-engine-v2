@@ -14,8 +14,10 @@
 //! (rig's own `MockCompletionModel`, no network) before `run_stage` was wired
 //! to construct one of these per stage — see `crate::run::run_stage`.
 
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use rig_agent::agent::hook::{
     AgentHook, CompletionCallAction, HookContext, InvalidToolCallAction, InvalidToolCallContext,
@@ -24,12 +26,15 @@ use rig_agent::agent::hook::{
 };
 use rig_agent::tool::ToolOutput;
 use rig_core::completion::{FinishReason, Usage};
-use rig_core::message::{AssistantContent, DocumentSourceKind, Message, ToolResultContent};
+use rig_core::message::{
+    AssistantContent, DocumentSourceKind, Message, ReasoningContent, ToolResultContent,
+};
 
 use crate::memory::ContextBudget;
 use crate::observer::{AbortFlag, RunEvent, SharedObserver, Spend};
 use crate::roles::{Role, MAX_MAX_TOKEN_NUDGES};
 use crate::run::{summarize_input, LARGE_TOOL_REPLY_WARN_CHARS};
+use crate::trace::{self, ControlKind, TraceEvent, TracedToolCall, TurnUsage};
 
 /// Prices one turn's usage in USD, when the model has a published rate.
 ///
@@ -89,6 +94,21 @@ pub(crate) struct StageHook {
     /// `on_model_turn_finished` to feed `ContextBudget::record_actual`
     /// against the turn's real usage.
     last_prompt_estimate: AtomicUsize,
+    /// Which attempt of the stage this hook serves (1 for the first, one more
+    /// for every restart after a failed request) — for the trace only.
+    attempt: usize,
+    /// Turns the stage completed in earlier attempts, so the trace numbers a
+    /// restarted stage's turns on from where the failed attempt stopped.
+    turn_offset: usize,
+    /// The stage-wide number of the turn most recently sent — what the tool
+    /// calls that turn requested are attributed to.
+    current_turn: AtomicUsize,
+    /// When the turn in flight was sent, for its latency.
+    turn_started: Mutex<Option<Instant>>,
+    /// When each running tool call started, by rig's internal call id — a
+    /// map rather than one slot, because a batch of calls may run
+    /// concurrently.
+    tool_started: Mutex<HashMap<String, Instant>>,
 }
 
 impl StageHook {
@@ -117,7 +137,33 @@ impl StageHook {
             final_text: Mutex::new(String::new()),
             context_budget,
             last_prompt_estimate: AtomicUsize::new(0),
+            attempt: 1,
+            turn_offset: 0,
+            current_turn: AtomicUsize::new(0),
+            turn_started: Mutex::new(None),
+            tool_started: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// Where in its stage this hook's attempt sits, for the trace: which
+    /// attempt it is, and how many turns earlier attempts already completed.
+    /// A fresh hook is attempt 1 with no turns before it.
+    pub(crate) fn with_trace_position(mut self, attempt: usize, turn_offset: usize) -> Self {
+        self.attempt = attempt;
+        self.turn_offset = turn_offset;
+        self
+    }
+
+    fn stage(&self) -> String {
+        self.role.name.to_string()
+    }
+
+    fn control(&self, kind: ControlKind, detail: impl Into<String>) {
+        self.obs.trace(TraceEvent::Control {
+            stage: self.stage(),
+            kind,
+            detail: detail.into(),
+        });
     }
 
     /// Stop the run the moment the flag is set, without waiting for the
@@ -159,6 +205,136 @@ impl StageHook {
     /// restart — see [`Self::new`].
     pub(crate) fn spend(&self) -> Spend {
         *self.spend.lock().unwrap_or_else(|p| p.into_inner())
+    }
+}
+
+/// Trace reporting, kept apart from the hook methods so each of those still
+/// reads as the behaviour it reproduces.
+impl StageHook {
+    /// Report the request about to go out, and start its latency clock —
+    /// only now, once shaping is done, so the model's latency does not
+    /// include the time spent preparing the request.
+    fn trace_turn_started(
+        &self,
+        turn: usize,
+        history_messages: usize,
+        sent_messages: usize,
+        estimated_tokens: usize,
+        shaping_started: Instant,
+    ) {
+        let shaping_ms = trace::elapsed_ms(shaping_started);
+        self.obs.trace(TraceEvent::TurnStarted {
+            stage: self.stage(),
+            attempt: self.attempt,
+            turn,
+            history_messages,
+            sent_messages,
+            estimated_tokens,
+            shaping_ms,
+        });
+        *self.turn_started.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
+    }
+
+    /// The stage-wide number of the turn most recently sent.
+    pub(crate) fn current_turn(&self) -> usize {
+        self.current_turn.load(Ordering::Relaxed)
+    }
+
+    /// How long the request in flight has been waiting, when one is — what a
+    /// request that failed took to fail. Takes the clock, so it is read once.
+    pub(crate) fn take_pending_request_ms(&self) -> Option<u64> {
+        self.turn_started
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+            .map(trace::elapsed_ms)
+    }
+
+    fn trace_turn_finished(&self, event: &ModelTurnFinished<'_>, text: &str, cost: Option<f64>) {
+        let latency_ms = self
+            .turn_started
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .take()
+            .map(trace::elapsed_ms)
+            .unwrap_or(0);
+        let mut reasoning = Vec::new();
+        let mut tool_calls = Vec::new();
+        for content in event.content {
+            match content {
+                AssistantContent::ToolCall(call) => tool_calls.push(TracedToolCall {
+                    call_id: call.id.to_string(),
+                    name: call.function.name.clone(),
+                    args: call.function.arguments.clone(),
+                }),
+                AssistantContent::Reasoning(r) => {
+                    for part in &r.content {
+                        if let ReasoningContent::Text { text, .. } = part {
+                            reasoning.push(text.as_str());
+                        }
+                    }
+                }
+                AssistantContent::Text(_) | AssistantContent::Image(_) => {}
+            }
+        }
+        self.obs.trace(TraceEvent::TurnFinished {
+            stage: self.stage(),
+            attempt: self.attempt,
+            turn: self.current_turn.load(Ordering::Relaxed),
+            latency_ms,
+            finish_reason: event.finish_reason.map(describe_finish_reason),
+            usage: TurnUsage::from_usage(&event.usage),
+            cost_usd: cost,
+            text: text.to_string(),
+            reasoning: reasoning.join("\n\n"),
+            tool_calls,
+        });
+    }
+}
+
+fn describe_finish_reason(reason: &FinishReason) -> String {
+    match reason {
+        FinishReason::Stop => "stop".into(),
+        FinishReason::Length => "length".into(),
+        FinishReason::ToolCalls => "tool_calls".into(),
+        FinishReason::ContentFilter => "content_filter".into(),
+        FinishReason::Other(other) => other.clone(),
+    }
+}
+
+/// A tool presentation as the trace records it: the text in full, each image
+/// reduced to a placeholder line, and how much image data that left out.
+struct TracedPresentation {
+    text: String,
+    image_count: usize,
+    image_chars: usize,
+}
+
+fn trace_presentation(output: &ToolOutput) -> TracedPresentation {
+    let mut parts = Vec::new();
+    let mut image_count = 0;
+    let mut image_chars = 0;
+    for content in output.as_content() {
+        match content {
+            ToolResultContent::Text(t) => parts.push(t.text.clone()),
+            ToolResultContent::Json { value } => parts.push(
+                serde_json::to_string_pretty(value).unwrap_or_else(|_| value.to_string()),
+            ),
+            ToolResultContent::Image(image) => {
+                let chars = match &image.data {
+                    DocumentSourceKind::Base64(data) => data.len(),
+                    _ => 0,
+                };
+                image_count += 1;
+                image_chars += chars;
+                parts.push(format!("[image {image_count}: {chars} base64 characters, omitted]"));
+            }
+        }
+    }
+    TracedPresentation {
+        text: parts.join("\n"),
+        image_count,
+        image_chars,
     }
 }
 
@@ -205,6 +381,11 @@ impl AgentHook for StageHook {
         attempt.push(event.prompt.clone());
         *self.last_attempt.lock().unwrap_or_else(|p| p.into_inner()) = attempt;
 
+        let turn = self.turn_offset + self.completed_turns.load(Ordering::Relaxed) + 1;
+        self.current_turn.store(turn, Ordering::Relaxed);
+        let history_messages = event.history.len();
+        let shaping_started = Instant::now();
+
         // Shaping can decode images to estimate their real vision cost, which
         // is CPU-bound; run it off the async runtime so a long history does
         // not stall whichever executor is driving the run — the same
@@ -218,6 +399,8 @@ impl AgentHook for StageHook {
                     "{}: context budget failed ({e}) — sending the turn unshaped.",
                     self.role.name
                 )));
+                self.control(ControlKind::ContextBudgetFailed, e.to_string());
+                self.trace_turn_started(turn, history_messages, history_messages, 0, shaping_started);
                 // Clear rather than leave the previous (successful) turn's
                 // estimate in place: `on_model_turn_finished` would otherwise
                 // pair a stale, smaller estimate with this turn's real usage
@@ -230,13 +413,16 @@ impl AgentHook for StageHook {
                     "{}: context budget task panicked ({e}) — sending the turn unshaped.",
                     self.role.name
                 )));
+                self.control(ControlKind::ContextBudgetFailed, e.to_string());
+                self.trace_turn_started(turn, history_messages, history_messages, 0, shaping_started);
                 self.last_prompt_estimate.store(0, Ordering::Relaxed);
                 return CompletionCallAction::continue_run();
             }
         };
 
-        self.last_prompt_estimate
-            .store(self.context_budget.raw_estimate(&shaped), Ordering::Relaxed);
+        let estimate = self.context_budget.raw_estimate(&shaped);
+        self.last_prompt_estimate.store(estimate, Ordering::Relaxed);
+        self.trace_turn_started(turn, history_messages, shaped.len(), estimate, shaping_started);
 
         CompletionCallAction::patch(RequestPatch::new().history(shaped))
     }
@@ -245,11 +431,26 @@ impl AgentHook for StageHook {
     /// or refuses the call — that policy question belongs to the catalog's
     /// own scoping, not to this hook.
     async fn on_tool_call(&self, _ctx: &HookContext, event: ToolCall<'_>) -> ToolCallAction {
-        let args: serde_json::Value = serde_json::from_str(event.args).unwrap_or_default();
+        let parsed: Option<serde_json::Value> = serde_json::from_str(event.args).ok();
         self.obs.emit(RunEvent::ToolStarted {
             id: event.internal_call_id.to_string(),
             name: event.tool_name.to_string(),
-            input_summary: summarize_input(&args),
+            input_summary: summarize_input(&parsed.clone().unwrap_or_default()),
+        });
+        // Arguments that are not JSON are kept verbatim: the trace is where a
+        // malformed call has to be visible.
+        let args = parsed.unwrap_or_else(|| serde_json::Value::String(event.args.to_string()));
+        self.tool_started
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .insert(event.internal_call_id.to_string(), Instant::now());
+        self.obs.trace(TraceEvent::ToolStarted {
+            stage: self.stage(),
+            attempt: self.attempt,
+            turn: self.current_turn.load(Ordering::Relaxed),
+            call_id: event.internal_call_id.to_string(),
+            name: event.tool_name.to_string(),
+            args,
         });
         ToolCallAction::Run
     }
@@ -260,10 +461,36 @@ impl AgentHook for StageHook {
     /// hand-rolled loop did once a tool's result was in hand.
     async fn on_tool_result(&self, _ctx: &HookContext, event: ToolResultEvent<'_>) -> ToolResultAction {
         let output = event.presentation;
+        let ok = event.raw_result.is_success();
         self.obs.emit(RunEvent::ToolFinished {
             id: event.internal_call_id.to_string(),
-            ok: event.raw_result.is_success(),
+            ok,
             reply_chars: output_total_chars(output),
+        });
+        let duration_ms = self
+            .tool_started
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .remove(event.internal_call_id)
+            .map(trace::elapsed_ms)
+            .unwrap_or(0);
+        // Rendered once: for an image reply this serializes the base64
+        // payload, and both the trace digest and the stuck watch need it.
+        let rendered = output.render();
+        let traced = trace_presentation(output);
+        self.obs.trace(TraceEvent::ToolFinished {
+            stage: self.stage(),
+            attempt: self.attempt,
+            turn: self.current_turn.load(Ordering::Relaxed),
+            call_id: event.internal_call_id.to_string(),
+            name: event.tool_name.to_string(),
+            ok,
+            duration_ms,
+            result_chars: traced.text.chars().count(),
+            result: traced.text,
+            image_count: traced.image_count,
+            image_chars: traced.image_chars,
+            result_hash: trace::stable_hash(&rendered),
         });
         let text_chars = output_text_chars(output);
         if text_chars > LARGE_TOOL_REPLY_WARN_CHARS {
@@ -288,7 +515,7 @@ impl AgentHook for StageHook {
             return ToolResultAction::Keep;
         }
         let mut stuck = self.stuck.lock().unwrap_or_else(|p| p.into_inner());
-        if stuck.observe(event.tool_name, &output.render()) {
+        if stuck.observe(event.tool_name, &rendered) {
             return ToolResultAction::stop(STUCK_SENTINEL);
         }
 
@@ -321,7 +548,7 @@ impl AgentHook for StageHook {
         let text = text.trim().to_string();
         if !text.is_empty() {
             *self.final_text.lock().unwrap_or_else(|p| p.into_inner()) = text.clone();
-            self.obs.emit(RunEvent::Thought(text));
+            self.obs.emit(RunEvent::Thought(text.clone()));
         }
 
         // What the API billed for the prompt is the only ground truth for how
@@ -347,6 +574,7 @@ impl AgentHook for StageHook {
             }
         }
         let cost = (self.price)(&event.usage);
+        self.trace_turn_finished(&event, &text, cost);
         let spend = {
             let mut spend = self.spend.lock().unwrap_or_else(|p| p.into_inner());
             spend.add(&event.usage, cost);
@@ -373,6 +601,10 @@ impl AgentHook for StageHook {
                      incrementally instead of in one call."
                         .into(),
                 ));
+                self.control(
+                    ControlKind::OutputCapNudge,
+                    format!("nudge {} of {MAX_MAX_TOKEN_NUDGES}", nudges + 1),
+                );
                 return ModelTurnAction::retry_with_feedback(self.role.max_tokens_nudge);
             }
         }
@@ -396,6 +628,14 @@ impl AgentHook for StageHook {
             "Unknown tool: {}. It is not available to the {} at this stage. Use one of the \
              tools you were given.",
             event.tool_name, self.role.name
+        );
+        self.control(
+            ControlKind::InvalidToolCall,
+            format!(
+                "{} (args: {})",
+                event.tool_name,
+                event.args.as_deref().unwrap_or("none")
+            ),
         );
         Some(InvalidToolCallAction::skip(reason))
     }

@@ -108,7 +108,7 @@ set values, advance pages, submit, close, screenshot). The PDF a submission prod
 is read with the `pdf_*` tools. The source form is read with the `xfa_*` tools.
 
 Prerequisites on the machine running an AEM conversion:
-- Docker running
+- Docker running — or Podman 5.3+, selected in Settings → Verification → Container engine or with `--container-engine podman` (see [docs/podman.md](docs/podman.md))
 - The AEM Forms image from ajila's private Azure registry pulled locally: `az login`, `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`, then `docker pull ajila.azurecr.io/aemforms-arm:6.5.17.0`
 - The Docker data volume with the UBS platform baked in (one-time setup: `docker/aem/bake-ubs-platform.sh`, see `docker/aem/README.md`)
 - Only an ARM image exists today, so AEM conversions currently run only on Apple Silicon hosts
@@ -137,9 +137,39 @@ to run without verification.
 Artefacts are named as in the app: `forms-package-<code>.zip`,
 `forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd`, `redacto-<code>.sql`,
 plus `agent-log-<code>.md` — the run transcript. The finalize step only builds the
-package; there is no upload or AEM path in the output. Ctrl-C stops the run at its
+package; there is no upload or AEM path in the output. With `--analysis`, the run is
+also recorded for analysis into `run-analysis/<date>_<time>_<source>_<session>/` at
+the root of this repository (see [Run analysis](#run-analysis)). Ctrl-C stops the run at its
 next checkpoint: no artefacts are written, but the session id is printed and the edit
 history holds what the agent had built, so the run can be resumed with `--session`.
+
+## Run analysis
+
+Run analysis is off by default. Switched on, every AI conversion, from the app or
+the CLI, is recorded into a folder of plain
+Markdown and JSON Lines meant for a person to read and for an AI assistant to be
+handed as is: `report.md` (where the time went per stage and per tool, the slowest
+turns and calls, repeated calls, recurring errors, review verdicts, control
+events), `timeline.md`, one transcript per stage with every prompt, message, tool
+call and result, the complete `trace.jsonl`, and `evaluation.md` — a template for
+the person who checks the converted form to record a verdict, scores, findings and
+requirements for v3. Files are written while the run happens, so an aborted or
+crashed run is recorded up to that moment.
+
+```sh
+# Record the run into run-analysis/ in this repository, or into another folder:
+cargo run --release -p blueprint-cli -- convert form.pdf --analysis
+cargo run --release -p blueprint-cli -- convert form.pdf --analysis-dir ~/runs
+
+# Compare many runs: time per stage, tool cost, errors recurring across forms
+python3 scripts/analyze_runs.py run-analysis --out runs-overview.md
+
+# Collect the filled-in human evaluations: verdicts, findings, v3 requirements
+python3 scripts/collect_evaluations.py run-analysis --out evaluations-overview.md --csv evaluations.csv
+```
+
+In the app, switch it on under Settings → Run analysis; it records into the same `run-analysis/` folder (the Folder field there changes it). Details, the file
+layout and how to use the files with an AI assistant: [docs/run-analysis.md](docs/run-analysis.md).
 
 ## App
 

@@ -65,6 +65,10 @@ fn main() {
     // This executable is also the rule worker; see `agent::rules::runner`.
     agent::rules::serve_worker_if_invoked();
     let saved = AppSettings::load();
+    // Before the window and its runtime start: Podman means setting
+    // DOCKER_HOST, which must happen while this is the only thread.
+    let engine = agent::container_engine::select(saved.container_engine);
+    eprintln!("container engine: {engine}");
     let mut config = dioxus::desktop::Config::new().with_window(
         dioxus::desktop::WindowBuilder::new()
             .with_always_on_top(saved.always_on_top)

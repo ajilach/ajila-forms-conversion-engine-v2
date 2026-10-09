@@ -6466,6 +6466,8 @@ version = "0.1.0"
 dependencies = [
  "agent",
  "base64 0.22.1",
+ "chrono",
+ "dirs 5.0.1",
  "futures-util",
  "image",
  "pipeline",

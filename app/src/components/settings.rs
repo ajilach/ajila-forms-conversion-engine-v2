@@ -452,6 +452,18 @@ pub fn SettingsPage(
                         }
                         div { class: "settings-section",
                             h3 { class: "settings-section-title", "Verifier tooling" }
+                            SelectRow {
+                                label: "Container engine",
+                                desc: "What runs the verifier containers. Docker by default; Podman (5.3 or newer, its machine started) is found through its API socket unless DOCKER_HOST is set. Takes effect when the app is restarted.",
+                                value: s.container_engine.as_str().to_string(),
+                                options: vec!["docker".to_string(), "podman".to_string()],
+                                labels: vec!["Docker".to_string(), "Podman".to_string()],
+                                on_change: move |v: String| {
+                                    if let Ok(engine) = agent::container_engine::ContainerEngine::parse(&v) {
+                                        update.call(Box::new(move |s| s.container_engine = engine));
+                                    }
+                                },
+                            }
                             div { class: "row",
                                 RowInfo {
                                     label: "Pull images",
@@ -498,6 +510,25 @@ pub fn SettingsPage(
                                 Some(Ok(text)) if !text.is_empty() => rsx! { div { class: "browser-status", "{text}" } },
                                 Some(Err(err)) => rsx! { div { class: "verify-error", "{err}" } },
                                 _ => rsx! {},
+                            }
+                        }
+                        div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Run analysis" }
+                            ToggleRow {
+                                label: "Record every run for analysis",
+                                desc: "Writes a folder per conversion: a report of where the time went, a timeline, the full prompt, messages and tool calls of every stage, and the complete trace. Plain Markdown and JSON Lines, readable by people and AI assistants. Off by default.",
+                                checked: s.run_analysis,
+                                on_toggle: move |v: bool| update.call(Box::new(move |s| s.run_analysis = v)),
+                            }
+                            TextRow {
+                                label: "Folder",
+                                desc: "Where the run folders go. Leave empty for the run-analysis folder at the root of the engine's repository.",
+                                value: s.run_analysis_dir.clone(),
+                                placeholder: "default",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.run_analysis_dir = v.trim().to_string()))
+                                },
                             }
                         }
                     },

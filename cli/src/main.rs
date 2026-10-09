@@ -16,6 +16,11 @@ use clap::{Args as ClapArgs, Parser, Subcommand};
 struct Args {
     #[command(subcommand)]
     command: Command,
+
+    /// The container engine the verifiers run on: docker or podman. Defaults
+    /// to the desktop app's setting (Docker unless switched).
+    #[arg(long, global = true, value_name = "ENGINE", value_parser = agent::container_engine::ContainerEngine::parse)]
+    container_engine: Option<agent::container_engine::ContainerEngine>,
 }
 
 /// What the command line does.
@@ -105,7 +110,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     agent::rules::serve_worker_if_invoked();
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
 
-    match Args::parse().command {
+    let args = Args::parse();
+    // Before any runtime starts: Podman means setting DOCKER_HOST, which must
+    // happen while this is the only thread.
+    let engine = args
+        .container_engine
+        .unwrap_or_else(|| runner::AppSettings::load().container_engine);
+    log::info!("container engine: {}", agent::container_engine::select(engine));
+
+    match args.command {
         Command::Convert(convert_args) => convert::run(convert_args),
         Command::Sessions => {
             list_sessions();
