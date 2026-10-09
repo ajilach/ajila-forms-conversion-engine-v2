@@ -62,14 +62,10 @@ pub struct AppSettings {
     /// [`DEFAULT_MAX_REVIEW_ROUNDS`] in [`AppSettings::load`].
     #[serde(default)]
     pub max_review_rounds: usize,
-    /// The Docker-hosted AEM the UBS verifier boots for an AEM run. Stored
-    /// flat (`aem_verify_*`).
+    /// The Docker-hosted AEM the UBS verifier boots for a run. Stored flat
+    /// (`aem_verify_*`).
     #[serde(flatten)]
     pub aem_verify: agent::u2s::AemVerifySettings,
-    /// The throwaway Postgres the Redacto verifier imports dumps into, stored
-    /// flat (`redacto_verify_*`).
-    #[serde(flatten)]
-    pub redacto_verify: agent::u2s::RedactoVerifySettings,
     /// How many model requests may be in flight at once against one endpoint,
     /// across every conversion running in parallel. `0` means no cap.
     ///
@@ -95,14 +91,6 @@ pub struct AppSettings {
     /// a change takes effect on the next start.
     #[serde(default)]
     pub container_engine: agent::container_engine::ContainerEngine,
-    /// Output targets the operator does not use. A switched-off target is not
-    /// offered in the app's Output picker and is left out of the readiness
-    /// check and its banner, so a machine without, say, the Redacto images is
-    /// not reported as unfinished. It is never a way to run a target
-    /// unverified: a target that is offered is checked before every run.
-    /// Empty (every target on) unless switched; never holds every target.
-    #[serde(default)]
-    pub disabled_targets: Vec<agent::OutputTarget>,
 }
 
 
@@ -124,13 +112,11 @@ impl Default for AppSettings {
             openai_model: String::new(),
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
             aem_verify: agent::u2s::AemVerifySettings::default(),
-            redacto_verify: agent::u2s::RedactoVerifySettings::default(),
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
             run_analysis: false,
             run_analysis_dir: String::new(),
             container_engine: agent::container_engine::ContainerEngine::default(),
-            disabled_targets: Vec::new(),
         }
     }
 }
@@ -167,37 +153,6 @@ impl AppSettings {
         }
     }
 
-    /// Whether `target` is offered: not switched off in the settings.
-    pub fn target_enabled(&self, target: agent::OutputTarget) -> bool {
-        !self.disabled_targets.contains(&target)
-    }
-
-    /// The targets that are offered, in [`agent::OutputTarget::ALL`] order.
-    pub fn enabled_targets(&self) -> Vec<agent::OutputTarget> {
-        agent::OutputTarget::ALL
-            .into_iter()
-            .filter(|&target| self.target_enabled(target))
-            .collect()
-    }
-
-    /// Switch `target` on or off. Switching off the last target that is on is
-    /// refused, since a machine that offers no output cannot convert anything;
-    /// returns whether the settings changed.
-    pub fn set_target_enabled(&mut self, target: agent::OutputTarget, enabled: bool) -> bool {
-        if enabled == self.target_enabled(target) {
-            return false;
-        }
-        if enabled {
-            self.disabled_targets.retain(|&t| t != target);
-        } else {
-            if self.enabled_targets().len() <= 1 {
-                return false;
-            }
-            self.disabled_targets.push(target);
-        }
-        true
-    }
-
     /// Coerce missing/zero values to their real defaults. Guards against configs
     /// saved before these fields had sensible defaults (where a `0` would
     /// otherwise show in the UI and read as "off").
@@ -217,14 +172,6 @@ impl AppSettings {
         // Settings saved before the provider switch existed carry no base URL.
         if self.openai_base_url.trim().is_empty() {
             self.openai_base_url = d.openai_base_url;
-        }
-
-        // Every target switched off (a hand-edited file) would leave nothing to
-        // convert to: offer them all again rather than a dead app.
-        self.disabled_targets.sort_by_key(|t| t.as_str());
-        self.disabled_targets.dedup();
-        if self.enabled_targets().is_empty() {
-            self.disabled_targets.clear();
         }
     }
 
@@ -316,41 +263,18 @@ mod tests {
         assert_eq!(settings.llm_endpoint().api_key, "k");
     }
 
-    /// Switching a target off and on round-trips through the saved JSON, and
-    /// the last target that is on cannot be switched off.
+    /// Settings saved while the Redacto output existed carry its verifier's
+    /// keys and the switched-off targets; they are ignored, and everything
+    /// else still loads rather than falling back to the defaults.
     #[test]
-    fn a_target_can_be_switched_off_but_never_the_last_one() {
-        use agent::OutputTarget::{Aem, Redacto};
-        let mut settings = AppSettings::default();
-        assert_eq!(settings.enabled_targets(), vec![Aem, Redacto]);
-
-        assert!(settings.set_target_enabled(Redacto, false));
-        assert!(!settings.target_enabled(Redacto));
-        assert_eq!(settings.enabled_targets(), vec![Aem]);
-        assert!(!settings.set_target_enabled(Aem, false), "the last target stays on");
-        assert!(settings.target_enabled(Aem));
-
-        let json = serde_json::to_string(&settings).unwrap();
-        assert!(json.contains(r#""disabled_targets":["redacto"]"#), "{json}");
-        let loaded: AppSettings = serde_json::from_str(&json).unwrap();
-        assert_eq!(loaded.enabled_targets(), vec![Aem]);
-
-        assert!(settings.set_target_enabled(Redacto, true));
-        assert_eq!(settings.enabled_targets(), vec![Aem, Redacto]);
-        assert!(!settings.set_target_enabled(Redacto, true), "already on");
-    }
-
-    /// Settings saved before the switch existed offer every target, and a file
-    /// that switches every target off is read as switching none off.
-    #[test]
-    fn old_or_inconsistent_settings_offer_every_target() {
-        let old: AppSettings = serde_json::from_str(r#"{"anthropic_api_key":"k"}"#).unwrap();
-        assert_eq!(old.enabled_targets(), agent::OutputTarget::ALL.to_vec());
-
-        let mut all_off: AppSettings =
-            serde_json::from_str(r#"{"disabled_targets":["aem","redacto","redacto"]}"#).unwrap();
-        all_off.normalize();
-        assert!(all_off.disabled_targets.is_empty());
-        assert_eq!(all_off.enabled_targets(), agent::OutputTarget::ALL.to_vec());
+    fn settings_saved_with_the_redacto_output_still_load() {
+        let json = r#"{"anthropic_api_key":"k","aem_verify_user":"author",
+            "redacto_verify_core_image":"core:1","redacto_verify_password":"secret",
+            "disabled_targets":["redacto"]}"#;
+        let settings: AppSettings = serde_json::from_str(json).expect("old settings load");
+        assert_eq!(settings.anthropic_api_key, "k");
+        assert_eq!(settings.aem_verify.user, "author");
+        let saved = serde_json::to_string(&settings).unwrap();
+        assert!(!saved.contains("redacto_verify") && !saved.contains("disabled_targets"), "{saved}");
     }
 }

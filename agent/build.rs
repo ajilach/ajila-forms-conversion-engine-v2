@@ -33,7 +33,6 @@ const ASSETS: &[(&str, &str, &str, &str)] = &[
 
 fn main() {
     println!("cargo:rerun-if-changed=../rules/aem");
-    println!("cargo:rerun-if-changed=../rules/redacto");
     println!("cargo:rerun-if-changed=build.rs");
     if let Err(e) = run() {
         panic!("cannot provide pdfium: {e}");

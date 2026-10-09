@@ -6,10 +6,9 @@
 mod console;
 mod convert;
 
-use agent::OutputTarget;
 use clap::{Args as ClapArgs, Parser, Subcommand};
 
-/// Blueprint - AI conversion of XFA PDF forms into UBS AEM forms and Redacto documents
+/// Blueprint - AI conversion of XFA PDF forms into UBS AEM forms
 #[derive(Parser, Debug)]
 #[command(name = "blueprint")]
 #[command(about = "Convert XFA PDF forms with the AI agent", long_about = None)]
@@ -36,8 +35,8 @@ enum Command {
     /// List the conversion sessions a `convert --feedback` run can resume.
     Sessions,
 
-    /// The Docker-hosted verifiers the Author and Reviewer check their output
-    /// with: the AEM Forms instance for an AEM run, Postgres for a Redacto run.
+    /// The Docker-hosted AEM Forms instance the Author and Reviewer check
+    /// their output with.
     Verify(VerifyArgs),
 }
 
@@ -45,18 +44,13 @@ enum Command {
 struct VerifyArgs {
     #[command(subcommand)]
     action: VerifyAction,
-
-    /// Which target's verifier to check: aem or redacto.
-    #[arg(long, default_value = "aem", value_parser = convert::parse_target, global = true)]
-    target: OutputTarget,
 }
 
 #[derive(Subcommand, Debug)]
 enum VerifyAction {
-    /// Pull the verifier images that are missing: headless Chromium, Postgres,
-    /// and the AEM image from GitHub with the GitHub CLI's login (`gh auth
-    /// login -s read:packages`). The private Redacto images are pulled by hand
-    /// after `az acr login --name ajilaclouddev` (see docker/redacto/README.md).
+    /// Pull the verifier images that are missing: headless Chromium, and the
+    /// AEM image from GitHub with the GitHub CLI's login (`gh auth login -s
+    /// read:packages`).
     Prepare,
     /// The preflight a run performs: the settings, Docker, the images (or, for
     /// a missing AEM image, the GitHub CLI login a run pulls it with) and pdfium.
@@ -72,13 +66,11 @@ fn verify_command(args: VerifyArgs) -> Result<(), Box<dyn std::error::Error>> {
     runtime.block_on(async {
         match args.action {
             VerifyAction::Prepare => {
-                let report =
-                    agent::u2s::pull_verifier_images(&settings.aem_verify, &settings.redacto_verify).await?;
+                let report = agent::u2s::pull_verifier_images(&settings.aem_verify).await?;
                 println!("{report}");
             }
             VerifyAction::Check => {
-                let report =
-                    agent::u2s::readiness(args.target, &settings.aem_verify, &settings.redacto_verify).await?;
+                let report = agent::u2s::readiness(&settings.aem_verify).await?;
                 println!("{report}");
                 println!("Ready.");
             }

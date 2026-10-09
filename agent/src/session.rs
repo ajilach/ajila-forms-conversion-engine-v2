@@ -11,8 +11,6 @@
 
 use serde_json::Value;
 
-use crate::OutputTarget;
-
 /// The session id a run's document snapshots are recorded under.
 pub fn document_session(session_id: &str) -> String {
     format!("{session_id}{}", crate::db::DOCUMENT_SUFFIX)
@@ -27,14 +25,15 @@ pub enum Restored {
     Nothing,
 }
 
-/// The document `session_id` last recorded, for a run aimed at `target`.
+/// The document `session_id` last recorded.
 ///
 /// An error when the session holds something that cannot be resumed: only the
 /// tree shapes recorded before the move to one document per run, or a
-/// document of another format.
-pub fn restore(session_id: &str, target: OutputTarget) -> Result<Restored, String> {
+/// document of another format (a Redacto session recorded before that target
+/// was dropped).
+pub fn restore(session_id: &str) -> Result<Restored, String> {
     match latest(&document_session(session_id)) {
-        Some(json) => parse(&json, target).map(Restored::Document),
+        Some(json) => parse(&json).map(Restored::Document),
         None if predates_documents(session_id) => Err(format!(
             "session {session_id} was recorded before runs authored one document in the UBS \
              formats; it can be viewed in the history but not resumed. Start a new conversion \
@@ -44,13 +43,13 @@ pub fn restore(session_id: &str, target: OutputTarget) -> Result<Restored, Strin
     }
 }
 
-/// Parse a recorded snapshot as a document of `target`'s format.
-pub fn parse(json: &str, target: OutputTarget) -> Result<Value, String> {
+/// Parse a recorded snapshot as a UBS AEM document.
+pub fn parse(json: &str) -> Result<Value, String> {
     let value: Value =
         serde_json::from_str(json).map_err(|e| format!("the recorded document is not JSON: {e}"))?;
-    crate::conversion::check_document(target, &value)
+    crate::conversion::check_document(&value)
         .map(|()| value)
-        .map_err(|e| format!("the recorded document is not a {} document: {e}", target.label()))
+        .map_err(|e| format!("the recorded document is not a UBS AEM document: {e}"))
 }
 
 fn latest(session_id: &str) -> Option<String> {
@@ -83,16 +82,19 @@ mod tests {
         crate::db::claim_scratch_db_for_test();
         let session = format!("restore-{}", uuid::Uuid::new_v4());
         crate::db::insert_edit(&document_session(&session), "AI: json_patch", &aem_document().to_string());
-        match restore(&session, OutputTarget::Aem).unwrap() {
+        match restore(&session).unwrap() {
             Restored::Document(doc) => assert_eq!(doc, aem_document()),
             other => panic!("expected the document, got {other:?}"),
         }
     }
 
+    /// A Redacto session, recorded while that target existed, is not resumed
+    /// as an AEM run.
     #[test]
     fn a_document_of_another_format_is_refused() {
-        let err = parse(&aem_document().to_string(), OutputTarget::Redacto).unwrap_err();
-        assert!(err.contains("Redacto"), "{err}");
+        let redacto = json!({"sources": {"en": {"variables": {}}}, "assets": [], "body": []});
+        let err = parse(&redacto.to_string()).unwrap_err();
+        assert!(err.contains("not a UBS AEM document"), "{err}");
     }
 
     /// A session from before the move keeps its history but is not resumed
@@ -102,7 +104,7 @@ mod tests {
         crate::db::claim_scratch_db_for_test();
         let session = format!("old-{}", uuid::Uuid::new_v4());
         crate::db::insert_edit(&format!("{session}#aem"), "AI: set_aem_translated", "{}");
-        let err = restore(&session, OutputTarget::Aem).unwrap_err();
+        let err = restore(&session).unwrap_err();
         assert!(err.contains("cannot") || err.contains("not resumed"), "{err}");
     }
 
@@ -110,6 +112,6 @@ mod tests {
     fn an_unknown_session_holds_nothing() {
         crate::db::claim_scratch_db_for_test();
         let session = format!("none-{}", uuid::Uuid::new_v4());
-        assert!(matches!(restore(&session, OutputTarget::Aem).unwrap(), Restored::Nothing));
+        assert!(matches!(restore(&session).unwrap(), Restored::Nothing));
     }
 }

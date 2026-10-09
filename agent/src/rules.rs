@@ -1,8 +1,8 @@
 //! The rules a run's document is held to, and the sandbox their scripts run in.
 //!
-//! Each target's rules live under `rules/<target>/` at the repository root
-//! (`rules/aem/`, `rules/redacto/`), one directory per rule, compiled in. A rule
-//! is one of two kinds, by what its directory holds:
+//! The rules live under `rules/aem/` at the repository root, one directory
+//! per rule, compiled in. A rule is one of two kinds, by what its directory
+//! holds:
 //!
 //! - **scripted**: `rule.toml` and `check.js` (optionally `fix.js`). Its script
 //!   decides it; it runs on every edit and in `rule_check`.
@@ -27,8 +27,6 @@ use u2s_doc_tools::native::RuleForCheck;
 use u2s_doc_tools::rules_dir::RuleFiles;
 use u2s_rules_host::runner::RuleRunner;
 use u2s_rules_host::worker::WORKER_ARG;
-
-use crate::OutputTarget;
 
 /// The worker binary's file name, which only test binaries use.
 fn worker_name() -> String {
@@ -77,14 +75,6 @@ pub fn runner() -> Result<RuleRunner, String> {
 }
 
 static AEM_RULES: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../rules/aem");
-static REDACTO_RULES: include_dir::Dir<'_> = include_dir::include_dir!("$CARGO_MANIFEST_DIR/../rules/redacto");
-
-fn rule_dir(target: OutputTarget) -> &'static include_dir::Dir<'static> {
-    match target {
-        OutputTarget::Aem => &AEM_RULES,
-        OutputTarget::Redacto => &REDACTO_RULES,
-    }
-}
 
 /// A `rule.toml`, the same fields the vendored loader reads for a scripted
 /// rule; parsed here too, for the judged rules it never sees.
@@ -112,7 +102,7 @@ pub struct JudgedRule {
     pub description: String,
 }
 
-/// Every rule of a target, by kind.
+/// Every rule, by kind.
 #[derive(Debug, Default)]
 pub struct Rules {
     pub scripted: Vec<RuleForCheck>,
@@ -124,10 +114,10 @@ fn text(dir: &include_dir::Dir<'_>, name: &str) -> Option<String> {
         .map(|f| f.contents_utf8().expect("a rule file is UTF-8").to_string())
 }
 
-/// The scripted rules of `target`, compiled in: the rule directories with a
+/// The scripted rules, compiled in: the rule directories with a
 /// `check.js`.
-pub fn rule_files(target: OutputTarget) -> Vec<RuleFiles> {
-    rule_dir(target)
+pub fn rule_files() -> Vec<RuleFiles> {
+    AEM_RULES
         .dirs()
         .filter_map(|dir| {
             let slug = dir.path().to_string_lossy().into_owned();
@@ -141,14 +131,14 @@ pub fn rule_files(target: OutputTarget) -> Vec<RuleFiles> {
         .collect()
 }
 
-/// The rules `target`'s documents are held to. A rule directory without a
+/// The rules a document is held to. A rule directory without a
 /// `rule.toml`, a judged rule with a `fix.js`, and two rules with one id are
 /// errors: a rule that silently drops out is a rule nobody decided to stop.
-pub fn rules_for(target: OutputTarget) -> Result<Rules, String> {
-    let fail = |e: String| format!("the {} rules do not load: {e}", target.label());
+pub fn rules() -> Result<Rules, String> {
+    let fail = |e: String| format!("the rules do not load: {e}");
     let mut names = std::collections::BTreeSet::new();
     let mut judged = Vec::new();
-    for dir in rule_dir(target).dirs() {
+    for dir in AEM_RULES.dirs() {
         let slug = dir.path().to_string_lossy().into_owned();
         let toml_text = text(dir, "rule.toml").ok_or_else(|| fail(format!("{slug} has no rule.toml")))?;
         let toml: RuleToml = toml::from_str(&toml_text).map_err(|e| fail(format!("{slug}/rule.toml: {e}")))?;
@@ -167,7 +157,7 @@ pub fn rules_for(target: OutputTarget) -> Result<Rules, String> {
             });
         }
     }
-    let scripted = u2s_doc_tools::rules_dir::load_rules(rule_files(target)).map_err(|e| fail(e.to_string()))?;
+    let scripted = u2s_doc_tools::rules_dir::load_rules(rule_files()).map_err(|e| fail(e.to_string()))?;
     Ok(Rules { scripted, judged })
 }
 
@@ -257,13 +247,13 @@ pub fn merge_rule_report(mut scripted: Value, judged: &[(JudgedRule, Result<Rule
     scripted
 }
 
-/// Check that `target`'s rules load and their sandbox starts, before a run
+/// Check that the rules load and their sandbox starts, before a run
 /// spends a token: a document that cannot be held to its rules is not a
 /// conversion to start. Reports what it checked.
-pub fn readiness(target: OutputTarget) -> Result<String, String> {
-    let rules = rules_for(target)?;
+pub fn readiness() -> Result<String, String> {
+    let rules = rules()?;
     if rules.scripted.is_empty() && rules.judged.is_empty() {
-        return Ok("no rules for this format".into());
+        return Ok("no rules".into());
     }
     if !rules.scripted.is_empty() {
         runner()?;
@@ -280,9 +270,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_targets_rules_load() {
-        assert!(!rules_for(OutputTarget::Aem).unwrap().scripted.is_empty());
-        rules_for(OutputTarget::Redacto).unwrap();
+    fn the_rules_load() {
+        let rules = rules().unwrap();
+        assert!(!rules.scripted.is_empty() && !rules.judged.is_empty());
     }
 
     fn judged(name: &str) -> JudgedRule {

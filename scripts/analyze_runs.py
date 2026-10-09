@@ -41,7 +41,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-SUPPORTED_SCHEMAS = (1, 2)
+SUPPORTED_SCHEMAS = (1, 2, 3)
 TOP = 25
 
 

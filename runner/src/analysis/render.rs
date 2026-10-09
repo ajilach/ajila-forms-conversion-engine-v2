@@ -617,7 +617,7 @@ pub fn report(ctx: &ReportContext<'_>) -> String {
         );
     }
     let _ = writeln!(out, "- Model: {}", meta.model);
-    let _ = writeln!(out, "- Profile: {}; target: {}", meta.profile, meta.target);
+    let _ = writeln!(out, "- Profile: {}", meta.profile);
     if let Some(last) = stats.verdicts.last() {
         let _ = writeln!(
             out,

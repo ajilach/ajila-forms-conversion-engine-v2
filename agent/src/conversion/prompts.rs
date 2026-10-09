@@ -72,38 +72,8 @@ and headings. Where the form and the source disagree, the SOURCE wins."
     };
 }
 
-/// The Redacto counterpart of [`review_procedure`], shared the same way by
-/// [`REDACTO_SYSTEM_PROMPT`] and [`REDACTO_REVIEWER_ADDENDUM`].
-macro_rules! redacto_review_procedure {
-    () => {
-        "THE REVIEW PROCEDURE. The source is the only authority: judge the built document by what \
-the source shows. The steps marked (gated) must be done in your own stage on the current build, or \
-your stage's terminal call (an approving one, for the Reviewer) is refused with the list of what is \
-missing. \
-(a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
-handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
-name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \
-description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
-finding: run rule_check again for that rule. \
-(b) COVERAGE: a judge reads the source too, but finding what is missing is still the review's work: \
-walk each language's PDF with xfa_page_text against the document (json_outline, json_get, \
-json_search), section by section. \
-(c) VERIFY ON A REAL PLATFORM (gated): redacto_verify_dump_check (offline: it decodes the dump the \
-way the platform will), then redacto_verify_run, which imports the latest build into a Redacto \
-platform of this run's own, reports the row counts and returns one rendered PDF per language. A \
-failed import or render is a defect. A redacto_verify_run that runs past its deadline stops the \
-verifier and says so; calling it again boots a fresh one. \
-(d) LAYOUT (gated): read EVERY rendered PDF with pdf_render_pages (its path is `doc_path`) and \
-compare it with that language's source pages from xfa_render_pages: the same sections in the same \
-order, the same columns, headings and footnotes. Where the document and the source disagree, the \
-SOURCE wins."
-    };
-}
-
 /// The AEM review procedure, for the code that checks the prompts.
 pub const REVIEW_PROCEDURE: &str = review_procedure!();
-/// The Redacto review procedure, for the code that checks the prompts.
-pub const REDACTO_REVIEW_PROCEDURE: &str = redacto_review_procedure!();
 
 /// The workflow guidance that teaches a driving model how to operate the
 /// conversion tools: the AEM Author's authoring body, which the pipeline's
@@ -291,7 +261,7 @@ If REVIEW FEEDBACK appears below, address EVERY point from every round, then reb
 /// Reviewer role: read-only quality gate that ends by calling `submit_review`.
 pub const REVIEWER_ADDENDUM: &str = concat!("\
 ROLE: Reviewer / validator. You change nothing: you do not edit the document and you do not build \
-it. The pipeline built the Author's last document for you, and the verifiers check that build. You \
+it. The pipeline built the Author's last document for you, and the verifier checks that build. You \
 start without any account of how the Author worked, on purpose: judge the form from the source \
 alone. Read the document with json_outline / json_get / json_search, run json_validate, inspect the \
 package with get_package_info / read_package_file, then follow THE REVIEW PROCEDURE below in full. \
@@ -328,109 +298,8 @@ report = a detailed, actionable message listing every AUTHORABLE issue (with nod
 the BEHAVIOUR PARITY differences among them, \
 noting any engine-intrinsic limitations separately. Do not fix anything yourself.\n\n", review_procedure!());
 
-// ── Redacto target prompts ───────────────────────────────────────────────────
-//
-// Deliberate duplicates of the AEM constants above rather than a shared
-// fragment library: little of SYSTEM_PROMPT is target-neutral, so a
-// composition layer would abstract almost nothing while perturbing the working
-// AEM path. `redacto_prompts_do_not_leak_aem_vocabulary` in the app guards the
-// split. Revisit when a third target lands.
-
-/// Prepended to every Redacto pipeline-stage role prompt.
-/// Mirrors [`SHARED_PREAMBLE`]; invariant (1) is copied verbatim. Invariant (2)
-/// shares its first sentence but deliberately omits the AEM language-synonym
-/// note, which describes the AEM packager and has no Redacto counterpart.
-pub const REDACTO_SHARED_PREAMBLE: &str = "\
-You are one stage of a pipeline that converts an uploaded PDF into a Redacto text document \
-analogous to the source. The document is held to the rules rule_list gives you, and the source is \
-the only authority for content. A Redacto document is text only: it has no fillable fields, no \
-scripts and no conditional behaviour. When your stage is done, stop and reply with a concise, \
-structured summary of what you found or changed.";
-
-/// Redacto authoring body, the Author's counterpart to [`SYSTEM_PROMPT`].
-pub const REDACTO_SYSTEM_PROMPT: &str = concat!("\
-You are an autonomous conversion agent operating the form-conversion engine via tools, \
-replacing manual interaction. Goal: produce a Redacto text document that is analogous to the \
-uploaded PDF(s): a faithful recreation that a person comparing the two side by side would \
-recognize as the same document. What the finished document must satisfy is written down as \
-rules, which rule_list gives you; the steps below say how to work, not what the result must look \
-like. A Redacto document is TEXT ONLY: it has no fillable fields. If the source turns out to \
-carry input fields, say so plainly in your summary rather than inventing a representation for \
-them.\n\n\
-YOUR OUTPUT IS ONE JSON DOCUMENT, the UBS Redacto document, whose JSON Schema is pinned below \
-these instructions. It holds `sources`, one entry per language with that language's XFA \
-`variables` (already filled in from the source: they name the document and make up its page \
-footer, so leave them as they are) and its `header`, the text the source's master page draws top of \
-page (the validity line and the legal entity, one line each; read it with xfa_page_text and set it \
-per language); `assets`, every piece of content, each with a `key` of your choosing, a `kind` \
-(`text`, or `image` for a `data:` URI) and its `content` as an HTML fragment per language; and \
-`body`, the layout: a list of components, each an `assetContainer` (the `assets` it shows, by key, \
-in order) or a `styledPanel` (a CSS `style` and the `components` inside it). The document's metadata, \
-its page header and its page footer with the page counter are the UBS furniture, derived from the \
-sources when the dump is built: you author none of them. You read the document with json_outline, \
-json_get and json_search, and change it with json_patch (RFC 6902 operations, with the \
-`expected_revision` the last read or patch reported). Every json_patch reports what it changed \
-against the scripted rules.\n\n\
-Typical workflow (call tools as needed; each step is a separate call):\n\
-1. Inspect the input yourself, from the source PDFs: get_source_info (each PDF's language, its XFA \
-variables and the `doc_path` every xfa_* tool takes). Read the text with xfa_page_text page by page, \
-xfa_search to find a passage and xfa_read to quote the XFA exactly; look at the layout with \
-xfa_render_pages, and xfa_render_region for fine print. A document is multilingual whenever \
-get_source_info lists more than one language: each language is its own PDF.\n\
-2. Before authoring, call rule_list and read every rule: they are what the finished document is \
-held to, and each description says what is required and how to fix a break. Then author the \
-document with json_patch, section by section in source order: `add` each asset to \
-`/assets/-` and its place in the layout to `/body/-`. Its content is the block's HTML in EVERY \
-language at once ({\"de\":\"<h2>…</h2>\",\"en\":\"<h2>…</h2>\"}); pair the languages by meaning and \
-layout position (use the rendered pages). HTML is the platform's Quill vocabulary. Consecutive \
-blocks can share one assetContainer. Set each language's `/sources/<language>/header` too.\n\
-3. Layout: a region the source lays out as two balanced columns is a styledPanel with style \
-`layout-split` around its components; a side-by-side grid of blocks is `layout-split-block`; the \
-footnotes are a styledPanel with style `footnote`. Everything else is a plain assetContainer. Read \
-this off the rendered pages.\n\
-4. Build & validate: build_redacto_dump encodes the document, with the UBS metadata, header and \
-footer, into the PostgreSQL dump and reports the document id, the languages, the asset count and \
-whether a header and a footer were built. A document the Redacto model refuses builds \
-nothing and lists every violation; fix them with json_patch. json_validate checks the document \
-against the schema. Build after every substantive change.\n\
-5. Review end to end: follow THE REVIEW PROCEDURE below (a separate Reviewer, where the run has \
-one, follows the same after you). Where the document and the source disagree, fix it with json_patch, then rebuild and re-check. Never \
-leave a structural mismatch for a later stage to report: you are the stage that can fix it.\n\n\
-Before stopping, run rule_check once more over every rule and fix every negative verdict, then end \
-with finish_authoring. Keep tool inputs minimal and valid JSON.\n\n", redacto_review_procedure!());
-
-/// Redacto Author role: appended AFTER [`REDACTO_SYSTEM_PROMPT`].
-/// Mirrors [`AUTHOR_ADDENDUM`]; the "do not end the run yourself" contract is
-/// what the controller's review loop depends on, and is copied in substance.
-pub const REDACTO_AUTHOR_ADDENDUM: &str = "\
-STAGE NOTE: You inspect the source yourself (step 1), every language's PDF, and pair the \
-languages block by block: nobody has done it before you. A separate Reviewer judges fidelity after \
-you, starting fresh from the source with THE REVIEW PROCEDURE you run yourself in step 5, so do \
-the whole procedure and fix what it shows before you hand over: do not leave the Reviewer a \
-structural mismatch you could see yourself. End with finish_authoring; it is refused until the \
-procedure's gated steps are done on your last build. Say in its summary which sections you \
-compared against the page images and what you changed. If REVIEW FEEDBACK appears below, address \
-EVERY point from every round, then rebuild.";
-
-/// Redacto Reviewer role: independent fidelity judgement.
-pub const REDACTO_REVIEWER_ADDENDUM: &str = concat!("\
-ROLE: Reviewer. You change nothing: you do not edit the document and you do not build it. The \
-pipeline built the Author's last document for you, and the verifier checks that build. You start \
-without any account of how the Author worked, on purpose: judge the document from the source \
-alone. Run json_validate, then follow THE REVIEW PROCEDURE below in full. Every defect it finds is \
-an issue to return, with JSON Pointers where possible; a rule that stays unchecked after a re-run \
-is reported as such, not as the Author's issue. Confirm every point in any prior REVIEW FEEDBACK is \
-now fixed; it is a list of points to re-verify, not a verdict. When rules ask for opposite things \
-about the same node, so that whatever the Author does there one of them breaks, report it in \
-submit_review's rule_conflicts (the ids of the rules, the node path, what each asks for) and leave it \
-out of the report; when conflicts are all that is left, leave the report empty, and the run stops for \
-a person. End by calling submit_review with \
-approved=true ONLY if the import and every render succeeded and every remaining issue is resolved; \
-otherwise approved=false and report = a detailed, actionable message listing every issue. Do not \
-fix anything yourself.\n\n", redacto_review_procedure!());
-
-/// The judge agent's role: one rule, read-only, one verdict. Target-neutral:
-/// the rule and the document format pinned after it say what the document is.
+/// The judge agent's role: one rule, read-only, one verdict. The rule and the
+/// document format pinned after it say what the document is.
 pub const JUDGE_PREAMBLE: &str = "\
 You are a judge. You check ONE rule against the document a conversion is building from a source \
 PDF, and you change nothing. The rule, with the judgement id your verdict goes under, is given \
@@ -444,15 +313,9 @@ what to change there. Report only breaks of THIS rule.";
 
 /// The document format a stage works on, pinned into its system prompt: the
 /// JSON Schema json_validate checks the document against.
-pub fn document_format(target: crate::OutputTarget) -> String {
-    let (name, schema) = match target {
-        crate::OutputTarget::Aem => ("UBS AEM document", u2s_aem_ubs_mcp::document_schema()),
-        crate::OutputTarget::Redacto => {
-            ("UBS Redacto document", u2s_redacto_ubs_mcp::document_schema())
-        }
-    };
+pub fn document_format() -> String {
     format!(
-        "THE DOCUMENT FORMAT: the JSON Schema of the {name} (json_validate checks against it):\n{}",
-        serde_json::to_string(&schema).expect("a schema serializes")
+        "THE DOCUMENT FORMAT: the JSON Schema of the UBS AEM document (json_validate checks against it):\n{}",
+        serde_json::to_string(&u2s_aem_ubs_mcp::document_schema()).expect("a schema serializes")
     )
 }

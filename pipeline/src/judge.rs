@@ -82,7 +82,7 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
         .map(|(rule, _)| rule.clone())
         .collect();
     let check = CHECKS.fetch_add(1, Ordering::Relaxed) + 1;
-    let stage = judge_stage(ctx);
+    let stage = crate::roles::JUDGE.name.to_string();
     ctx.obs.trace(TraceEvent::RuleCheckStarted {
         stage: stage.clone(),
         check,
@@ -157,11 +157,6 @@ fn mark_reused(
     }
 }
 
-/// The judges' stage name, which their trace lines carry.
-fn judge_stage(ctx: &SubStageContext) -> String {
-    crate::roles::roles_for(ctx.target).judge.name.to_string()
-}
-
 /// Whether `rule_check` was asked for chosen rules rather than all of them.
 fn is_partial(input: &serde_json::Value) -> bool {
     input.get("rule_ids").and_then(serde_json::Value::as_array).is_some_and(|ids| !ids.is_empty())
@@ -205,14 +200,13 @@ async fn judge(
     drop(guard);
     let (rule, outcome) = judged;
     let judged = Judged { rule, outcome, spend };
-    ctx.obs.trace(judge_finished(ctx, check, &judged, turns, duration_ms, revision));
+    ctx.obs.trace(judge_finished(check, &judged, turns, duration_ms, revision));
     ctx.obs.emit(RunEvent::Rules(board));
     judged
 }
 
 /// The trace line of one ended judge.
 fn judge_finished(
-    ctx: &SubStageContext,
     check: u64,
     judged: &Judged,
     turns: usize,
@@ -226,7 +220,7 @@ fn judge_finished(
         Err(reason) => (JudgeVerdict::Unchecked, 0, Some(reason.clone())),
     };
     TraceEvent::JudgeFinished {
-        stage: judge_stage(ctx),
+        stage: crate::roles::JUDGE.name.to_string(),
         check,
         rule_id: rule.id.clone(),
         rule_name: rule.name.clone(),
@@ -261,13 +255,13 @@ async fn judge_rule(
     ctx: &SubStageContext,
     rule: &JudgedRule,
 ) -> (Result<RuleVerdict, String>, usize, Spend) {
-    let role = crate::roles::roles_for(ctx.target).judge;
+    let role = &crate::roles::JUDGE;
     let judgement = agent.lock().await.open_judgement();
     let end = run_sub_stage(
         agent,
         ctx,
         role,
-        &crate::roles::sys_judge(ctx.target, rule, &judgement),
+        &crate::roles::sys_judge(rule, &judgement),
         &format!("Judge the rule \"{}\", then call submit_rule_verdict with judgement {judgement}.", rule.title),
         &Caller::Judge,
         format!("judge: {}", rule.title),
@@ -296,7 +290,7 @@ mod tests {
         }
     }
 
-    /// A Redacto agent holding `rules` as its judged ones.
+    /// An agent holding `rules` as its judged ones.
     fn agent_with(rules: Vec<JudgedRule>) -> SharedAgent {
         test_support::agent_with_judged(rules)
     }
@@ -305,8 +299,8 @@ mod tests {
         test_support::context(model, abort)
     }
 
-    /// The verdicts of the judged rules in `report`: the Redacto target has scripted rules too,
-    /// whose verdicts stand beside them.
+    /// The verdicts of the judged rules in `report`: there are scripted rules too, whose
+    /// verdicts stand beside them.
     fn judged(report: &serde_json::Value) -> Vec<&serde_json::Value> {
         report["verdicts"]
             .as_array()
@@ -459,7 +453,7 @@ mod tests {
             panic!("the check opens the trace: {traced:?}");
         };
         assert_eq!((stage.as_str(), *partial, *judged, *on), ("Judge", false, 1, revision));
-        assert!(*scripted > 0, "the Redacto target has scripted rules too");
+        assert!(*scripted > 0, "there are scripted rules too");
         let TraceEvent::JudgeFinished {
             check: judge_check,
             rule_id,
@@ -568,7 +562,7 @@ mod tests {
         let violations = if pass {
             serde_json::json!([])
         } else {
-            serde_json::json!([{"pointer": "/body", "message": "split the table"}])
+            serde_json::json!([{"pointer": "/form", "message": "split the table"}])
         };
         vec![
             MockStreamEvent::tool_call(
@@ -588,9 +582,8 @@ mod tests {
         assert!(!matches!(reply, ToolReply::Error(_)), "{reply:?}");
     }
 
-    const ADD_ASSET: &str =
-        r#"[{"op": "add", "path": "/assets/-", "value": {"key": "intro", "kind": "text", "content": {"en": "<p>Hi</p>"}}}]"#;
-    const REMOVE_ASSET: &str = r#"[{"op": "remove", "path": "/assets/0"}]"#;
+    const ADD_HEADER: &str = r#"[{"op": "add", "path": "/header", "value": "UBS Europe SE"}]"#;
+    const REMOVE_HEADER: &str = r#"[{"op": "remove", "path": "/header"}]"#;
 
     /// A second check of the same document sends no judge: each judged rule
     /// keeps the verdict its judge gave on that content, negative ones too,
@@ -686,13 +679,13 @@ mod tests {
         let agent = agent_with(vec![rule("a")]);
         report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
 
-        edit(&agent, serde_json::from_str(ADD_ASSET).unwrap()).await;
+        edit(&agent, serde_json::from_str(ADD_HEADER).unwrap()).await;
         let edited = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
         assert_eq!(model.request_count(), 2, "the edited document was not judged again");
         assert_eq!(judged(&edited)[0]["verdict"], "negative");
         assert!(judged(&edited)[0].get("cached").is_none());
 
-        edit(&agent, serde_json::from_str(REMOVE_ASSET).unwrap()).await;
+        edit(&agent, serde_json::from_str(REMOVE_HEADER).unwrap()).await;
         let undone = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
         assert_eq!(model.request_count(), 2, "the undone edit was judged again");
         assert_eq!(judged(&undone)[0]["verdict"], "positive");

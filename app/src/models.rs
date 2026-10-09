@@ -147,17 +147,11 @@ pub struct AgentStep {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ProcessingState {
     pub step: ProcessingStep,
-    /// What the finished run produced. Recorded here rather than read from the
-    /// upload selector so the result panel always describes the run that
-    /// actually happened.
-    pub target: agent::OutputTarget,
     pub form_code: Option<String>,
     pub aem_package: Option<Vec<u8>>,
     /// The AEM package built with `bind_to_xsd` on, offered as its own download.
     pub aem_package_bound: Option<Vec<u8>>,
     pub xsd_schema: Option<String>,
-    /// PostgreSQL dump for the Redacto platform (text-only documents).
-    pub redacto_sql: Option<String>,
     pub error: Option<String>,
     /// The user stopped the run. Terminal like [`Self::error`], but not a
     /// failure — the box says so rather than reporting an error nobody hit.

@@ -10,7 +10,6 @@
 use std::error::Error;
 use std::path::{Path, PathBuf};
 
-use agent::OutputTarget;
 use clap::Args;
 use pipeline::AbortFlag;
 use runner::{AppSettings, Artifact, Provider, TurnPlan};
@@ -40,10 +39,6 @@ pub struct ConvertArgs {
     /// session's profile when resuming, or to the only installed profile.
     #[arg(long)]
     profile: Option<String>,
-
-    /// What the run produces: "aem" or "redacto".
-    #[arg(long, default_value = "aem", value_parser = parse_target)]
-    target: OutputTarget,
 
     /// Directory the artefacts are written to (created if missing).
     #[arg(long, default_value = ".")]
@@ -125,16 +120,6 @@ fn parse_provider(value: &str) -> Result<Provider, String> {
     })
 }
 
-pub(crate) fn parse_target(value: &str) -> Result<OutputTarget, String> {
-    OutputTarget::parse(value).ok_or_else(|| {
-        let known: Vec<&str> = OutputTarget::ALL.iter().map(|t| t.as_str()).collect();
-        format!(
-            "unknown target `{value}` (expected one of: {})",
-            known.join(", ")
-        )
-    })
-}
-
 /// Run the conversion and write what it produced.
 pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     let files = read_documents(&args.documents)?;
@@ -174,22 +159,14 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     let obs = pipeline::SharedObserver::from_arc(observer.clone());
 
     println!("Profile: {}", profile.as_deref().unwrap_or("(none)"));
-    println!("Target: {}", args.target.label());
     println!("{}", plan.describe());
-    match args.target {
-        OutputTarget::Aem => println!(
-            "Verification: AEM image {} (pulled from GitHub when missing, checked before the run starts)",
-            agent::u2s::AEM_IMAGE
-        ),
-        OutputTarget::Redacto => println!(
-            "Verification: Redacto core image {}, rendering image {} (checked before the run starts)",
-            settings.redacto_verify.core_image, settings.redacto_verify.rendering_image
-        ),
-    }
+    println!(
+        "Verification: AEM image {} (pulled from GitHub when missing, checked before the run starts)",
+        agent::u2s::AEM_IMAGE
+    );
 
     let opts = runner::RunOptions {
         profile,
-        target: args.target,
         settings,
         abort: abort.clone(),
     };
@@ -285,7 +262,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Write every artefact the run produced for its target, plus the transcript.
+/// Write every artefact the run produced, plus the transcript.
 fn write_artifacts(
     args: &ConvertArgs,
     outcome: &pipeline::RunOutcome,
@@ -296,9 +273,6 @@ fn write_artifacts(
     let code = outcome.form_code.as_deref();
 
     for artifact in Artifact::ALL {
-        if !artifact.belongs_to(args.target) {
-            continue;
-        }
         match artifact.bytes_from(outcome) {
             Some(bytes) => write_file(&args.out, &artifact.filename(code), &bytes)?,
             None => println!("Not produced: {}", artifact.filename(code)),
@@ -486,12 +460,6 @@ fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_target_is_parsed_case_insensitively_and_rejected_when_unknown() {
-        assert_eq!(parse_target("ReDaCtO").unwrap(), OutputTarget::Redacto);
-        assert!(parse_target("html").is_err());
-    }
 
     /// The full file name has to survive: the agent splits sources from an
     /// attached content package on the `.pdf` extension, so a stem would leave

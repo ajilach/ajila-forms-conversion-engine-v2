@@ -2,7 +2,7 @@
 
 The desktop app for the [Blueprint](https://github.com/ajilach/ajila-forms-conversion-engine) project: drop
 in the PDF forms, and an autonomous agent converts them into an AEM Adaptive Forms
-package or a Redacto document, showing its work as it goes.
+package, showing its work as it goes.
 
 Built with [Dioxus](https://dioxuslabs.com/) for macOS, Windows and Linux. The latest
 release can be downloaded from the [releases page](https://github.com/ajilach/ajila-forms-conversion-engine/releases).

@@ -283,7 +283,7 @@ fn the_compiled_rules_are_the_rule_directories() {
         })
         .collect();
     let from_dir = u2s_doc_tools::rules_dir::load_rules(files).expect("the rules load");
-    let compiled = u2s_doc_tools::rules_dir::load_rules(agent::rules::rule_files(agent::OutputTarget::Aem))
+    let compiled = u2s_doc_tools::rules_dir::load_rules(agent::rules::rule_files())
         .expect("the compiled rules load");
     assert_eq!(from_dir.len(), rules().len());
     let ids = |rules: &[u2s_doc_tools::native::RuleForCheck]| {

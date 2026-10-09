@@ -37,8 +37,6 @@ pub struct Tab {
     pub processing: Signal<bool>,
     /// Conversion profile, chosen per tab.
     pub profile: Signal<Option<String>>,
-    /// What this tab's run produces, chosen per tab.
-    pub target: Signal<agent::OutputTarget>,
     /// The uploaded sources — both the upload box's selection and the input a
     /// feedback re-run resends.
     pub files: Signal<Vec<(String, Vec<u8>)>>,
@@ -72,7 +70,7 @@ pub struct Tab {
 
 impl Tab {
     /// Open a tab, inheriting the choices the user last made.
-    fn open(profile: Option<String>, target: agent::OutputTarget) -> Self {
+    fn open(profile: Option<String>) -> Self {
         fn app<T: 'static>(value: T) -> Signal<T> {
             Signal::new_in_scope(value, ScopeId::APP)
         }
@@ -81,7 +79,6 @@ impl Tab {
             state: app(ProcessingState::default()),
             processing: app(false),
             profile: app(profile),
-            target: app(target),
             files: app(Vec::new()),
             feedback: app(String::new()),
             timeline_open: app(false),
@@ -117,7 +114,6 @@ impl Tab {
             // carrying on is the operator's explicit call — the Continue button.
             processing: app(restored.processing),
             profile: app(saved.profile.clone()),
-            target: app(saved.target),
             files: app(files),
             feedback: app(saved.feedback_draft.clone()),
             timeline_open: app(false),
@@ -144,7 +140,6 @@ impl Tab {
         SavedTab {
             id: self.id.get(),
             profile: self.profile.read().clone(),
-            target: *self.target.read(),
             session_id: self.session_id.read().clone(),
             doc_hash,
             source_names: self
@@ -175,7 +170,6 @@ impl Tab {
         self.state.manually_drop();
         self.processing.manually_drop();
         self.profile.manually_drop();
-        self.target.manually_drop();
         self.files.manually_drop();
         self.feedback.manually_drop();
         self.timeline_open.manually_drop();
@@ -212,7 +206,6 @@ impl Workspace {
     pub fn use_init(
         saved: &SavedWorkspace,
         profile: Option<&str>,
-        target: agent::OutputTarget,
         // What survived for each saved tab: its stored sources, and how much of
         // its result is still reachable. Passed in so this stays free of the
         // store.
@@ -233,7 +226,7 @@ impl Workspace {
                 .collect();
 
             if tabs.is_empty() {
-                let fresh = Tab::open(profile.map(str::to_string), target);
+                let fresh = Tab::open(profile.map(str::to_string));
                 return (vec![fresh], fresh.id);
             }
             let active = saved
@@ -318,7 +311,7 @@ impl Workspace {
             return;
         }
         let current = self.active_tab();
-        let tab = Tab::open(current.profile.peek().clone(), *current.target.peek());
+        let tab = Tab::open(current.profile.peek().clone());
         self.tabs.write().push(tab);
         self.active.set(tab.id);
     }
@@ -346,7 +339,7 @@ impl Workspace {
             // The workspace is never empty: closing the last tab leaves a fresh
             // one rather than a screen with nothing on it.
             None => {
-                let fresh = Tab::open(tab.profile.peek().clone(), *tab.target.peek());
+                let fresh = Tab::open(tab.profile.peek().clone());
                 self.tabs.write().push(fresh);
                 self.active.set(fresh.id);
             }

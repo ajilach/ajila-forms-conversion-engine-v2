@@ -256,35 +256,6 @@ pub fn SettingsPage(
 
                     SettingsTab::Aem => rsx! {
                         div { class: "settings-section",
-                            h3 { class: "settings-section-title", "Output formats" }
-                            ToggleRow {
-                                label: "AEM Adaptive Form",
-                                desc: "Offer AEM as an output and check this machine for its verifier (the AEM image and data volume). At least one format stays on.",
-                                checked: s.target_enabled(agent::OutputTarget::Aem),
-                                on_toggle: move |v: bool| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| {
-                                                s.set_target_enabled(agent::OutputTarget::Aem, v);
-                                            }),
-                                        )
-                                },
-                            }
-                            ToggleRow {
-                                label: "Redacto Document",
-                                desc: "Offer Redacto as an output and check this machine for its verifier (the Redacto platform images). Switch it off when you do not convert to Redacto, and the readiness banner stops asking for its images.",
-                                checked: s.target_enabled(agent::OutputTarget::Redacto),
-                                on_toggle: move |v: bool| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| {
-                                                s.set_target_enabled(agent::OutputTarget::Redacto, v);
-                                            }),
-                                        )
-                                },
-                            }
-                        }
-                        div { class: "settings-section",
                             h3 { class: "settings-section-title", "AEM verification" }
                             div { class: "row",
                                 RowInfo {
@@ -359,104 +330,6 @@ pub fn SettingsPage(
                             }
                         }
                         div { class: "settings-section",
-                            h3 { class: "settings-section-title", "Redacto verification" }
-                            TextRow {
-                                label: "Core image",
-                                desc: "The Redacto platform's core service. The verifier boots a platform of its own for each run (see docker/redacto/README.md); pull the private images after `az acr login --name ajilaclouddev`.",
-                                value: s.redacto_verify.core_image.clone(),
-                                placeholder: "",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| {
-                                                s.redacto_verify.core_image = v.trim().to_string()
-                                            }),
-                                        )
-                                },
-                            }
-                            TextRow {
-                                label: "Rendering image",
-                                desc: "The Redacto platform's rendering service.",
-                                value: s.redacto_verify.rendering_image.clone(),
-                                placeholder: "",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| {
-                                                s.redacto_verify.rendering_image = v.trim().to_string()
-                                            }),
-                                        )
-                                },
-                            }
-                            TextRow {
-                                label: "Migration image",
-                                desc: "The platform's database migrations, run once per boot.",
-                                value: s.redacto_verify.migration_image.clone(),
-                                placeholder: "",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| {
-                                                s.redacto_verify.migration_image = v.trim().to_string()
-                                            }),
-                                        )
-                                },
-                            }
-                            TextRow {
-                                label: "Postgres image",
-                                desc: "The platform's database.",
-                                value: s.redacto_verify.postgres_image.clone(),
-                                placeholder: "postgres:16-alpine",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| {
-                                                s.redacto_verify.postgres_image = v.trim().to_string()
-                                            }),
-                                        )
-                                },
-                            }
-                            TextRow {
-                                label: "Platform",
-                                desc: "The Docker platform the platform images run as. Empty lets Docker decide.",
-                                value: s.redacto_verify.platform.clone(),
-                                placeholder: "",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| {
-                                                s.redacto_verify.platform = v.trim().to_string()
-                                            }),
-                                        )
-                                },
-                            }
-                            TextRow {
-                                label: "Username",
-                                desc: "Basic auth username for the platform's rendering service.",
-                                value: s.redacto_verify.user.clone(),
-                                placeholder: "admin",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update.call(Box::new(move |s| s.redacto_verify.user = v.trim().to_string()))
-                                },
-                            }
-                            TextRow {
-                                label: "Password",
-                                desc: "Basic auth password. Stored locally on disk.",
-                                value: s.redacto_verify.password.clone(),
-                                placeholder: "••••••••",
-                                secret: true,
-                                on_change: move |v: String| {
-                                    update.call(Box::new(move |s| s.redacto_verify.password = v))
-                                },
-                            }
-                        }
-                        div { class: "settings-section",
                             h3 { class: "settings-section-title", "Verifier tooling" }
                             SelectRow {
                                 label: "Container engine",
@@ -473,7 +346,7 @@ pub fn SettingsPage(
                             div { class: "row",
                                 RowInfo {
                                     label: "Pull images",
-                                    desc: "Download the verifier images now rather than when a run starts: headless Chrome, Postgres, and the AEM image from GitHub, which needs the GitHub CLI signed in (`gh auth login -s read:packages`). The private Redacto images are pulled by hand after `az acr login --name ajilaclouddev`.".to_string(),
+                                    desc: "Download the verifier images now rather than when a run starts: headless Chrome, and the AEM image from GitHub, which needs the GitHub CLI signed in (`gh auth login -s read:packages`).".to_string(),
                                 }
                                 button {
                                     class: "btn btn-secondary btn-sm",
@@ -481,15 +354,10 @@ pub fn SettingsPage(
                                     onclick: move |_| {
                                         let s = settings.read();
                                         let aem_verify = s.aem_verify.clone();
-                                        let redacto_verify = s.redacto_verify.clone();
                                         verify_busy.set(true);
                                         verify_status.set(None);
                                         spawn(async move {
-                                            let result = agent::u2s::pull_verifier_images(
-                                                    &aem_verify,
-                                                    &redacto_verify,
-                                                )
-                                                .await;
+                                            let result = agent::u2s::pull_verifier_images(&aem_verify).await;
                                             verify_status.set(Some(result));
                                             verify_busy.set(false);
                                         });

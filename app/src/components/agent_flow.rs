@@ -73,11 +73,9 @@ pub fn AgentFlow(
     profiles: Vec<String>,
     /// Whether agent processing is available (an API key is configured).
     ai_available: bool,
-    /// Whether each target can run on this machine; `None` until the first
+    /// Whether this machine can run a conversion; `None` until the first
     /// check finishes.
     readiness: Option<super::Readiness>,
-    /// The output targets the settings offer; the Output picker shows only these.
-    enabled_targets: Vec<agent::OutputTarget>,
     /// Start a fresh agent run in this tab from its uploaded files.
     on_ai_process: EventHandler<Vec<(String, Vec<u8>)>>,
     /// Re-run the agent in the same session with the user's feedback.
@@ -113,10 +111,8 @@ pub fn AgentFlow(
                             UploadBox {
                                 profiles,
                                 selected_profile: tab.profile,
-                                selected_target: tab.target,
                                 ai_available,
                                 readiness,
-                                enabled_targets,
                                 uploaded_files,
                                 on_start: move |files: Vec<(String, Vec<u8>)>| on_ai_process.call(files),
                             }
@@ -165,10 +161,8 @@ pub fn AgentFlow(
 fn UploadBox(
     profiles: Vec<String>,
     mut selected_profile: Signal<Option<String>>,
-    selected_target: Signal<agent::OutputTarget>,
     ai_available: bool,
     readiness: Option<super::Readiness>,
-    enabled_targets: Vec<agent::OutputTarget>,
     mut uploaded_files: Signal<Vec<(String, Vec<u8>)>>,
     on_start: EventHandler<Vec<(String, Vec<u8>)>>,
 ) -> Element {
@@ -184,22 +178,17 @@ fn UploadBox(
     // An AEM content-package ZIP can be attached as an editable template; a run
     // needs at least a PDF or a template.
     let has_template = agent::conversion::template_of(&files).is_some();
-    // The runner refuses a target that is not ready anyway; this says so
+    // The runner refuses a machine that is not ready anyway; this says so
     // before the files are dropped, and the banner says why.
-    let target = *selected_target.read();
-    // A switched-off target is not checked; the picker moves off it, and until
-    // it has, it counts as not ready.
-    let target_ready = readiness
-        .as_ref()
-        .map(|r| r.of(target).is_some_and(|result| result.is_ok()));
+    let ready = readiness.as_ref().map(super::Readiness::is_ready);
     let start_disabled =
-        files.is_empty() || (!has_pdf && !has_template) || !ai_available || target_ready != Some(true);
+        files.is_empty() || (!has_pdf && !has_template) || !ai_available || ready != Some(true);
     let start_title = if !ai_available {
         "Configure an API key in Settings to enable agent processing."
-    } else if target_ready.is_none() {
+    } else if ready.is_none() {
         "Checking whether this machine can run the conversion…"
-    } else if target_ready == Some(false) {
-        "This machine is not ready for this output format; the banner above says why."
+    } else if ready == Some(false) {
+        "This machine is not ready to run a conversion; the banner above says why."
     } else if files.is_empty() {
         "Drop or choose a file to begin."
     } else if !has_pdf && !has_template {
@@ -251,12 +240,6 @@ fn UploadBox(
                             }
                         }
                     }
-                }
-                super::OutputTargetSelector {
-                    profile: selected_profile.read().clone(),
-                    enabled: enabled_targets,
-                    selected_target,
-                    disabled: false,
                 }
             }
 
@@ -414,7 +397,7 @@ fn RunBox(
                 div { class: "progress-note", "Stopped at your request." }
             }
 
-            // Non-fatal problems the run reported — a Redacto dump that could not
+            // Non-fatal problems the run reported — a package that could not
             // be built, a cross-language merge that failed. Without this the run
             // looks clean while an output is silently missing.
             if !warnings.is_empty() {
@@ -1058,7 +1041,6 @@ fn ResultActions(
 enum Artifact {
     Package,
     PackageBound,
-    RedactoSql,
     Xsd,
     AgentLog,
 }
@@ -1066,19 +1048,12 @@ enum Artifact {
 impl Artifact {
     /// Every artefact, in the order the result row offers them. Which of these
     /// actually appear is [`Artifact::is_offered`]'s call.
-    const ALL: &'static [Self] = &[
-        Self::Package,
-        Self::PackageBound,
-        Self::RedactoSql,
-        Self::Xsd,
-        Self::AgentLog,
-    ];
+    const ALL: &'static [Self] = &[Self::Package, Self::PackageBound, Self::Xsd, Self::AgentLog];
 
     fn label(self) -> &'static str {
         match self {
             Self::Package => "⬇ Download CRX package",
             Self::PackageBound => "⬇ Download CRX package with bindRefs",
-            Self::RedactoSql => "Redacto SQL",
             Self::Xsd => "XSD schema",
             Self::AgentLog => "Agent log",
         }
@@ -1092,9 +1067,6 @@ impl Artifact {
             Self::PackageBound => {
                 "The same package with a bindRef on every field and the matching XSD bundled"
             }
-            Self::RedactoSql => {
-                "The Redacto PostgreSQL dump (document, components and text assets)"
-            }
             Self::Xsd => "The XML Schema Definition for the converted form",
             Self::AgentLog => "The agent's full activity timeline as a Markdown transcript",
         }
@@ -1106,25 +1078,9 @@ impl Artifact {
         match self {
             Self::Package => runner::Artifact::Package.naming(),
             Self::PackageBound => runner::Artifact::PackageBound.naming(),
-            Self::RedactoSql => runner::Artifact::RedactoSql.naming(),
             Self::Xsd => runner::Artifact::Xsd.naming(),
             // The app's own by-product, not one of the run's artefacts.
             Self::AgentLog => ("agent-log", "md"),
-        }
-    }
-
-    /// Whether this artefact belongs to `target`'s result panel.
-    ///
-    /// Presence alone is not the rule: an artefact that only makes sense for the
-    /// other target must stay hidden even if the run happens to have produced it.
-    /// The log belongs to every run.
-    fn belongs_to(self, target: agent::OutputTarget) -> bool {
-        match self {
-            Self::Package | Self::PackageBound | Self::Xsd => {
-                target == agent::OutputTarget::Aem
-            }
-            Self::RedactoSql => target == agent::OutputTarget::Redacto,
-            Self::AgentLog => true,
         }
     }
 
@@ -1133,22 +1089,17 @@ impl Artifact {
         match self {
             Self::Package => state.aem_package.clone(),
             Self::PackageBound => state.aem_package_bound.clone(),
-            Self::RedactoSql => state.redacto_sql.as_ref().map(|s| s.clone().into_bytes()),
             Self::Xsd => state.xsd_schema.as_ref().map(|s| s.clone().into_bytes()),
             Self::AgentLog => (!state.agent_steps.is_empty())
                 .then(|| agent_log_markdown(&state.agent_steps).into_bytes()),
         }
     }
 
-    /// Whether the run produced it *and* it belongs to that run's target.
+    /// Whether the run produced it.
     fn is_offered(self, state: &ProcessingState) -> bool {
-        if !self.belongs_to(state.target) {
-            return false;
-        }
         match self {
             Self::Package => state.aem_package.is_some(),
             Self::PackageBound => state.aem_package_bound.is_some(),
-            Self::RedactoSql => state.redacto_sql.is_some(),
             Self::Xsd => state.xsd_schema.is_some(),
             Self::AgentLog => !state.agent_steps.is_empty(),
         }
@@ -1301,10 +1252,7 @@ mod tests {
             runner::artifact_filename("forms-package", Some("AAEV"), "zip"),
             "forms-package-AAEV.zip"
         );
-        assert_eq!(
-            runner::artifact_filename("redacto", None, "sql"),
-            "redacto.sql"
-        );
+        assert_eq!(runner::artifact_filename("schema", None, "xsd"), "schema.xsd");
     }
 
     /// The log is the only durable record of a run once the window is closed, so
@@ -1356,15 +1304,14 @@ mod tests {
         assert!(md.contains("> First line\n> Second line\n"), "{md}");
     }
 
-    /// A state holding every artefact, so the target rule is what decides which
-    /// ones the panel offers.
-    fn state_with_everything(target: agent::OutputTarget) -> ProcessingState {
-        ProcessingState {
+    /// A finished run that produced every artefact offers every one.
+    #[test]
+    fn every_artifact_the_run_produced_is_offered() {
+        let state = ProcessingState {
             step: ProcessingStep::Complete,
-            target,
             aem_package: Some(vec![1, 2, 3]),
+            aem_package_bound: Some(vec![4, 5, 6]),
             xsd_schema: Some("<xsd/>".into()),
-            redacto_sql: Some("INSERT ...".into()),
             agent_steps: vec![step(
                 AgentStepKind::Tool,
                 "build_aem_package",
@@ -1372,43 +1319,17 @@ mod tests {
                 AgentStepStatus::Done,
             )],
             ..Default::default()
+        };
+        for artifact in Artifact::ALL {
+            assert!(artifact.is_offered(&state), "{artifact:?}");
         }
     }
 
-    /// Presence is not the rule. An AEM run must not offer the Redacto dump even
-    /// when one exists, and vice versa — otherwise the panel advertises an
-    /// artefact from the target the user did not pick.
-    #[test]
-    fn each_target_offers_only_its_own_artifacts() {
-        let aem = state_with_everything(agent::OutputTarget::Aem);
-        assert!(Artifact::Package.is_offered(&aem));
-        assert!(Artifact::Xsd.is_offered(&aem));
-        assert!(!Artifact::RedactoSql.is_offered(&aem));
-
-        let redacto = state_with_everything(agent::OutputTarget::Redacto);
-        assert!(Artifact::RedactoSql.is_offered(&redacto));
-        assert!(!Artifact::Package.is_offered(&redacto));
-        assert!(!Artifact::Xsd.is_offered(&redacto));
-    }
-
-    /// The log is the record of the run itself, so it survives either target.
-    #[test]
-    fn the_agent_log_is_offered_for_every_target() {
-        for target in agent::OutputTarget::ALL {
-            assert!(
-                Artifact::AgentLog.is_offered(&state_with_everything(target)),
-                "{target:?}"
-            );
-        }
-    }
-
-    /// A target that produced nothing offers nothing: the rule gates on top of
-    /// presence, it does not replace it.
+    /// A run that produced nothing offers nothing.
     #[test]
     fn an_artifact_the_run_never_produced_is_not_offered() {
         let empty = ProcessingState {
             step: ProcessingStep::Complete,
-            target: agent::OutputTarget::Aem,
             ..Default::default()
         };
 

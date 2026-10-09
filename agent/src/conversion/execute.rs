@@ -144,9 +144,6 @@ impl ConversionAgent {
         if access_of(name) != Access::Read || input.get("session").is_some() {
             return None;
         }
-        if let Some(refusal) = self.target_refusal(name) {
-            return Some(Box::pin(std::future::ready(ToolReply::Error(refusal))));
-        }
         if references_mcp::specs::is_reference_tool(name) {
             let server = self.references.clone();
             let (name, input) = (name.to_string(), input.clone());
@@ -243,10 +240,6 @@ impl ConversionAgent {
 
     /// [`Self::execute`], made by `caller`.
     pub async fn execute_as(&mut self, name: &str, input: &Value, caller: &Caller) -> ToolReply {
-        if let Some(refusal) = self.target_refusal(name) {
-            return ToolReply::Error(refusal);
-        }
-
         match name {
             // §1 source
             "get_source_info" => match self.source_documents(input) {
@@ -321,7 +314,6 @@ impl ConversionAgent {
 
             // §3 building
             "build_aem_package" => self.build_aem_package(),
-            "build_redacto_dump" => self.build_redacto_dump(),
             "get_package_info" => match self.package() {
                 Some(pkg) => {
                     let files = references_mcp::unzip_package(&pkg).unwrap_or_default();
@@ -620,11 +612,7 @@ impl ConversionAgent {
         if self.built.is_some() {
             return Ok(());
         }
-        let reply = match self.target {
-            OutputTarget::Aem => self.build_aem_package(),
-            OutputTarget::Redacto => self.build_redacto_dump(),
-        };
-        match reply {
+        match self.build_aem_package() {
             ToolReply::Error(e) => Err(e),
             _ => Ok(()),
         }
@@ -648,7 +636,7 @@ impl ConversionAgent {
         let findings = crate::package_checks::check_package(&build.package);
         let size = build.package.len();
         let bound = build.bound_package.as_ref().map(Vec::len);
-        self.set_built(Some(Built::Aem {
+        self.set_built(Some(Built {
             package: build.package,
             bound_package: build.bound_package,
             xsd: build.xsd,
@@ -672,33 +660,5 @@ impl ConversionAgent {
             Err(e) => report.push_str(&format!("\nThe package could not be checked against the feedback guard: {e}")),
         }
         ToolReply::Text(report)
-    }
-
-    fn build_redacto_dump(&mut self) -> ToolReply {
-        let doc: u2s_redacto_ubs_mcp::UbsRedactoDocument =
-            match serde_json::from_value(self.document.value().clone()) {
-                Ok(doc) => doc,
-                Err(e) => return ToolReply::Error(format!("Nothing built: not a UBS Redacto document: {e}")),
-            };
-        let redacto = match u2s_redacto_ubs_mcp::to_redacto(&doc) {
-            Ok(redacto) => redacto,
-            Err(e) => return ToolReply::Error(format!("Nothing built: {e}")),
-        };
-        let dump = match u2s_mapper_redacto::encode(&redacto) {
-            Ok(dump) => dump.bytes,
-            Err(e) => return ToolReply::Error(format!("Nothing built: {e}")),
-        };
-        let meta = &redacto.document().metadata;
-        let report = json!({
-            "document_id": meta.document_id.as_str(),
-            "languages": meta.languages.iter().map(|l| l.as_str()).collect::<Vec<_>>(),
-            "master_language": meta.master_language.as_str(),
-            "assets": redacto.document().assets.len(),
-            "has_header": !redacto.document().header.is_empty(),
-            "has_footer": !redacto.document().footer.is_empty(),
-            "bytes": dump.len(),
-        });
-        self.set_built(Some(Built::Redacto { dump }));
-        ToolReply::Text(report.to_string())
     }
 }

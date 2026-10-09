@@ -605,7 +605,7 @@ body > div, #main {
     color: var(--danger);
 }
 
-/* What keeps a target from running on this machine, under the header. */
+/* What keeps this machine from running a conversion, under the header. */
 .environment-banner {
     background: var(--danger-soft);
     color: var(--danger);
@@ -622,28 +622,10 @@ body > div, #main {
     gap: var(--space-4);
 }
 
-.environment-banner-target {
-    display: flex;
-    gap: var(--space-2);
-    margin-top: var(--space-2);
-}
-
-.environment-banner-name {
-    font-weight: 600;
-    min-width: 5em;
-}
-
-.environment-banner-target ul {
-    flex: 1;
-    margin: 0;
+.environment-banner ul {
+    margin: var(--space-2) 0 0;
     padding-left: var(--space-4);
     overflow-wrap: anywhere;
-}
-
-/* "I don't use …": switches the target off, beside its problems. */
-.environment-banner-off {
-    align-self: flex-start;
-    white-space: nowrap;
 }
 
 /* ── Settings button in header ── */

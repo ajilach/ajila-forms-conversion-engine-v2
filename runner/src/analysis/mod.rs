@@ -50,8 +50,9 @@ pub const EVALUATION_FILE: &str = "evaluation.md";
 /// Version of the `trace.jsonl` / `summary.json` layout. 2 added the judges:
 /// the `rule_check_started`, `judge_finished` and `rule_check_finished`
 /// events, and `judge_runs`, `judge_cost_usd`, `agent_cost_usd` and `judges`
-/// in the summary (a version-1 run recorded none, which is not zero).
-pub const SCHEMA_VERSION: u32 = 2;
+/// in the summary (a version-1 run recorded none, which is not zero). 3 dropped
+/// `run.target` from the summary: every run produces an AEM form.
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// Where runs are recorded, resolved from the settings: `None` when recording
 /// is switched off.
@@ -95,11 +96,10 @@ pub struct RunMeta {
     /// Local start time, RFC 3339.
     pub started: String,
     pub profile: String,
-    pub target: String,
     /// The endpoint and model, as the run's plan describes them.
     pub model: String,
     pub max_review_rounds: usize,
-    /// The verifier the run checks its output with (u2s: AEM or Redacto).
+    /// The verifier the run checks its output with.
     pub verification: String,
     pub engine_version: String,
 }

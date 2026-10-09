@@ -21,7 +21,6 @@ fn meta() -> RunMeta {
         kind: "fresh conversion".into(),
         started: "2026-09-30T14:00:00+02:00".into(),
         profile: "ubs".into(),
-        target: "aem".into(),
         model: "anthropic claude-opus-5".into(),
         max_review_rounds: 3,
         verification: "AEM verifier".into(),

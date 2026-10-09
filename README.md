@@ -13,7 +13,6 @@ Decodes PDFs and extracts structured data for automated forms conversion.
 - Standalone HTML
 - XSD (XML Schema Definition)
 - AEM Adaptive Forms package
-- Redacto PostgreSQL dump
 
 ## Project Structure
 
@@ -66,9 +65,6 @@ The API key, model, review-round cap, extra instructions and AEM credentials def
 # Convert a form (multilingual sources allowed)
 cargo run --release -p blueprint-cli -- convert form_DE.pdf form_EN.pdf --profile ubs
 
-# Produce a Redacto document instead of an AEM package
-cargo run --release -p blueprint-cli -- convert path/to/form.pdf --target redacto
-
 # Write artefacts to a specific directory
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --out ./out
 
@@ -95,32 +91,28 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> 
 
 ### Verification setup
 
-Both AEM and Redacto targets require verification during the conversion: the Author
-and Reviewer drive the built form with verification tools, not with a browser.
-Verification uses vendored u2s verifiers linked into the binaries (source in
+Every conversion requires verification: the Author and Reviewer drive the built form
+with verification tools, not with a browser.
+Verification uses the vendored u2s verifier linked into the binaries (source in
 `vendor/crates/`, see `u2s/VENDORED.md`). Every run checks whether verification is set up before it
 starts and refuses to run if it is not.
 
-For an **AEM target**, the verifier boots its own AEM Forms instance plus a headless
+The verifier boots its own AEM Forms instance plus a headless
 Chromium, both in Docker, installs the built package there, and lets the Author and
 Reviewer drive the form with the `aem_verify_*` tools (open, interact with controls,
 set values, advance pages, submit, close, screenshot). The PDF a submission produces
 is read with the `pdf_*` tools. The source form is read with the `xfa_*` tools.
 
-Prerequisites on the machine running an AEM conversion:
+Prerequisites on the machine running a conversion:
 - Docker running, or Podman 5.3+, selected in Settings > Verification > Container engine or with `--container-engine podman` (see [docs/podman.md](docs/podman.md))
 - The GitHub CLI signed in with access to ajila's packages: `gh auth login -s read:packages` (or `gh auth refresh -s read:packages` for an existing login). The AEM image (`ghcr.io/ajilach/u2s-aem-ubs`, pinned as `AEM_IMAGE` in `agent/src/u2s.rs`, published for arm64 and amd64) is a private package of the `ajilach` organization; a run pulls it with that login when the container engine does not have it yet, and does not start when the pull fails. The image seeds its own data volume on first boot (see `docker/aem/README.md`); a `u2s-aem-ubs-data` volume from the earlier setup is no longer used and can be removed with `docker volume rm u2s-aem-ubs-data`.
 
-For a **Redacto target**, the verifier boots a Redacto platform of the run's own (Postgres, migration, core and rendering containers), imports the built dump there and renders it once per language.
-
-Prerequisites for Redacto: Docker running, the public Postgres image pulled (`verify prepare` does that), and the platform images from ajila's private registry pulled: `az acr login --name ajilaclouddev`, then `docker pull` each image the settings name (see `docker/redacto/README.md`).
-
-**For both targets:**
+Also:
 - Check rules: every rule runs in a sandboxed worker process, which is the converting binary itself started with `--u2s-rules-worker`, so nothing extra ships. The agent tests need the standalone worker built first: `cargo build --release -p u2s-rules-host --bin u2s-rules-worker`.
 - `pdfium`: downloaded and embedded by the build on first compilation; nothing to do beyond network access on the first build.
-- Settings: verifier settings live in the desktop app's settings (tab "Verification"): container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL; for Redacto: the migration, core and rendering images, Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin). The CLI reads the same stored settings.
-- `blueprint verify prepare` pulls the missing verifier images: headless Chromium `chromedp/headless-shell:stable`, Postgres, and the AEM image with the GitHub CLI's login; the private Redacto images are pulled by hand (see above).
-- `blueprint verify check [--target aem|redacto]` runs the readiness check a run performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry; a missing AEM image needs the GitHub CLI signed in instead), and pdfium loads.
+- Settings: verifier settings live in the desktop app's settings (tab "Verification"): container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL (only for a Redacto summary renderer running outside AEM). The CLI reads the same stored settings.
+- `blueprint verify prepare` pulls the missing verifier images: headless Chromium `chromedp/headless-shell:stable`, and the AEM image with the GitHub CLI's login.
+- `blueprint verify check` runs the readiness check a run performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to log in if logged out of a private registry; a missing AEM image needs the GitHub CLI signed in instead), and pdfium loads.
 
 ```sh
 cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images
@@ -132,7 +124,7 @@ possible, so the run cannot start:" and lists every missing item. There is no sw
 to run without verification.
 
 Artefacts are named as in the app: `forms-package-<code>.zip`,
-`forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd`, `redacto-<code>.sql`,
+`forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd`,
 plus `agent-log-<code>.md` — the run transcript. The finalize step only builds the
 package; there is no upload or AEM path in the output. With `--analysis`, the run is
 also recorded for analysis into `run-analysis/<date>_<time>_<source>_<session>/` at
@@ -174,7 +166,7 @@ The app is built with [Dioxus](https://dioxuslabs.com/) and targets the desktop.
 
 It bundles an AI conversion agent that drives the engine's tools turn by turn to convert a form interactively. The agent uses the Anthropic API by default — set the API key and model in the app's settings, under AI Model. The same settings tab switches the agent to any OpenAI-compatible chat-completions endpoint (OpenRouter, a local gateway) by entering a base URL, key and model id; that path sends no prompt-cache breakpoints, so a long run costs more input tokens there, and the model has to support tool calling and image input. Every tree change is versioned into a local edit-history SQLite database, so conversions can be reviewed and resumed.
 
-Reopening the app restores the conversions that were open, sources and all, but never restarts them: a reopened tab sits on its result with a Continue button, and the agent runs only once that is pressed. Continue carries the session on as it stands — the agent finishes the tree the previous run left and rebuilds the outputs, which are not kept between sessions. The feedback field is the other way in, for when there is something specific to change. At startup and whenever settings are saved, the app runs a readiness check and shows a banner under the header listing any setup problems with a Re-check button; Start is disabled for targets that are not ready. An output format you do not use (Redacto, say) can be switched off, from the banner's "I don't use …" button or under Settings → Verification → Output formats: it is then neither offered in the Output picker nor checked, so its missing images stop showing in the banner. At least one format stays on, and a format that is offered is always verified before a run.
+Reopening the app restores the conversions that were open, sources and all, but never restarts them: a reopened tab sits on its result with a Continue button, and the agent runs only once that is pressed. Continue carries the session on as it stands — the agent finishes the tree the previous run left and rebuilds the outputs, which are not kept between sessions. The feedback field is the other way in, for when there is something specific to change. At startup and whenever settings are saved, the app runs a readiness check and shows a banner under the header listing any setup problems with a Re-check button; Start is disabled until the machine is ready.
 
 ### Development
 

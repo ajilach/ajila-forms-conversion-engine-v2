@@ -30,7 +30,6 @@ use crate::models::{
 /// The choices the user made before starting a run.
 pub struct RunConfig {
     pub profile: Option<String>,
-    pub target: agent::OutputTarget,
     pub settings: crate::settings::AppSettings,
     /// Set by the Abort button to stop this run at its next checkpoint.
     pub abort: AbortFlag,
@@ -42,7 +41,6 @@ impl RunConfig {
     fn into_parts(self) -> (runner::RunOptions, RetryAnswer) {
         let opts = runner::RunOptions {
             profile: self.profile,
-            target: self.target,
             settings: self.settings,
             abort: self.abort,
         };
@@ -64,10 +62,7 @@ pub enum UiUpdate {
     RetryResolved(RetryAction),
     /// The run is over. Always the last update a run sends. Boxed: it is sent
     /// once, and would otherwise size every other update to fit it.
-    Finished {
-        completed: Box<Result<runner::Completed, String>>,
-        target: agent::OutputTarget,
-    },
+    Finished(Box<Result<runner::Completed, String>>),
 }
 
 /// The run's end of the progress channel.
@@ -119,7 +114,7 @@ where
         let mut state = write();
         let mut update = Some(first);
         while let Some(current) = update {
-            if matches!(current, UiUpdate::Finished { .. }) {
+            if matches!(current, UiUpdate::Finished(_)) {
                 return Settled::Finished(apply_update(&mut state, current));
             }
             apply_update(&mut state, current);
@@ -155,7 +150,7 @@ fn apply_update(state: &mut ProcessingState, update: UiUpdate) -> Option<String>
             }
             None
         }
-        UiUpdate::Finished { completed, target } => apply_completed(state, *completed, target),
+        UiUpdate::Finished(completed) => apply_completed(state, *completed),
     }
 }
 
@@ -266,7 +261,7 @@ pub async fn run_agent(
     let (opts, retry) = config.into_parts();
     let observer = pipeline::SharedObserver::new(announce(&opts, progress.clone(), retry));
     let completed = runner::run_fresh(files, &opts, &session_label, &observer).await;
-    finish(&progress, completed, opts.target);
+    finish(&progress, completed);
 }
 
 /// Carry an existing session on, either applying the user's feedback or simply
@@ -285,7 +280,7 @@ pub async fn run_agent_resume(
     let (opts, retry) = config.into_parts();
     let observer = pipeline::SharedObserver::new(announce(&opts, progress.clone(), retry));
     let completed = runner::resume(seed, pdfs, &opts, structured_session, &observer).await;
-    finish(&progress, completed, opts.target);
+    finish(&progress, completed);
 }
 
 /// Surface the run's token budget, so a mis-detected context window is visible,
@@ -303,15 +298,8 @@ fn announce(
 }
 
 /// Send the run's result, the last update it makes.
-fn finish(
-    progress: &ProgressSender,
-    completed: Result<runner::Completed, String>,
-    target: agent::OutputTarget,
-) {
-    let _ = progress.send(UiUpdate::Finished {
-        completed: Box::new(completed),
-        target,
-    });
+fn finish(progress: &ProgressSender, completed: Result<runner::Completed, String>) {
+    let _ = progress.send(UiUpdate::Finished(Box::new(completed)));
 }
 
 /// Fold a finished run into the state the box renders, returning the edit-history
@@ -321,11 +309,7 @@ fn finish(
 /// timeline is the run's only record of what happened, and a failed run is
 /// exactly when the user most needs to read it — so a failure records the error
 /// alongside the transcript instead of in place of it.
-fn apply_completed(
-    state: &mut ProcessingState,
-    completed: Result<runner::Completed, String>,
-    target: agent::OutputTarget,
-) -> Option<String> {
+fn apply_completed(state: &mut ProcessingState, completed: Result<runner::Completed, String>) -> Option<String> {
     // However the run ended, no agent works for it any more.
     state.stage = None;
     state.judging.clear();
@@ -348,11 +332,9 @@ fn apply_completed(
 
     state.warnings.extend(outcome.warnings);
     state.step = ProcessingStep::Complete;
-    state.target = target;
     state.xsd_schema = outcome.xsd_schema;
     state.aem_package = outcome.aem_package;
     state.aem_package_bound = outcome.aem_package_bound;
-    state.redacto_sql = outcome.redacto_sql;
     state.form_code = outcome.form_code;
     state.rules = outcome.rules;
     state.elapsed_secs = Some(completed.elapsed_secs);
@@ -394,7 +376,6 @@ mod tests {
     fn run_in_flight() -> ProcessingState {
         ProcessingState {
             step: ProcessingStep::Running,
-            target: agent::OutputTarget::Aem,
             agent_steps: vec![AgentStep {
                 id: "t1".into(),
                 kind: AgentStepKind::Tool,
@@ -544,7 +525,6 @@ mod tests {
         finish(
             &obs.progress,
             Err("Agent failed (Author): overloaded".into()),
-            agent::OutputTarget::Aem,
         );
         drop(obs);
 
@@ -569,7 +549,6 @@ mod tests {
         finish(
             &obs.progress,
             Err("Agent failed (Author): overloaded".into()),
-            agent::OutputTarget::Aem,
         );
 
         let state = std::cell::RefCell::new(ProcessingState::default());
@@ -631,7 +610,6 @@ mod tests {
         let session = apply_completed(
             &mut state,
             Err("Agent failed (Author): overloaded".into()),
-            agent::OutputTarget::Aem,
         );
 
         assert_eq!(session, None, "a run that never started records no session");
@@ -641,7 +619,6 @@ mod tests {
         );
         assert_eq!(state.agent_steps.len(), 1, "the transcript has to survive");
         assert_eq!(state.warnings, ["a page had no fields"]);
-        assert_eq!(state.target, agent::OutputTarget::Aem);
         assert_ne!(
             state.step,
             ProcessingStep::Complete,
@@ -667,7 +644,6 @@ mod tests {
             aem_package: None,
             aem_package_bound: None,
             xsd_schema: None,
-            redacto_sql: None,
             form_code: None,
             warnings: Vec::new(),
             review: None,
@@ -677,7 +653,6 @@ mod tests {
         apply_completed(
             &mut state,
             Ok(runner::Completed { session_id: "s-1".into(), outcome: Some(outcome), elapsed_secs: 3 }),
-            agent::OutputTarget::Aem,
         );
 
         assert_eq!(state.rules, rules);
@@ -699,7 +674,6 @@ mod tests {
                 outcome: None,
                 elapsed_secs: 12,
             }),
-            agent::OutputTarget::Aem,
         );
 
         assert_eq!(session, None);

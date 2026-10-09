@@ -16,7 +16,6 @@
 use std::sync::Arc;
 
 use agent::ToolReply;
-use agent::OutputTarget;
 use rig_agent::agent::model::ModelHandle;
 use rig_agent::agent::{Agent, AgentBuilder, MultiTurnStreamItem, StreamingError};
 use rig_agent::completion::PromptError;
@@ -40,7 +39,6 @@ use crate::trace::{self, ControlKind, StageEnd, TraceEvent};
 /// The choices that shape a run, independent of who is driving it.
 pub struct RunConfig {
     pub profile: Option<String>,
-    pub target: OutputTarget,
     /// Set by the caller's stop control to end this run at its next checkpoint.
     pub abort: AbortFlag,
     /// How many Reviewer → Author-fix rounds to allow.
@@ -109,17 +107,13 @@ impl RunSeed {
 /// from a Reviewer round, there is something concrete to apply. Failing that a
 /// continuation finishes the tree it was seeded with, and a fresh run begins
 /// from the source.
-fn author_seed_for(
-    seed: &RunSeed,
-    reviews: &[String],
-    stages: &roles::TargetRoles,
-) -> &'static str {
+fn author_seed_for(seed: &RunSeed, reviews: &[String]) -> &'static str {
     if !reviews.is_empty() {
-        return stages.author_fix_seed;
+        return roles::AUTHOR_FIX_SEED;
     }
     match seed {
-        RunSeed::Continue => stages.author_continue_seed,
-        RunSeed::Fresh | RunSeed::Feedback(_) => stages.author_seed,
+        RunSeed::Continue => roles::AUTHOR_CONTINUE_SEED,
+        RunSeed::Fresh | RunSeed::Feedback(_) => roles::AUTHOR_SEED,
     }
 }
 
@@ -132,7 +126,6 @@ pub struct RunOutcome {
     /// `bindRef` and the schema is bundled. Offered as a separate download.
     pub aem_package_bound: Option<Vec<u8>>,
     pub xsd_schema: Option<String>,
-    pub redacto_sql: Option<String>,
     pub form_code: Option<String>,
     /// Notes the run accumulated that did not stop it.
     pub warnings: Vec<String>,
@@ -158,8 +151,7 @@ pub async fn run(
 ) -> Option<RunOutcome> {
     let outcome = run_stages(&shared_agent, &config, seed, &obs).await;
     // Every way out (approved, unapproved, aborted, given up at a retry
-    // prompt) tears the verifier down, so no AEM or Postgres container
-    // outlives the run.
+    // prompt) tears the verifier down, so no AEM container outlives the run.
     if let Err(e) = shared_agent.lock().await.shutdown_verifiers().await {
         obs.emit(RunEvent::Warning(format!(
             "The verification containers could not be removed: {e}"
@@ -176,9 +168,7 @@ async fn run_stages(
     seed: RunSeed,
     obs: &SharedObserver,
 ) -> Option<RunOutcome> {
-    let target = config.target;
     let extra = &config.extra_instructions;
-    let stages = roles::roles_for(target);
     let mut reviews: Vec<String> = Vec::new();
     // The whole run's running total — every stage folds its own spend into
     // this one accumulator, so the last `RunEvent::Spend` a run emits is the
@@ -193,12 +183,12 @@ async fn run_stages(
     }
 
     // ── Stage 1: Author → build the artefact ────────────────────────────────
-    let author_seed = author_seed_for(&seed, &reviews, &stages);
-    begin_stage(shared_agent, obs, "Author", stages.author_doing.into()).await;
+    let author_seed = author_seed_for(&seed, &reviews);
+    begin_stage(shared_agent, obs, "Author", roles::AUTHOR_DOING.into()).await;
     run_stage(
         shared_agent,
-        stages.author,
-        &roles::sys_author(target, extra, config.template_note, &reviews),
+        &roles::AUTHOR,
+        &roles::sys_author(extra, config.template_note, &reviews),
         author_seed,
         &config.abort,
         config.model.clone(),
@@ -240,8 +230,8 @@ async fn run_stages(
                 begin_stage(shared_agent, obs, "Reviewer", format!("reviewing (round {})", round + 1)).await;
                 run_stage(
                     shared_agent,
-                    stages.reviewer,
-                    &roles::sys_reviewer(target, extra, &reviews),
+                    &roles::REVIEWER,
+                    &roles::sys_reviewer(extra, &reviews),
                     "Review the built form end to end against the source, then finish by calling \
                      submit_review.",
                     &config.abort,
@@ -257,7 +247,7 @@ async fn run_stages(
             }
         };
         obs.trace(TraceEvent::ReviewVerdict {
-            stage: stages.reviewer.name.to_string(),
+            stage: roles::REVIEWER.name.to_string(),
             round: round + 1,
             approved: review.as_ref().map(|r| r.approved),
             report: review.as_ref().map(|r| r.trace_report()).unwrap_or_default(),
@@ -292,9 +282,9 @@ async fn run_stages(
                 .await;
                 run_stage(
                     shared_agent,
-                    stages.author,
-                    &roles::sys_author(target, extra, config.template_note, &reviews),
-                    stages.author_fix_seed,
+                    &roles::AUTHOR,
+                    &roles::sys_author(extra, config.template_note, &reviews),
+                    roles::AUTHOR_FIX_SEED,
                     &config.abort,
                     config.model.clone(),
                     config.price.clone(),
@@ -328,12 +318,7 @@ async fn run_stages(
         );
     }
 
-    // Building a CRX package is AEM-only; for any other target the dump the
-    // Author already validated is the artefact, and calling this would paint a
-    // failed build step on an otherwise successful run.
-    if target == OutputTarget::Aem {
-        tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
-    }
+    tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
     if config.final_rule_check && !config.abort.is_aborted() {
         final_rule_check(shared_agent, config, obs, &mut spend, &mut warnings).await;
     }
@@ -341,7 +326,7 @@ async fn run_stages(
     let mut outcome = finalize(shared_agent, config, warnings).await;
     // After the final build and before `run` tears the verifier down: the
     // only moment the images can show what ships.
-    let built = outcome.aem_package.is_some() || outcome.redacto_sql.is_some();
+    let built = outcome.aem_package.is_some();
     if config.capture_review && built && !config.abort.is_aborted() {
         outcome.review = capture_review(shared_agent, &config.abort, obs, &mut outcome.warnings).await;
     }
@@ -455,7 +440,6 @@ async fn final_rule_check(
 ) {
     obs.emit(RunEvent::Stage { role: FINAL_CHECK, doing: "checking every rule".into() });
     let judges = crate::substage::SubStageContext::new(
-        config.target,
         config.model.clone(),
         config.price.clone(),
         config.max_tokens,
@@ -496,7 +480,6 @@ async fn finalize(
         package,
         package_bound,
         xsd,
-        redacto_sql,
         warnings: build_warnings,
     } = agent::outputs::build(&mut agent);
     warnings.extend(build_warnings);
@@ -506,7 +489,6 @@ async fn finalize(
         aem_package: package,
         aem_package_bound: package_bound,
         xsd_schema: xsd,
-        redacto_sql,
         form_code: agent.form_code(),
         warnings,
         review: None,
@@ -747,13 +729,12 @@ pub(crate) async fn run_stage_as(
     let spend_before = *total_spend;
     let mut stats = StageTally::default();
 
-    let (specs, session_id, target) = {
+    let (specs, session_id) = {
         let agent = shared_agent.lock().await;
-        (agent.tools_for_stage(role.scope), agent.session_id().to_string(), agent.target())
+        (agent.tools_for_stage(role.scope), agent.session_id().to_string())
     };
     // What a `rule_check` of this stage needs to dispatch its judges.
     let sub_stages = crate::substage::SubStageContext::new(
-        target,
         model.clone(),
         price.clone(),
         max_tokens,
@@ -1101,7 +1082,7 @@ async fn run_stage_attempts(
 /// `agent::Caller`): a judge is a judge, whose calls are not the dispatching
 /// stage's evidence, and every other stage is a stage.
 pub(crate) fn stage_caller(role: &Role) -> agent::Caller {
-    if role.scope & agent::scope::JUDGES != 0 { agent::Caller::Judge } else { agent::Caller::Stage }
+    if role.scope & agent::scope::JUDGE != 0 { agent::Caller::Judge } else { agent::Caller::Stage }
 }
 
 /// The trace side of an abort checkpoint: one control event, and the stage
@@ -1421,32 +1402,20 @@ mod tests {
     /// must not be told to begin, which would discard the seeded tree.
     #[test]
     fn the_author_is_told_which_of_the_three_jobs_it_has() {
-        for target in [OutputTarget::Aem, OutputTarget::Redacto] {
-            let stages = roles::roles_for(target);
-            let none: Vec<String> = Vec::new();
-            let some = vec!["fix the phone field".to_string()];
+        let none: Vec<String> = Vec::new();
+        let some = vec!["fix the phone field".to_string()];
 
-            assert_eq!(
-                author_seed_for(&RunSeed::Fresh, &none, &stages),
-                stages.author_seed
-            );
-            assert_eq!(
-                author_seed_for(&RunSeed::Continue, &none, &stages),
-                stages.author_continue_seed,
-                "a continuation has to finish the tree, not start one"
-            );
-            // Feedback is itself pinned as the first review, so it arrives here
-            // with a non-empty list.
-            assert_eq!(
-                author_seed_for(&RunSeed::Feedback("do it".into()), &some, &stages),
-                stages.author_fix_seed
-            );
-            // A Reviewer round during a continuation gives it something to apply.
-            assert_eq!(
-                author_seed_for(&RunSeed::Continue, &some, &stages),
-                stages.author_fix_seed
-            );
-        }
+        assert_eq!(author_seed_for(&RunSeed::Fresh, &none), roles::AUTHOR_SEED);
+        assert_eq!(
+            author_seed_for(&RunSeed::Continue, &none),
+            roles::AUTHOR_CONTINUE_SEED,
+            "a continuation has to finish the tree, not start one"
+        );
+        // Feedback is itself pinned as the first review, so it arrives here
+        // with a non-empty list.
+        assert_eq!(author_seed_for(&RunSeed::Feedback("do it".into()), &some), roles::AUTHOR_FIX_SEED);
+        // A Reviewer round during a continuation gives it something to apply.
+        assert_eq!(author_seed_for(&RunSeed::Continue, &some), roles::AUTHOR_FIX_SEED);
     }
 
     /// A provider that names a retry window is telling us when the quota
@@ -1861,7 +1830,7 @@ mod controller {
         vec![MockStreamEvent::error(message)]
     }
 
-    /// A Redacto agent with no source: the scripted turns decide what runs, so
+    /// An agent over a source whose document builds: the scripted turns decide what runs, so
     /// the agent only has to be real enough to record a review and finalize.
     ///
     /// Session id deliberately empty: `build_stage_agent` only attaches
@@ -1876,7 +1845,22 @@ mod controller {
         shared(buildable_agent(String::new()))
     }
 
-    /// A Redacto agent over a real source whose document builds, since the
+    /// One page holding one text field: the smallest form that builds.
+    fn one_page() -> serde_json::Value {
+        serde_json::json!({
+            "type": "Panel", "uuid": "6a9f2f5e-8c8e-4a8e-9b0e-1f2d3c4b5a61", "name": "PN_Details",
+            "title": {"en": "Details"}, "children": [{
+                "type": "TextField", "uuid": "6a9f2f5e-8c8e-4a8e-9b0e-1f2d3c4b5a62",
+                "name": "TXT_LastName", "label": {"en": "Last name"}, "mandatory": false,
+                "visible": true, "max_chars": null, "colspan": 12, "dor_colspan": null,
+                "bind_ref": null, "kind": "Plain"
+            }],
+            "is_page": true, "visible": true, "is_conditional": false, "dor_num_cols": null,
+            "colspan": 12, "dor_colspan": null, "bind_ref": null, "frag_ref": null
+        })
+    }
+
+    /// An agent over a real source whose document builds, since the
     /// controller builds it before every review, with its evidence gate
     /// waived: these tests are about sequencing, and the gate is the agent's
     /// own (`agent::conversion::evidence`).
@@ -1884,12 +1868,11 @@ mod controller {
         let name = "AAEV_019_EN.pdf";
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../forms").join(name);
         let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-        let mut agent = ConversionAgent::new(None, vec![(name.to_string(), bytes)], session_id, OutputTarget::Redacto)
+        let mut agent = ConversionAgent::new(None, vec![(name.to_string(), bytes)], session_id)
             .expect("an agent over a source starts");
         let mut doc = agent.document().clone();
-        doc["assets"] = serde_json::json!([{ "key": "intro", "kind": "text", "content": { "en": "<p>Intro.</p>" } }]);
-        doc["body"] = serde_json::json!([{ "type": "assetContainer", "assets": ["intro"] }]);
-        agent.seed_document(doc).expect("a Redacto document");
+        doc["form"]["children"] = serde_json::json!([one_page()]);
+        agent.seed_document(doc).expect("an AEM document");
         agent.ensure_built().expect("the test document builds");
         agent.waive_evidence();
         agent
@@ -1918,7 +1901,6 @@ mod controller {
     fn config(abort: AbortFlag, max_review_rounds: usize, model: MockCompletionModel) -> RunConfig {
         RunConfig {
             profile: None,
-            target: OutputTarget::Redacto,
             abort,
             max_review_rounds,
             extra_instructions: String::new(),
@@ -1936,24 +1918,24 @@ mod controller {
         Arc::new(tokio::sync::Mutex::new(agent))
     }
 
-    /// A Redacto agent with its verifier attached. Attaching touches no
-    /// Docker; only a verifier call or the teardown would.
-    fn redacto_agent_with_verifier() -> SharedAgent {
-        let settings = agent::u2s::RedactoVerifySettings::default();
+    /// An agent with its verifier attached. Attaching touches no Docker; only
+    /// a verifier call or the teardown would.
+    fn agent_with_verifier() -> SharedAgent {
+        let settings = agent::u2s::AemVerifySettings::default();
         let agent = buildable_agent(String::new())
-            .with_redacto_verify(&settings)
+            .with_aem_verify(&settings)
             .expect("attaching the verifier needs no Docker");
         assert!(agent.has_verifier());
         shared(agent)
     }
 
-    /// Whatever way a run ends, its verifier is torn down: no AEM or Postgres
-    /// container outlives the run. The teardown itself may fail where no
+    /// Whatever way a run ends, its verifier is torn down: no AEM container
+    /// outlives the run. The teardown itself may fail where no
     /// Docker runs, but it always detaches the verifier.
     #[tokio::test]
     async fn every_way_out_of_a_run_tears_the_verifier_down() {
         // Approved.
-        let agent = redacto_agent_with_verifier();
+        let agent = agent_with_verifier();
         let model = MockCompletionModel::from_stream_turns([
             text_turn("BUILT"),
             review_turn(true, ""),
@@ -1964,7 +1946,7 @@ mod controller {
         assert!(!agent.lock().await.has_verifier(), "torn down on approval");
 
         // Unapproved: the review rounds run out.
-        let agent = redacto_agent_with_verifier();
+        let agent = agent_with_verifier();
         let model = MockCompletionModel::from_stream_turns([
             text_turn("BUILT"),
             review_turn(false, "nope"),
@@ -1976,7 +1958,7 @@ mod controller {
         assert!(!agent.lock().await.has_verifier(), "torn down when unapproved");
 
         // Aborted before the first turn.
-        let agent = redacto_agent_with_verifier();
+        let agent = agent_with_verifier();
         let abort = AbortFlag::default();
         abort.abort();
         let model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
@@ -1998,10 +1980,10 @@ mod controller {
         // every other controller test — so driving a stage all the way to
         // `MaxTurnsError` needs turns that keep the loop going instead: a
         // tool call, answered every time, never ends the stage on its own.
-        // One ordinary Author turn, then Redacto's Reviewer budget of 45
-        // turns (its `stuck_tool` is rule_check, so repeating
-        // `get_source_info` never trips the stuck watch instead); the 47th
-        // completion call is refused with `MaxTurnsError`.
+        // One ordinary Author turn, then the Reviewer's budget of 90 turns
+        // (its `stuck_tool` is rule_check, so repeating `get_source_info`
+        // never trips the stuck watch instead); the 92nd completion call is
+        // refused with `MaxTurnsError`.
         let repeat_turn = || {
             vec![
                 MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
@@ -2009,7 +1991,7 @@ mod controller {
             ]
         };
         let mut turns = vec![text_turn("BUILT")];
-        turns.extend(std::iter::repeat_with(repeat_turn).take(45));
+        turns.extend(std::iter::repeat_with(repeat_turn).take(roles::REVIEWER.max_iterations));
         let model = MockCompletionModel::from_stream_turns(turns);
         let (obs, rec) = recorder();
 
@@ -2019,7 +2001,7 @@ mod controller {
             outcome.is_some(),
             "a budget-exhausted stage still finalizes with whatever it built"
         );
-        assert_eq!(model.request_count(), 46);
+        assert_eq!(model.request_count(), 1 + roles::REVIEWER.max_iterations);
         let warnings: Vec<String> = rec
             .lock()
             .unwrap()
@@ -2028,7 +2010,8 @@ mod controller {
             .map(|w| w.to_string())
             .collect();
         assert!(
-            warnings.iter().any(|w| w.contains("Reviewer") && w.contains("45-turn budget")),
+            warnings.iter().any(|w| w.contains("Reviewer")
+                && w.contains(&format!("{}-turn budget", roles::REVIEWER.max_iterations))),
             "the operator was never told the Reviewer ran out of budget: {warnings:?}"
         );
     }
@@ -2153,7 +2136,7 @@ mod controller {
         let outcome = run(bare_agent(), config, RunSeed::Fresh, obs).await.expect("the run still finishes");
 
         assert!(outcome.review.is_none());
-        assert!(outcome.redacto_sql.is_some(), "the result ships without its review images");
+        assert!(outcome.aem_package.is_some(), "the result ships without its review images");
         let rec = rec.lock().unwrap();
         let started: Vec<&str> = rec
             .events
@@ -2179,8 +2162,8 @@ mod controller {
     /// back to the Author as the review, without a Reviewer stage.
     #[tokio::test]
     async fn a_document_that_does_not_build_goes_back_to_the_author_unreviewed() {
-        // No source, so its Redacto document has no language and builds nothing.
-        let mut unbuildable = ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
+        // No source, so its document has no variables and builds nothing.
+        let mut unbuildable = ConversionAgent::new(None, Vec::new(), String::new())
             .expect("an agent without sources starts");
         unbuildable.waive_evidence();
         let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), text_turn("FIXED")]);
@@ -2538,7 +2521,7 @@ mod controller {
     /// plausible.
     const TINY_BUDGET: Role = Role {
         name: "Test",
-        scope: agent::scope::AEM_AUTHOR,
+        scope: agent::scope::AUTHOR,
         max_iterations: 2,
         stuck_tool: None,
         stuck_activity: "testing",
@@ -2640,7 +2623,7 @@ mod controller {
         use rig_core::memory::ConversationMemory;
         let session_id = format!("persist-test-{}", uuid::Uuid::new_v4());
         let agent = Arc::new(tokio::sync::Mutex::new(
-            ConversionAgent::new(None, Vec::new(), session_id.clone(), OutputTarget::Redacto)
+            ConversionAgent::new(None, Vec::new(), session_id.clone())
                 .expect("an agent without sources starts"),
         ));
         let model = MockCompletionModel::from_stream_turns(turns);
@@ -2686,7 +2669,7 @@ mod controller {
     #[tokio::test]
     async fn a_review_ended_by_submit_review_is_stored() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
-        let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
+        let role = &roles::REVIEWER;
         let (stored, _) = stored_after(role, vec![review_turn(false, "fine")]).await;
         assert_eq!(seeds(&stored), 1, "{stored:?}");
         assert!(calls_tool(&stored, "submit_review"), "{stored:?}");
@@ -2696,7 +2679,7 @@ mod controller {
     #[tokio::test]
     async fn a_stage_that_runs_out_of_turns_is_stored() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
-        let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
+        let role = &roles::REVIEWER;
         let turns = std::iter::repeat_with(|| {
             vec![
                 MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
@@ -2717,7 +2700,7 @@ mod controller {
     #[tokio::test]
     async fn a_stage_restarted_after_a_transient_failure_is_stored_once() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
-        let role = &roles::roles_for(OutputTarget::Redacto).author;
+        let role = &roles::AUTHOR;
         let (stored, model) = stored_after(
             role,
             vec![
@@ -2778,10 +2761,10 @@ mod controller {
         use rig_core::memory::ConversationMemory;
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let session_id = format!("review-rounds-{}", uuid::Uuid::new_v4());
-        let role = &roles::roles_for(OutputTarget::Redacto).reviewer;
+        let role = &roles::REVIEWER;
         let agent = || {
             Arc::new(tokio::sync::Mutex::new(
-                ConversionAgent::new(None, Vec::new(), session_id.clone(), OutputTarget::Redacto)
+                ConversionAgent::new(None, Vec::new(), session_id.clone())
                     .expect("an agent without sources starts"),
             ))
         };
@@ -2977,7 +2960,7 @@ mod controller {
     /// which answers identically on an unchanged agent.
     const STUCK_ON_SOURCE_INFO: Role = Role {
         name: "Test",
-        scope: agent::scope::AEM_AUTHOR,
+        scope: agent::scope::AUTHOR,
         max_iterations: 10,
         stuck_tool: Some("get_source_info"),
         stuck_activity: "testing",
@@ -3230,11 +3213,11 @@ mod controller {
     async fn a_resumed_stage_loads_its_prior_conversation() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let session_id = format!("resume-test-{}", uuid::Uuid::new_v4());
-        let role = &roles::roles_for(OutputTarget::Redacto).author;
+        let role = &roles::AUTHOR;
 
         let fresh_agent = || {
             Arc::new(tokio::sync::Mutex::new(
-                ConversionAgent::new(None, Vec::new(), session_id.clone(), OutputTarget::Redacto)
+                ConversionAgent::new(None, Vec::new(), session_id.clone())
                     .expect("an agent without sources starts"),
             ))
         };

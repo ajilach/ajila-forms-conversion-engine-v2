@@ -56,7 +56,7 @@ struct Entry {
     checked_at: Option<u64>,
 }
 
-/// Every rule of the run's target, in rule order: the scripted ones, then the
+/// Every rule of the run, in rule order: the scripted ones, then the
 /// judged ones.
 #[derive(Debug, Clone, Default)]
 pub struct RuleBoard {

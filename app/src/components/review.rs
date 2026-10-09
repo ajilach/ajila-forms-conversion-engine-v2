@@ -76,7 +76,6 @@ async fn off_ui<T: Send + 'static>(work: impl FnOnce() -> Result<T, String> + Se
 pub fn ReviewPage(tab: Tab, on_close: EventHandler<()>) -> Element {
     let files = tab.files;
     let session = tab.session_id;
-    let target = tab.state.read().target;
 
     let input = use_resource(move || {
         let files = files.read().clone();
@@ -94,11 +93,6 @@ pub fn ReviewPage(tab: Tab, on_close: EventHandler<()>) -> Element {
             .await
         }
     });
-
-    let pdf_heading = match target {
-        agent::OutputTarget::Aem => "Output PDF",
-        agent::OutputTarget::Redacto => "Rendered PDF",
-    };
 
     rsx! {
         FullPage {
@@ -138,7 +132,7 @@ pub fn ReviewPage(tab: Tab, on_close: EventHandler<()>) -> Element {
                                 ReviewImageList { images: shown.form.clone() }
                             }
                             if !shown.output.0.is_empty() {
-                                h4 { class: "review-group-title", "{pdf_heading}" }
+                                h4 { class: "review-group-title", "Output PDF" }
                                 ReviewImageList { images: shown.output.clone() }
                             }
                         },

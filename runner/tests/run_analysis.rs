@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use agent::{ConversionAgent, OutputTarget};
+use agent::ConversionAgent;
 use pipeline::{AbortFlag, ContextBudget, NullObserver, RunConfig, RunSeed, SharedObserver};
 use rig_agent::agent::model::ModelHandle;
 use rig_core::completion::Usage;
@@ -16,19 +16,28 @@ use rig_core::message::Message;
 use rig_core::test_utils::{MockCompletionModel, MockStreamEvent};
 use runner::analysis::{RunAnalysis, RunEnd, RunMeta};
 
-/// A Redacto agent over a real source whose document builds — the controller
+/// An agent over a real source whose document builds — the controller
 /// builds it before every review — with its evidence gate waived, as the
 /// pipeline's own controller tests do.
 fn buildable_agent() -> ConversionAgent {
     let name = "AAEV_019_EN.pdf";
     let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../forms").join(name);
     let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
-    let mut agent = ConversionAgent::new(None, vec![(name.to_string(), bytes)], String::new(), OutputTarget::Redacto)
+    let mut agent = ConversionAgent::new(None, vec![(name.to_string(), bytes)], String::new())
         .expect("an agent over a source starts");
     let mut doc = agent.document().clone();
-    doc["assets"] = serde_json::json!([{ "key": "intro", "kind": "text", "content": { "en": "<p>Intro.</p>" } }]);
-    doc["body"] = serde_json::json!([{ "type": "assetContainer", "assets": ["intro"] }]);
-    agent.seed_document(doc).expect("a Redacto document");
+    doc["form"]["children"] = serde_json::json!([{
+        "type": "Panel", "uuid": "6a9f2f5e-8c8e-4a8e-9b0e-1f2d3c4b5a61", "name": "PN_Details",
+        "title": {"en": "Details"}, "children": [{
+            "type": "TextField", "uuid": "6a9f2f5e-8c8e-4a8e-9b0e-1f2d3c4b5a62",
+            "name": "TXT_LastName", "label": {"en": "Last name"}, "mandatory": false,
+            "visible": true, "max_chars": null, "colspan": 12, "dor_colspan": null,
+            "bind_ref": null, "kind": "Plain"
+        }],
+        "is_page": true, "visible": true, "is_conditional": false, "dor_num_cols": null,
+        "colspan": 12, "dor_colspan": null, "bind_ref": null, "frag_ref": null
+    }]);
+    agent.seed_document(doc).expect("an AEM document");
     agent.ensure_built().expect("the test document builds");
     agent.waive_evidence();
     agent
@@ -95,7 +104,6 @@ async fn a_pipeline_run_is_recorded_into_a_readable_folder() {
     let agent = buildable_agent();
     let config = RunConfig {
         profile: None,
-        target: OutputTarget::Redacto,
         abort: AbortFlag::default(),
         max_review_rounds: 2,
         extra_instructions: String::new(),
@@ -113,7 +121,6 @@ async fn a_pipeline_run_is_recorded_into_a_readable_folder() {
         kind: "fresh conversion".into(),
         started: "2026-09-30T14:00:00+02:00".into(),
         profile: "(none)".into(),
-        target: "redacto".into(),
         model: "scripted mock".into(),
         max_review_rounds: 2,
         verification: "AEM verifier".into(),
@@ -185,7 +192,7 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         let violations = if pass {
             serde_json::json!([])
         } else {
-            serde_json::json!([{"pointer": "/body/0", "message": "split the table"}])
+            serde_json::json!([{"pointer": "/form/children/0", "message": "split the table"}])
         };
         vec![
             MockStreamEvent::tool_call(
@@ -205,7 +212,7 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
             "a2",
             "json_patch",
             serde_json::json!({"expected_revision": 0, "ops": [
-                {"op": "replace", "path": "/assets/0/content/en", "value": "<p>Intro, split.</p>"}
+                {"op": "replace", "path": "/form/children/0/title/en", "value": "Details, split"}
             ]}),
             "Splitting the table.",
         ),
@@ -223,7 +230,6 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
     }]);
     let config = RunConfig {
         profile: None,
-        target: OutputTarget::Redacto,
         abort: AbortFlag::default(),
         max_review_rounds: 1,
         extra_instructions: String::new(),
@@ -241,10 +247,9 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         kind: "fresh conversion".into(),
         started: "2026-10-09T14:00:00+02:00".into(),
         profile: "(none)".into(),
-        target: "redacto".into(),
         model: "scripted mock".into(),
         max_review_rounds: 1,
-        verification: "Redacto verifier".into(),
+        verification: "AEM verifier".into(),
         engine_version: "test".into(),
     };
 
@@ -285,7 +290,7 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
     // summary.json: counted, priced, and agent + judges = the stage.
     let summary: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("summary.json")).unwrap()).unwrap();
-    assert_eq!(summary["schema_version"], 2);
+    assert_eq!(summary["schema_version"], runner::analysis::SCHEMA_VERSION);
     assert_eq!(summary["judge_runs"], 2);
     assert_eq!(summary["counts"]["rule_checks"], 2);
     let judge_cost = summary["judge_cost_usd"].as_f64().unwrap();

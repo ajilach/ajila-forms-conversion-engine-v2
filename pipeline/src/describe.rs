@@ -10,7 +10,6 @@
 use std::sync::Arc;
 
 use agent::ConversionAgent;
-use agent::OutputTarget;
 use rig_agent::agent::model::ModelHandle;
 
 use crate::hooks::PriceFn;
@@ -57,7 +56,7 @@ pub async fn describe_reference(
 ) -> Result<String, String> {
     // A throwaway agent over the same catalog: it reads the source and the
     // uploaded package and edits nothing, so it needs no history session.
-    let mut agent = ConversionAgent::new(Some(profile.to_string()), pdfs, String::new(), OutputTarget::Aem)?;
+    let mut agent = ConversionAgent::new(Some(profile.to_string()), pdfs, String::new())?;
     agent.seed_package(package_zip);
     let shared_agent: crate::tools::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
 

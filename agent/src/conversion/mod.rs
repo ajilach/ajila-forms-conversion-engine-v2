@@ -1,13 +1,12 @@
 //! The conversion agent's engine surface: the tool catalog and the executor.
 //!
-//! A run authors one JSON document in its target's UBS format
-//! ([`u2s_aem_ubs_mcp::UbsAemDocument`] or
-//! [`u2s_redacto_ubs_mcp::UbsRedactoDocument`]). The agent reads the source
-//! form through the u2s `xfa_*` tools, edits the document with the `json_*`
-//! tools, holds it to the format's check rules with the `rule_*` tools, and
-//! builds the package or dump through the format's encoder, which the
-//! verifiers then check. Every edit is snapshotted into the edit history
-//! ([`crate::db`]) under the run's `#document` session.
+//! A run authors one JSON document in the UBS AEM format
+//! ([`u2s_aem_ubs_mcp::UbsAemDocument`]). The agent reads the source form
+//! through the u2s `xfa_*` tools, edits the document with the `json_*` tools,
+//! holds it to the format's check rules with the `rule_*` tools, and builds
+//! the package through the format's encoder, which the verifier then checks.
+//! Every edit is snapshotted into the edit history ([`crate::db`]) under the
+//! run's `#document` session.
 //!
 //! This type holds no LLM and no UI state: an external loop streams turns,
 //! calls [`ConversionAgent::execute`], and surfaces the results.
@@ -180,19 +179,14 @@ pub fn validate_package_bytes(pkg: &[u8]) -> Result<String, String> {
 // ── The agent ────────────────────────────────────────────────────────────────
 
 /// What the latest successful build produced.
-enum Built {
-    Aem {
-        package: Vec<u8>,
-        /// The same form built bound to its schema: every field carries a
-        /// `bindRef` and the package ships the XSD. Kept beside the plain one
-        /// because they are for different deployments; the plain one is what
-        /// UBS installs today.
-        bound_package: Option<Vec<u8>>,
-        xsd: Option<String>,
-    },
-    Redacto {
-        dump: Vec<u8>,
-    },
+struct Built {
+    package: Vec<u8>,
+    /// The same form built bound to its schema: every field carries a
+    /// `bindRef` and the package ships the XSD. Kept beside the plain one
+    /// because they are for different deployments; the plain one is what
+    /// UBS installs today.
+    bound_package: Option<Vec<u8>>,
+    xsd: Option<String>,
 }
 
 /// A board with every rule of the run unchecked.
@@ -233,7 +227,6 @@ impl std::io::Write for HashWriter {
 type SourceDocument = (String, Option<SourceContext>);
 
 pub struct ConversionAgent {
-    target: OutputTarget,
     current_pdfs: Vec<(String, Vec<u8>)>,
     /// Each read source's documents, by source key (see [`Self::source_key`]).
     sources: HashMap<String, Vec<SourceDocument>>,
@@ -297,8 +290,8 @@ pub struct ConversionAgent {
 
 impl ConversionAgent {
     /// `files` may mix source PDFs and one UBS AEM package ZIP. The PDFs are
-    /// the conversion source. For an AEM run, the package is decoded into the
-    /// starting document, a template the agent edits instead of authoring
+    /// the conversion source. The package, when there is one, is decoded into
+    /// the starting document, a template the agent edits instead of authoring
     /// from scratch; the source's variables and languages replace the
     /// template's own. Otherwise the document starts from what the sources
     /// say about themselves: their variables and languages, and nothing else.
@@ -311,7 +304,6 @@ impl ConversionAgent {
         profile: Option<String>,
         files: Vec<(String, Vec<u8>)>,
         session: String,
-        target: OutputTarget,
     ) -> Result<Self, String> {
         let pdfs: Vec<(String, Vec<u8>)> = files
             .iter()
@@ -321,22 +313,15 @@ impl ConversionAgent {
         let template = template_of(&files);
         let documents = read_sources(&pdfs)?;
         let contexts: Vec<&SourceContext> = documents.iter().filter_map(|(_, c)| c.as_ref()).collect();
-        let document = match target {
-            OutputTarget::Aem => starting_aem_document(&contexts, template)?,
-            OutputTarget::Redacto => starting_redacto_document(&contexts),
-        };
-        let schema = match target {
-            OutputTarget::Aem => u2s_aem_ubs_mcp::document_schema(),
-            OutputTarget::Redacto => u2s_redacto_ubs_mcp::document_schema(),
-        };
-        let rules = crate::rules::rules_for(target)?;
+        let document = starting_aem_document(&contexts, template)?;
+        let schema = u2s_aem_ubs_mcp::document_schema();
+        let rules = crate::rules::rules()?;
         let references = references_mcp::ReferencesServer::new(
             crate::references::store(),
             profile.clone().unwrap_or_default(),
         );
         let rule_board = new_rule_board(&rules.scripted, &rules.judged);
         Ok(Self {
-            target,
             current_pdfs: pdfs,
             sources: HashMap::from([("current".to_string(), documents)]),
             document: Document::new(document),
@@ -361,15 +346,10 @@ impl ConversionAgent {
         })
     }
 
-    /// The output target this run aims at.
-    pub fn target(&self) -> OutputTarget {
-        self.target
-    }
-
     /// Replace the document with one recorded earlier (a resumed session).
     /// Refused unless it is a document of this run's format.
     pub fn seed_document(&mut self, value: Value) -> Result<(), String> {
-        check_document(self.target, &value)?;
+        check_document(&value)?;
         self.document = Document::new(value);
         self.set_built(None);
         self.lint = None;
@@ -380,7 +360,7 @@ impl ConversionAgent {
     /// Hand the run a package to inspect as if it had built it: the package
     /// tools then read it (describing a reference form does this).
     pub fn seed_package(&mut self, package: Vec<u8>) {
-        self.set_built(Some(Built::Aem {
+        self.set_built(Some(Built {
             package,
             bound_package: None,
             xsd: None,
@@ -407,7 +387,7 @@ impl ConversionAgent {
         if self.evidence_waived {
             return Vec::new();
         }
-        self.evidence.missing(self.target, self.built.is_some())
+        self.evidence.missing(self.built.is_some())
     }
 
     /// Turns the evidence gate off, for a controller test whose scripted
@@ -431,18 +411,6 @@ impl ConversionAgent {
         Ok(self)
     }
 
-    /// Start the UBS Redacto verifier for this run: from then on the
-    /// `redacto_verify_*` tools import the built dump into a Redacto platform
-    /// of the run's own and render it there. Run
-    /// [`crate::u2s::readiness`] first.
-    pub fn with_redacto_verify(
-        mut self,
-        settings: &crate::u2s::RedactoVerifySettings,
-    ) -> Result<Self, String> {
-        self.u2s_tools()?.attach_redacto_verify(settings)?;
-        Ok(self)
-    }
-
     /// Whether a verifier is attached (and not yet torn down).
     pub fn has_verifier(&self) -> bool {
         self.u2s.as_ref().is_some_and(|t| t.has_verifier())
@@ -450,12 +418,12 @@ impl ConversionAgent {
 
     /// The tools a stage is offered.
     pub fn tools_for_stage(&self, scopes: scope::Mask) -> Vec<Value> {
-        tools_for(self.target(), scopes)
+        tools_for(scopes)
     }
 
     /// Tear down the containers the verifier started, if any. Called by the
-    /// controller on every way out of a run, so no AEM or Postgres container
-    /// outlives it.
+    /// controller on every way out of a run, so no AEM container outlives
+    /// it.
     pub async fn shutdown_verifiers(&mut self) -> Result<(), String> {
         match self.u2s.as_mut() {
             Some(tools) => tools.shutdown().await,
@@ -463,18 +431,12 @@ impl ConversionAgent {
         }
     }
 
-    /// What a verifier tool checks: the latest package or dump this run built.
+    /// What a verifier tool checks: the latest package this run built.
     fn verify_artifact(&self) -> Option<crate::u2s::Artifact> {
-        match self.built.as_ref()? {
-            Built::Aem { package, .. } => Some(crate::u2s::Artifact {
-                file_name: "package.zip",
-                bytes: package.clone(),
-            }),
-            Built::Redacto { dump } => Some(crate::u2s::Artifact {
-                file_name: "dump.sql",
-                bytes: dump.clone(),
-            }),
-        }
+        self.built.as_ref().map(|built| crate::u2s::Artifact {
+            file_name: "package.zip",
+            bytes: built.package.clone(),
+        })
     }
 
     // ── Public accessors (for the driving loop's result finalization) ─────────
@@ -563,46 +525,22 @@ impl ConversionAgent {
 
     /// The latest built AEM package.
     pub fn package(&self) -> Option<Vec<u8>> {
-        match self.built.as_ref()? {
-            Built::Aem { package, .. } => Some(package.clone()),
-            Built::Redacto { .. } => None,
-        }
+        self.built.as_ref().map(|built| built.package.clone())
     }
 
     /// The latest built AEM package bound to its schema.
     pub fn package_bound(&self) -> Option<Vec<u8>> {
-        match self.built.as_ref()? {
-            Built::Aem { bound_package, .. } => bound_package.clone(),
-            Built::Redacto { .. } => None,
-        }
+        self.built.as_ref()?.bound_package.clone()
     }
 
     /// The schema of the latest built AEM package.
     pub fn xsd(&self) -> Option<String> {
-        match self.built.as_ref()? {
-            Built::Aem { xsd, .. } => xsd.clone(),
-            Built::Redacto { .. } => None,
-        }
-    }
-
-    /// The latest built Redacto dump.
-    pub fn redacto_dump(&self) -> Option<Vec<u8>> {
-        match self.built.as_ref()? {
-            Built::Redacto { dump } => Some(dump.clone()),
-            Built::Aem { .. } => None,
-        }
+        self.built.as_ref()?.xsd.clone()
     }
 
     /// The form code the document is named by (`formrange_code`), for file names.
     pub fn form_code(&self) -> Option<String> {
-        let variables = match self.target {
-            OutputTarget::Aem => &self.document.value()["variables"],
-            OutputTarget::Redacto => self.document.value()["sources"]
-                .as_object()
-                .and_then(|sources| sources.values().next())
-                .map(|source| &source["variables"])?,
-        };
-        variables["formrange_code"].as_str().map(String::from)
+        self.document.value()["variables"]["formrange_code"].as_str().map(String::from)
     }
 
     /// The edit-history session this run records into.
@@ -683,21 +621,6 @@ impl ConversionAgent {
         }
         Ok(self.runner.as_ref().expect("just started"))
     }
-
-    /// Why `name` cannot run under this run's output target, if it cannot.
-    /// Derived from the catalog, so a tool is scoped in exactly one place.
-    fn target_refusal(&self, name: &str) -> Option<String> {
-        let scoped_out = catalog()
-            .iter()
-            .find(|t| t.name() == name)
-            .is_some_and(|t| t.targets & target_mask(self.target) == 0);
-        scoped_out.then(|| {
-            format!(
-                "{name} is not available for the {} output target.",
-                self.target.label()
-            )
-        })
-    }
 }
 
 /// Whether an uploaded file is a source PDF, by its name. The one rule both
@@ -777,27 +700,12 @@ fn starting_aem_document(contexts: &[&SourceContext], template: Option<&[u8]>) -
     Ok(document)
 }
 
-fn starting_redacto_document(contexts: &[&SourceContext]) -> Value {
-    let mut sources = serde_json::Map::new();
-    for context in contexts {
-        sources
-            .entry(context.language.clone())
-            .or_insert_with(|| json!({ "variables": context.variables }));
-    }
-    json!({ "sources": sources, "assets": [], "body": [] })
-}
-
-/// Whether `value` is a document of `target`'s format: the one check every
-/// document entering a run passes.
-pub fn check_document(target: OutputTarget, value: &Value) -> Result<(), String> {
-    match target {
-        OutputTarget::Aem => u2s_aem_ubs_mcp::UbsAemDocument::from_json(value)
-            .map(|_| ())
-            .map_err(|e| e.to_string()),
-        OutputTarget::Redacto => serde_json::from_value::<u2s_redacto_ubs_mcp::UbsRedactoDocument>(value.clone())
-            .map(|_| ())
-            .map_err(|e| format!("not a UBS Redacto document: {e}")),
-    }
+/// Whether `value` is a UBS AEM document: the one check every document
+/// entering a run passes.
+pub fn check_document(value: &Value) -> Result<(), String> {
+    u2s_aem_ubs_mcp::UbsAemDocument::from_json(value)
+        .map(|_| ())
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -814,19 +722,10 @@ mod tests {
         (name.to_string(), bytes)
     }
 
-    fn agent_for(target: OutputTarget, files: Vec<(String, Vec<u8>)>) -> ConversionAgent {
+    fn agent_for(files: Vec<(String, Vec<u8>)>) -> ConversionAgent {
         crate::db::claim_scratch_db_for_test();
         let session = format!("test-{}", uuid::Uuid::new_v4());
-        ConversionAgent::new(Some("ubs".into()), files, session, target).expect("the agent starts")
-    }
-
-    /// The tools the catalog scopes to exactly one output target.
-    fn tools_only_for(mask: target::Mask) -> Vec<&'static str> {
-        catalog()
-            .iter()
-            .filter(|t| t.targets == mask)
-            .map(|t| t.name())
-            .collect()
+        ConversionAgent::new(Some("ubs".into()), files, session).expect("the agent starts")
     }
 
     fn reply_text(reply: ToolReply) -> String {
@@ -874,7 +773,7 @@ mod tests {
     /// name the form, and its languages are the form's.
     #[test]
     fn an_aem_document_starts_from_the_sources_variables_and_languages() {
-        let agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let doc = agent.document();
         assert_eq!(doc["variables"]["formrange_code"], "AAEV");
         assert_eq!(doc["languages"], json!(["en"]));
@@ -886,25 +785,10 @@ mod tests {
     /// sources come in.
     #[test]
     fn a_bilingual_aem_document_takes_the_english_variables() {
-        let agent = agent_for(
-            OutputTarget::Aem,
-            vec![fixture("AABF_019_DE.pdf"), fixture("AABF_019_EN.pdf")],
-        );
+        let agent = agent_for(vec![fixture("AABF_019_DE.pdf"), fixture("AABF_019_EN.pdf")]);
         let doc = agent.document();
         assert_eq!(doc["variables"]["formrange_language"], "EN", "{}", doc["variables"]);
         assert_eq!(doc["languages"], json!(["de", "en"]));
-    }
-
-    /// A Redacto run starts with one source entry per language.
-    #[test]
-    fn a_redacto_document_starts_with_one_source_per_language() {
-        let agent = agent_for(
-            OutputTarget::Redacto,
-            vec![fixture("AABF_019_DE.pdf"), fixture("AABF_019_EN.pdf")],
-        );
-        let sources = agent.document()["sources"].as_object().unwrap();
-        assert_eq!(sources.keys().collect::<Vec<_>>(), vec!["de", "en"]);
-        assert_eq!(sources["de"]["variables"]["formrange_code"], "AABF");
     }
 
     /// An uploaded package is decoded into the starting document, with the
@@ -916,10 +800,7 @@ mod tests {
             "/../vendor/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/AABF_019/package.zip"
         ))
         .unwrap();
-        let agent = agent_for(
-            OutputTarget::Aem,
-            vec![fixture("AAEV_019_EN.pdf"), ("template.zip".into(), package)],
-        );
+        let agent = agent_for(vec![fixture("AAEV_019_EN.pdf"), ("template.zip".into(), package)]);
         let doc = agent.document();
         assert!(!doc["form"]["children"].as_array().unwrap().is_empty());
         assert_eq!(doc["variables"]["formrange_code"], "AAEV");
@@ -934,7 +815,7 @@ mod tests {
     /// `xfa_set` calls in order.
     #[tokio::test]
     async fn only_the_catalogs_reads_run_beside_other_calls() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         for tool in catalog() {
             let started = agent.start_read(tool.name(), &json!({})).await.is_some();
             assert_eq!(started, tool.access == Access::Read, "{}", tool.name());
@@ -951,7 +832,7 @@ mod tests {
     /// through `execute`: it is the same server work, done without the agent.
     #[tokio::test]
     async fn a_read_answers_the_same_on_either_path() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let info: Value = serde_json::from_str(&reply_text(agent.execute("get_source_info", &json!({})).await)).unwrap();
         let input = json!({"doc_path": info["documents"][0]["doc_path"]});
 
@@ -967,7 +848,7 @@ mod tests {
     /// unchecked; an id no rule has is refused.
     #[tokio::test]
     async fn rule_tools_cover_scripted_and_judged_rules() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let judged = crate::rules::JudgedRule {
             id: "judged-id".into(),
             name: "ubs-aem-test".into(),
@@ -1000,7 +881,7 @@ mod tests {
     /// text patched in stops being missing, and an unknown language is refused.
     #[tokio::test]
     async fn coverage_check_follows_the_document() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let missing = |reply: ToolReply| -> Vec<String> {
             let report: Value = serde_json::from_str(&reply_text(reply)).unwrap();
             report["sources"][0]["missing"]
@@ -1031,7 +912,7 @@ mod tests {
     /// what the verifier checks.
     #[tokio::test]
     async fn a_patched_document_builds_a_valid_package() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
 
         let built = reply_text(agent.execute("build_aem_package", &json!({})).await);
@@ -1067,7 +948,7 @@ mod tests {
     /// an edit or a new stage voids it. A rejecting review is never gated.
     #[tokio::test]
     async fn terminal_calls_wait_for_the_stages_own_verification() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
 
         let approve = json!({ "approved": true, "report": "" });
@@ -1103,7 +984,7 @@ mod tests {
     /// verdict, but they are not the stage's own verification.
     #[tokio::test]
     async fn an_unrecorded_call_is_no_evidence() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let render = json!({ "doc_path": "/nowhere/source.pdf", "page": 1 });
         let names_render = |agent: &ConversionAgent| agent.missing_evidence().join("\n").contains("xfa_render_pages");
 
@@ -1118,7 +999,7 @@ mod tests {
     /// the DoR header slot, without its validity line.
     #[tokio::test]
     async fn the_header_reaches_the_packages_dor_slot() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let mut first = page("PN_Details");
         first["children"].as_array_mut().unwrap().insert(
             0,
@@ -1145,7 +1026,7 @@ mod tests {
     /// stored, so nothing invalid is verified or exported.
     #[tokio::test]
     async fn a_package_that_fails_validation_builds_nothing() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let mut broken = page("PN_Details");
         broken["passthrough"] = json!({ "raw_children": ["<unclosed>"] });
         patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": broken }])).await;
@@ -1162,7 +1043,7 @@ mod tests {
     /// without its prefix, and then the rename that fixes it.
     #[tokio::test]
     async fn a_patch_reports_the_findings_it_introduced_and_resolved() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let added = patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("Details") }])).await;
         let introduced = added["lint"]["introduced"].as_array().unwrap();
         assert!(
@@ -1180,7 +1061,7 @@ mod tests {
     /// fix, and the judged rules stay unchecked, since no judge ran.
     #[tokio::test]
     async fn the_rule_board_follows_the_edits() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let board = agent.rule_board();
         assert!(board.iter().all(|r| r.state == RuleState::NotChecked), "{board:?}");
         assert!(board.iter().any(|r| r.kind == RuleKind::Judge));
@@ -1205,7 +1086,7 @@ mod tests {
     /// so a stage starting on it shows where it stands.
     #[tokio::test]
     async fn refreshing_the_rules_checks_a_seeded_document() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let mut seeded = agent.document().clone();
         seeded["form"]["children"] = json!([page("Details")]);
         agent.seed_document(seeded).unwrap();
@@ -1219,7 +1100,7 @@ mod tests {
     /// unrelated edit.
     #[tokio::test]
     async fn the_first_edit_of_a_seeded_document_reports_only_its_own_findings() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let mut seeded = agent.document().clone();
         seeded["form"]["children"] = json!([page("Details")]);
         agent.seed_document(seeded).unwrap();
@@ -1232,7 +1113,7 @@ mod tests {
     /// package that no longer describes the document.
     #[tokio::test]
     async fn an_edit_drops_the_stale_build() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
         reply_text(agent.execute("build_aem_package", &json!({})).await);
         assert!(agent.package().is_some());
@@ -1247,13 +1128,12 @@ mod tests {
     /// it took: an edit changes it, undoing the edit gives it back.
     #[tokio::test]
     async fn the_content_hash_follows_the_content_not_the_revision() {
-        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let start = agent.content_hash();
         assert_eq!(agent.content_hash(), start, "the hash is stable");
-        let intro = json!({ "key": "intro", "kind": "text", "content": { "en": "<p>Hi</p>" } });
-        patch(&mut agent, json!([{ "op": "add", "path": "/assets/-", "value": intro }])).await;
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
         assert_ne!(agent.content_hash(), start);
-        patch(&mut agent, json!([{ "op": "remove", "path": "/assets/0" }])).await;
+        patch(&mut agent, json!([{ "op": "remove", "path": "/form/children/0" }])).await;
         assert_eq!(agent.content_hash(), start, "the undone edit hashes like the start");
         assert_eq!(agent.revision(), 2);
     }
@@ -1262,7 +1142,7 @@ mod tests {
     /// same rule with other text, has none.
     #[test]
     fn a_cached_verdict_is_kept_for_its_rule_and_content() {
-        let mut agent = agent_for(OutputTarget::Redacto, Vec::new());
+        let mut agent = agent_for(Vec::new());
         let rule =
             crate::rules::JudgedRule { id: "r".into(), name: "n".into(), title: "t".into(), description: "d".into() };
         let verdict = crate::rules::RuleVerdict { pass: true, violations: vec![] };
@@ -1280,7 +1160,7 @@ mod tests {
     /// an edit the agent has not seen.
     #[tokio::test]
     async fn a_patch_against_a_stale_revision_is_refused() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         patch(&mut agent, json!([{ "op": "add", "path": "/header", "value": "UBS Europe SE" }])).await;
         let stale = agent
             .execute("json_patch", &json!({ "ops": [{ "op": "remove", "path": "/header" }], "expected_revision": 0 }))
@@ -1291,13 +1171,13 @@ mod tests {
     /// Every edit is recorded, so a resumed session picks up the latest document.
     #[tokio::test]
     async fn every_edit_is_recorded_for_a_resume() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
-        match crate::session::restore(agent.session_id(), OutputTarget::Aem).unwrap() {
+        match crate::session::restore(agent.session_id()).unwrap() {
             crate::session::Restored::Document(doc) => assert_eq!(&doc, agent.document()),
             other => panic!("{other:?}"),
         }
-        let mut resumed = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut resumed = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         resumed.seed_document(agent.document().clone()).unwrap();
         assert_eq!(resumed.document(), agent.document());
         assert!(resumed.seed_document(json!({"sources": {}, "assets": [], "body": []})).is_err());
@@ -1309,10 +1189,10 @@ mod tests {
     /// first edit leaves no revision at all.
     #[tokio::test]
     async fn starting_or_resuming_records_nothing_until_an_edit() {
-        let mut first = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut first = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         let session = first.session_id().to_string();
         assert!(matches!(
-            crate::session::restore(&session, OutputTarget::Aem).unwrap(),
+            crate::session::restore(&session).unwrap(),
             crate::session::Restored::Nothing
         ));
         patch(&mut first, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
@@ -1322,74 +1202,18 @@ mod tests {
             Some("ubs".into()),
             vec![fixture("AAEV_019_EN.pdf")],
             session.clone(),
-            OutputTarget::Aem,
         )
         .unwrap();
         resumed.seed_document(authored.clone()).unwrap();
-        match crate::session::restore(&session, OutputTarget::Aem).unwrap() {
+        match crate::session::restore(&session).unwrap() {
             crate::session::Restored::Document(doc) => assert_eq!(doc, authored),
             other => panic!("{other:?}"),
         }
     }
 
-    /// The whole Redacto path: an asset and its place in the body, the page
-    /// header, the dump, and the verifier's offline check of it.
-    #[tokio::test]
-    async fn a_patched_redacto_document_builds_a_dump_the_verifier_reads() {
-        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")])
-            .with_redacto_verify(&crate::u2s::RedactoVerifySettings::default())
-            .expect("the Redacto verifier attaches without Docker");
-        patch(
-            &mut agent,
-            json!([
-                { "op": "add", "path": "/assets/-", "value": { "key": "intro", "kind": "text", "content": { "en": "<p>A paragraph the dump must carry.</p>" } } },
-                { "op": "add", "path": "/body/-", "value": { "type": "assetContainer", "assets": ["intro"] } },
-                { "op": "add", "path": "/sources/en/header", "value": "Valid from 02.01.2018\nUBS Europe SE" }
-            ]),
-        )
-        .await;
-        let built: Value = serde_json::from_str(&reply_text(agent.execute("build_redacto_dump", &json!({})).await)).unwrap();
-        assert_eq!(built["document_id"], "aaev_019");
-        assert_eq!(built["has_header"], true);
-        assert_eq!(built["has_footer"], true);
-
-        let checked = reply_text(agent.execute("redacto_verify_dump_check", &json!({})).await);
-        assert!(checked.contains("\"ok\":true") || checked.contains("\"ok\": true"), "{checked}");
-    }
-
-    /// A Redacto document whose sources do not name the form builds nothing:
-    /// the dump's identity comes from those variables.
-    #[tokio::test]
-    async fn a_redacto_document_without_its_identity_builds_nothing() {
-        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")]);
-        patch(
-            &mut agent,
-            json!([
-                { "op": "replace", "path": "/sources/en/variables", "value": {} },
-                { "op": "add", "path": "/assets/-", "value": { "key": "intro", "kind": "text", "content": { "en": "<p>Text.</p>" } } },
-                { "op": "add", "path": "/body/-", "value": { "type": "assetContainer", "assets": ["intro"] } }
-            ]),
-        )
-        .await;
-        match agent.execute("build_redacto_dump", &json!({})).await {
-            ToolReply::Error(e) => assert!(e.contains("Nothing built"), "{e}"),
-            other => panic!("a dump without its identity was built: {}", reply_kind(&other)),
-        }
-    }
-
-    /// A document the Redacto model refuses builds nothing and says why.
-    #[tokio::test]
-    async fn an_empty_redacto_body_builds_nothing() {
-        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")]);
-        match agent.execute("build_redacto_dump", &json!({})).await {
-            ToolReply::Error(e) => assert!(e.contains("Nothing built") && e.contains("body"), "{e}"),
-            other => panic!("{}", reply_kind(&other)),
-        }
-    }
-
     #[tokio::test]
     async fn get_source_info_names_each_documents_language_and_variables() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAOS_033_IT.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAOS_033_IT.pdf")]);
         let info: Value = serde_json::from_str(&reply_text(agent.execute("get_source_info", &json!({})).await)).unwrap();
         assert_eq!(info["languages"], json!(["it"]));
         let document = &info["documents"][0];
@@ -1399,25 +1223,11 @@ mod tests {
         assert!(packets.contains("\"template\""), "{packets}");
     }
 
-    #[test]
-    fn each_targets_tools_are_refused_under_the_other() {
-        let aem = agent_for(OutputTarget::Aem, Vec::new());
-        let redacto = agent_for(OutputTarget::Redacto, Vec::new());
-        for tool in tools_only_for(target::AEM) {
-            let refusal = redacto.target_refusal(tool).unwrap_or_else(|| panic!("{tool}"));
-            assert!(refusal.contains("not available for the Redacto"), "{refusal}");
-        }
-        for tool in tools_only_for(target::REDACTO) {
-            let refusal = aem.target_refusal(tool).unwrap_or_else(|| panic!("{tool}"));
-            assert!(refusal.contains("not available for the AEM"), "{refusal}");
-        }
-    }
-
     /// A verifier tool without a verifier attached says so rather than failing
     /// obscurely.
     #[tokio::test]
     async fn a_verifier_tool_needs_its_verifier() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
         reply_text(agent.execute("build_aem_package", &json!({})).await);
         match agent.execute("aem_verify_package_check", &json!({})).await {
@@ -1431,7 +1241,7 @@ mod tests {
     #[tokio::test]
     async fn aem_verify_package_check_checks_the_runs_own_build() {
         let settings = crate::u2s::AemVerifySettings::default();
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")])
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")])
             .with_aem_verify(&settings)
             .expect("complete settings attach the verifier");
         match agent.execute("aem_verify_package_check", &json!({})).await {
@@ -1561,7 +1371,7 @@ mod tests {
 
     #[tokio::test]
     async fn xfa_render_page_replies_with_the_page_image() {
-        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAOS_033_IT.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAOS_033_IT.pdf")]);
         let info: Value = serde_json::from_str(&reply_text(agent.execute("get_source_info", &json!({})).await)).unwrap();
         let doc_path = info["documents"][0]["doc_path"]
             .as_str()
@@ -1586,7 +1396,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_doc_path_outside_the_runs_documents_is_refused() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAOS_033_IT.pdf")]);
+        let mut agent = agent_for(vec![fixture("AAOS_033_IT.pdf")]);
         let outside = std::path::Path::new(SOURCE_FORMS)
             .join("AAEV_019_EN.pdf")
             .display()
@@ -1609,10 +1419,8 @@ mod evidence;
 mod execute;
 mod prompts;
 
-use catalog::target_mask;
-pub use catalog::{Access, ToolSpec, access_of, all_tools, catalog, scope, target, tools_for};
+pub use catalog::{Access, ToolSpec, access_of, all_tools, catalog, scope, tools_for};
 pub(crate) use evidence::json_of;
 pub use execute::{Caller, ReadWork};
 pub use prompts::*;
 
-use crate::OutputTarget;

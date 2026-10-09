@@ -103,8 +103,8 @@ impl TabPhase {
 
 /// One tab as it survives a restart.
 ///
-/// Deliberately not the whole tab. The built package, the schema and the SQL
-/// dump are rebuilt from the session rather than stored, and the activity
+/// Deliberately not the whole tab. The built package and the schema are
+/// rebuilt from the session rather than stored, and the activity
 /// transcript is megabytes of model prose that would be rewritten on every
 /// step — so what is kept here is the choices the user made plus enough of the
 /// result to describe it before the outputs are rebuilt.
@@ -113,7 +113,6 @@ impl TabPhase {
 pub struct SavedTab {
     pub id: u64,
     pub profile: Option<String>,
-    pub target: agent::OutputTarget,
     /// The edit-history session, which is what makes the tab continuable.
     pub session_id: Option<String>,
     /// Content hash of the sources, for finding the stored bytes again.
@@ -279,7 +278,6 @@ pub fn restored_run(saved: &SavedTab, view: RestoredView) -> RestoredRun {
     RestoredRun {
         state: ProcessingState {
             step,
-            target: saved.target,
             form_code: saved.form_code.clone(),
             elapsed_secs: saved.elapsed_secs,
             warnings: saved.warnings.clone(),
@@ -596,6 +594,20 @@ mod tests {
         assert_eq!(TabPhase::of(&aborted, false), TabPhase::Failed);
     }
 
+    /// A workspace saved while a tab could pick the Redacto output still
+    /// restores every tab: the choice it recorded is ignored, not a reason to
+    /// drop the whole tab list.
+    #[test]
+    fn a_workspace_saved_with_an_output_target_still_restores() {
+        let json = r#"{"version":1,"active":2,"tabs":[
+            {"id":1,"profile":"ubs","target":"aem","source_names":["A.pdf"]},
+            {"id":2,"profile":"ubs","target":"redacto","source_names":["B.pdf"]}]}"#;
+        let back = SavedWorkspace::parse(Some(json));
+        assert_eq!(back.tabs.len(), 2);
+        assert_eq!(back.active, Some(2));
+        assert_eq!(back.tabs[1].source_names, ["B.pdf"]);
+    }
+
     #[test]
     fn a_workspace_round_trips_through_the_store() {
         let original = SavedWorkspace {
@@ -606,7 +618,6 @@ mod tests {
                 SavedTab {
                     id: 2,
                     profile: Some("ubs".into()),
-                    target: agent::OutputTarget::Redacto,
                     source_names: vec!["AAOV_033_DE.pdf".into()],
                     feedback_draft: "half a thought".into(),
                     ..SavedTab::default()
@@ -716,7 +727,6 @@ mod tests {
                 SavedTab {
                     id: 3,
                     profile: Some("ubs".into()),
-                    target: agent::OutputTarget::Redacto,
                     ..SavedTab::default()
                 },
             ],
@@ -736,7 +746,6 @@ mod tests {
         assert_eq!(back.tabs[1].feedback_draft, "make the phone field optional");
         // The one that never started keeps its choices and nothing else.
         assert_eq!(restored_view(&back.tabs[2], false), RestoredView::Upload);
-        assert_eq!(back.tabs[2].target, agent::OutputTarget::Redacto);
         assert_eq!(back.tabs[2].profile.as_deref(), Some("ubs"));
     }
 

@@ -68,12 +68,11 @@ A profile supplies the parser fonts and (in `history.db`) the reference library.
 
 ### 1.5 Verification setup (required)
 
-Both AEM and Redacto targets require verification during the conversion. Verification
-uses vendored u2s verifiers linked into the binaries (source in `u2s/`; see
+Every conversion requires verification. Verification uses the vendored u2s verifier linked into the binaries (source in `u2s/`; see
 `u2s/VENDORED.md`). Every run checks whether verification is set up before it
 starts and refuses to run if it is not. There is no switch to skip it.
 
-**For an AEM target:** The verifier boots its own AEM Forms instance plus a headless
+The verifier boots its own AEM Forms instance plus a headless
 Chromium, both in Docker, installs the built package, and lets the Author and
 Reviewer drive the form interactively using `aem_verify_*` tools (open, control
 interaction, set values, advance pages, submit, screenshot). The submitted form's
@@ -83,21 +82,12 @@ You need:
 - Docker running
 - The GitHub CLI signed in with access to ajila's packages: `gh auth login -s read:packages` (or `gh auth refresh -s read:packages` for an existing login). The AEM image (`ghcr.io/ajilach/u2s-aem-ubs`, pinned as `AEM_IMAGE` in `agent/src/u2s.rs`, published for arm64 and amd64) is a private package of the `ajilach` organization; a run pulls it with that login when Docker does not have it yet, and does not start when the pull fails. The image seeds its own data volume on first boot (see `docker/aem/README.md`); a `u2s-aem-ubs-data` volume from the earlier setup is no longer used and can be removed with `docker volume rm u2s-aem-ubs-data`.
 
-**For a Redacto target:** The `redacto_verify_*` tools boot a Redacto platform of the
-run's own (Postgres, migration, core, rendering), import the built dump there and render
-it once per language.
-
-You need:
-- Docker running
-- The public Postgres image pulled (`verify prepare` does that)
-- The platform's migration, core and rendering images from ajila's private registry: `az acr login --name ajilaclouddev`, then `docker pull` each (see `docker/redacto/README.md`)
-
-**For both targets:**
+Also:
 - Check rules: every rule runs in a sandboxed worker process, which is `blueprint` itself started with `--u2s-rules-worker`; nothing extra needs building or shipping.
 - `pdfium`: downloaded and embedded by the build on first compilation; nothing to do beyond network access on the first build.
-- Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: the migration, core and rendering images (default: the ones `ajila-redacto-platform`'s CI publishes to `ajilaclouddev.azurecr.io`), Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin).
-- Prepare: Run `blueprint verify prepare` to pull the missing verifier images: headless Chromium `chromedp/headless-shell:stable`, Postgres, and the AEM image with the GitHub CLI's login. The private Redacto images are pulled by hand (see above).
-- Check: Run `blueprint verify check [--target aem|redacto]` to run the readiness check a conversion performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry; a missing AEM image needs the GitHub CLI signed in instead), and pdfium loads.
+- Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM port (default 8080), AEM user/password (default admin/admin).
+- Prepare: Run `blueprint verify prepare` to pull the missing verifier images: headless Chromium `chromedp/headless-shell:stable`, and the AEM image with the GitHub CLI's login.
+- Check: Run `blueprint verify check` to run the readiness check a conversion performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to log in if logged out of a private registry; a missing AEM image needs the GitHub CLI signed in instead), and pdfium loads.
 
 ```sh
 cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images
@@ -146,16 +136,16 @@ by file extension, so the `.pdf` suffix matters.
 
 1. **Preflight.** Resolve the profile and settings, run the verification
    readiness check (settings complete, Docker reachable, images present locally,
-   pdfium loads), then, for AEM targets, pull the AEM image from GitHub when
+   pdfium loads), then pull the AEM image from GitHub when
    Docker does not have it yet. A refused preflight or a failed pull leaves no
    session behind and spends no tokens.
 2. **Open the session.** Sources are hashed and stored content-addressed, a
    session row is created and an empty initial edit is recorded.
 3. **Author → (Reviewer → Author fix)\*.** The review rounds are capped
    by `--max-review-rounds` (default 3). The Author and Reviewer drive the built
-   form using the `aem_verify_*` (or `redacto_verify_*`) verification tools to
+   form using the `aem_verify_*` verification tools to
    interact with it, submit it, and verify the output.
-4. **Finalize.** The envelope, packages, XSD and Redacto SQL are assembled and
+4. **Finalize.** The envelope, packages and XSD are assembled and
    recorded back into the history. There is no upload: the built package is the
    final artefact.
 
@@ -187,12 +177,11 @@ later feedback round keeps what its earlier rounds cost.
 Written to `--out` (default the current directory, created if missing), named
 exactly as the desktop app names them in Downloads:
 
-| Target | Files |
+| What | Files |
 |---|---|
-| `aem` (default) | `forms-package-<code>.zip`, `forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd` |
-| `redacto` | `redacto-<code>.sql` |
-| both | `document-<code>.json` (the final document), `agent-log-<code>.md` (the Markdown run transcript) |
-| both | `run-analysis/<date>_<time>_<source>_<session>/` — the run recorded for analysis (report, timeline, per-stage transcripts, full trace, `evaluation.md` template), in this repository's `run-analysis/` unless `--analysis-dir` names another folder; see [run-analysis.md](run-analysis.md). Written while the run happens, so it exists for a stopped run too. Only with `--analysis` or `--analysis-dir`. |
+| The form | `forms-package-<code>.zip`, `forms-package-bindrefs-<code>.zip`, `schema-<code>.xsd` |
+| The run | `document-<code>.json` (the final document), `agent-log-<code>.md` (the Markdown run transcript) |
+| Analysis | `run-analysis/<date>_<time>_<source>_<session>/` — the run recorded for analysis (report, timeline, per-stage transcripts, full trace, `evaluation.md` template), in this repository's `run-analysis/` unless `--analysis-dir` names another folder; see [run-analysis.md](run-analysis.md). Written while the run happens, so it exists for a stopped run too. Only with `--analysis` or `--analysis-dir`. |
 
 `forms-package-bindrefs` is the same package built with `bind_to_xsd` on: every
 field carries a `bindRef` and the schema is bundled. When the form code could
@@ -253,7 +242,6 @@ nothing.
 |---|---|---|
 | `<DOCUMENT>…` | required | Source PDF(s), optionally plus an AEM content-package ZIP |
 | `--profile <NAME>` | the only installed profile, or the session's | Errors if several exist and none is named |
-| `--target <aem\|redacto>` | `aem` | Case-insensitive |
 | `--out <DIR>` | `.` | Created if missing |
 | `--provider <anthropic\|openai>` | the app's setting | `openai` means any OpenAI-compatible endpoint |
 | `--base-url <URL>` | `https://openrouter.ai/api/v1` | Implies `--provider openai` |
@@ -273,9 +261,6 @@ nothing.
 ## 5. Worked examples
 
 ```sh
-# Redacto document instead of an AEM package
-cargo run --release -p blueprint-cli -- convert form.pdf --target redacto
-
 # Write artefacts to a specific directory
 cargo run --release -p blueprint-cli -- convert form.pdf --out ./out
 

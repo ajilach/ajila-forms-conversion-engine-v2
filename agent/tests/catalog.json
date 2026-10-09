@@ -19,15 +19,6 @@
     "name": "get_source_info"
   },
   {
-    "description": "Encode the document into the Redacto PostgreSQL dump, adding the UBS metadata, page header and footer from each language's source, and report what it holds: the document id, languages, asset count and dump size. A document the Redacto model refuses (an empty body, an asset missing a language, a reference to an asset that does not exist) is reported with every violation and builds nothing. Build after every substantive change; the redacto_verify_* tools check the latest build.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "build_redacto_dump"
-  },
-  {
     "description": "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS writer, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing), or a package that fails the XML checks, is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
     "input_schema": {
       "properties": {},
@@ -214,7 +205,7 @@
     "name": "grep_reference_docs"
   },
   {
-    "description": "Terminal AUTHOR step: call once, last, when the form is complete and you have verified it yourself. Refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read; do those and call it again. Ends your stage and hands the form to the Reviewer.",
+    "description": "Terminal AUTHOR step: call once, last, when the form is complete and you have verified it yourself. Refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read; do those and call it again. Ends your stage and hands the form to the Reviewer.",
     "input_schema": {
       "properties": {
         "summary": {
@@ -269,7 +260,7 @@
     "name": "submit_rule_verdict"
   },
   {
-    "description": "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
+    "description": "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
     "input_schema": {
       "properties": {
         "approved": {
@@ -2032,40 +2023,5 @@
       "type": "object"
     },
     "name": "aem_verify_close"
-  },
-  {
-    "description": "Reports this profile's own configuration (the platform images, which of them this host's Docker daemon is missing, or which setting is missing), whether Docker is reachable, and whether `session_id` has a booted platform. Touches nothing side-effecting -- safe to call at any time, and is how a caller distinguishes \"this server is misconfigured\" from \"Docker is down right now\". In this run the latest build_redacto_dump result is checked automatically and the session is managed for you: pass no `artifact_blob`, `artifact_path` or `session_id`.",
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {},
-      "required": null,
-      "type": "object"
-    },
-    "name": "redacto_verify_status"
-  },
-  {
-    "description": "Validates a dump offline: does it decode (well-formed SQL, every asset reference resolving, a non-empty body, every declared language covered). Exactly one of `artifact_blob` (a u2s blob handle) or `artifact_path` (a filesystem path, for conformance test vectors) must be given. Never touches Docker or a network -- this is the check `redacto_verify_run`'s own `dry_run: true` performs internally before anything with a side effect runs. In this run the latest build_redacto_dump result is checked automatically and the session is managed for you: pass no `artifact_blob`, `artifact_path` or `session_id`.",
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {},
-      "required": null,
-      "type": "object"
-    },
-    "name": "redacto_verify_dump_check"
-  },
-  {
-    "description": "Imports the dump into the Redacto platform of `session_id` (booted on that session's first call, which takes some seconds, then reused), replacing any earlier import of the same document (so an edited document can be re-verified), reports that document's row counts, then renders it once per declared language and returns each rendered PDF as an artefact. An import or render failure is an error finding naming the cause. `dry_run: true` performs only the offline dump check and touches neither Docker nor a network. Every artefact travels as a blob, never inline. This tool is side-effecting: it writes to the platform database and is never offered to the Conversion Agent. In this run the latest build_redacto_dump result is checked automatically and the session is managed for you: pass no `artifact_blob`, `artifact_path` or `session_id`.",
-    "input_schema": {
-      "additionalProperties": false,
-      "properties": {
-        "dry_run": {
-          "description": "Validate the dump offline only; default false.",
-          "type": "boolean"
-        }
-      },
-      "required": null,
-      "type": "object"
-    },
-    "name": "redacto_verify_run"
   }
 ]

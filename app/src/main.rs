@@ -102,7 +102,7 @@ fn App() -> Element {
     let profiles = use_hook(agent::profiles::list_profiles);
     let mut app_settings = use_signal(AppSettings::load);
     let mut settings_open = use_signal(|| false);
-    // Whether each target can run here. Reading the settings inside makes a
+    // Whether a conversion can run here. Reading the settings inside makes a
     // saved change re-run it; the banner's Re-check restarts it too.
     let readiness = use_resource(move || Readiness::check(app_settings.read().clone()));
     // Whether the full-page reference-forms manager is open.
@@ -112,7 +112,7 @@ fn App() -> Element {
     let window = dioxus::desktop::use_window();
 
     // Every conversion the user has open. Each tab owns its own run state,
-    // profile, target and stop control, so tabs convert independently.
+    // profile and stop control, so tabs convert independently.
     //
     // Reopened from the last session, sources and all, so a restart picks up
     // where the operator left off rather than discarding a batch of work.
@@ -120,7 +120,6 @@ fn App() -> Element {
     let mut workspace = Workspace::use_init(
         &saved,
         profiles.first().map(String::as_str),
-        agent::OutputTarget::default(),
         reopen_tab,
     );
 
@@ -138,7 +137,7 @@ fn App() -> Element {
         }
     };
 
-    // A quit is the one moment nothing else covers: profile, target and file
+    // A quit is the one moment nothing else covers: profile and file
     // choices made but not yet started have to survive it too.
     dioxus::desktop::use_wry_event_handler(move |event, _| {
         if matches!(
@@ -174,7 +173,6 @@ fn App() -> Element {
     // choices, flip it into its running phase, and let the agent drive.
     let run_config = move |tab: Tab| agent_runner::RunConfig {
         profile: tab.profile.read().clone(),
-        target: *tab.target.read(),
         settings: app_settings.read().clone(),
         abort: tab.abort.peek().clone(),
         retry: tab.retry.peek().clone(),
@@ -348,17 +346,7 @@ fn App() -> Element {
             }
         }
 
-        EnvironmentBanner {
-            readiness,
-            enabled_targets: app_settings.read().enabled_targets(),
-            on_switch_off: move |target: agent::OutputTarget| {
-                let mut next = app_settings.read().clone();
-                if next.set_target_enabled(target, false) {
-                    next.save();
-                    app_settings.set(next);
-                }
-            },
-        }
+        EnvironmentBanner { readiness }
 
         // Settings, the references manager, or the workspace — full-page views
         // under the persistent header.
@@ -399,7 +387,6 @@ fn App() -> Element {
                 ai_available: !app_settings.read().active_api_key().is_empty(),
                 // Unknown again while a re-check runs, so Start waits for it.
                 readiness: if readiness.pending() { None } else { readiness.value().read().clone() },
-                enabled_targets: app_settings.read().enabled_targets(),
                 on_ai_process: move |files: Vec<(String, Vec<u8>)>| {
                     on_ai_process(active, files);
                 },

@@ -194,10 +194,9 @@ fn image_content(media_type: &str, data: &str) -> ToolResultContent {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use agent::OutputTarget;
 
     fn bare_agent() -> SharedAgent {
-        Arc::new(Mutex::new(ConversionAgent::new(None, Vec::new(), "test-tools-bridge".into(), OutputTarget::Redacto)
+        Arc::new(Mutex::new(ConversionAgent::new(None, Vec::new(), "test-tools-bridge".into())
             .expect("an agent without sources starts")))
     }
 

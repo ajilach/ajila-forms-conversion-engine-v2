@@ -1,6 +1,6 @@
 # Running the verifiers on Podman
 
-The AEM and Redacto verifiers run in containers. Docker is the default; Podman
+The AEM verifier runs in containers. Docker is the default; Podman
 works as well, through its Docker-compatible API. Nothing else changes: the
 same images, the same data volume, the same settings.
 
@@ -35,8 +35,8 @@ A registry login is read from Podman's `auth.json` as well as Docker's
 The AEM image (`AEM_IMAGE` in `agent/src/u2s.rs`) is pulled by the run itself
 with the GitHub CLI's login, through whichever engine is selected, and seeds
 its own data volume on first boot (`docker/aem/README.md`); nothing has to be
-baked. The commands in `docker/redacto/README.md` work with `podman` in place
-of `docker` (`podman login`, `podman pull`, `podman volume ls`).
+baked. Commands written for `docker` work with `podman` in place of it
+(`podman login`, `podman pull`, `podman volume ls`).
 
 Images and volumes are per engine: an image pulled into Docker is not in Podman
 and the other way round, so pull the images in the engine you run with.

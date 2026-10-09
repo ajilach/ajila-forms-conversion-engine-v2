@@ -6,10 +6,9 @@
 //! which artifact a verifier checks, where the fonts come from, and turning a
 //! `CallToolResult` into a [`ToolReply`].
 //!
-//! The two verifiers both name tools `verify_status` and `verify_run`, so their
-//! families are offered as `aem_verify_*` and `redacto_verify_*`. They also
-//! lose the arguments this module supplies itself: the artifact to check (the
-//! run's latest build) and the session (one per agent).
+//! The verifier's tools are offered as `aem_verify_*` (upstream names them
+//! `verify_*`). They also lose the arguments this module supplies itself: the
+//! package to check (the run's latest build) and the session (one per agent).
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -22,15 +21,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use u2s_aem_verify_core::profile::Profile;
 use u2s_aem_verify_core::server::{AemVerifyServer, ServerConfig};
-use u2s_redacto_ubs_verify_mcp::RedactoVerifyServer;
-use u2s_redacto_verify_core::profile::RenderProfile;
 use u2s_render_core::{BlobStore, Limits};
 use u2s_render_pdf_mcp::PdfRenderServer;
 use u2s_render_xfa_mcp::XfaRenderServer;
 use u2s_verify_core::docker::{DockerLifecycle, RegistryCredentials};
 use u2s_xfa_mcp::XfaDataServer;
 
-use crate::OutputTarget;
 use crate::container_engine::ContainerEngine;
 use crate::conversion::ToolReply;
 
@@ -41,7 +37,6 @@ enum Family {
     XfaRender,
     PdfRender,
     AemVerify,
-    RedactoVerify,
 }
 
 impl Family {
@@ -49,7 +44,6 @@ impl Family {
     fn prefix(self) -> &'static str {
         match self {
             Family::AemVerify => "aem_",
-            Family::RedactoVerify => "redacto_",
             Family::XfaData | Family::XfaRender | Family::PdfRender => "",
         }
     }
@@ -58,7 +52,6 @@ impl Family {
     fn supplied_arguments(self) -> &'static [&'static str] {
         match self {
             Family::AemVerify => &["package", "package_path", "session_id"],
-            Family::RedactoVerify => &["artifact_blob", "artifact_path", "session_id"],
             Family::XfaData | Family::XfaRender | Family::PdfRender => &[],
         }
     }
@@ -71,11 +64,6 @@ impl Family {
                 " In this run the latest build_aem_package result is checked automatically and the \
                  session is managed for you: pass no `package`, `package_path` or `session_id`."
             }
-            Family::RedactoVerify => {
-                " In this run the latest build_redacto_dump result is checked automatically and the \
-                 session is managed for you: pass no `artifact_blob`, `artifact_path` or \
-                 `session_id`."
-            }
             Family::XfaData | Family::XfaRender | Family::PdfRender => "",
         }
     }
@@ -84,7 +72,6 @@ impl Family {
     fn artifact_argument(self) -> Option<&'static str> {
         match self {
             Family::AemVerify => Some("package_path"),
-            Family::RedactoVerify => Some("artifact_path"),
             Family::XfaData | Family::XfaRender | Family::PdfRender => None,
         }
     }
@@ -129,10 +116,6 @@ fn entries() -> &'static [Entry] {
             (u2s_render_xfa_mcp::specs::tool_specs(), Family::XfaRender),
             (u2s_render_pdf_mcp::specs::tool_specs(), Family::PdfRender),
             (u2s_aem_ubs_verify_mcp::specs::tool_specs(), Family::AemVerify),
-            (
-                u2s_redacto_ubs_verify_mcp::specs::tool_specs(),
-                Family::RedactoVerify,
-            ),
         ]
         .into_iter()
         .flat_map(|(specs, family)| {
@@ -311,75 +294,8 @@ impl AemVerifySettings {
     }
 }
 
-/// The images of the Redacto platform the verifier boots per session
-/// (`docker/redacto/README.md`), its Docker platform and the rendering
-/// service's basic auth. Stored like [`AemVerifySettings`].
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct RedactoVerifySettings {
-    /// The platform's database.
-    #[serde(rename = "redacto_verify_postgres_image")]
-    pub postgres_image: String,
-    /// The platform's Flyway migrations, run once per boot.
-    #[serde(rename = "redacto_verify_migration_image")]
-    pub migration_image: String,
-    #[serde(rename = "redacto_verify_core_image")]
-    pub core_image: String,
-    #[serde(rename = "redacto_verify_rendering_image")]
-    pub rendering_image: String,
-    /// The Docker platform to run the platform images as. Empty lets the
-    /// daemon decide.
-    #[serde(rename = "redacto_verify_platform")]
-    pub platform: String,
-    #[serde(rename = "redacto_verify_user")]
-    pub user: String,
-    #[serde(rename = "redacto_verify_password")]
-    pub password: String,
-}
-
-impl Default for RedactoVerifySettings {
-    /// The images `ajila-redacto-platform`'s CI publishes, as upstream's
-    /// `.env.example` names them.
-    fn default() -> Self {
-        Self {
-            postgres_image: "postgres:16-alpine".into(),
-            migration_image: "ajilaclouddev.azurecr.io/ajila-redacto-platform-ajila-redacto-migration:latest"
-                .into(),
-            core_image: "ajilaclouddev.azurecr.io/ajila-redacto-platform-ajila-redacto-core:latest".into(),
-            rendering_image: "ajilaclouddev.azurecr.io/ajila-redacto-platform-ajila-redacto-rendering:latest"
-                .into(),
-            platform: String::new(),
-            user: "admin".into(),
-            password: "admin".into(),
-        }
-    }
-}
-
-/// The Redacto verifier's profile name, which is also the owner label on
-/// every container and network it boots.
-const REDACTO_PROFILE_NAME: &str = "redacto-ubs";
-
-impl RedactoVerifySettings {
-    fn profile(&self) -> Result<RenderProfile, String> {
-        RenderProfile::from_reader(REDACTO_PROFILE_NAME, "U2S_REDACTO_VERIFY_UBS", "pdf-ua", |key| {
-            let value = match key.strip_prefix("U2S_REDACTO_VERIFY_UBS_")? {
-                "POSTGRES_IMAGE" => self.postgres_image.trim(),
-                "MIGRATION_IMAGE" => self.migration_image.trim(),
-                "CORE_IMAGE" => self.core_image.trim(),
-                "RENDERING_IMAGE" => self.rendering_image.trim(),
-                "PLATFORM" => self.platform.trim(),
-                "USER" => self.user.trim(),
-                "PASSWORD" => self.password.as_str(),
-                _ => return None,
-            };
-            optional(value)
-        })
-        .map_err(|e| format!("the Redacto verification settings are incomplete: {e}"))
-    }
-}
-
-/// Everything that keeps a target's runs from starting, one problem per entry,
-/// each saying what to do about it.
+/// Everything that keeps a run from starting, one problem per entry, each
+/// saying what to do about it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NotReady(pub Vec<String>);
 
@@ -391,20 +307,12 @@ impl std::fmt::Display for NotReady {
 
 impl std::error::Error for NotReady {}
 
-/// Checks everything a run for `target` needs before it spends a token: the
-/// check rules' sandbox and the target's verifier (see
-/// [`aem_verify_readiness`] and [`redacto_verify_readiness`]). Returns a short
-/// report, or every problem found.
-pub async fn readiness(
-    target: OutputTarget,
-    aem: &AemVerifySettings,
-    redacto: &RedactoVerifySettings,
-) -> Result<String, NotReady> {
-    let rules = crate::rules::readiness(target);
-    let verifier = match target {
-        OutputTarget::Aem => aem_verify_readiness(aem).await,
-        OutputTarget::Redacto => redacto_verify_readiness(redacto).await,
-    };
+/// Checks everything a run needs before it spends a token: the check rules'
+/// sandbox and the AEM verifier (see [`aem_verify_readiness`]). Returns a
+/// short report, or every problem found.
+pub async fn readiness(aem: &AemVerifySettings) -> Result<String, NotReady> {
+    let rules = crate::rules::readiness();
+    let verifier = aem_verify_readiness(aem).await;
     match (rules, verifier) {
         (Ok(rules), Ok(verifier)) => Ok(format!("Check rules: {rules}. {verifier}")),
         (rules, verifier) => {
@@ -572,40 +480,9 @@ fn gh_program() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("gh"))
 }
 
-/// The Redacto counterpart of [`aem_verify_readiness`]: complete settings, a
-/// reachable Docker, every platform image present locally, and pdfium.
-async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Result<String, NotReady> {
-    let mut problems = Vec::new();
-    let profile = settings.profile();
-    if let Err(e) = &profile {
-        problems.push(e.clone());
-    }
-    let docker = docker_problems(&mut problems).await;
-    if let (Some(docker), Ok(profile)) = (&docker, &profile) {
-        for image in profile.images.all() {
-            image_problem(docker, image, &mut problems).await;
-        }
-    }
-    pdf_problem(&mut problems);
-    if !problems.is_empty() {
-        return Err(NotReady(problems));
-    }
-    let images = profile.map(|p| p.images.all().join(", ")).unwrap_or_default();
-    Ok(format!(
-        "Redacto platform images {images}, {} reachable, pdfium loaded.",
-        crate::container_engine::selected().label()
-    ))
-}
-
-/// Pulls the images the verifiers run where they are missing: the AEM
-/// verifier's Chromium, the Redacto platform's Postgres, and [`AEM_IMAGE`]
-/// with the GitHub CLI's login. The other Redacto platform images live in a
-/// private Azure registry and have to be pulled by hand after `az acr login`
-/// (see docker/redacto/README.md).
-pub async fn pull_verifier_images(
-    aem: &AemVerifySettings,
-    redacto: &RedactoVerifySettings,
-) -> Result<String, String> {
+/// Pulls the images the verifier runs where they are missing: its Chromium,
+/// and [`AEM_IMAGE`] with the GitHub CLI's login.
+pub async fn pull_verifier_images(aem: &AemVerifySettings) -> Result<String, String> {
     // The Chromium image is the verifier's own default; reading it from the
     // profile keeps the two from drifting apart.
     let chromium = Profile::from_reader(|key| match key {
@@ -621,14 +498,11 @@ pub async fn pull_verifier_images(
     let docker = DockerLifecycle::connect()
         .await
         .map_err(|e| format!("{}: {e}", crate::container_engine::unreachable_hint()))?;
-    let images = [chromium, redacto.postgres_image.trim().to_string()];
-    for image in &images {
-        docker
-            .ensure_image(image, &platform, None)
-            .await
-            .map_err(|e| format!("could not pull {image}: {e}"))?;
-    }
-    let pulled = format!("Pulled {} for {platform}.", images.join(" and "));
+    docker
+        .ensure_image(&chromium, &platform, None)
+        .await
+        .map_err(|e| format!("could not pull {chromium}: {e}"))?;
+    let pulled = format!("Pulled {chromium} for {platform}.");
     match ensure_aem_image(aem).await {
         Ok(aem_image) => Ok(format!("{pulled} {aem_image}")),
         Err(e) => Err(format!("{pulled} The AEM image was not pulled: {e}")),
@@ -765,11 +639,6 @@ fn pdf_problem(problems: &mut Vec<String>) {
 /// says one does; the OS drops it with a crashed process.
 const AEM_VERIFIER_LOCK: &str = "aem-verifier.lock";
 
-/// Redacto verifier sessions each get their own platform, so any number may
-/// run: each holds this file's lock shared. Only a process that can briefly
-/// take it exclusively knows that no Redacto container anywhere is in use.
-const REDACTO_VERIFIER_LOCK: &str = "redacto-verifier.lock";
-
 /// How long a verifier may sit unused before its containers are torn down.
 /// Matches upstream's own idle timeout.
 const VERIFIER_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -812,7 +681,7 @@ impl VerifyCall {
     /// this adapter does not know, which is then refused.
     fn of(server_name: &str) -> Option<Self> {
         match server_name {
-            "verify_status" | "verify_package_check" | "verify_dump_check" => Some(Self::Offline),
+            "verify_status" | "verify_package_check" => Some(Self::Offline),
             "verify_run" | "verify_open" => Some(Self::Boots),
             "verify_submit" => Some(Self::Submit),
             "verify_controls" | "verify_set" | "verify_next" | "verify_prev" | "verify_reset"
@@ -853,50 +722,35 @@ struct Activity {
     lock: Option<File>,
 }
 
-/// The verifier a run checks its output with.
+/// The verifier a run checks its output with: the AEM verifier's server and
+/// its profile.
 #[derive(Clone)]
-enum Verifier {
-    Aem(AemVerifyServer, Arc<Profile>),
-    /// The server, and how long its platform may take to boot.
-    Redacto(RedactoVerifyServer, Duration),
+struct Verifier {
+    server: AemVerifyServer,
+    profile: Arc<Profile>,
 }
 
 impl Verifier {
     /// Removes the verifier's containers, giving up after
     /// [`VERIFY_TEARDOWN_DEADLINE`].
     async fn shutdown(&self) -> Result<(), String> {
-        let shutdown = async {
-            match self {
-                Verifier::Aem(server, _) => server.shutdown().await,
-                Verifier::Redacto(server, _) => server.shutdown().await,
-            }
-        };
-        tokio::time::timeout(VERIFY_TEARDOWN_DEADLINE, shutdown).await.unwrap_or_else(|_| {
+        tokio::time::timeout(VERIFY_TEARDOWN_DEADLINE, self.server.shutdown()).await.unwrap_or_else(|_| {
             Err(format!("removing its containers did not finish within {VERIFY_TEARDOWN_DEADLINE:?}"))
         })
     }
 
     async fn dispatch(&self, server_name: &str, input: &Value) -> Result<CallToolResult, String> {
-        match self {
-            Verifier::Aem(server, _) => server.dispatch(server_name, input).await,
-            Verifier::Redacto(server, _) => server.dispatch(server_name, input).await,
-        }
+        self.server.dispatch(server_name, input).await
     }
 
     /// How long the verifier's platform may take to boot.
     fn boot_timeout(&self) -> Duration {
-        match self {
-            Verifier::Aem(_, profile) => profile.boot_timeout,
-            Verifier::Redacto(_, boot_timeout) => *boot_timeout,
-        }
+        self.profile.boot_timeout
     }
 
     /// The call that boots a fresh platform after a teardown.
     fn reboot_call(&self) -> &'static str {
-        match self {
-            Verifier::Aem(..) => "aem_verify_open (or aem_verify_run)",
-            Verifier::Redacto(..) => "redacto_verify_run",
-        }
+        "aem_verify_open (or aem_verify_run)"
     }
 }
 
@@ -978,15 +832,7 @@ impl U2sTools {
 
     pub fn attach_aem_verify(&mut self, settings: &AemVerifySettings) -> Result<(), String> {
         let server = settings.server(self.verify_blobs())?;
-        self.verifier = Some(Verifier::Aem(server, Arc::new(settings.profile()?)));
-        Ok(())
-    }
-
-    pub fn attach_redacto_verify(&mut self, settings: &RedactoVerifySettings) -> Result<(), String> {
-        let profile = settings.profile()?;
-        let boot_timeout = profile.boot_timeout;
-        let server = RedactoVerifyServer::with_parts(Ok(profile), self.verify_blobs());
-        self.verifier = Some(Verifier::Redacto(server, boot_timeout));
+        self.verifier = Some(Verifier { server, profile: Arc::new(settings.profile()?) });
         Ok(())
     }
 
@@ -1021,41 +867,23 @@ impl U2sTools {
         if held {
             return Ok(());
         }
-        let file = match &self.verifier {
-            Some(Verifier::Aem(_, profile)) => {
-                let file = open_lock(AEM_VERIFIER_LOCK)?;
-                match file.try_lock() {
-                    Ok(()) => {}
-                    Err(TryLockError::WouldBlock) => {
-                        return Err("The AEM verifier is in use by another conversion (in this app or \
-                                    the CLI). It frees up when that run ends; carry \
-                                    on with other checks and try again later."
-                            .into());
-                    }
-                    Err(TryLockError::Error(e)) => {
-                        return Err(format!("could not take the AEM verifier lock: {e}"));
-                    }
-                }
-                remove_leftovers(&profile.format, &u2s_aem_verify_core::session::reach_of(profile)).await?;
-                file
-            }
-            Some(Verifier::Redacto(..)) => {
-                let file = open_lock(REDACTO_VERIFIER_LOCK)?;
-                if file.try_lock().is_ok() {
-                    remove_leftovers(
-                        REDACTO_PROFILE_NAME,
-                        &u2s_verify_core::session::Reach::from_self_container(None),
-                    )
-                    .await?;
-                    file.unlock()
-                        .map_err(|e| format!("could not release the Redacto verifier lock: {e}"))?;
-                }
-                file.lock_shared()
-                    .map_err(|e| format!("could not take the Redacto verifier lock: {e}"))?;
-                file
-            }
-            None => return Ok(()),
+        let Some(Verifier { profile, .. }) = &self.verifier else {
+            return Ok(());
         };
+        let file = open_lock(AEM_VERIFIER_LOCK)?;
+        match file.try_lock() {
+            Ok(()) => {}
+            Err(TryLockError::WouldBlock) => {
+                return Err("The AEM verifier is in use by another conversion (in this app or \
+                            the CLI). It frees up when that run ends; carry \
+                            on with other checks and try again later."
+                    .into());
+            }
+            Err(TryLockError::Error(e)) => {
+                return Err(format!("could not take the AEM verifier lock: {e}"));
+            }
+        }
+        remove_leftovers(&profile.format, &u2s_aem_verify_core::session::reach_of(profile)).await?;
         self.activity.lock().map_err(poisoned)?.lock = Some(file);
         Ok(())
     }
@@ -1106,8 +934,8 @@ impl U2sTools {
             .map_err(|e| format!("could not resolve {}: {e}", path.display()))
     }
 
-    /// Runs `name`. `artifact` is the run's latest build (the package, or the
-    /// Redacto dump), handed to a verifier tool that checks one.
+    /// Runs `name`. `artifact` is the run's latest build (the package), handed
+    /// to a verifier tool that checks one.
     pub async fn call(&mut self, name: &str, input: &Value, artifact: Option<Artifact>) -> ToolReply {
         match self.start(name, input, artifact).await {
             Ok(work) => work.await,
@@ -1139,11 +967,7 @@ impl U2sTools {
         }
         if entry.takes_artifact {
             let Some(artifact) = artifact else {
-                return Err(ToolReply::Error(match entry.family {
-                    Family::RedactoVerify => "No dump built yet; call build_redacto_dump first.",
-                    _ => "No package built yet; call build_aem_package first.",
-                }
-                .into()));
+                return Err(ToolReply::Error("No package built yet; call build_aem_package first.".into()));
             };
             let path = self
                 .write("artifacts", artifact.file_name, &artifact.bytes)
@@ -1169,22 +993,16 @@ impl U2sTools {
                     let server = self.pdf_server().map_err(ToolReply::Error)?.clone();
                     Box::pin(blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())))
                 }
-                Family::AemVerify | Family::RedactoVerify => {
+                Family::AemVerify => {
                     let Some(call) = VerifyCall::of(&server_name) else {
                         return Err(ToolReply::Error(format!(
                             "{name} has no deadline in this engine, so it is not run"
                         )));
                     };
-                    let verifier = match &self.verifier {
-                        Some(verifier @ Verifier::Aem(..)) if entry.family == Family::AemVerify => verifier.clone(),
-                        Some(verifier @ Verifier::Redacto(..)) if entry.family == Family::RedactoVerify => {
-                            verifier.clone()
-                        }
-                        _ => {
-                            return Err(ToolReply::Error(format!(
-                                "{name} is not available in this run: its verifier was not started"
-                            )));
-                        }
+                    let Some(verifier) = self.verifier.clone() else {
+                        return Err(ToolReply::Error(format!(
+                            "{name} is not available in this run: its verifier was not started"
+                        )));
                     };
                     if call != VerifyCall::Offline {
                         self.acquire_lock().await.map_err(ToolReply::Error)?;
@@ -1581,16 +1399,16 @@ mod tests {
         assert!(public.contains("podman pull postgres:16"), "{public}");
     }
 
-    /// The two verifiers share tool names upstream; here each family carries
-    /// its own prefix, mentions its siblings by the prefixed name, and is not
-    /// offered the arguments the adapter supplies.
+    /// The verifier's tools carry the `aem_` prefix, mention their siblings by
+    /// the prefixed name, and are not offered the arguments the adapter
+    /// supplies.
     #[test]
     fn verifier_specs_are_renamed_and_stripped() {
         let specs = tool_specs();
-        for name in ["aem_verify_run", "aem_verify_open", "redacto_verify_run"] {
+        for name in ["aem_verify_run", "aem_verify_open"] {
             let spec = specs.iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"));
             let properties = spec["input_schema"]["properties"].as_object().cloned().unwrap_or_default();
-            for supplied in ["package", "package_path", "artifact_blob", "artifact_path", "session_id"] {
+            for supplied in ["package", "package_path", "session_id"] {
                 assert!(!properties.contains_key(supplied), "{name} still offers {supplied}");
             }
         }
@@ -1599,7 +1417,7 @@ mod tests {
         let description = open["description"].as_str().unwrap();
         assert!(description.contains("aem_verify_controls"), "{description}");
         assert!(!description.contains(" verify_controls"), "{description}");
-        assert!(takes_artifact("aem_verify_run") && takes_artifact("redacto_verify_run"));
+        assert!(takes_artifact("aem_verify_run"));
         assert!(!takes_artifact("aem_verify_controls"));
     }
 
@@ -1710,15 +1528,15 @@ mod tests {
         let mut seen = 0;
         for spec in tool_specs() {
             let name = spec["name"].as_str().unwrap();
-            let Some(server_name) = name.strip_prefix("aem_").or_else(|| name.strip_prefix("redacto_")) else {
+            let Some(server_name) = name.strip_prefix("aem_") else {
                 continue;
             };
             seen += 1;
             let call = VerifyCall::of(server_name).unwrap_or_else(|| panic!("{name} has no deadline class"));
-            let offline = matches!(server_name, "verify_status" | "verify_package_check" | "verify_dump_check");
+            let offline = matches!(server_name, "verify_status" | "verify_package_check");
             assert_eq!(call.deadline(boot).is_none(), offline, "{name}");
         }
-        assert!(seen >= 15, "expected every aem_verify_* and redacto_verify_* tool, saw {seen}");
+        assert!(seen >= 12, "expected every aem_verify_* tool, saw {seen}");
         let open = VerifyCall::of("verify_open").unwrap().deadline(boot).unwrap();
         assert!(open > boot, "a call that may boot the platform must outlast the boot");
     }

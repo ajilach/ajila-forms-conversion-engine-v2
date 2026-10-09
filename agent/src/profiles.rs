@@ -2,13 +2,10 @@
 //!
 //! A profile names a customer: its reference store (see [`crate::references`])
 //! and the fonts its source forms are drawn in, which the u2s renderer needs to
-//! lay out their text. The output formats themselves are the vendored UBS
-//! layers (`u2s-aem-ubs-mcp`, `u2s-redacto-ubs-mcp`), so every profile offers
-//! both targets.
+//! lay out their text. The output format itself is the vendored UBS layer
+//! (`u2s-aem-ubs-mcp`).
 
 use include_dir::{Dir, include_dir};
-
-use crate::OutputTarget;
 
 static PROFILES_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/../profiles");
 
@@ -20,16 +17,6 @@ pub fn list_profiles() -> Vec<String> {
         .collect();
     names.sort();
     names
-}
-
-/// The output targets `name` can produce, in the order they are offered. Empty
-/// for a profile that does not exist.
-pub fn profile_targets(name: &str) -> Vec<OutputTarget> {
-    if PROFILES_DIR.get_dir(name).is_some() {
-        OutputTarget::ALL.to_vec()
-    } else {
-        Vec::new()
-    }
 }
 
 /// The `.ttf` / `.otf` files in `{profile}/parser/fonts/`, as (file stem,
@@ -65,10 +52,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_ubs_profile_ships_its_fonts_and_both_targets() {
+    fn the_ubs_profile_ships_its_fonts() {
         assert!(list_profiles().contains(&"ubs".to_string()));
-        assert_eq!(profile_targets("ubs"), OutputTarget::ALL.to_vec());
         assert!(!profile_font_files("ubs").is_empty());
-        assert!(profile_targets("missing").is_empty());
+        assert!(profile_font_files("missing").is_empty());
     }
 }

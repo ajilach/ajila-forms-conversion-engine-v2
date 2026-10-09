@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pin the u2s crates to a revision of ajila-forms-conversion-engine-v3 and
 # re-vendor them into vendor/crates, then copy the non-crate assets this repo
-# takes from the same revision (the AEM and Redacto docker notes and scripts).
+# takes from the same revision (the AEM docker notes and scripts).
 #
 #   scripts/sync-u2s.sh ../unstructured-to-structured [rev]   # rev: default HEAD
 #
@@ -19,7 +19,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REV="$(git -C "$SRC" rev-parse "${2:-HEAD}^{commit}")"
 
 # What this repo takes from upstream besides the crates.
-ASSETS=(docker/aem/README.md docker/aem/bake-ubs-platform.sh docker/aem/dompurify docker/redacto/README.md)
+ASSETS=(docker/aem/README.md docker/aem/bake-ubs-platform.sh docker/aem/dompurify)
 
 if [ -z "$(git -C "$SRC" branch -r --contains "$REV")" ]; then
   echo "$REV is on no remote branch of $SRC: push it first" >&2

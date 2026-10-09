@@ -235,10 +235,10 @@ mod imp {
         }
 
         if version < 2 {
-            // What a run authors (an AEM form or a Redacto document) is a
-            // property of the session, not of the view onto it: resuming with
-            // the wrong target gives a run that cannot see its own prior work.
-            // `profile` is already a column for the same reason.
+            // What a run authored was once a property of the session (an AEM
+            // form or a Redacto document). Only AEM remains, so the column is
+            // written as `aem` and read by nothing; it stays so older stores
+            // keep their schema. `profile` is a column for the same reason.
             //
             // `CREATE TABLE IF NOT EXISTS` cannot add a column to a table that
             // already exists, and there is no `ADD COLUMN IF NOT EXISTS`, so an
@@ -390,40 +390,20 @@ mod imp {
         );
     }
 
-    pub fn create_session(
-        doc_hash: &str,
-        profile: Option<&str>,
-        target: &str,
-        label: &str,
-    ) -> Option<String> {
+    /// A new session. Its `target` column records `aem`, the one output there
+    /// is now; older rows may say `redacto`, which nothing reads back.
+    pub fn create_session(doc_hash: &str, profile: Option<&str>, label: &str) -> Option<String> {
         let conn = warn_db(open(), "opening the store")?;
         let session_id = uuid::Uuid::new_v4().to_string();
         warn_db(
             conn.execute(
                 "INSERT INTO sessions (session_id, doc_hash, profile, target, label, created_at)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                rusqlite::params![session_id, doc_hash, profile, target, label, now()],
+                 VALUES (?1, ?2, ?3, 'aem', ?4, ?5)",
+                rusqlite::params![session_id, doc_hash, profile, label, now()],
             ),
             "creating a session",
         )?;
         Some(session_id)
-    }
-
-    /// The output target recorded for a session, if any.
-    ///
-    /// `None` for sessions written before the column existed; the caller falls
-    /// back to whatever the tab remembers.
-    pub fn session_target(session_id: &str) -> Option<String> {
-        let conn = warn_db(open(), "opening the store")?;
-        conn.query_row(
-            "SELECT target FROM sessions WHERE session_id = ?1",
-            [session_id],
-            |row| row.get::<_, Option<String>>(0),
-        )
-        .optional()
-        .ok()
-        .flatten()
-        .flatten()
     }
 
     /// The running spend recorded for a session, as opaque JSON — `None` for
@@ -1439,33 +1419,6 @@ mod imp {
             assert!(orphan_hashes(&stored, &stored).is_empty());
         }
 
-        /// Resuming with the wrong target gives a run that cannot see its own
-        /// prior work, so the session has to remember what it authored.
-        #[test]
-        fn a_session_remembers_its_target() {
-            let conn = mem();
-            conn.execute(
-                "INSERT INTO sessions (session_id, doc_hash, profile, target, label, created_at)
-                 VALUES ('s', 'h', 'ubs', 'redacto', 'l', '2024-01-01T00:00:00Z'),
-                        ('old', 'h', 'ubs', NULL, 'l', '2024-01-01T00:00:00Z')",
-                [],
-            )
-            .unwrap();
-
-            let read = |id: &str| {
-                conn.query_row(
-                    "SELECT target FROM sessions WHERE session_id = ?1",
-                    [id],
-                    |r| r.get::<_, Option<String>>(0),
-                )
-                .unwrap()
-            };
-            assert_eq!(read("s").as_deref(), Some("redacto"));
-            // Written before the column existed: the caller falls back to
-            // whatever the tab remembers.
-            assert_eq!(read("old"), None);
-        }
-
         /// A form's cost has to survive being resumed: a fresh session has
         /// none recorded yet, and a later run's `set_session_spend_json` has
         /// to be what a subsequent read sees, not what a *different* session
@@ -1473,8 +1426,8 @@ mod imp {
         #[test]
         fn a_sessions_spend_round_trips_and_is_isolated_from_others() {
             claim_scratch_db_for_test();
-            let a = create_session("h", None, "redacto", "l").expect("session a");
-            let b = create_session("h", None, "redacto", "l").expect("session b");
+            let a = create_session("h", None, "l").expect("session a");
+            let b = create_session("h", None, "l").expect("session b");
 
             assert_eq!(session_spend_json(&a), None, "a fresh session has billed nothing yet");
 

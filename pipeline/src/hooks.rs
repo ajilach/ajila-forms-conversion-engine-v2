@@ -869,12 +869,11 @@ mod tests {
     }
 
     /// A role with a chosen `stuck_tool`, for the stuck-watch test — the
-    /// built-in roles' own stuck tools (`build_aem_package`,
-    /// `build_redacto_dump`) are not reachable from a bare agent with no
-    /// sources.
+    /// built-in roles' own stuck tool (`build_aem_package`) is not reachable
+    /// from a bare agent with no sources.
     const STUCK_ON_GET_SOURCE_INFO: Role = Role {
         name: "Test",
-        scope: agent::scope::AEM_AUTHOR,
+        scope: agent::scope::AUTHOR,
         max_iterations: 10,
         stuck_tool: Some("get_source_info"),
         stuck_activity: "testing",
@@ -887,7 +886,7 @@ mod tests {
     /// stuck watch it is not about.
     const PLAIN: Role = Role {
         name: "Test",
-        scope: agent::scope::AEM_AUTHOR,
+        scope: agent::scope::AUTHOR,
         max_iterations: 25,
         stuck_tool: None,
         stuck_activity: "testing",
@@ -919,7 +918,7 @@ mod tests {
 
     fn bare_shared_agent() -> crate::tools::SharedAgent {
         std::sync::Arc::new(tokio::sync::Mutex::new(
-            agent::ConversionAgent::new(None, Vec::new(), "test-hooks".into(), agent::OutputTarget::Redacto)
+            agent::ConversionAgent::new(None, Vec::new(), "test-hooks".into())
                 .expect("an agent without sources starts"),
         ))
     }
@@ -1358,7 +1357,7 @@ mod tests {
     async fn reads_between_repeats_do_not_reset_the_stuck_watch() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let shared_agent = bare_shared_agent();
-        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::REDACTO_AUTHOR)
+        let specs: Vec<serde_json::Value> = agent::tools_for(agent::scope::AUTHOR)
             .into_iter()
             .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
             .collect();
@@ -1402,7 +1401,7 @@ mod tests {
     async fn a_turn_of_reads_and_a_write_records_every_result_in_call_order() {
         let _guard = crate::memory::test_support::use_scratch_db().await;
         let shared_agent = bare_shared_agent();
-        let specs: Vec<serde_json::Value> = agent::tools_for(agent::OutputTarget::Redacto, agent::scope::REDACTO_AUTHOR)
+        let specs: Vec<serde_json::Value> = agent::tools_for(agent::scope::AUTHOR)
             .into_iter()
             .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
             .collect();

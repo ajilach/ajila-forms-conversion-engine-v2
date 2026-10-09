@@ -24,8 +24,6 @@ references-mcp = { path = "../references-mcp" }
 u2s-aem-ubs-verify-mcp = { workspace = true }
 u2s-aem-verify-core = { workspace = true }
 u2s-blob = { workspace = true }
-u2s-redacto-ubs-verify-mcp = { workspace = true }
-u2s-redacto-verify-core = { workspace = true }
 u2s-render-core = { workspace = true }
 u2s-verify-core = { workspace = true }
 u2s-render-pdf = { workspace = true }
@@ -36,8 +34,6 @@ u2s-xfa = { workspace = true }
 u2s-xfa-mcp = { workspace = true }
 # The UBS output formats, their document and rule tools, and the rule sandbox.
 u2s-aem-ubs-mcp = { workspace = true }
-u2s-redacto-ubs-mcp = { workspace = true }
-u2s-mapper-redacto = { workspace = true }
 u2s-doc-tools = { workspace = true }
 u2s-jsondoc = { workspace = true }
 u2s-rules-host = { workspace = true }

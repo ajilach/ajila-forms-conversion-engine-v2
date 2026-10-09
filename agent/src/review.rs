@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use serde_json::{Value, json};
 use u2s_render_core::{ImageFormat, Limits, RenderError, RenderedPage, RenderedPages};
 
-use crate::{ConversionAgent, OutputTarget, ReviewResult, ToolReply};
+use crate::{ConversionAgent, ReviewResult, ToolReply};
 
 /// The resolution pages are rendered at: sharp enough to read a form's small
 /// print side by side, small enough that a long form stays a few megabytes.
@@ -32,8 +32,7 @@ pub struct ReviewImage {
 /// What a run's output looks like.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReviewImages {
-    /// Screenshots of the rendered form, in the order the verifier took them
-    /// (AEM only: Redacto renders no form).
+    /// Screenshots of the rendered form, in the order the verifier took them.
     pub form: Vec<ReviewImage>,
     /// The pages of every PDF the verifier produced.
     pub output: Vec<ReviewImage>,
@@ -71,10 +70,7 @@ pub struct Captured {
 ///
 /// An error when the verification itself failed or produced nothing to show.
 pub async fn capture(agent: &mut ConversionAgent) -> Result<Captured, String> {
-    let tool = match agent.target() {
-        OutputTarget::Aem => "aem_verify_run",
-        OutputTarget::Redacto => "redacto_verify_run",
-    };
+    let tool = "aem_verify_run";
     let report = match agent.execute_as(tool, &json!({}), &crate::Caller::Host).await {
         ToolReply::Error(e) => return Err(format!("{tool} failed: {e}")),
         reply => crate::conversion::json_of(&reply).ok_or_else(|| format!("{tool} returned no report"))?,
@@ -481,23 +477,6 @@ mod tests {
             located.problems,
             ["after-submit: the verifier kept no file", "no PDF was downloaded"]
         );
-    }
-
-    /// A Redacto report has no steps, one rendered PDF per language.
-    #[test]
-    fn a_redacto_report_locates_one_pdf_per_language() {
-        let report = json!({
-            "steps": [],
-            "artefacts": [
-                { "kind": "download", "label": "rendered (de)", "blob": { "media_type": "application/pdf", "doc_path": "/b/de.pdf" } },
-                { "kind": "download", "label": "rendered (en)", "blob": { "media_type": "application/pdf", "doc_path": "/b/en.pdf" } },
-            ],
-            "findings": [],
-        });
-        let located = locate(&report);
-        assert!(located.screenshots.is_empty());
-        assert_eq!(located.pdfs.len(), 2);
-        assert!(located.problems.is_empty());
     }
 
     /// A verification with nothing to show is an error, saying why.

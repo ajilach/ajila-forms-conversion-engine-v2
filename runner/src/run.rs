@@ -9,8 +9,7 @@
 use std::time::Instant;
 
 use agent::ConversionAgent;
-use agent::u2s::{AemVerifySettings, RedactoVerifySettings};
-use agent::OutputTarget;
+use agent::u2s::AemVerifySettings;
 use pipeline::{AbortFlag, RunEvent, RunOutcome, RunSeed, SharedObserver};
 
 use crate::settings::AppSettings;
@@ -24,7 +23,6 @@ pub const NO_SESSION: &str = "Could not create an edit-history session.";
 /// The choices the operator made before starting a run.
 pub struct RunOptions {
     pub profile: Option<String>,
-    pub target: OutputTarget,
     pub settings: AppSettings,
     /// Set by the caller's stop control to end this run at its next checkpoint.
     pub abort: AbortFlag,
@@ -78,18 +76,11 @@ pub async fn run_fresh(
     // recording it. Content-addressed, so converting the same document again
     // stores nothing new.
     agent::db::store_sources(&doc_hash, &files);
-    let session_id =
-        match agent::db::create_session(
-            &doc_hash,
-            opts.profile.as_deref(),
-            opts.target.as_str(),
-            session_label,
-        ) {
-            Some(id) => id,
-            None => return Err(NO_SESSION.to_string()),
-        };
-    let agent = match ConversionAgent::new(opts.profile.clone(), files, session_id.clone(), opts.target)
-        .and_then(|agent| verification.attach(agent))
+    let Some(session_id) = agent::db::create_session(&doc_hash, opts.profile.as_deref(), session_label) else {
+        return Err(NO_SESSION.to_string());
+    };
+    let agent = match ConversionAgent::new(opts.profile.clone(), files, session_id.clone())
+        .and_then(|agent| agent.with_aem_verify(&verification))
     {
         Ok(agent) => agent,
         Err(e) => {
@@ -98,9 +89,7 @@ pub async fn run_fresh(
         }
     };
 
-    // An uploaded content package is an AEM artefact; it is not pre-loaded for
-    // any other target, so don't tell the Author it was.
-    let template_note = if has_template && opts.target == OutputTarget::Aem {
+    let template_note = if has_template {
         "\n\nThe document's form was decoded from an uploaded content package. Inspect it with \
 json_outline and modify it to match the source instead of authoring from scratch. Its `languages` \
 also lists the template's own: remove those the source does not have, with their texts."
@@ -142,7 +131,7 @@ pub async fn resume(
     // document the last run authored, and the Author refines it instead of
     // starting over. A session recorded before runs authored one document
     // cannot be resumed, and says so.
-    let prior = agent::session::restore(&session_id, opts.target)?;
+    let prior = agent::session::restore(&session_id)?;
 
     // A continuation with nothing restored has no brief at all: the seeded
     // document *is* the instruction, and the Author would be told to finish work
@@ -159,12 +148,8 @@ pub async fn resume(
     } else {
         pdfs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", ")
     };
-    let mut agent = verification.attach(ConversionAgent::new(
-        opts.profile.clone(),
-        pdfs,
-        session_id.clone(),
-        opts.target,
-    )?)?;
+    let mut agent =
+        ConversionAgent::new(opts.profile.clone(), pdfs, session_id.clone())?.with_aem_verify(&verification)?;
     if let agent::session::Restored::Document(document) = prior {
         agent.seed_document(document)?;
     }
@@ -172,27 +157,12 @@ pub async fn resume(
     Ok(drive(agent, opts, seed, "", session_id, &label, obs).await)
 }
 
-/// The verifier a run's target needs, checked and ready to attach.
-enum Verification {
-    Aem(AemVerifySettings),
-    Redacto(RedactoVerifySettings),
-}
-
-impl Verification {
-    fn attach(self, agent: ConversionAgent) -> Result<ConversionAgent, String> {
-        match self {
-            Verification::Aem(settings) => agent.with_aem_verify(&settings),
-            Verification::Redacto(settings) => agent.with_redacto_verify(&settings),
-        }
-    }
-}
-
-/// Check that the target's rules and verifier can run: the rule sandbox,
-/// Docker, the images and pdfium, then pull the AEM image from GitHub when
-/// Docker does not have it yet. There is no way to run without them, so a
-/// target that is not ready, or whose pull fails, refuses the run before it
-/// spends a token.
-async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<Verification, String> {
+/// Check that the rules and the verifier can run: the rule sandbox, Docker,
+/// the images and pdfium, then pull the AEM image from GitHub when Docker does
+/// not have it yet. There is no way to run without them, so a setup that is
+/// not ready, or whose pull fails, refuses the run before it spends a token.
+/// Returns the verifier settings, ready to attach.
+async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<AemVerifySettings, String> {
     let refused = |e: String| {
         format!(
             "Verification is not possible, so the run cannot start:\n{e}\n\
@@ -201,32 +171,27 @@ async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<Ver
     };
     obs.emit(RunEvent::Thought("Checking the verification setup…".into()));
     let settings = &opts.settings;
-    let report = agent::u2s::readiness(opts.target, &settings.aem_verify, &settings.redacto_verify)
+    let report = agent::u2s::readiness(&settings.aem_verify)
         .await
         .map_err(|e| refused(e.to_string()))?;
     obs.emit(RunEvent::Thought(format!("Verification ready. {report}")));
-    if opts.target == OutputTarget::Aem {
-        obs.emit(RunEvent::Thought(format!(
-            "Making sure the AEM image {} is on Docker. When it is missing it is pulled from \
-             GitHub, several GB the first time, which can take minutes…",
-            agent::u2s::AEM_IMAGE
-        )));
-        let pull = agent::u2s::ensure_aem_image(&settings.aem_verify);
-        let stopped = async {
-            while !opts.abort.is_aborted() {
-                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
-            }
-        };
-        let pulled = tokio::select! {
-            pulled = pull => pulled.map_err(refused)?,
-            () = stopped => return Err("The run was stopped while the AEM image was being pulled.".into()),
-        };
-        obs.emit(RunEvent::Thought(pulled));
-    }
-    Ok(match opts.target {
-        OutputTarget::Aem => Verification::Aem(settings.aem_verify.clone()),
-        OutputTarget::Redacto => Verification::Redacto(settings.redacto_verify.clone()),
-    })
+    obs.emit(RunEvent::Thought(format!(
+        "Making sure the AEM image {} is on Docker. When it is missing it is pulled from \
+         GitHub, several GB the first time, which can take minutes…",
+        agent::u2s::AEM_IMAGE
+    )));
+    let pull = agent::u2s::ensure_aem_image(&settings.aem_verify);
+    let stopped = async {
+        while !opts.abort.is_aborted() {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+    };
+    let pulled = tokio::select! {
+        pulled = pull => pulled.map_err(refused)?,
+        () = stopped => return Err("The run was stopped while the AEM image was being pulled.".into()),
+    };
+    obs.emit(RunEvent::Thought(pulled));
+    Ok(settings.aem_verify.clone())
 }
 
 /// Drive the controller over `agent` and record what it produced.
@@ -260,7 +225,6 @@ async fn drive(
 
     let run_config = pipeline::RunConfig {
         profile: opts.profile.clone(),
-        target: opts.target,
         abort: opts.abort.clone(),
         max_review_rounds: opts.settings.max_review_rounds,
         extra_instructions: crate::settings::extra_instructions_block(
@@ -367,13 +331,9 @@ fn run_meta(
         },
         started: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
         profile: opts.profile.clone().unwrap_or_else(|| "(none)".into()),
-        target: opts.target.as_str().to_string(),
         model,
         max_review_rounds: opts.settings.max_review_rounds,
-        verification: match opts.target {
-            OutputTarget::Aem => format!("AEM verifier (image {})", agent::u2s::AEM_IMAGE),
-            OutputTarget::Redacto => "Redacto verifier".to_string(),
-        },
+        verification: format!("AEM verifier (image {})", agent::u2s::AEM_IMAGE),
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
     }
 }
@@ -390,9 +350,6 @@ fn produced_outputs(outcome: &pipeline::RunOutcome) -> Vec<String> {
     if outcome.xsd_schema.is_some() {
         outputs.push("XSD schema".to_string());
     }
-    if outcome.redacto_sql.is_some() {
-        outputs.push("Redacto SQL".to_string());
-    }
     outputs
 }
 
@@ -408,7 +365,6 @@ mod tests {
     async fn an_aem_run_without_its_verifier_refuses_to_start() {
         let opts = RunOptions {
             profile: None,
-            target: OutputTarget::Aem,
             settings: AppSettings {
                 aem_verify: agent::u2s::AemVerifySettings {
                     user: String::new(),
@@ -427,16 +383,14 @@ mod tests {
         assert!(err.contains("README.md"), "{err}");
     }
 
-    /// The resume path runs the same preflight before restoring anything, and
-    /// a Redacto run is held to its own verifier the same way.
+    /// The resume path runs the same preflight before restoring anything.
     #[tokio::test]
     async fn a_feedback_run_is_refused_the_same_way() {
         let opts = RunOptions {
             profile: None,
-            target: OutputTarget::Redacto,
             settings: AppSettings {
-                redacto_verify: agent::u2s::RedactoVerifySettings {
-                    core_image: String::new(),
+                aem_verify: agent::u2s::AemVerifySettings {
+                    user: String::new(),
                     ..Default::default()
                 },
                 ..AppSettings::default()
@@ -454,7 +408,7 @@ mod tests {
         .err()
         .expect("the run must be refused");
         assert!(err.contains("Verification is not possible"), "{err}");
-        assert!(err.contains("U2S_REDACTO_VERIFY_UBS_CORE_IMAGE is not set"), "{err}");
+        assert!(err.contains("the AEM user is not set"), "{err}");
     }
 
     /// A continuation is nothing but the tree it was seeded with, so a session
@@ -466,7 +420,6 @@ mod tests {
     async fn a_continuation_with_nothing_to_continue_is_refused() {
         let opts = RunOptions {
             profile: None,
-            target: OutputTarget::Aem,
             settings: AppSettings::default(),
             abort: AbortFlag::default(),
         };

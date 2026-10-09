@@ -62,10 +62,6 @@ dependencies = [
  "u2s-blob",
  "u2s-doc-tools",
  "u2s-jsondoc",
- "u2s-mapper-redacto",
- "u2s-redacto-ubs-mcp",
- "u2s-redacto-ubs-verify-mcp",
- "u2s-redacto-verify-core",
  "u2s-render-core",
  "u2s-render-pdf",
  "u2s-render-pdf-mcp",
@@ -8059,83 +8055,6 @@ dependencies = [
  "thiserror 2.0.18",
  "u2s-aem",
  "zip 2.4.2",
-]
-
-[[package]]
-name = "u2s-mapper-redacto"
-version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=5827daa51d23dc1becf71c50826fd5870e22b01f#5827daa51d23dc1becf71c50826fd5870e22b01f"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "u2s-redacto",
- "uuid",
-]
-
-[[package]]
-name = "u2s-redacto"
-version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=5827daa51d23dc1becf71c50826fd5870e22b01f#5827daa51d23dc1becf71c50826fd5870e22b01f"
-dependencies = [
- "regex",
- "schemars",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
-]
-
-[[package]]
-name = "u2s-redacto-ubs-mcp"
-version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=5827daa51d23dc1becf71c50826fd5870e22b01f#5827daa51d23dc1becf71c50826fd5870e22b01f"
-dependencies = [
- "env_logger",
- "log",
- "regex",
- "rmcp",
- "schemars",
- "semver",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "u2s-blob",
- "u2s-mapper-redacto",
- "u2s-redacto",
-]
-
-[[package]]
-name = "u2s-redacto-ubs-verify-mcp"
-version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=5827daa51d23dc1becf71c50826fd5870e22b01f#5827daa51d23dc1becf71c50826fd5870e22b01f"
-dependencies = [
- "env_logger",
- "log",
- "rmcp",
- "semver",
- "serde_json",
- "tokio",
- "u2s-blob",
- "u2s-redacto-verify-core",
- "u2s-verify-core",
-]
-
-[[package]]
-name = "u2s-redacto-verify-core"
-version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=5827daa51d23dc1becf71c50826fd5870e22b01f#5827daa51d23dc1becf71c50826fd5870e22b01f"
-dependencies = [
- "log",
- "reqwest 0.13.4",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "u2s-blob",
- "u2s-mapper-redacto",
- "u2s-redacto",
- "u2s-verify-core",
- "uuid",
 ]
 
 [[package]]

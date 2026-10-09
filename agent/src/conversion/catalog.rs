@@ -1,49 +1,29 @@
-//! The tool catalog as data: every tool's spec plus the targets that may run
-//! it and the stages it is offered to.
+//! The tool catalog as data: every tool's spec plus the stages it is offered
+//! to.
 //!
 //! Scoping lives here and nowhere else — adding a tool means adding a
 //! [`SCOPING`] row, and `scoping_covers_exactly_the_catalog` proves the table
 //! and the catalog stay in step.
 
-use crate::OutputTarget;
-
 // ── Tool catalog ─────────────────────────────────────────────────────────────
 
-/// Which output targets a tool may run under.
-pub mod target {
-    /// A set of [`crate::OutputTarget`]s, as a bitmask.
-    pub type Mask = u8;
-    pub const AEM: Mask = 1 << 0;
-    pub const REDACTO: Mask = 1 << 1;
-    pub const BOTH: Mask = AEM | REDACTO;
-}
-
 /// Which callers a tool is *offered* to.
-///
-/// Distinct from [`target`]: which targets may execute a tool, versus which
-/// stages are handed it.
 pub mod scope {
     /// A set of pipeline stages, as a bitmask.
     pub type Mask = u8;
-    pub const AEM_AUTHOR: Mask = 1 << 0;
-    pub const AEM_REVIEWER: Mask = 1 << 1;
-    pub const REDACTO_AUTHOR: Mask = 1 << 2;
-    pub const REDACTO_REVIEWER: Mask = 1 << 3;
+    pub const AUTHOR: Mask = 1 << 0;
+    pub const REVIEWER: Mask = 1 << 1;
     /// The read-only pass that writes a reference form's description. Sees the
     /// source and the package; edits nothing.
-    pub const DESCRIBE: Mask = 1 << 5;
+    pub const DESCRIBE: Mask = 1 << 2;
     /// A judge agent checking one rule `rule_check` handed it: reads the
     /// document and the source, edits nothing, ends with its verdict.
-    pub const AEM_JUDGE: Mask = 1 << 6;
-    pub const REDACTO_JUDGE: Mask = 1 << 7;
+    pub const JUDGE: Mask = 1 << 3;
 
-    pub const AEM_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE;
-    pub const REDACTO_STAGES: Mask = REDACTO_AUTHOR | REDACTO_REVIEWER | REDACTO_JUDGE;
-    pub const JUDGES: Mask = AEM_JUDGE | REDACTO_JUDGE;
-    /// The Authors and Reviewers: the stages the pipeline runs in turn, which
+    /// The Author and the Reviewer: the stages the pipeline runs in turn, which
     /// dispatch judges.
-    pub const MAIN_STAGES: Mask = AEM_AUTHOR | AEM_REVIEWER | REDACTO_AUTHOR | REDACTO_REVIEWER;
-    pub const ALL_STAGES: Mask = AEM_STAGES | REDACTO_STAGES;
+    pub const MAIN_STAGES: Mask = AUTHOR | REVIEWER;
+    pub const ALL_STAGES: Mask = MAIN_STAGES | JUDGE;
     /// Every caller, the read-only describe pass included.
     pub const EVERYWHERE: Mask = ALL_STAGES | DESCRIBE;
 }
@@ -53,8 +33,6 @@ pub mod scope {
 pub struct ToolSpec {
     /// `{name, description, input_schema}`, passed to the model verbatim.
     pub spec: serde_json::Value,
-    /// Output targets whose runs may *execute* this tool.
-    pub targets: target::Mask,
     /// Stages this tool is *offered* to.
     pub scopes: scope::Mask,
     /// Whether a call may run beside other calls of the same turn.
@@ -88,13 +66,6 @@ pub fn access_of(name: &str) -> Access {
         .map_or(Access::Write, |t| t.access)
 }
 
-pub(super) fn target_mask(target: OutputTarget) -> target::Mask {
-    match target {
-        OutputTarget::Aem => target::AEM,
-        OutputTarget::Redacto => target::REDACTO,
-    }
-}
-
 /// The whole tool catalog. Built once — nothing in it depends on run state.
 pub fn catalog() -> &'static [ToolSpec] {
     static CATALOG: std::sync::OnceLock<Vec<ToolSpec>> = std::sync::OnceLock::new();
@@ -106,16 +77,15 @@ pub fn all_tools() -> Vec<serde_json::Value> {
     catalog().iter().map(|t| t.spec.clone()).collect()
 }
 
-/// The tool specs offered to `scopes` in a run targeting `target`.
+/// The tool specs offered to `scopes`.
 ///
 /// This is the single place a caller's tool set is decided: the app's pipeline
 /// stages go through it, so a tool is scoped once, in [`SCOPING`], rather than
 /// in a list per consumer.
-pub fn tools_for(target: OutputTarget, scopes: scope::Mask) -> Vec<serde_json::Value> {
-    let target = target_mask(target);
+pub fn tools_for(scopes: scope::Mask) -> Vec<serde_json::Value> {
     catalog()
         .iter()
-        .filter(|t| t.targets & target != 0 && t.scopes & scopes != 0)
+        .filter(|t| t.scopes & scopes != 0)
         .map(|t| t.spec.clone())
         .collect()
 }
@@ -127,12 +97,11 @@ fn build_catalog() -> Vec<ToolSpec> {
         .chain(crate::u2s::tool_specs())
         .map(|spec| {
             let name = spec["name"].as_str().unwrap_or_default();
-            let (_, targets, scopes, access) = SCOPING
+            let (_, scopes, access) = SCOPING
                 .iter()
-                .find(|(n, _, _, _)| *n == name)
+                .find(|(n, _, _)| *n == name)
                 .unwrap_or_else(|| panic!("tool {name:?} has no row in SCOPING"));
             ToolSpec {
-                targets: *targets,
                 scopes: *scopes,
                 access: *access,
                 spec,
@@ -141,106 +110,99 @@ fn build_catalog() -> Vec<ToolSpec> {
         .collect()
 }
 
-/// Which target and which stages each tool belongs to, and whether it only
+/// Which stages each tool belongs to, and whether it only
 /// reads (see [`Access`]).
 ///
 /// One row per catalog entry — `scoping_covers_exactly_the_catalog` proves the
 /// two stay in step, and [`build_catalog`] panics on a missing row, so a new
 /// tool cannot be added without deciding who gets it.
 #[rustfmt::skip]
-const SCOPING: &[(&str, target::Mask, scope::Mask, Access)] = {
+const SCOPING: &[(&str, scope::Mask, Access)] = {
     use scope::*;
     use Access::{Read, Write};
     &[
         // §1 source. Every stage reads the source through the xfa_* tools,
         // which take the `doc_path` only get_source_info hands out.
-        ("get_source_info",                   target::BOTH,    EVERYWHERE, Write),
+        ("get_source_info",                   EVERYWHERE, Write),
 
         // §1b the source form through the vendored u2s servers (crate::u2s):
         // raw XFA reads, and rendering plus live interaction.
-        ("xfa_packets",                       target::BOTH,    EVERYWHERE, Read),
-        ("xfa_read",                          target::BOTH,    EVERYWHERE, Read),
-        ("xfa_search",                        target::BOTH,    EVERYWHERE, Read),
-        ("xfa_outline",                       target::BOTH,    EVERYWHERE, Read),
-        ("xfa_node",                          target::BOTH,    EVERYWHERE, Read),
-        ("xfa_info",                          target::BOTH,    EVERYWHERE, Read),
-        ("xfa_open",                          target::BOTH,    EVERYWHERE, Write),
-        ("xfa_set",                           target::BOTH,    EVERYWHERE, Write),
-        ("xfa_click",                         target::BOTH,    EVERYWHERE, Write),
-        ("xfa_reset",                         target::BOTH,    EVERYWHERE, Write),
-        ("xfa_close",                         target::BOTH,    EVERYWHERE, Write),
-        ("xfa_controls",                      target::BOTH,    EVERYWHERE, Write),
-        ("xfa_field",                         target::BOTH,    EVERYWHERE, Write),
-        ("xfa_render_page",                   target::BOTH,    EVERYWHERE, Read),
-        ("xfa_render_pages",                  target::BOTH,    EVERYWHERE, Read),
-        ("xfa_render_region",                 target::BOTH,    EVERYWHERE, Read),
-        ("xfa_page_text",                     target::BOTH,    EVERYWHERE, Read),
-        ("xfa_search_text",                   target::BOTH,    EVERYWHERE, Read),
+        ("xfa_packets",                       EVERYWHERE, Read),
+        ("xfa_read",                          EVERYWHERE, Read),
+        ("xfa_search",                        EVERYWHERE, Read),
+        ("xfa_outline",                       EVERYWHERE, Read),
+        ("xfa_node",                          EVERYWHERE, Read),
+        ("xfa_info",                          EVERYWHERE, Read),
+        ("xfa_open",                          EVERYWHERE, Write),
+        ("xfa_set",                           EVERYWHERE, Write),
+        ("xfa_click",                         EVERYWHERE, Write),
+        ("xfa_reset",                         EVERYWHERE, Write),
+        ("xfa_close",                         EVERYWHERE, Write),
+        ("xfa_controls",                      EVERYWHERE, Write),
+        ("xfa_field",                         EVERYWHERE, Write),
+        ("xfa_render_page",                   EVERYWHERE, Read),
+        ("xfa_render_pages",                  EVERYWHERE, Read),
+        ("xfa_render_region",                 EVERYWHERE, Read),
+        ("xfa_page_text",                     EVERYWHERE, Read),
+        ("xfa_search_text",                   EVERYWHERE, Read),
 
-        // §1c PDFs the verifiers produce, through the vendored u2s PDF renderer.
-        ("pdf_info",                          target::BOTH,    MAIN_STAGES | JUDGES, Read),
-        ("pdf_render_page",                   target::BOTH,    MAIN_STAGES | JUDGES, Read),
-        ("pdf_render_pages",                  target::BOTH,    MAIN_STAGES | JUDGES, Read),
-        ("pdf_render_region",                 target::BOTH,    MAIN_STAGES | JUDGES, Read),
-        ("pdf_page_text",                     target::BOTH,    MAIN_STAGES | JUDGES, Read),
-        ("pdf_search_text",                   target::BOTH,    MAIN_STAGES | JUDGES, Read),
+        // §1c PDFs the verifier produces, through the vendored u2s PDF renderer.
+        ("pdf_info",                          MAIN_STAGES | JUDGE, Read),
+        ("pdf_render_page",                   MAIN_STAGES | JUDGE, Read),
+        ("pdf_render_pages",                  MAIN_STAGES | JUDGE, Read),
+        ("pdf_render_region",                 MAIN_STAGES | JUDGE, Read),
+        ("pdf_page_text",                     MAIN_STAGES | JUDGE, Read),
+        ("pdf_search_text",                   MAIN_STAGES | JUDGE, Read),
 
         // §2 the run's output document: one revisioned JSON document per run,
         // read and patched with the json_* tools and held to the rules with the
-        // rule_* ones. The UBS Redacto format has no rules yet.
-        ("json_outline",                      target::BOTH,    EVERYWHERE, Write),
-        ("json_get",                          target::BOTH,    EVERYWHERE, Write),
-        ("json_search",                       target::BOTH,    EVERYWHERE, Write),
-        ("json_patch",                        target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Write),
-        ("json_validate",                     target::BOTH,    MAIN_STAGES | JUDGES, Write),
-        ("rule_list",                         target::BOTH,    MAIN_STAGES, Write),
-        ("rule_check",                        target::BOTH,    MAIN_STAGES, Write),
-        ("rule_autofix",                      target::AEM,     AEM_AUTHOR, Write),
+        // rule_* ones.
+        ("json_outline",                      EVERYWHERE, Write),
+        ("json_get",                          EVERYWHERE, Write),
+        ("json_search",                       EVERYWHERE, Write),
+        ("json_patch",                        AUTHOR, Write),
+        ("json_validate",                     MAIN_STAGES | JUDGE, Write),
+        ("rule_list",                         MAIN_STAGES, Write),
+        ("rule_check",                        MAIN_STAGES, Write),
+        ("rule_autofix",                      AUTHOR, Write),
 
         // §3 building the output through the UBS encoders.
         // Only the Author builds: the Reviewer judges the build the pipeline
         // made of the Author's last document, and changes nothing.
-        ("build_redacto_dump",                target::REDACTO, REDACTO_AUTHOR, Write),
-        ("build_aem_package",                 target::AEM,     AEM_AUTHOR, Write),
-        ("get_package_info",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | DESCRIBE, Write),
-        ("read_package_file",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE | DESCRIBE, Write),
-        ("coverage_check",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER | AEM_JUDGE, Write),
+        ("build_aem_package",                 AUTHOR, Write),
+        ("get_package_info",                  ALL_STAGES | DESCRIBE, Write),
+        ("read_package_file",                 ALL_STAGES | DESCRIBE, Write),
+        ("coverage_check",                    ALL_STAGES, Write),
 
-        // §6 verification through the vendored u2s verifiers (crate::u2s): the
-        // AEM package against a Docker AEM, the Redacto dump against a throwaway
-        // Postgres.
-        ("aem_verify_status",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_package_check",          target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_run",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_open",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_controls",               target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_set",                    target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_next",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_prev",                   target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_reset",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_screenshot",             target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_submit",                 target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("aem_verify_close",                  target::AEM,     AEM_AUTHOR | AEM_REVIEWER, Write),
-        ("redacto_verify_status",             target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
-        ("redacto_verify_dump_check",         target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
-        ("redacto_verify_run",                target::REDACTO, REDACTO_AUTHOR | REDACTO_REVIEWER, Write),
+        // §6 verification through the vendored u2s verifier (crate::u2s): the
+        // AEM package against a Docker AEM.
+        ("aem_verify_status",                 AUTHOR | REVIEWER, Write),
+        ("aem_verify_package_check",          AUTHOR | REVIEWER, Write),
+        ("aem_verify_run",                    AUTHOR | REVIEWER, Write),
+        ("aem_verify_open",                   AUTHOR | REVIEWER, Write),
+        ("aem_verify_controls",               AUTHOR | REVIEWER, Write),
+        ("aem_verify_set",                    AUTHOR | REVIEWER, Write),
+        ("aem_verify_next",                   AUTHOR | REVIEWER, Write),
+        ("aem_verify_prev",                   AUTHOR | REVIEWER, Write),
+        ("aem_verify_reset",                  AUTHOR | REVIEWER, Write),
+        ("aem_verify_screenshot",             AUTHOR | REVIEWER, Write),
+        ("aem_verify_submit",                 AUTHOR | REVIEWER, Write),
+        ("aem_verify_close",                  AUTHOR | REVIEWER, Write),
 
-        // §7 references. The reference *forms* are AEM packages, so they are
-        // pure token cost for a text-only Redacto document; only the reference
-        // documentation is offered there.
-        ("list_reference_forms",              target::BOTH,    AEM_AUTHOR, Read),
-        ("search_references",                 target::BOTH,    AEM_AUTHOR, Read),
-        ("grep_references",                   target::BOTH,    AEM_AUTHOR, Read),
-        ("read_reference_file",               target::BOTH,    AEM_AUTHOR, Read),
-        ("get_reference_package",             target::BOTH,    AEM_AUTHOR, Read),
-        ("list_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Read),
-        ("read_reference_doc",                target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Read),
-        ("grep_reference_docs",               target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Read),
+        // §7 references.
+        ("list_reference_forms",              AUTHOR, Read),
+        ("search_references",                 AUTHOR, Read),
+        ("grep_references",                   AUTHOR, Read),
+        ("read_reference_file",               AUTHOR, Read),
+        ("get_reference_package",             AUTHOR, Read),
+        ("list_reference_docs",               AUTHOR, Read),
+        ("read_reference_doc",                AUTHOR, Read),
+        ("grep_reference_docs",               AUTHOR, Read),
 
         // §8 meta.
-        ("finish_authoring",                  target::BOTH,    AEM_AUTHOR | REDACTO_AUTHOR, Write),
-        ("submit_review",                     target::BOTH,    AEM_REVIEWER | REDACTO_REVIEWER, Write),
-        ("submit_rule_verdict",               target::BOTH,    JUDGES, Write),
+        ("finish_authoring",                  AUTHOR, Write),
+        ("submit_review",                     REVIEWER, Write),
+        ("submit_rule_verdict",               JUDGE, Write),
     ]
 };
 
@@ -311,12 +273,6 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             // §3 building the output
             t(
-                "build_redacto_dump",
-                "Encode the document into the Redacto PostgreSQL dump, adding the UBS metadata, page header and footer from each language's source, and report what it holds: the document id, languages, asset count and dump size. A document the Redacto model refuses (an empty body, an asset missing a language, a reference to an asset that does not exist) is reported with every violation and builds nothing. Build after every substantive change; the redacto_verify_* tools check the latest build.",
-                serde_json::json!({}),
-                serde_json::json!([]),
-            ),
-            t(
                 "build_aem_package",
                 "Encode the document into the UBS AEM FileVault package (ZIP) through the UBS writer, along with the same form bound to its schema and the schema (XSD) itself, and check the package's form and DAM XML. A document the encoder refuses (a text in a language `languages` does not list, a master text translated two ways, a variable the profile needs missing), or a package that fails the XML checks, is reported and builds nothing. Build after every substantive change; the aem_verify_* tools check the latest build.",
                 serde_json::json!({}),
@@ -360,7 +316,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 "Terminal AUTHOR step: call once, last, when the form is complete and you have \
                  verified it yourself. Refused, with the list of what is missing, until this stage \
                  has used the current build on its verifier, read the PDF that produced, rendered \
-                 the source pages and (AEM) set every source control the form's scripts read; do \
+                 the source pages and set every source control the form's scripts read; do \
                  those and call it again. Ends your stage and hands the form to the Reviewer.",
                 serde_json::json!({
                     "summary": {"type": "string", "description": "What you compared against the source, what you changed, and what the verification showed."}
@@ -389,7 +345,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "submit_review",
-                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
+                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
                 serde_json::json!({
                     "approved": {"type": "boolean"},
                     "report": {"type": "string", "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible."},
@@ -495,7 +451,6 @@ mod catalog_guards {
         "session_id",
         // Tool family prefixes (`xfa_*`), not tools.
         "aem_verify",
-        "redacto_verify",
         "xfa",
         "parent_path",
         "ref_id",
@@ -561,10 +516,6 @@ mod catalog_guards {
             AUTHOR_ADDENDUM,
             REVIEWER_ADDENDUM,
             JUDGE_PREAMBLE,
-            REDACTO_SYSTEM_PROMPT,
-            REDACTO_SHARED_PREAMBLE,
-            REDACTO_AUTHOR_ADDENDUM,
-            REDACTO_REVIEWER_ADDENDUM,
         ] {
             prose.push_str(constant);
             prose.push('\n');
@@ -585,36 +536,22 @@ mod catalog_guards {
 
     /// A tool existing somewhere is not enough: a stage told to call a tool it
     /// is not offered spends a turn on a refusal, or silently skips the step.
-    /// So every prompt may only name tools its own stage is offered under its
-    /// own target.
+    /// So every prompt may only name tools its own stage is offered.
     ///
     /// Regression guard: the Author was told to start with list_reference_docs
     /// and list_reference_forms, which only the retired Analyst was offered.
     #[test]
     fn each_stage_prompt_only_names_tools_that_stage_is_offered() {
         let names: BTreeSet<&str> = catalog().iter().map(|t| t.name()).collect();
-        let stages: [(OutputTarget, scope::Mask, &str, Vec<&str>); 6] = [
-            (OutputTarget::Aem, scope::AEM_JUDGE, "AEM Judge", vec![JUDGE_PREAMBLE]),
-            (OutputTarget::Redacto, scope::REDACTO_JUDGE, "Redacto Judge", vec![JUDGE_PREAMBLE]),
-            (OutputTarget::Aem, scope::AEM_AUTHOR, "AEM Author", vec![SYSTEM_PROMPT, AUTHOR_ADDENDUM]),
-            (OutputTarget::Aem, scope::AEM_REVIEWER, "AEM Reviewer", vec![SHARED_PREAMBLE, REVIEWER_ADDENDUM]),
-            (
-                OutputTarget::Redacto,
-                scope::REDACTO_AUTHOR,
-                "Redacto Author",
-                vec![REDACTO_SYSTEM_PROMPT, REDACTO_AUTHOR_ADDENDUM],
-            ),
-            (
-                OutputTarget::Redacto,
-                scope::REDACTO_REVIEWER,
-                "Redacto Reviewer",
-                vec![REDACTO_SHARED_PREAMBLE, REDACTO_REVIEWER_ADDENDUM],
-            ),
+        let stages: [(scope::Mask, &str, Vec<&str>); 3] = [
+            (scope::JUDGE, "Judge", vec![JUDGE_PREAMBLE]),
+            (scope::AUTHOR, "Author", vec![SYSTEM_PROMPT, AUTHOR_ADDENDUM]),
+            (scope::REVIEWER, "Reviewer", vec![SHARED_PREAMBLE, REVIEWER_ADDENDUM]),
         ];
 
         let mut problems = Vec::new();
-        for (target, stage, label, prompts) in stages {
-            let offered: BTreeSet<String> = tools_for(target, stage)
+        for (stage, label, prompts) in stages {
+            let offered: BTreeSet<String> = tools_for(stage)
                 .iter()
                 .filter_map(|t| t["name"].as_str().map(str::to_string))
                 .collect();
@@ -631,14 +568,14 @@ mod catalog_guards {
         );
     }
 
-    /// [`SCOPING`] is the one place a tool's target and stages are decided, so
+    /// [`SCOPING`] is the one place a tool's stages are decided, so
     /// it has to describe the catalog exactly — no orphan rows, no tool without
     /// a row. (`build_catalog` panics on the second case; this catches the
     /// first, and reports both at once.)
     #[test]
     fn scoping_covers_exactly_the_catalog() {
         let in_catalog: BTreeSet<&str> = catalog().iter().map(|t| t.name()).collect();
-        let in_scoping: BTreeSet<&str> = SCOPING.iter().map(|(n, _, _, _)| *n).collect();
+        let in_scoping: BTreeSet<&str> = SCOPING.iter().map(|(n, _, _)| *n).collect();
 
         let orphan_rows: Vec<_> = in_scoping.difference(&in_catalog).collect();
         let unscoped: Vec<_> = in_catalog.difference(&in_scoping).collect();
@@ -649,26 +586,11 @@ mod catalog_guards {
         assert_eq!(SCOPING.len(), catalog().len(), "duplicate SCOPING rows");
     }
 
-    /// A tool nobody is offered is dead weight; a tool offered to a stage whose
-    /// target cannot execute it is a guaranteed refusal wasting a turn.
+    /// A tool nobody is offered is dead weight.
     #[test]
-    fn every_tool_is_offered_somewhere_consistent_with_its_target() {
+    fn every_tool_is_offered_somewhere() {
         for tool in catalog() {
-            let name = tool.name();
-            assert!(tool.scopes != 0, "{name} is offered to nobody");
-            assert!(tool.targets != 0, "{name} can run under no target");
-            if tool.targets == target::AEM {
-                assert!(
-                    tool.scopes & scope::REDACTO_STAGES == 0,
-                    "{name} is AEM-only but offered to a Redacto stage, which would always refuse it"
-                );
-            }
-            if tool.targets == target::REDACTO {
-                assert!(
-                    tool.scopes & scope::AEM_STAGES == 0,
-                    "{name} is Redacto-only but offered to an AEM stage, which would always refuse it"
-                );
-            }
+            assert!(tool.scopes != 0, "{} is offered to nobody", tool.name());
         }
     }
 
@@ -676,34 +598,27 @@ mod catalog_guards {
     /// invariants that used to live in the app's cross-crate list test.
     #[test]
     fn stage_tool_sets_keep_their_invariants() {
-        let has = |target, scope, name: &str| {
-            tools_for(target, scope)
+        let has = |scope, name: &str| {
+            tools_for(scope)
                 .iter()
                 .any(|t| t["name"].as_str() == Some(name))
         };
 
         // Only the Author edits the document; only the Reviewer terminates.
-        for target in OutputTarget::ALL {
-            let (author, reviewer) = match target {
-                OutputTarget::Aem => (scope::AEM_AUTHOR, scope::AEM_REVIEWER),
-                OutputTarget::Redacto => (scope::REDACTO_AUTHOR, scope::REDACTO_REVIEWER),
-            };
-            assert!(has(target, author, "json_patch"));
-            assert!(!has(target, reviewer, "json_patch"));
-            assert!(has(target, reviewer, "json_outline") && has(target, reviewer, "json_get"));
-            assert!(has(target, reviewer, "submit_review"));
-            assert!(!has(target, author, "submit_review"));
-            assert!(has(target, author, "finish_authoring"));
-            assert!(!has(target, reviewer, "finish_authoring"));
-            // The Reviewer changes nothing: no edit, no build.
-            for barred in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {
-                assert!(!has(target, reviewer, barred), "the Reviewer must not have {barred}");
-            }
+        assert!(has(scope::AUTHOR, "json_patch"));
+        assert!(!has(scope::REVIEWER, "json_patch"));
+        assert!(has(scope::REVIEWER, "json_outline") && has(scope::REVIEWER, "json_get"));
+        assert!(has(scope::REVIEWER, "submit_review"));
+        assert!(!has(scope::AUTHOR, "submit_review"));
+        assert!(has(scope::AUTHOR, "finish_authoring"));
+        assert!(!has(scope::REVIEWER, "finish_authoring"));
+        // The Reviewer changes nothing: no edit, no build.
+        for barred in ["json_patch", "rule_autofix", "build_aem_package"] {
+            assert!(!has(scope::REVIEWER, barred), "the Reviewer must not have {barred}");
         }
-        assert!(has(OutputTarget::Aem, scope::AEM_AUTHOR, "rule_autofix"));
-        assert!(!has(OutputTarget::Aem, scope::AEM_REVIEWER, "rule_autofix"));
-        assert!(has(OutputTarget::Aem, scope::AEM_REVIEWER, "rule_check"));
-        assert!(has(OutputTarget::Redacto, scope::REDACTO_AUTHOR, "build_redacto_dump"));
+        assert!(has(scope::AUTHOR, "rule_autofix"));
+        assert!(has(scope::AUTHOR, "build_aem_package"));
+        assert!(has(scope::REVIEWER, "rule_check"));
 
         // The run is ended by the controller. A stage ends with its own
         // gated terminal call (`finish_authoring`, `submit_review`); the old
@@ -715,59 +630,35 @@ mod catalog_guards {
 
         // Nobody is handed the engine's precomputed states any more: every
         // stage reads the source form through the u2s tools.
-        for scope in [scope::AEM_AUTHOR, scope::AEM_REVIEWER, scope::DESCRIBE] {
-            assert!(has(OutputTarget::Aem, scope, "xfa_render_page"));
-            assert!(has(OutputTarget::Aem, scope, "xfa_outline"));
+        for scope in [scope::AUTHOR, scope::REVIEWER, scope::DESCRIBE] {
+            assert!(has(scope, "xfa_render_page"));
+            assert!(has(scope, "xfa_outline"));
         }
 
         // A judge reads, never edits, never dispatches judges of its own, and
         // ends with its verdict.
-        for (target, judge) in [(OutputTarget::Aem, scope::AEM_JUDGE), (OutputTarget::Redacto, scope::REDACTO_JUDGE)] {
-            for barred in ["json_patch", "rule_check", "rule_autofix", "submit_review", "build_aem_package", "build_redacto_dump"] {
-                assert!(!has(target, judge, barred), "a judge must not have {barred}");
-            }
-            for needed in ["submit_rule_verdict", "json_get", "json_outline", "xfa_page_text", "get_source_info"] {
-                assert!(has(target, judge, needed), "a judge needs {needed}");
-            }
+        for barred in ["json_patch", "rule_check", "rule_autofix", "submit_review", "build_aem_package"] {
+            assert!(!has(scope::JUDGE, barred), "a judge must not have {barred}");
         }
-        assert!(!has(OutputTarget::Aem, scope::AEM_REVIEWER, "submit_rule_verdict"));
+        for needed in ["submit_rule_verdict", "json_get", "json_outline", "xfa_page_text", "get_source_info"] {
+            assert!(has(scope::JUDGE, needed), "a judge needs {needed}");
+        }
+        assert!(!has(scope::REVIEWER, "submit_rule_verdict"));
 
-        // Only the Authors and Reviewers drive a verifier: a judge or the
+        // Only the Author and the Reviewer drive the verifier: a judge or the
         // describe pass runs beside a stage that may be driving it already.
-        for tool in catalog() {
-            let name = tool.name();
-            if name.starts_with("aem_verify_") || name.starts_with("redacto_verify_") {
-                assert_eq!(tool.scopes & !scope::MAIN_STAGES, 0, "{name} is offered beyond the Authors and Reviewers");
-            }
+        let verifier: Vec<&ToolSpec> = catalog().iter().filter(|t| t.name().starts_with("aem_verify_")).collect();
+        assert!(!verifier.is_empty(), "no aem_verify_* tools in the catalog");
+        for tool in verifier {
+            assert_eq!(tool.scopes & !scope::MAIN_STAGES, 0, "{} is offered beyond the Author and Reviewer", tool.name());
         }
 
         // The describe pass reads and never edits.
-        for writer in ["json_patch", "rule_autofix", "build_aem_package", "build_redacto_dump"] {
+        for writer in ["json_patch", "rule_autofix", "build_aem_package"] {
             assert!(
-                !has(OutputTarget::Aem, scope::DESCRIBE, writer),
+                !has(scope::DESCRIBE, writer),
                 "the describe pass must not have {writer}"
             );
-        }
-    }
-
-    /// Each verifier checks one target's artifact, so it reaches that target's
-    /// Author and Reviewer, never the other target or a
-    /// read-only pass.
-    #[test]
-    fn each_verifier_reaches_only_its_own_targets_writers() {
-        for (prefix, target) in [
-            ("aem_verify_", OutputTarget::Aem),
-            ("redacto_verify_", OutputTarget::Redacto),
-        ] {
-            let family: Vec<&ToolSpec> = catalog()
-                .iter()
-                .filter(|t| t.name().starts_with(prefix))
-                .collect();
-            assert!(!family.is_empty(), "no {prefix}* tools in the catalog");
-            for tool in family {
-                assert_eq!(tool.targets, target_mask(target), "{}", tool.name());
-                assert_eq!(tool.scopes & scope::DESCRIBE, 0, "{}", tool.name());
-            }
         }
     }
 

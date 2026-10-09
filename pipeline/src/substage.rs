@@ -6,7 +6,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use agent::{Caller, OutputTarget};
+use agent::Caller;
 use rig_agent::agent::model::ModelHandle;
 
 use crate::hooks::PriceFn;
@@ -20,7 +20,6 @@ use crate::trace::TraceEvent;
 /// What a sub-stage needs from the stage that dispatches it.
 #[derive(Clone)]
 pub(crate) struct SubStageContext {
-    pub(crate) target: OutputTarget,
     pub(crate) model: ModelHandle,
     pub(crate) price: PriceFn,
     pub(crate) max_tokens: u32,
@@ -34,9 +33,7 @@ pub(crate) struct SubStageContext {
 
 impl SubStageContext {
     /// A context whose sub-stages have spent nothing yet.
-    #[allow(clippy::too_many_arguments)]
     pub(crate) fn new(
-        target: OutputTarget,
         model: ModelHandle,
         price: PriceFn,
         max_tokens: u32,
@@ -45,7 +42,7 @@ impl SubStageContext {
         obs: SharedObserver,
     ) -> Self {
         let spend = Arc::new(Mutex::new(Spend::default()));
-        Self { target, model, price, max_tokens, context_budget, abort, obs, spend }
+        Self { model, price, max_tokens, context_budget, abort, obs, spend }
     }
 
     /// Folds what the sub-stages spent into the run's `total`, and reports the
@@ -192,18 +189,17 @@ pub(crate) mod test_support {
         fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
     }
 
-    /// A Redacto agent without sources, holding `rules` as its judged ones.
+    /// An agent without sources, holding `rules` as its judged ones.
     pub(crate) fn agent_with_judged(rules: Vec<agent::rules::JudgedRule>) -> SharedAgent {
-        let mut agent = agent::ConversionAgent::new(None, Vec::new(), String::new(), OutputTarget::Redacto)
+        let mut agent = agent::ConversionAgent::new(None, Vec::new(), String::new())
             .expect("an agent without sources starts");
         agent.set_judged_rules(rules);
         Arc::new(tokio::sync::Mutex::new(agent))
     }
 
-    /// A Redacto context on `model` whose sub-stages report to nobody.
+    /// A context on `model` whose sub-stages report to nobody.
     pub(crate) fn context(model: MockCompletionModel, abort: AbortFlag) -> SubStageContext {
         SubStageContext {
-            target: OutputTarget::Redacto,
             model: ModelHandle::new(model),
             price: Arc::new(|usage| Some(usage.input_tokens as f64 * 0.01)),
             max_tokens: 1000,

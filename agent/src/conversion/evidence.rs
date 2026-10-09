@@ -17,7 +17,7 @@ use std::path::Path;
 use serde_json::Value;
 use u2s_xfa::states::{ControlKind, ControlsWindow};
 
-use super::{OutputTarget, ReplyBlock, ToolReply};
+use super::{ReplyBlock, ToolReply};
 
 /// The `pdf_*` tools that count as reading a PDF.
 const PDF_READS: &[&str] = &[
@@ -35,9 +35,8 @@ pub struct StageEvidence {
     /// (`aem_verify_open`). A form opened before the build changed is the
     /// old build, so submitting it verifies nothing.
     opened: bool,
-    /// Whether the target's verifier ran on the current build in this stage:
-    /// `aem_verify_submit` on a form [`Self::opened`] here, or a
-    /// `redacto_verify_run` that was not a dry run.
+    /// Whether the verifier ran on the current build in this stage:
+    /// `aem_verify_submit` on a form [`Self::opened`] here.
     verified: bool,
     /// The PDFs that run returned, by canonical `doc_path`.
     produced: BTreeSet<String>,
@@ -106,8 +105,7 @@ impl StageEvidence {
             "aem_verify_open" => self.opened = true,
             "aem_verify_close" => self.opened = false,
             "aem_verify_submit" if !self.opened => {}
-            "redacto_verify_run" if input["dry_run"] == true => {}
-            "aem_verify_submit" | "redacto_verify_run" => {
+            "aem_verify_submit" => {
                 let Some(report) = json_of(reply) else { return };
                 self.verified = true;
                 for artefact in report["artefacts"].as_array().into_iter().flatten() {
@@ -186,66 +184,39 @@ impl StageEvidence {
     /// What the stage still has to do before its terminal call is accepted,
     /// each as an instruction; empty when nothing is missing. `built` is
     /// whether a current build exists.
-    pub fn missing(&self, target: OutputTarget, built: bool) -> Vec<String> {
+    pub fn missing(&self, built: bool) -> Vec<String> {
         let mut missing = Vec::new();
         if !built {
-            missing.push(match target {
-                OutputTarget::Aem => {
-                    "there is no current build of the document: build_aem_package".to_string()
-                }
-                OutputTarget::Redacto => {
-                    "there is no current build of the document: build_redacto_dump".to_string()
-                }
-            });
+            missing.push("there is no current build of the document: build_aem_package".to_string());
         }
         if !self.verified {
-            missing.push(match target {
-                OutputTarget::Aem => {
-                    "open the current build on the AEM verifier (aem_verify_close any form opened \
-                     before it, then aem_verify_open), walk it to the last page and submit it \
-                     (aem_verify_submit)"
-                        .to_string()
-                }
-                OutputTarget::Redacto => {
-                    "import and render the current build (redacto_verify_run)".to_string()
-                }
-            });
+            missing.push(
+                "open the current build on the AEM verifier (aem_verify_close any form opened \
+                 before it, then aem_verify_open), walk it to the last page and submit it \
+                 (aem_verify_submit)"
+                    .to_string(),
+            );
         }
         if self.verified && self.produced.is_empty() {
-            missing.push(match target {
-                OutputTarget::Aem => "the submission returned no PDF to read: the form must produce its \
-                                      Document of Record; find out why it did not"
+            missing.push(
+                "the submission returned no PDF to read: the form must produce its Document of \
+                 Record; find out why it did not"
                     .to_string(),
-                OutputTarget::Redacto => "the run returned no rendered PDF to read: find out why the \
-                                          render produced none"
-                    .to_string(),
-            });
+            );
         }
+        // One read of the submission suffices: every PDF it returns is the
+        // same document of record.
         let unread: Vec<&str> = self
             .produced
             .iter()
             .filter(|p| !self.read.contains(*p))
             .map(String::as_str)
             .collect();
-        match target {
-            // One read of the submission suffices: every PDF it returns is
-            // the same document of record.
-            OutputTarget::Aem
-                if !self.produced.is_empty() && unread.len() == self.produced.len() =>
-            {
-                missing.push(format!(
-                    "read the PDF the submission returned with pdf_render_pages (doc_path {})",
-                    unread.join(", ")
-                ));
-            }
-            // Redacto renders one PDF per language, and each is its own text.
-            OutputTarget::Redacto if !unread.is_empty() => {
-                missing.push(format!(
-                    "read every rendered PDF with pdf_render_pages; not read yet: {}",
-                    unread.join(", ")
-                ));
-            }
-            _ => {}
+        if !self.produced.is_empty() && unread.len() == self.produced.len() {
+            missing.push(format!(
+                "read the PDF the submission returned with pdf_render_pages (doc_path {})",
+                unread.join(", ")
+            ));
         }
         if !self.source_rendered {
             missing.push(
@@ -253,38 +224,36 @@ impl StageEvidence {
                     .to_string(),
             );
         }
-        if target == OutputTarget::Aem {
-            if let Some(reason) = &self.unreadable_listing {
-                missing.push(format!(
-                    "an xfa_controls listing could not be read ({reason}); this is an engine defect, \
-                     report it"
-                ));
-            }
-            if !self.controls_listed {
-                missing.push(
-                    "list the source's controls (xfa_open, xfa_controls), following `next_offset` \
-                     until it is null"
-                        .to_string(),
-                );
-            }
-            let exercised: HashSet<&str> = self
-                .exercised
-                .iter()
-                .map(|field| self.dimension_of.get(field).unwrap_or(field).as_str())
-                .collect();
-            let unexercised: Vec<&str> = self
-                .driving
-                .iter()
-                .filter(|d| !exercised.contains(d.as_str()))
-                .map(String::as_str)
-                .collect();
-            if !unexercised.is_empty() {
-                missing.push(format!(
-                    "set each source control the form's scripts read (affects_layout) with xfa_set and \
-                     compare its effect with the same choice on the AEM verifier; not set yet: {}",
-                    unexercised.join(", ")
-                ));
-            }
+        if let Some(reason) = &self.unreadable_listing {
+            missing.push(format!(
+                "an xfa_controls listing could not be read ({reason}); this is an engine defect, \
+                 report it"
+            ));
+        }
+        if !self.controls_listed {
+            missing.push(
+                "list the source's controls (xfa_open, xfa_controls), following `next_offset` \
+                 until it is null"
+                    .to_string(),
+            );
+        }
+        let exercised: HashSet<&str> = self
+            .exercised
+            .iter()
+            .map(|field| self.dimension_of.get(field).unwrap_or(field).as_str())
+            .collect();
+        let unexercised: Vec<&str> = self
+            .driving
+            .iter()
+            .filter(|d| !exercised.contains(d.as_str()))
+            .map(String::as_str)
+            .collect();
+        if !unexercised.is_empty() {
+            missing.push(format!(
+                "set each source control the form's scripts read (affects_layout) with xfa_set and \
+                 compare its effect with the same choice on the AEM verifier; not set yet: {}",
+                unexercised.join(", ")
+            ));
         }
         missing
     }
@@ -426,14 +395,14 @@ mod tests {
     #[test]
     fn a_complete_aem_stage_misses_nothing() {
         assert_eq!(
-            complete_aem("/blobs/a.pdf").missing(OutputTarget::Aem, true),
+            complete_aem("/blobs/a.pdf").missing(true),
             Vec::<String>::new()
         );
     }
 
     #[test]
     fn an_empty_stage_misses_every_step() {
-        let missing = StageEvidence::default().missing(OutputTarget::Aem, false);
+        let missing = StageEvidence::default().missing(false);
         let all = missing.join("\n");
         for step in [
             "build_aem_package",
@@ -449,7 +418,7 @@ mod tests {
     fn an_unread_submission_is_missing() {
         let mut e = complete_aem("/blobs/a.pdf");
         e.read.clear();
-        let missing = e.missing(OutputTarget::Aem, true);
+        let missing = e.missing(true);
         assert_eq!(missing.len(), 1, "{missing:?}");
         assert!(missing[0].contains("/blobs/a.pdf"), "{missing:?}");
     }
@@ -458,7 +427,7 @@ mod tests {
     fn a_source_control_left_unset_is_named() {
         let mut e = complete_aem("/blobs/a.pdf");
         e.exercised.clear();
-        let missing = e.missing(OutputTarget::Aem, true);
+        let missing = e.missing(true);
         assert_eq!(missing.len(), 1, "{missing:?}");
         // The radio group is one dimension; the hidden control and the one no
         // script reads are not required.
@@ -476,13 +445,13 @@ mod tests {
             &json!({}),
             &window(vec![control("form.p1.extra", ControlKind::Checkbox, None, true, true)], 0, 1),
         );
-        assert!(e.missing(OutputTarget::Aem, true)[0].ends_with("form.p1.extra"));
+        assert!(e.missing(true)[0].ends_with("form.p1.extra"));
         e.observe_reply(
             "xfa_set",
             &json!({ "field": "form.p1.extra" }),
             &text(json!({})),
         );
-        assert!(e.missing(OutputTarget::Aem, true).is_empty());
+        assert!(e.missing(true).is_empty());
     }
 
     #[test]
@@ -500,29 +469,9 @@ mod tests {
     fn a_new_build_voids_the_verifier_evidence_only() {
         let mut e = complete_aem("/blobs/a.pdf");
         e.build_changed();
-        let missing = e.missing(OutputTarget::Aem, true);
+        let missing = e.missing(true);
         assert_eq!(missing.len(), 1, "{missing:?}");
         assert!(missing[0].contains("aem_verify_submit"), "{missing:?}");
-    }
-
-    #[test]
-    fn redacto_needs_every_rendered_language_read_and_no_controls() {
-        let mut e = StageEvidence::default();
-        e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
-        e.observe_reply(
-            "redacto_verify_run",
-            &json!({}),
-            &text(json!({ "artefacts": [
-                { "label": "rendered (de)", "blob": { "media_type": "application/pdf", "doc_path": "/blobs/de.pdf" } },
-                { "label": "rendered (fr)", "blob": { "media_type": "application/pdf", "doc_path": "/blobs/fr.pdf" } },
-            ] })),
-        );
-        e.observe_call("pdf_render_pages", &json!({ "doc_path": "/blobs/de.pdf" }));
-        let missing = e.missing(OutputTarget::Redacto, true);
-        assert_eq!(missing.len(), 1, "{missing:?}");
-        assert!(missing[0].ends_with("/blobs/fr.pdf"), "{missing:?}");
-        e.observe_call("pdf_page_text", &json!({ "doc_path": "/blobs/fr.pdf" }));
-        assert!(e.missing(OutputTarget::Redacto, true).is_empty());
     }
 
     /// A form opened before the build changed is the old build: submitting
@@ -533,30 +482,25 @@ mod tests {
         e.build_changed();
         e.observe_reply("aem_verify_submit", &json!({}), &submitted("/blobs/b.pdf"));
         e.observe_call("pdf_render_pages", &json!({ "doc_path": "/blobs/b.pdf" }));
-        let missing = e.missing(OutputTarget::Aem, true);
+        let missing = e.missing(true);
         assert_eq!(missing.len(), 1, "{missing:?}");
         assert!(missing[0].contains("aem_verify_open"), "{missing:?}");
         e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
         e.observe_reply("aem_verify_submit", &json!({}), &submitted("/blobs/b.pdf"));
-        assert!(e.missing(OutputTarget::Aem, true).is_empty());
+        assert!(e.missing(true).is_empty());
     }
 
     /// A verification that returns no PDF leaves nothing to compare, so it
-    /// does not pass the gate; a Redacto dry run renders nothing at all.
+    /// does not pass the gate.
     #[test]
     fn a_verification_without_a_pdf_does_not_pass() {
         let mut e = complete_aem("/blobs/a.pdf");
         e.build_changed();
         e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
         e.observe_reply("aem_verify_submit", &json!({}), &text(json!({ "artefacts": [] })));
-        let missing = e.missing(OutputTarget::Aem, true);
+        let missing = e.missing(true);
         assert_eq!(missing.len(), 1, "{missing:?}");
         assert!(missing[0].contains("no PDF"), "{missing:?}");
-
-        let mut e = StageEvidence::default();
-        e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
-        e.observe_reply("redacto_verify_run", &json!({ "dry_run": true }), &text(json!({ "artefacts": [] })));
-        assert!(e.missing(OutputTarget::Redacto, true)[0].contains("redacto_verify_run"));
     }
 
     /// Only an open choice can be set: a button is pressed, not set, a
@@ -573,7 +517,7 @@ mod tests {
         locked.access_from = Some("form.p1.sheet".into());
         let name = control("form.p1.name", ControlKind::Text, None, true, true);
         e.observe_reply("xfa_controls", &json!({}), &window(vec![button, name, locked], 0, 3));
-        assert!(e.missing(OutputTarget::Aem, true).is_empty());
+        assert!(e.missing(true).is_empty());
     }
 
     /// The listing is windowed: it counts once the windows from the start
@@ -583,7 +527,7 @@ mod tests {
         let first = || window(vec![control("form.p1.a", ControlKind::Checkbox, None, true, true)], 0, 2);
         let second = || window(vec![control("form.p1.b", ControlKind::Checkbox, None, true, true)], 1, 2);
         let listed = |e: &StageEvidence| {
-            !e.missing(OutputTarget::Aem, true).iter().any(|m| m.contains("list the source's controls"))
+            !e.missing(true).iter().any(|m| m.contains("list the source's controls"))
         };
 
         let mut e = StageEvidence::default();
@@ -598,7 +542,7 @@ mod tests {
         e.observe_reply("xfa_controls", &json!({}), &first());
         e.observe_reply("xfa_controls", &json!({ "offset": 1 }), &second());
         assert!(listed(&e));
-        let missing = e.missing(OutputTarget::Aem, true);
+        let missing = e.missing(true);
         assert!(missing.iter().any(|m| m.ends_with("not set yet: form.p1.a, form.p1.b")), "{missing:?}");
 
         let mut e = StageEvidence::default();
@@ -628,9 +572,9 @@ mod tests {
                 3,
             ),
         );
-        assert!(e.missing(OutputTarget::Aem, true)[0].ends_with("not set yet: form.Row.kind"));
+        assert!(e.missing(true)[0].ends_with("not set yet: form.Row.kind"));
         e.observe_reply("xfa_set", &json!({ "field": "form.Row[1].kind" }), &text(json!({})));
-        assert!(e.missing(OutputTarget::Aem, true).is_empty());
+        assert!(e.missing(true).is_empty());
     }
 
     /// A radio set before the listing that names its group counts for the
@@ -641,6 +585,6 @@ mod tests {
         e.exercised.clear();
         e.observe_reply("xfa_set", &json!({ "field": "form.p1.yes" }), &text(json!({})));
         e.observe_reply("xfa_controls", &json!({}), &controls());
-        assert!(e.missing(OutputTarget::Aem, true).is_empty());
+        assert!(e.missing(true).is_empty());
     }
 }
