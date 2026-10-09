@@ -47,3 +47,7 @@ same wording), each language's text is that wording as its own PDF prints it, an
 missing. This wins over ubs-aem-repeatable-add-label: a party title on such a page copies the
 source's text in every language, `title/en` included.
 """
+
+[judge]
+# Walks every page of the source in every language.
+max_turns = 16

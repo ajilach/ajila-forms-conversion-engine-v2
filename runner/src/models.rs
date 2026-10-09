@@ -67,6 +67,11 @@ pub const KNOWN_MODELS: &[ModelInfo] = &[
         max_output_tokens: 128_000,
     },
     ModelInfo {
+        id: "claude-haiku-5-5",
+        context_window: 1_000_000,
+        max_output_tokens: 128_000,
+    },
+    ModelInfo {
         id: "claude-opus-5",
         context_window: 1_000_000,
         max_output_tokens: 128_000,
@@ -100,8 +105,8 @@ pub const DEFAULT_MODEL: &str = KNOWN_MODELS[0].id;
 /// absent from [`KNOWN_MODELS`] — the API serves models newer than any table we
 /// ship, so these are deliberately generation-agnostic: a not-yet-released Opus
 /// should inherit the optimistic guess rather than silently fall to 200K.
-/// Haiku matches none of them and so keeps the small default.
-const LARGE_CONTEXT_FAMILIES: &[&str] = &["opus", "sonnet", "fable"];
+/// Haiku before 5 matches none of them and so keeps the small default.
+const LARGE_CONTEXT_FAMILIES: &[&str] = &["opus", "sonnet", "fable", "haiku-5"];
 
 /// Families that can emit 128K output tokens in one turn. Same fallback role as
 /// [`LARGE_CONTEXT_FAMILIES`].
@@ -113,6 +118,7 @@ const LARGE_OUTPUT_FAMILIES: &[&str] = &[
     "sonnet-4-6",
     "sonnet-5",
     "fable-5",
+    "haiku-5",
 ];
 
 /// Output-token cap for models we don't recognize.
@@ -136,7 +142,7 @@ pub fn max_output_tokens_for(model: &str) -> u32 {
         return known.max_output_tokens;
     }
     let m = model.to_ascii_lowercase();
-    if m.contains("haiku") {
+    if m.contains("haiku") && !LARGE_OUTPUT_FAMILIES.iter().any(|f| m.contains(f)) {
         64_000
     } else if LARGE_OUTPUT_FAMILIES.iter().any(|f| m.contains(f)) {
         128_000

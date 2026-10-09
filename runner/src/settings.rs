@@ -57,6 +57,17 @@ pub struct AppSettings {
     /// serves, so an unset model fails the run rather than guessing.
     #[serde(default)]
     pub openai_model: String,
+    /// The Reviewer's model at the selected provider, when it is not the
+    /// model above (which the Author runs on). Empty = the same model. One
+    /// field for both providers: an id is only meaningful at the endpoint it
+    /// was picked for, so switching the provider means picking again.
+    #[serde(default)]
+    pub reviewer_model: String,
+    /// The judges' model at the selected provider (the agents `rule_check`
+    /// dispatches, one per judged rule), when it is not the model of the stage
+    /// that dispatches them. Empty = the same model.
+    #[serde(default)]
+    pub judge_model: String,
     /// Maximum Reviewer → Author-fix rounds in the conversion pipeline before
     /// finalizing with whatever is built. Missing/0 is normalized to
     /// [`DEFAULT_MAX_REVIEW_ROUNDS`] in [`AppSettings::load`].
@@ -110,6 +121,8 @@ impl Default for AppSettings {
             openai_base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
             openai_api_key: String::new(),
             openai_model: String::new(),
+            reviewer_model: String::new(),
+            judge_model: String::new(),
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
             aem_verify: agent::u2s::AemVerifySettings::default(),
             max_concurrent_requests: default_max_concurrent_requests(),
@@ -135,6 +148,17 @@ impl AppSettings {
                 self.openai_model.trim(),
             ),
         }
+    }
+
+    /// The endpoint a role with its own model id talks to: the selected
+    /// provider's, with `model` instead of the main one. `None` when `model`
+    /// is empty or the main model, so the role runs on the run's own.
+    pub fn role_endpoint(&self, model: &str) -> Option<LlmEndpoint> {
+        let model = model.trim();
+        if model.is_empty() || model == self.active_model() {
+            return None;
+        }
+        Some(LlmEndpoint { model: model.to_string(), ..self.llm_endpoint() })
     }
 
     /// The API key of the selected provider.
@@ -208,6 +232,25 @@ mod tests {
             openai_model: "anthropic/claude-opus-4.1".to_string(),
             ..AppSettings::default()
         }
+    }
+
+    /// A role's own model reuses the selected provider's endpoint and key; an
+    /// empty one, or the main model again, means the run's own.
+    #[test]
+    fn a_role_model_is_the_main_endpoint_with_another_model() {
+        let mut settings = AppSettings {
+            anthropic_api_key: "k".into(),
+            anthropic_model: "claude-opus-5-5".into(),
+            ..AppSettings::default()
+        };
+        assert_eq!(settings.role_endpoint(""), None);
+        assert_eq!(settings.role_endpoint(" claude-opus-5-5 "), None);
+        let judge = settings.role_endpoint("claude-haiku-5-5").unwrap();
+        assert_eq!((judge.model.as_str(), judge.api_key.as_str()), ("claude-haiku-5-5", "k"));
+        assert_eq!(judge.base_url, settings.llm_endpoint().base_url);
+        settings.llm_provider = Provider::OpenAi;
+        settings.openai_model = "anthropic/claude-opus-5.5".into();
+        assert_eq!(settings.role_endpoint("anthropic/claude-haiku-5.5").unwrap().provider, Provider::OpenAi);
     }
 
     /// The switch has to reroute the key *and* the model together. Pairing an

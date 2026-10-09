@@ -109,6 +109,13 @@ pub(crate) struct StageHook {
     /// map rather than one slot, because a batch of calls may run
     /// concurrently.
     tool_started: Mutex<HashMap<String, Instant>>,
+    /// Whether an Author turn that ends the stage without `finish_authoring`
+    /// is answered with [`FINISH_NUDGE`] once instead (see
+    /// [`nudging_unfinished`]).
+    finish_nudge: bool,
+    /// Set once that nudge has been given: a second unfinished end is
+    /// accepted, and the controller warns about it.
+    finish_nudged: std::sync::atomic::AtomicBool,
 }
 
 impl StageHook {
@@ -142,6 +149,8 @@ impl StageHook {
             current_turn: AtomicUsize::new(0),
             turn_started: Mutex::new(None),
             tool_started: Mutex::new(HashMap::new()),
+            finish_nudge: role.name == AUTHOR && finish_nudge_on(),
+            finish_nudged: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -611,6 +620,20 @@ impl AgentHook for StageHook {
         if had_tool_calls {
             self.consecutive_max_tokens.store(0, Ordering::Relaxed);
         }
+        // A turn without tool calls ends the stage. An Author that ends it
+        // without `finish_authoring` (a terminal call stops the stage before
+        // any further turn, so reaching here means it never made one) hands
+        // the Reviewer a form it did not check: it is told so once, and
+        // carries on from there.
+        if !had_tool_calls && self.finish_nudge && !self.finish_nudged.swap(true, Ordering::Relaxed) {
+            self.obs.emit(RunEvent::Thought(
+                "The author stopped without finish_authoring — asking it to check every rule and \
+                 hand over properly."
+                    .into(),
+            ));
+            self.control(ControlKind::FinishNudge, "ended a turn without finish_authoring");
+            return ModelTurnAction::retry_with_feedback(FINISH_NUDGE);
+        }
         ModelTurnAction::continue_run()
     }
 
@@ -710,6 +733,38 @@ impl AgentHook for SharedHook {
     ) -> Option<InvalidToolCallAction> {
         self.0.on_invalid_tool_call(ctx, event).await
     }
+}
+
+/// The name of the role whose stage `finish_authoring` ends, in either target.
+const AUTHOR: &str = "Author";
+
+/// What an Author that stopped without `finish_authoring` is told, once.
+pub(crate) const FINISH_NUDGE: &str = "\
+You stopped without calling finish_authoring, so the Reviewer would get a form you have not checked. \
+Do not stop yet: run rule_check WITHOUT rule_ids so it covers every rule on the document as it \
+stands, fix what it reports (or, for a rule that cannot be kept, give the reason in \
+finish_authoring's waivers), complete the verification finish_authoring asks for, and call \
+finish_authoring. If you stop again without it, the Reviewer takes over as things are.";
+
+tokio::task_local! {
+    /// Whether the Author stages run inside [`nudging_unfinished`] answer an
+    /// unfinished end with [`FINISH_NUDGE`].
+    static FINISH_NUDGE_ON: bool;
+}
+
+/// Runs `stage` (an Author's `run_stage`) with the [`FINISH_NUDGE`] on or off:
+/// the controller's own choice ([`crate::run::RunConfig::finish_nudge`]),
+/// carried to the hook its attempts build without threading it through every
+/// stage driver. Only an Author's hook reads it, so the judges its
+/// `rule_check` runs inside it are unaffected.
+pub(crate) async fn nudging_unfinished<F: std::future::Future>(on: bool, stage: F) -> F::Output {
+    FINISH_NUDGE_ON.scope(on, stage).await
+}
+
+/// Whether the stage being driven runs inside [`nudging_unfinished`] with
+/// the nudge on; off anywhere else.
+fn finish_nudge_on() -> bool {
+    FINISH_NUDGE_ON.try_with(|on| *on).unwrap_or(false)
 }
 
 /// [`ToolResultAction::Stop`] reasons the stage driver reads back as a normal

@@ -31,8 +31,8 @@ pub mod source;
 pub mod u2s;
 
 pub use conversion::{
-    AUTHOR_ADDENDUM, Access, Caller, ConversionAgent, JUDGE_PREAMBLE, REVIEWER_ADDENDUM, ReplyBlock,
-    ReviewResult, SHARED_PREAMBLE, SYSTEM_PROMPT, ToolReply, ToolSpec, access_of, all_tools, catalog,
-    scope, tools_for,
+    AUTHOR_ADDENDUM, Access, Caller, ConversionAgent, JUDGE_PREAMBLE, JudgeView, REVIEWER_ADDENDUM,
+    ReplyBlock, ReviewResult, SHARED_PREAMBLE, SYSTEM_PROMPT, ToolReply, ToolSpec, access_of, all_tools,
+    catalog, scope, tools_for,
 };
 pub use rule_board::{RuleKind, RuleState, RuleView};

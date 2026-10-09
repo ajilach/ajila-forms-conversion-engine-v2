@@ -49,6 +49,60 @@ pub struct ResolvedModel {
     pub context_budget: Arc<dyn ContextBudget>,
 }
 
+impl ResolvedModel {
+    /// The same model as a pipeline stage model, for a role of its own.
+    pub fn into_stage_model(self) -> pipeline::StageModel {
+        pipeline::StageModel {
+            model: self.model,
+            price: self.price,
+            max_tokens: self.max_tokens,
+            context_budget: self.context_budget,
+        }
+    }
+}
+
+/// The models of the roles that have their own (see
+/// [`AppSettings::reviewer_model`] and [`AppSettings::judge_model`]), each
+/// resolved like the run's.
+pub struct RoleModels {
+    pub reviewer: Option<(TurnPlan, ResolvedModel)>,
+    pub judge: Option<(TurnPlan, ResolvedModel)>,
+}
+
+impl RoleModels {
+    /// Resolves the roles' own models of `settings`, each rate-limited with the
+    /// run's endpoint (they share its gate: one account, one limit).
+    pub fn for_settings(settings: &AppSettings) -> Result<Self, String> {
+        let resolve = |model: &str, role: &str| -> Result<Option<(TurnPlan, ResolvedModel)>, String> {
+            let Some(endpoint) = settings.role_endpoint(model) else {
+                return Ok(None);
+            };
+            let plan = TurnPlan {
+                max_concurrent: settings.max_concurrent_requests,
+                ..TurnPlan::for_endpoint(endpoint)
+            };
+            let resolved = plan.resolve().map_err(|e| format!("The {role} model cannot be used: {e}"))?;
+            Ok(Some((plan, resolved)))
+        };
+        Ok(Self {
+            reviewer: resolve(&settings.reviewer_model, "Reviewer")?,
+            judge: resolve(&settings.judge_model, "judge")?,
+        })
+    }
+}
+
+/// What the banner adds for the roles with a model of their own, or nothing:
+/// the Reviewer's and the judges' model ids, when they are not the run's.
+pub fn describe_role_models(settings: &AppSettings) -> String {
+    let mut text = String::new();
+    for (role, model) in [("Reviewer", &settings.reviewer_model), ("judges", &settings.judge_model)] {
+        if let Some(endpoint) = settings.role_endpoint(model) {
+            text.push_str(&format!(" · {role}: {}", endpoint.model));
+        }
+    }
+    text
+}
+
 impl TurnPlan {
     pub fn for_endpoint(endpoint: LlmEndpoint) -> Self {
         let max_tokens = crate::models::max_output_tokens_for(&endpoint.model);

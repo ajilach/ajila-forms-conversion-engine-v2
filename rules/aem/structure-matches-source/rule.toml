@@ -24,3 +24,7 @@ page sets in columns is one column, because AEM has no multi-column text
 configurator's option panels and the signatures on the signature page, wherever the source places
 them (ubs-aem-account-holder-cluster). Neither is a break.
 """
+
+[judge]
+# Walks every page of the source in every language.
+max_turns = 16

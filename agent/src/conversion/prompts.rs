@@ -19,8 +19,8 @@ your own stage on the current build, or your stage's terminal call (an approving
 Reviewer) is refused with the list of what is missing. \
 (a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
 handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
-name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \
-description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
+name `rule_ids` to re-check only some. The report names the rules that hold and spells out the \
+rest (rule_get gives a rule's description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
 finding (its judge failed or the document changed meanwhile): run rule_check again for that rule. \
 (b) COVERAGE: a judge reads the source too, but finding what is missing is still the review's work. \
 coverage_check lists per language every source text the document does not carry (a lead to look \
@@ -129,8 +129,8 @@ get_source_info on a reference's input via source={\"reference\":\"<ref_id>\"} t
 structure and patterns rather than inventing your own, including noticing where they reference a \
 reusable fragment (a `fragRef` to a `_fragmentlib` path) instead of building a section's fields inline. \
 Do not begin building until you understand how the reference forms handle each issue.\n\
-3. Author the form DIRECTLY at `/form`. BEFORE authoring, call rule_list and read every rule: they \
-are what the finished document is held to, and each description says what is required and how to \
+3. Author the form DIRECTLY at `/form`. BEFORE authoring, call rule_list and read every rule with \
+rule_get: they are what the finished document is held to, and each description says what is required and how to \
 fix a break. The document is one multilingual AEM node tree in which every user-visible text field \
 (title/label/content and option labels) is a per-language map like {\"de\":\"…\",\"en\":\"…\"}, \
 keyed by the languages `/languages` lists. The pinned schema gives the exact shape of every node. \

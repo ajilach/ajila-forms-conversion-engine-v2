@@ -59,6 +59,12 @@ pub struct RunConfig {
     /// the provider actually bills — see [`ContextBudget`]. `runner` builds
     /// this from the same model knowledge as `price`/`max_tokens`.
     pub context_budget: Arc<dyn ContextBudget>,
+    /// The Reviewer's own model, when it is not the run's (`model` above,
+    /// which the Author runs on).
+    pub reviewer_model: Option<crate::StageModel>,
+    /// The judges' own model, when it is not the model of the stage that
+    /// dispatches them. The final rule check's judges run on it too.
+    pub judge_model: Option<crate::StageModel>,
     /// Whether the run ends by verifying its final build once more and
     /// keeping what that looked like ([`RunOutcome::review`]). Off only where
     /// no verifier may be booted: the controller tests.
@@ -68,6 +74,12 @@ pub struct RunConfig {
     /// tests that pin a run's stages and model calls, since every judged rule
     /// costs a judge's turns.
     pub final_rule_check: bool,
+    /// Whether an Author that stops without `finish_authoring` is told to
+    /// check every rule and hand over, and carries on once before the
+    /// Reviewer takes over (see [`crate::hooks::FINISH_NUDGE`]). Off only in
+    /// the controller tests that pin a run's stages and model calls, whose
+    /// Authors end with a plain answer.
+    pub finish_nudge: bool,
 }
 
 /// What starts a run: a fresh conversion, feedback on the previous result, or
@@ -185,18 +197,18 @@ async fn run_stages(
     // ── Stage 1: Author → build the artefact ────────────────────────────────
     let author_seed = author_seed_for(&seed, &reviews);
     begin_stage(shared_agent, obs, "Author", roles::AUTHOR_DOING.into()).await;
-    run_stage(
-        shared_agent,
-        &roles::AUTHOR,
-        &roles::sys_author(extra, config.template_note, &reviews),
-        author_seed,
-        &config.abort,
-        config.model.clone(),
-        config.price.clone(),
-        config.max_tokens,
-        config.context_budget.clone(),
-        obs,
-        &mut spend,
+    crate::hooks::nudging_unfinished(
+        config.finish_nudge,
+        run_role_stage(
+            shared_agent,
+            &roles::AUTHOR,
+            &roles::sys_author(extra, config.template_note, &reviews),
+            author_seed,
+            config,
+            None,
+            obs,
+            &mut spend,
+        ),
     )
     .await?;
     warn_unless_finished(shared_agent, obs, &mut warnings).await;
@@ -228,17 +240,14 @@ async fn run_stages(
             }
             Ok(()) => {
                 begin_stage(shared_agent, obs, "Reviewer", format!("reviewing (round {})", round + 1)).await;
-                run_stage(
+                run_role_stage(
                     shared_agent,
                     &roles::REVIEWER,
                     &roles::sys_reviewer(extra, &reviews),
                     "Review the built form end to end against the source, then finish by calling \
                      submit_review.",
-                    &config.abort,
-                    config.model.clone(),
-                    config.price.clone(),
-                    config.max_tokens,
-                    config.context_budget.clone(),
+                    config,
+                    config.reviewer_model.as_ref(),
                     obs,
                     &mut spend,
                 )
@@ -280,18 +289,18 @@ async fn run_stages(
                     format!("applying review feedback (round {})", round + 1),
                 )
                 .await;
-                run_stage(
-                    shared_agent,
-                    &roles::AUTHOR,
-                    &roles::sys_author(extra, config.template_note, &reviews),
-                    roles::AUTHOR_FIX_SEED,
-                    &config.abort,
-                    config.model.clone(),
-                    config.price.clone(),
-                    config.max_tokens,
-                    config.context_budget.clone(),
-                    obs,
-                    &mut spend,
+                crate::hooks::nudging_unfinished(
+                    config.finish_nudge,
+                    run_role_stage(
+                        shared_agent,
+                        &roles::AUTHOR,
+                        &roles::sys_author(extra, config.template_note, &reviews),
+                        roles::AUTHOR_FIX_SEED,
+                        config,
+                        None,
+                        obs,
+                        &mut spend,
+                    ),
                 )
                 .await?;
                 warn_unless_finished(shared_agent, obs, &mut warnings).await;
@@ -439,11 +448,12 @@ async fn final_rule_check(
     warnings: &mut Vec<String>,
 ) {
     obs.emit(RunEvent::Stage { role: FINAL_CHECK, doing: "checking every rule".into() });
-    let judges = crate::substage::SubStageContext::new(
+    let judges = crate::substage::SubStageContext::for_stage(
         config.model.clone(),
         config.price.clone(),
         config.max_tokens,
         config.context_budget.clone(),
+        config.judge_model.as_ref(),
         config.abort.clone(),
         obs.clone(),
     );
@@ -704,6 +714,43 @@ pub(crate) async fn run_stage(
         obs,
         total_spend,
         &caller,
+        None,
+    )
+    .await
+}
+
+/// One of the run's own stages (an Author or a Reviewer) on `own` model, or
+/// the run's when `own` is `None`, its judges on the run's judge model when
+/// it has one.
+#[allow(clippy::too_many_arguments)]
+async fn run_role_stage(
+    shared_agent: &SharedAgent,
+    role: &'static Role,
+    system: &str,
+    seed_user_msg: &str,
+    config: &RunConfig,
+    own: Option<&crate::StageModel>,
+    obs: &SharedObserver,
+    total_spend: &mut Spend,
+) -> Option<String> {
+    let (model, price, max_tokens, context_budget) = match own {
+        Some(m) => (m.model.clone(), m.price.clone(), m.max_tokens, m.context_budget.clone()),
+        None => (config.model.clone(), config.price.clone(), config.max_tokens, config.context_budget.clone()),
+    };
+    run_stage_as(
+        shared_agent,
+        role,
+        system,
+        seed_user_msg,
+        &config.abort,
+        model,
+        price,
+        max_tokens,
+        context_budget,
+        obs,
+        total_spend,
+        &stage_caller(role),
+        config.judge_model.as_ref(),
     )
     .await
 }
@@ -724,6 +771,8 @@ pub(crate) async fn run_stage_as(
     obs: &SharedObserver,
     total_spend: &mut Spend,
     caller: &agent::Caller,
+    // The model the stage's judges run on, when not the stage's own.
+    judge: Option<&crate::StageModel>,
 ) -> Option<String> {
     let started = std::time::Instant::now();
     let spend_before = *total_spend;
@@ -734,11 +783,12 @@ pub(crate) async fn run_stage_as(
         (agent.tools_for_stage(role.scope), agent.session_id().to_string())
     };
     // What a `rule_check` of this stage needs to dispatch its judges.
-    let sub_stages = crate::substage::SubStageContext::new(
+    let sub_stages = crate::substage::SubStageContext::for_stage(
         model.clone(),
         price.clone(),
         max_tokens,
         context_budget.clone(),
+        judge,
         abort.clone(),
         obs.clone(),
     );
@@ -1909,8 +1959,11 @@ mod controller {
             price: no_price(),
             max_tokens: 4096,
             context_budget: no_budget(),
+            reviewer_model: None,
+            judge_model: None,
             capture_review: false,
             final_rule_check: false,
+            finish_nudge: false,
         }
     }
 
@@ -1927,6 +1980,21 @@ mod controller {
             .expect("attaching the verifier needs no Docker");
         assert!(agent.has_verifier());
         shared(agent)
+    }
+
+    /// A run that gives the Reviewer a model of its own reviews on it: the
+    /// Author's turns go to the run's model, the Reviewer's to its own.
+    #[tokio::test]
+    async fn the_reviewer_runs_on_its_own_model_when_the_run_gives_one() {
+        let author = MockCompletionModel::from_stream_turns([text_turn("BUILT")]);
+        let reviewer = MockCompletionModel::from_stream_turns([review_turn(true, "")]);
+        let own = crate::substage::test_support::stage_model(reviewer.clone(), 0.0);
+        let config = RunConfig { reviewer_model: Some(own), ..config(AbortFlag::default(), 1, author.clone()) };
+        let (obs, _) = recorder();
+        let outcome = run(bare_agent(), config, RunSeed::Fresh, obs).await;
+        assert!(outcome.is_some());
+        assert_eq!((author.request_count(), reviewer.request_count()), (1, 1));
+        assert!(turn_system(&reviewer.requests()[0]).contains("submit_review"));
     }
 
     /// Whatever way a run ends, its verifier is torn down: no AEM container
@@ -2047,6 +2115,7 @@ mod controller {
             name: "judged".into(),
             title: "Judged".into(),
             description: "Judge me.".into(),
+            ..Default::default()
         };
         let agent = bare_agent();
         agent.lock().await.set_judged_rules(vec![judged]);
@@ -2106,6 +2175,7 @@ mod controller {
             name: "judged".into(),
             title: "Judged".into(),
             description: "Judge me.".into(),
+            ..Default::default()
         }]);
         let abort = AbortFlag::default();
         abort.abort();
@@ -2199,6 +2269,47 @@ mod controller {
         let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), review_turn(true, "")]);
         let (obs, rec) = recorder();
         run(bare_agent(), config(AbortFlag::default(), 1, model), RunSeed::Fresh, obs).await;
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert!(warnings.iter().any(|w| w.contains("without finish_authoring")), "{warnings:?}");
+    }
+
+    /// With the finish nudge on, an Author that stops without
+    /// `finish_authoring` is told so once and carries on: one that then hands
+    /// over is not warned about, one that stops again is let go to the
+    /// Reviewer, and warned about. The Reviewer is never nudged.
+    #[tokio::test]
+    async fn an_unfinished_author_is_nudged_once_before_the_review() {
+        let nudged = |request: &rig_core::completion::CompletionRequest| {
+            format!("{:?}", request.chat_history).contains("You stopped without calling finish_authoring")
+        };
+        let finish = vec![
+            MockStreamEvent::tool_call("call-finish", "finish_authoring", serde_json::json!({ "summary": "done" })),
+            MockStreamEvent::final_response(Usage::new()),
+        ];
+        let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), finish, review_turn(true, "")]);
+        let (obs, rec) = recorder();
+        let nudging = RunConfig { finish_nudge: true, ..config(AbortFlag::default(), 1, model.clone()) };
+
+        let outcome = run(bare_agent(), nudging, RunSeed::Fresh, obs).await;
+
+        assert!(outcome.is_some());
+        assert_eq!(model.request_count(), 3, "the nudged Author gets one more turn, then the Reviewer one");
+        let requests = model.requests();
+        assert!(!nudged(&requests[0]) && nudged(&requests[1]), "the second Author turn carries the nudge");
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        let nudges = |rec: &Recorder| rec.controls().iter().filter(|(k, _)| *k == ControlKind::FinishNudge).count();
+        assert_eq!(nudges(&rec.lock().unwrap()), 1);
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert!(!warnings.iter().any(|w| w.contains("finish_authoring")), "{warnings:?}");
+
+        // Stopping again ends the stage: no second nudge, and the warning.
+        let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), text_turn("DONE"), review_turn(true, "")]);
+        let (obs, rec) = recorder();
+        let nudging = RunConfig { finish_nudge: true, ..config(AbortFlag::default(), 1, model.clone()) };
+        run(bare_agent(), nudging, RunSeed::Fresh, obs).await;
+        assert_eq!(model.request_count(), 3);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(nudges(&rec.lock().unwrap()), 1);
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(warnings.iter().any(|w| w.contains("without finish_authoring")), "{warnings:?}");
     }

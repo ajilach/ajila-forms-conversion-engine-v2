@@ -34,8 +34,13 @@
   violating test in `agent/tests/rules.rs`); a rule without a `check.js` is judged: `rule_check`
   dispatches a judge agent (`pipeline/src/judge.rs`, read-only, one per rule, several at once) that
   checks the document against the rule's description and reports through `submit_rule_verdict`.
-  Where no judge runs (the agent on its own, outside a pipeline stage) such a rule is reported unchecked. Rules are not written into
-  the prompts: the agent reads them with `rule_list`.
+  Where no judge runs (the agent on its own, outside a pipeline stage) such a rule is reported unchecked. A judged
+  rule's `rule.toml` may carry a `[judge]` block (`agent::rules::JudgeScope`): the `pointers` and `node_types` of the
+  document it reads, which its judge is handed in the prompt and which its verdict is cached for (an edit elsewhere
+  keeps the verdict, so name everything the rule reads), what it needs of the source (`source = "tools" | "first_page"
+  | "none"`) and a `max_turns` above the judges' default of 8. A judge's verdict is kept for the run while its view is
+  unchanged (`ConversionAgent::judge_view`). Rules are not written into the prompts: the agent reads the index with
+  `rule_list` and the descriptions with `rule_get`.
 - Three of those rules are about a node's position among its siblings, so lowering one node at a time cannot satisfy
   them: they live in the UBS layer's `normalize.rs` and run over a copy of the tree on the way into
   the writer, which is what makes them hold for an agent-authored or loaded document as well.

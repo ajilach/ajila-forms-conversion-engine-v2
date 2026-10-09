@@ -203,8 +203,51 @@ type VerdictKey = (String, u64, u64);
 
 fn verdict_key(rule: &crate::rules::JudgedRule, content: u64) -> VerdictKey {
     let mut hasher = DefaultHasher::new();
-    (&rule.id, &rule.name, &rule.title, &rule.description).hash(&mut hasher);
+    (&rule.id, &rule.name, &rule.title, &rule.description, &rule.scope).hash(&mut hasher);
     (rule.id.clone(), hasher.finish(), content)
+}
+
+/// What a judge of one rule reads of the document, and the key its verdict is
+/// kept for (see [`ConversionAgent::judge_view`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct JudgeView {
+    /// The hash a verdict on this view is kept for: of the part of the
+    /// document the rule's scope names, or of the whole document when it
+    /// names none.
+    pub key: u64,
+    /// That part, when the scope names one: `{"at": {pointer: value}, "nodes":
+    /// [{"pointer", "node"}]}`. A pointer the document does not have reads
+    /// `null`, which is itself something a judge can rule on.
+    pub part: Option<Value>,
+}
+
+/// Every node of `value` whose `type` is one of `types`, with its JSON
+/// Pointer, in document order.
+fn nodes_of_types<'a>(value: &'a Value, types: &[String], at: &mut String, found: &mut Vec<(String, &'a Value)>) {
+    match value {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str).is_some_and(|t| types.iter().any(|w| w == t)) {
+                found.push((at.clone(), value));
+            }
+            for (key, child) in object {
+                let len = at.len();
+                at.push('/');
+                at.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                nodes_of_types(child, types, at, found);
+                at.truncate(len);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                let len = at.len();
+                at.push('/');
+                at.push_str(&index.to_string());
+                nodes_of_types(child, types, at, found);
+                at.truncate(len);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Feeds what is written to it into a hasher, so a document is hashed as it
@@ -484,6 +527,34 @@ impl ConversionAgent {
         let mut writer = HashWriter(DefaultHasher::new());
         serde_json::to_writer(&mut writer, self.document.value()).expect("a JSON value serializes");
         writer.0.finish()
+    }
+
+    /// What `rule`'s judge reads of the document as it is now: the part its
+    /// scope names, and the key a verdict on it is kept for. A rule whose
+    /// scope names no part reads the whole document, so its key is the
+    /// document's [`Self::content_hash`]; one that names a part keeps its
+    /// verdict through edits elsewhere.
+    pub fn judge_view(&self, rule: &crate::rules::JudgedRule) -> JudgeView {
+        if !rule.scope.is_partial() {
+            return JudgeView { key: self.content_hash(), part: None };
+        }
+        let document = self.document.value();
+        let at: serde_json::Map<String, Value> = rule
+            .scope
+            .pointers
+            .iter()
+            .map(|pointer| (pointer.clone(), document.pointer(pointer).cloned().unwrap_or(Value::Null)))
+            .collect();
+        let mut found = Vec::new();
+        if !rule.scope.node_types.is_empty() {
+            nodes_of_types(document, &rule.scope.node_types, &mut String::new(), &mut found);
+        }
+        let nodes: Vec<Value> =
+            found.into_iter().map(|(pointer, node)| json!({ "pointer": pointer, "node": node })).collect();
+        let part = json!({ "at": at, "nodes": nodes });
+        let mut writer = HashWriter(DefaultHasher::new());
+        serde_json::to_writer(&mut writer, &part).expect("a JSON value serializes");
+        JudgeView { key: writer.0.finish(), part: Some(part) }
     }
 
     /// The verdict a judge already gave `rule` on a document whose content
@@ -854,17 +925,23 @@ mod tests {
             name: "ubs-aem-test".into(),
             title: "A judged rule".into(),
             description: "Judge me.".into(),
+            ..Default::default()
         };
         agent.set_judged_rules(vec![judged.clone()]);
 
         let listed: Value = serde_json::from_str(&reply_text(agent.execute("rule_list", &json!({})).await)).unwrap();
-        let rules = listed["rules"].as_array().unwrap();
-        assert!(rules.iter().any(|r| r["check"] == "script"));
-        assert!(rules.iter().any(|r| r["id"] == "judged-id" && r["check"] == "agent"));
+        assert!(!listed["scripted"].as_array().unwrap().is_empty());
+        assert!(listed["judged"].as_array().unwrap().iter().any(|r| r["id"] == "judged-id"));
+
+        let got: Value =
+            serde_json::from_str(&reply_text(agent.execute("rule_get", &json!({"ids": ["judged-id"]})).await)).unwrap();
+        assert_eq!(got["rules"][0]["description"], "Judge me.");
+        assert!(matches!(agent.execute("rule_get", &json!({"ids": ["nope"]})).await, ToolReply::Error(_)));
 
         let checked: Value = serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({})).await)).unwrap();
         let verdicts = checked["verdicts"].as_array().unwrap();
-        assert!(verdicts.iter().any(|v| v["check"] == "script"));
+        let scripted = checked["summary"].as_object().unwrap().values().filter_map(Value::as_u64).sum::<u64>();
+        assert!(scripted > 1, "the scripts' verdicts are counted: {checked}");
         let unjudged = verdicts.iter().find(|v| v["rule_id"] == "judged-id").expect("the judged rule is reported");
         assert_eq!(unjudged["verdict"], "unchecked");
 
@@ -965,8 +1042,17 @@ mod tests {
         verify_everything(&mut agent);
         reply_text(agent.execute("submit_review", &approve).await);
         assert!(agent.take_review().is_some_and(|r| r.approved));
-        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done" })).await);
-        assert_eq!(agent.take_finish().as_deref(), Some("done"));
+        // The hand-over also needs every rule checked on this document and
+        // every broken one justified (see `execute`'s rule gate).
+        reply_text(agent.execute("rule_check", &json!({})).await);
+        let waivers: Vec<Value> = agent
+            .rule_board()
+            .into_iter()
+            .filter(|r| matches!(r.state, RuleState::Fail { .. } | RuleState::Unchecked { .. }))
+            .map(|r| json!({ "rule": r.rule_id, "why": "not this test's concern" }))
+            .collect();
+        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done", "waivers": waivers })).await);
+        assert!(agent.take_finish().is_some_and(|summary| summary.starts_with("done")));
 
         // A new stage earns its own.
         agent.begin_stage();
@@ -1138,13 +1224,47 @@ mod tests {
         assert_eq!(agent.revision(), 2);
     }
 
+    /// A scoped rule's view is the part of the document it names: an edit
+    /// elsewhere leaves its key alone, an edit to that part changes it, and a
+    /// rule with no scope keys on the whole document.
+    #[tokio::test]
+    async fn a_scoped_judge_view_follows_only_its_part() {
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
+        let scoped = crate::rules::JudgedRule {
+            id: "r".into(),
+            scope: crate::rules::JudgeScope {
+                pointers: vec!["/variables".into()],
+                node_types: vec!["TextDraw".into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let whole = crate::rules::JudgedRule { id: "w".into(), ..Default::default() };
+        let before = agent.judge_view(&scoped);
+        assert_eq!(before.part.as_ref().unwrap()["at"]["/variables"], agent.document()["variables"]);
+        assert_eq!(agent.judge_view(&whole), JudgeView { key: agent.content_hash(), part: None });
+
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
+        assert_eq!(agent.judge_view(&scoped).key, before.key, "an edit outside the scope keeps the key");
+
+        let intro = json!({
+            "type": "TextDraw", "uuid": uuid::Uuid::new_v4(), "name": "ST_Intro",
+            "content": { "en": "<p>Hi</p>" }, "visible": true, "colspan": 12, "dor_colspan": null
+        });
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/0/children/-", "value": intro }])).await;
+        let after = agent.judge_view(&scoped);
+        assert_ne!(after.key, before.key, "a node of a scoped type changes the key");
+        let last = agent.document()["form"]["children"][0]["children"].as_array().unwrap().len() - 1;
+        assert_eq!(after.part.unwrap()["nodes"][0]["pointer"], format!("/form/children/0/children/{last}"));
+    }
+
     /// A verdict is kept for its rule and content: another content, or the
     /// same rule with other text, has none.
     #[test]
     fn a_cached_verdict_is_kept_for_its_rule_and_content() {
         let mut agent = agent_for(Vec::new());
         let rule =
-            crate::rules::JudgedRule { id: "r".into(), name: "n".into(), title: "t".into(), description: "d".into() };
+            crate::rules::JudgedRule { id: "r".into(), name: "n".into(), title: "t".into(), description: "d".into(), ..Default::default() };
         let verdict = crate::rules::RuleVerdict { pass: true, violations: vec![] };
         assert_eq!(agent.cached_verdict(&rule, 1), None);
         agent.cache_verdict(&rule, 1, verdict.clone());
@@ -1152,7 +1272,13 @@ mod tests {
         assert_eq!(agent.cached_verdict(&rule, 2), None);
         let reworded = crate::rules::JudgedRule { description: "d2".into(), ..rule.clone() };
         assert_eq!(agent.cached_verdict(&reworded, 1), None);
-        let other = crate::rules::JudgedRule { id: "r2".into(), ..rule };
+        let other = crate::rules::JudgedRule { id: "r2".into(), ..rule.clone() };
+        assert_eq!(agent.cached_verdict(&other, 1), None);
+        let rescoped = crate::rules::JudgedRule {
+            scope: crate::rules::JudgeScope { pointers: vec!["/header".into()], ..Default::default() },
+            ..rule
+        };
+        assert_eq!(agent.cached_verdict(&rescoped, 1), None, "a new scope is another rule");
         assert_eq!(agent.cached_verdict(&other, 1), None);
     }
 

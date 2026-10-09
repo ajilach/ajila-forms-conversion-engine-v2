@@ -50,6 +50,7 @@ Keep every individual call small. Proceed now.";
 /// per-stage turn budget. The system prompt and seed message are supplied per
 /// invocation by [`Run::execute`] (so the Reviewer reports can be pinned into
 /// `system`).
+#[derive(Clone, Copy)]
 pub(crate) struct Role {
     pub(crate) name: &'static str,
     /// Which catalog scope this stage is. The tools themselves are scoped in
@@ -109,19 +110,43 @@ pub(crate) const REVIEWER: Role = Role {
 
 /// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
 /// ends with `submit_rule_verdict`.
+///
+/// Eight turns: a judge gets the part of the document its rule reads in its
+/// prompt when the rule names one (see `agent::rules::JudgeScope`), and reads
+/// several things per turn otherwise. A rule that walks every page of the
+/// source asks for more in its `[judge] max_turns`.
+const JUDGE_TURNS: usize = 8;
 const JUDGE_NUDGE: &str = "Your previous turn was cut off at the output-token limit. Keep each \
 call small: read one part of the document at a time, then call submit_rule_verdict.";
 
-pub(crate) const JUDGE: Role = Role {
+pub(crate) static JUDGE: Role = Role {
     name: "Judge",
     scope: agent::scope::JUDGE,
-    max_iterations: 20,
+    max_iterations: JUDGE_TURNS,
     stuck_tool: None,
     stuck_activity: "judging",
     max_tokens_nudge: JUDGE_NUDGE,
     remember: false,
     resume: false,
 };
+
+/// The judge role with `max_turns` instead of the default turn budget when a
+/// rule asks for one. A stage runs on a `&'static Role`, so each budget a rule
+/// asks for is made once and kept for the process.
+pub(crate) fn judge_role(max_turns: Option<usize>) -> &'static Role {
+    let base = &JUDGE;
+    let Some(turns) = max_turns.filter(|t| *t != base.max_iterations) else {
+        return base;
+    };
+    static MADE: std::sync::OnceLock<std::sync::Mutex<Vec<&'static Role>>> = std::sync::OnceLock::new();
+    let mut made = MADE.get_or_init(Default::default).lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(role) = made.iter().find(|r| r.max_iterations == turns) {
+        return role;
+    }
+    let role: &'static Role = Box::leak(Box::new(Role { max_iterations: turns, ..*base }));
+    made.push(role);
+    role
+}
 
 /// What the Author stage header says it is doing.
 pub(crate) const AUTHOR_DOING: &str = "building the AEM form";
@@ -175,11 +200,12 @@ pub(crate) fn sys_reviewer(extra: &str, reviews: &[String]) -> String {
     s
 }
 
-/// A judge's system prompt: its preamble, the document format, and the one
-/// rule it judges.
-pub(crate) fn sys_judge(rule: &agent::rules::JudgedRule, judgement: &str) -> String {
+/// A judge's system prompt: its preamble, the document format, the one rule
+/// it judges and, after it, what it was handed to read (`handed`, already
+/// written as prompt sections, or empty).
+pub(crate) fn sys_judge(rule: &agent::rules::JudgedRule, judgement: &str, handed: &str) -> String {
     format!(
-        "{JUDGE_PREAMBLE}{}\n\n## THE RULE\njudgement: {judgement}\n{}\n\n{}",
+        "{JUDGE_PREAMBLE}{}\n\n## THE RULE\njudgement: {judgement}\n{}\n\n{}{handed}",
         format_note(),
         rule.title,
         rule.description
@@ -203,6 +229,19 @@ pub(crate) fn append_reviews(s: &mut String, heading: &str, reviews: &[String]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rule's own turn budget makes a judge role of its own, once; the
+    /// default budget is the judge role itself.
+    #[test]
+    fn a_rule_can_ask_for_its_own_judge_turns() {
+        let base = &JUDGE;
+        assert_eq!(base.max_iterations, JUDGE_TURNS);
+        assert!(std::ptr::eq(judge_role(None), base));
+        assert!(std::ptr::eq(judge_role(Some(JUDGE_TURNS)), base));
+        let wide = judge_role(Some(14));
+        assert_eq!((wide.max_iterations, wide.scope), (14, base.scope));
+        assert!(std::ptr::eq(judge_role(Some(14)), wide), "made once");
+    }
 
     /// Only the judges' calls leave the dispatching stage's evidence alone.
     #[test]
@@ -281,8 +320,9 @@ mod tests {
             name: "n".into(),
             title: "t".into(),
             description: "d".into(),
+            scope: Default::default(),
         };
-        for prompt in [sys_author("", "", &[]), sys_reviewer("", &[]), sys_judge(&rule, "judgement-1")] {
+        for prompt in [sys_author("", "", &[]), sys_reviewer("", &[]), sys_judge(&rule, "judgement-1", "")] {
             assert!(prompt.contains("UBS AEM document"), "{prompt}");
         }
     }
