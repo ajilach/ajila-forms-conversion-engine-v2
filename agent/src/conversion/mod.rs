@@ -13,6 +13,7 @@
 //! calls [`ConversionAgent::execute`], and surfaces the results.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use serde_json::{Value, json};
 use u2s_doc_tools::native::{NativeJsonTool, RuleForCheck};
@@ -199,6 +200,34 @@ fn new_rule_board(scripted: &[RuleForCheck], judged: &[crate::rules::JudgedRule]
     RuleBoard::new(scripted.iter().map(|r| (r.id.to_string(), r.title.clone())), judged)
 }
 
+/// What a judge's verdict is kept for: the rule's id, a hash of the rule as
+/// its judge reads it (its `rule.toml` id, title and description), and the
+/// hash of the document's content it judged. Not the revision: a revision
+/// counts edits, and an edit that is undone, or a stage that edits nothing,
+/// leaves the content a judge already saw.
+type VerdictKey = (String, u64, u64);
+
+fn verdict_key(rule: &crate::rules::JudgedRule, content: u64) -> VerdictKey {
+    let mut hasher = DefaultHasher::new();
+    (&rule.id, &rule.name, &rule.title, &rule.description).hash(&mut hasher);
+    (rule.id.clone(), hasher.finish(), content)
+}
+
+/// Feeds what is written to it into a hasher, so a document is hashed as it
+/// serializes, without a copy of its text.
+struct HashWriter(DefaultHasher);
+
+impl std::io::Write for HashWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.write(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// One source PDF: its file name and what it says about itself (`None` for a
 /// PDF without XFA).
 type SourceDocument = (String, Option<SourceContext>);
@@ -254,6 +283,12 @@ pub struct ConversionAgent {
     judgements: HashMap<String, Option<crate::rules::RuleVerdict>>,
     /// How many judgements this agent has opened, which numbers the next.
     judgements_opened: u64,
+    /// Every verdict a judge gave in this run, by what it was given on: the
+    /// rule (its id and the text the judge reads) and the document's content
+    /// (see [`Self::cached_verdict`]). It lives as long as the agent, so the
+    /// Reviewer reuses the Author's verdicts and a fix round the last round's,
+    /// wherever the content is the same.
+    verdicts: HashMap<VerdictKey, crate::rules::RuleVerdict>,
 
     /// The vendored u2s tool servers, created on the first u2s call or
     /// `get_source_info` (see [`Self::u2s_tools`]).
@@ -321,6 +356,7 @@ impl ConversionAgent {
             evidence_waived: false,
             judgements: HashMap::new(),
             judgements_opened: 0,
+            verdicts: HashMap::new(),
             u2s: None,
         })
     }
@@ -475,6 +511,34 @@ impl ConversionAgent {
     /// its judge recorded one.
     pub fn take_judgement(&mut self, id: &str) -> Option<crate::rules::RuleVerdict> {
         self.judgements.remove(id).flatten()
+    }
+
+    /// A hash of the document's content, which a judge's verdict is kept for
+    /// (see [`Self::cached_verdict`]). Two revisions with the same content
+    /// hash alike: an edit undone gives back the content it undid, and a
+    /// stage that edits nothing leaves it as the last stage left it. Stable
+    /// for the life of the process, which is all the verdicts it keys live.
+    pub fn content_hash(&self) -> u64 {
+        let mut writer = HashWriter(DefaultHasher::new());
+        serde_json::to_writer(&mut writer, self.document.value()).expect("a JSON value serializes");
+        writer.0.finish()
+    }
+
+    /// The verdict a judge already gave `rule` on a document whose content
+    /// hashed to `content`, if one did in this run. A judge reads only the
+    /// rule, the document, the run's sources (which a run never changes) and
+    /// the package built from that document, so its verdict on the same rule
+    /// and content stands: judging it again costs a judge and says nothing
+    /// new.
+    pub fn cached_verdict(&self, rule: &crate::rules::JudgedRule, content: u64) -> Option<crate::rules::RuleVerdict> {
+        self.verdicts.get(&verdict_key(rule, content)).cloned()
+    }
+
+    /// Keeps the verdict a judge gave `rule` on the content that hashed to
+    /// `content`, for [`Self::cached_verdict`]. Only a verdict goes in: a
+    /// judge that failed or gave none is tried again next time.
+    pub fn cache_verdict(&mut self, rule: &crate::rules::JudgedRule, content: u64, verdict: crate::rules::RuleVerdict) {
+        self.verdicts.insert(verdict_key(rule, content), verdict);
     }
 
     /// The document's revision, which a check reports against.
@@ -1177,6 +1241,39 @@ mod tests {
         // Finishing builds it again, so what ships is the final document.
         let outputs = crate::outputs::build(&mut agent);
         assert!(outputs.package.is_some() && outputs.warnings.is_empty(), "{:?}", outputs.warnings);
+    }
+
+    /// The content hash follows what the document says, not how many edits
+    /// it took: an edit changes it, undoing the edit gives it back.
+    #[tokio::test]
+    async fn the_content_hash_follows_the_content_not_the_revision() {
+        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")]);
+        let start = agent.content_hash();
+        assert_eq!(agent.content_hash(), start, "the hash is stable");
+        let intro = json!({ "key": "intro", "kind": "text", "content": { "en": "<p>Hi</p>" } });
+        patch(&mut agent, json!([{ "op": "add", "path": "/assets/-", "value": intro }])).await;
+        assert_ne!(agent.content_hash(), start);
+        patch(&mut agent, json!([{ "op": "remove", "path": "/assets/0" }])).await;
+        assert_eq!(agent.content_hash(), start, "the undone edit hashes like the start");
+        assert_eq!(agent.revision(), 2);
+    }
+
+    /// A verdict is kept for its rule and content: another content, or the
+    /// same rule with other text, has none.
+    #[test]
+    fn a_cached_verdict_is_kept_for_its_rule_and_content() {
+        let mut agent = agent_for(OutputTarget::Redacto, Vec::new());
+        let rule =
+            crate::rules::JudgedRule { id: "r".into(), name: "n".into(), title: "t".into(), description: "d".into() };
+        let verdict = crate::rules::RuleVerdict { pass: true, violations: vec![] };
+        assert_eq!(agent.cached_verdict(&rule, 1), None);
+        agent.cache_verdict(&rule, 1, verdict.clone());
+        assert_eq!(agent.cached_verdict(&rule, 1), Some(verdict));
+        assert_eq!(agent.cached_verdict(&rule, 2), None);
+        let reworded = crate::rules::JudgedRule { description: "d2".into(), ..rule.clone() };
+        assert_eq!(agent.cached_verdict(&reworded, 1), None);
+        let other = crate::rules::JudgedRule { id: "r2".into(), ..rule };
+        assert_eq!(agent.cached_verdict(&other, 1), None);
     }
 
     /// A patch against an outdated revision is refused rather than applied over

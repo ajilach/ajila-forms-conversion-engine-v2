@@ -199,7 +199,17 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
     let model = MockCompletionModel::from_stream_turns([
         tool_turn("a1", "rule_check", serde_json::json!({}), "Checking the rules."),
         judge_turn("judgement-1", false, 10_000),
-        tool_turn("a2", "finish_authoring", serde_json::json!({"summary": "done"}), "Handing over."),
+        // The Author fixes what its judge found, so the final check judges
+        // content no judge saw yet rather than reusing the verdict above.
+        tool_turn(
+            "a2",
+            "json_patch",
+            serde_json::json!({"expected_revision": 0, "ops": [
+                {"op": "replace", "path": "/assets/0/content/en", "value": "<p>Intro, split.</p>"}
+            ]}),
+            "Splitting the table.",
+        ),
+        tool_turn("a3", "finish_authoring", serde_json::json!({"summary": "done"}), "Handing over."),
         review_turn(true, "Looks complete."),
         // The final rule check after the review, with its own judge.
         judge_turn("judgement-2", true, 20_000),
