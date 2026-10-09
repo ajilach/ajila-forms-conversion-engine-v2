@@ -95,6 +95,7 @@ use serde_json::Value;
 use u2s_blob::{BlobRef, BlobStore};
 use u2s_verify_core::browser::{self, BrowserSession};
 use u2s_verify_core::docker::{DockerLifecycle, wait_for_http};
+use u2s_verify_core::pdf_content;
 use u2s_verify_core::types::{
     Artefact, ArtefactKind, BlobDescriptor, ErrorKind, Finding, Step, VerifyError, VerifyReport,
 };
@@ -1508,17 +1509,9 @@ pub(crate) async fn submit_and_capture_artefact(
                 .fetch_dor_pdf(&package.summary.form_jcr_path)
                 .await
             {
-                Ok(bytes) => match blobs.put(&bytes, "application/pdf", "pdf") {
-                    Ok(blob) => artefacts.push(Artefact {
-                        kind: ArtefactKind::Download,
-                        label: "Document of Record".to_owned(),
-                        blob: BlobDescriptor::from(&blob),
-                    }),
-                    Err(err) => findings.push(Finding::error(
-                        ErrorKind::StorageFailed.as_str(),
-                        storage_failed("storing the Document of Record", err).to_string(),
-                    )),
-                },
+                Ok(bytes) => {
+                    keep_pdf_artefact(&bytes, "Document of Record", blobs, artefacts, findings)
+                }
                 Err(err) => findings.push(Finding::error(
                     ErrorKind::NoDownload.as_str(),
                     err.to_string(),
@@ -1579,7 +1572,46 @@ async fn read_downloaded_pdf(
         ));
         return;
     }
-    let blob: BlobRef = match blobs.put(&bytes, "application/pdf", "pdf") {
+    keep_pdf_artefact(
+        &bytes,
+        "the form's submit download",
+        blobs,
+        artefacts,
+        findings,
+    );
+}
+
+/// Stores a PDF the submit produced as a `Download` artefact labelled
+/// `label`, after judging it: a PDF that draws nothing on any page
+/// (`pdf_content::blank_pdf`) is an `ErrorKind::DownloadBlank` finding. The
+/// blank PDF is kept all the same, since its bytes are what a person
+/// diagnoses the render from. One place for both the download and the
+/// Document of Record path, so the two agree on what blank means.
+fn keep_pdf_artefact(
+    bytes: &[u8],
+    label: &str,
+    blobs: &BlobStore,
+    artefacts: &mut Vec<Artefact>,
+    findings: &mut Vec<Finding>,
+) {
+    match pdf_content::blank_pdf(bytes) {
+        Ok(false) => {}
+        Ok(true) => {
+            let pages = pdf_content::page_count(bytes).unwrap_or(0);
+            findings.push(Finding::error(
+                ErrorKind::DownloadBlank.as_str(),
+                format!(
+                    "{label} is a PDF of {pages} page(s) that shows no text or image on any of \
+                     them: the summary rendered empty (AEM's ubsbundle.log has the render)"
+                ),
+            ));
+        }
+        Err(message) => findings.push(Finding::error(
+            ErrorKind::DownloadNotPdf.as_str(),
+            format!("{label}: {message}"),
+        )),
+    }
+    let blob: BlobRef = match blobs.put(bytes, "application/pdf", "pdf") {
         Ok(blob) => blob,
         Err(err) => {
             findings.push(Finding::error(
@@ -1599,6 +1631,50 @@ async fn read_downloaded_pdf(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A download that is a valid PDF of blank pages is the one shape the
+    /// `%PDF` check waves through, and the one a person otherwise finds
+    /// only by opening the review: it must be an error finding, with the
+    /// bytes kept for the diagnosis.
+    #[test]
+    fn a_blank_download_is_an_error_finding_and_is_still_kept() {
+        let dir =
+            std::env::temp_dir().join(format!("u2s-aem-verify-blank-{}", uuid::Uuid::new_v4()));
+        let blobs = BlobStore::new(&dir);
+        let mut artefacts = Vec::new();
+        let mut findings = Vec::new();
+
+        keep_pdf_artefact(
+            &pdf_content::fixtures::blank_page(),
+            "the form's submit download",
+            &blobs,
+            &mut artefacts,
+            &mut findings,
+        );
+        assert_eq!(findings.len(), 1, "{findings:?}");
+        assert_eq!(findings[0].kind, ErrorKind::DownloadBlank.as_str());
+        assert!(
+            findings[0].message.contains("1 page(s)"),
+            "{}",
+            findings[0].message
+        );
+        assert_eq!(artefacts.len(), 1, "the blank PDF is kept as evidence");
+
+        keep_pdf_artefact(
+            &pdf_content::fixtures::page_showing("U2S"),
+            "the form's submit download",
+            &blobs,
+            &mut artefacts,
+            &mut findings,
+        );
+        assert_eq!(
+            findings.len(),
+            1,
+            "a PDF that shows text adds no finding: {findings:?}"
+        );
+        assert_eq!(artefacts.len(), 2);
+        std::fs::remove_dir_all(&dir).ok();
+    }
 
     /// No Docker or AEM is assumed reachable for this crate's own test
     /// run -- see the crate's `#[ignore]`d live tests for the

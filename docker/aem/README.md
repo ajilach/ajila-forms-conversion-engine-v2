@@ -120,6 +120,27 @@ all. A `404` from `/bin/redacto/summary/generatepdf` means the Redacto
 summary bundle is not active in this AEM instance: the image was published
 from a bake that did not install it.
 
+If it reports `download_blank`: the submit produced a PDF, but one that
+draws nothing on any page (the verifier judges every PDF it gets back with
+`u2s_verify_core::pdf_content::blank_pdf`, so a blank is a finding rather
+than something a person notices in the review). The Redacto summary bundle
+answers `200` with an empty document whenever building the summary HTML
+throws: look for `SummaryService Failed to create summary html` in the
+container's `error.log`. A `NullPointerException` in
+`SummarySchemaParser.buildRowComponent` was a `data-component-type` the
+bundle's `ComponentType` did not know (`telephone`, which the UBS summary
+widget emits for `guideTelephone`, fixed in the bundle 2026-10-09 together
+with a text-box fallback for any later unknown type); rebuild the bundle and
+re-run the bake, or install the jar alone the way the bake does. The live
+tests (`cargo test -p u2s-aem-ubs-verify-mcp --test e2e -- --ignored`) write
+the PDF to `U2S_AEM_VERIFY_LIVE_PDF_OUT` when set, which is what to diagnose
+a blank from.
+
+If a live test fails with `aem_not_ready` although AEM is up: the default
+container port is 4502, and ajila's images listen on 8080. The tests only
+forward `U2S_AEM_VERIFY_CONTAINER_PORT` from the environment, so set it to
+`8080` like the other `U2S_AEM_VERIFY_*` values.
+
 A `no_download` whose log shows Redacto *did* render -- a
 `rendering summary document at ...` line and
 `PDF Document generation and attachment fetching completed`, followed by

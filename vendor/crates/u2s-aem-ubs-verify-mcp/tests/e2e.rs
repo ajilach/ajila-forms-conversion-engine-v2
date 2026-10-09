@@ -418,6 +418,10 @@ async fn verify_run_submits_a_ubs_wizard_and_downloads_the_redacto_pdf() {
     assert_eq!(step_names.first(), Some(&"form"));
     assert_eq!(step_names.last(), Some(&"after-submit"));
 
+    // The PDF first: its helper keeps the bytes a failing render is
+    // diagnosed from, which a finding about it cannot replace.
+    assert_rendered_pdf(&server, &structured);
+
     let errors: Vec<&serde_json::Value> = structured["findings"]
         .as_array()
         .expect("findings array")
@@ -426,19 +430,65 @@ async fn verify_run_submits_a_ubs_wizard_and_downloads_the_redacto_pdf() {
         .collect();
     assert!(errors.is_empty(), "no error findings expected: {errors:?}");
 
-    let download = structured["artefacts"]
+    client.cancel().await.ok();
+}
+
+/// The one judgement both live submit tests pass on the PDF the Redacto
+/// summary rendering produced: that it is a PDF that *shows* the form, not
+/// just a file with a `%PDF` header. Reads the download back from the
+/// server's blob dir and asserts it has a page, draws something on it
+/// (`u2s_verify_core::pdf_content::blank_pdf`, the same check `verify_run`
+/// itself reports `download_blank` from) and carries the value the wizard
+/// walker types into required fields (`U2S`, `wizard_js::AUTO_FILL_REQUIRED`
+/// in `u2s-aem-verify-core`), so the submitted data visibly reached the
+/// rendered document without this test naming a single field of the form.
+///
+/// With `U2S_AEM_VERIFY_LIVE_PDF_OUT` set, the PDF is also written there
+/// before anything is asserted: a failing render is diagnosed from its
+/// bytes, which the blob dir does not outlive the test by.
+fn assert_rendered_pdf(server: &ServerUnderTest, report: &serde_json::Value) {
+    let download = report["artefacts"]
         .as_array()
         .expect("artefacts array")
         .iter()
         .find(|a| a["kind"] == "download")
-        .unwrap_or_else(|| panic!("no download artefact in: {structured}"));
+        .unwrap_or_else(|| panic!("no download artefact in: {report}"));
     assert_eq!(download["blob"]["media_type"], "application/pdf");
-    assert!(
-        download["blob"]["byte_len"].as_u64().unwrap_or(0) > 0,
-        "the downloaded PDF must not be empty: {download}"
-    );
+    let handle = download["blob"]["handle"].as_str().expect("blob handle");
+    let blob_dir = server
+        .env
+        .iter()
+        .find(|(key, _)| key == "U2S_BLOB_DIR")
+        .map(|(_, dir)| std::path::PathBuf::from(dir))
+        .expect("test_server sets U2S_BLOB_DIR");
+    let pdf = std::fs::read(blob_dir.join(handle)).expect("the download blob exists");
+    if let Ok(out) = std::env::var("U2S_AEM_VERIFY_LIVE_PDF_OUT") {
+        std::fs::write(&out, &pdf).unwrap_or_else(|err| panic!("writing {out}: {err}"));
+        eprintln!("the submit download is at {out}");
+    }
 
-    client.cancel().await.ok();
+    assert!(
+        pdf.starts_with(b"%PDF"),
+        "the download is not a PDF: {} bytes",
+        pdf.len()
+    );
+    let pages =
+        u2s_verify_core::pdf_content::page_count(&pdf).expect("the PDF's pages can be counted");
+    assert!(pages >= 1, "the PDF has no pages");
+    assert_eq!(
+        u2s_verify_core::pdf_content::blank_pdf(&pdf),
+        Ok(false),
+        "the {pages}-page PDF draws nothing on any page: the summary rendered empty"
+    );
+    let doc = lopdf::Document::load_mem(&pdf).expect("the PDF loads");
+    let page_numbers: Vec<u32> = (1..=pages as u32).collect();
+    let text = doc
+        .extract_text(&page_numbers)
+        .expect("the PDF's text can be extracted");
+    assert!(
+        text.contains("U2S"),
+        "the PDF's text does not carry the auto-filled value U2S; it reads:\n{text}"
+    );
 }
 
 /// Calls `tool`, asserts it did not come back a tool error, and returns its
@@ -711,6 +761,8 @@ async fn interactive_tools_drive_aaov_033_to_a_redacto_pdf() {
     .await;
     revision = submitted["revision"].as_u64().expect("revision");
 
+    assert_rendered_pdf(&server, &submitted);
+
     let errors: Vec<&serde_json::Value> = submitted["findings"]
         .as_array()
         .expect("findings array")
@@ -718,18 +770,6 @@ async fn interactive_tools_drive_aaov_033_to_a_redacto_pdf() {
         .filter(|f| f["severity"] == "error")
         .collect();
     assert!(errors.is_empty(), "no error findings expected: {errors:?}");
-
-    let download = submitted["artefacts"]
-        .as_array()
-        .expect("artefacts array")
-        .iter()
-        .find(|a| a["kind"] == "download")
-        .unwrap_or_else(|| panic!("no download artefact in: {submitted}"));
-    assert_eq!(download["blob"]["media_type"], "application/pdf");
-    assert!(
-        download["blob"]["byte_len"].as_u64().unwrap_or(0) > 0,
-        "the downloaded PDF must not be empty: {download}"
-    );
 
     // Close, then confirm the handle is genuinely gone.
     call_ok(&client, "verify_close", serde_json::json!({ "form": form })).await;

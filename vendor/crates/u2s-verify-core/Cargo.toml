@@ -30,6 +30,7 @@ path = "src/lib.rs"
 [dependencies]
 base64 = "0.22"
 bytes = "1"
+lopdf = "0.44"
 tar = "0.4"
 
 [dependencies.bollard]

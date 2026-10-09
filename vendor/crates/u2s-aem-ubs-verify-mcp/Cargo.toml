@@ -69,6 +69,9 @@ path = "../u2s-aem-verify-core"
 [dependencies.u2s-mapper-aem]
 path = "../u2s-mapper-aem"
 
+[dev-dependencies]
+lopdf = "0.44"
+
 [dev-dependencies.rmcp]
 version = "3.1"
 features = [
@@ -91,6 +94,9 @@ path = "../u2s-mcp"
 
 [dev-dependencies.u2s-render-test-harness]
 path = "../u2s-render-test-harness"
+
+[dev-dependencies.u2s-verify-core]
+path = "../u2s-verify-core"
 
 [dev-dependencies.zip]
 version = "2"

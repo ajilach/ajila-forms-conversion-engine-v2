@@ -11,6 +11,8 @@
 //!   process reaches their containers, and their startup and idle cleanup.
 //! - [`http`] -- a one-shot reachability probe for a dependency this
 //!   crate's callers do not themselves start or stop.
+//! - [`pdf_content`] -- whether a PDF a rendering dependency answered with
+//!   shows anything, the one blank-render judgement every verifier applies.
 //! - [`types`] -- the report shape `verify_run` returns, mirroring
 //!   `u2s_mcp::manifest::VerifyCapability::Run`'s documented contract
 //!   field for field.
@@ -18,5 +20,6 @@
 pub mod browser;
 pub mod docker;
 pub mod http;
+pub mod pdf_content;
 pub mod session;
 pub mod types;

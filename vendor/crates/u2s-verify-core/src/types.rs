@@ -197,6 +197,11 @@ pub enum ErrorKind {
     RenderTimeout,
     NoDownload,
     DownloadNotPdf,
+    /// The submit produced a PDF, but one that draws nothing on any page
+    /// (`crate::pdf_content::blank_pdf`): the rendering dependency answered
+    /// a request whose payload was empty or that it could not style. The
+    /// PDF is still kept as an artefact, since its bytes are the evidence.
+    DownloadBlank,
     /// The one kind not named in the plan's own taxonomy, added here
     /// rather than folded into an unrelated one: writing a screenshot,
     /// the package, or a downloaded artefact to the blob store failed
@@ -233,6 +238,7 @@ impl ErrorKind {
             Self::RenderTimeout => "render_timeout",
             Self::NoDownload => "no_download",
             Self::DownloadNotPdf => "download_not_pdf",
+            Self::DownloadBlank => "download_blank",
             Self::StorageFailed => "storage_failed",
             Self::RedactoUnreachable => "redacto_unreachable",
             Self::RedactoNotReady => "redacto_not_ready",

@@ -363,6 +363,24 @@ mod tests {
         assert!(captured.images.output.iter().all(|i| i.png.starts_with(PNG_MAGIC)));
     }
 
+    /// A PDF whose page draws nothing still becomes a review image, and is
+    /// named as a problem: the verifier's own `download_blank` finding
+    /// judges the content stream, this judges what the person would see.
+    #[test]
+    fn a_pdf_that_renders_blank_is_a_problem() {
+        let dir = tempfile::tempdir().unwrap();
+        let pdf = dir.path().join("blank.pdf");
+        std::fs::write(&pdf, u2s_verify_core::pdf_content::fixtures::blank_page()).unwrap();
+        let captured = read_located(Located {
+            screenshots: Vec::new(),
+            pdfs: vec![("the form's submit download".into(), pdf)],
+            problems: Vec::new(),
+        })
+        .unwrap();
+        assert_eq!(captured.images.output.len(), 1);
+        assert_eq!(captured.problems, ["the form's submit download, page 1 renders blank"]);
+    }
+
     /// An XFA source renders through the XFA renderer, every page, as PNG;
     /// a file that is not a PDF is skipped.
     #[test]
