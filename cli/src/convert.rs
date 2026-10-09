@@ -67,9 +67,22 @@ pub struct ConvertArgs {
     api_key: Option<String>,
 
     /// Model id at the selected provider. Defaults to the model configured in
-    /// the desktop app.
+    /// the desktop app. The Author runs on it, and so do the Reviewer and the
+    /// judges unless they are given their own.
     #[arg(long, value_name = "ID")]
     model: Option<String>,
+
+    /// The Reviewer's own model id at the selected provider. Defaults to the
+    /// one configured in the desktop app; an empty value means --model.
+    #[arg(long, value_name = "ID")]
+    reviewer_model: Option<String>,
+
+    /// The judges' own model id at the selected provider (the agents
+    /// rule_check dispatches, one per judged rule). Defaults to the one
+    /// configured in the desktop app; an empty value means the model of the
+    /// stage that dispatches them.
+    #[arg(long, value_name = "ID")]
+    judge_model: Option<String>,
 
     /// Reviewer → Author-fix rounds to allow before finalizing.
     #[arg(long, value_name = "N")]
@@ -185,7 +198,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
 
     println!("Profile: {}", profile.as_deref().unwrap_or("(none)"));
     println!("Target: {}", args.target.label());
-    println!("{}", plan.describe());
+    println!("{}{}", plan.describe(), runner::turns::describe_role_models(&settings));
     match args.target {
         OutputTarget::Aem => println!(
             "Verification: AEM image {}, data volume {} (checked before the run starts)",
@@ -461,6 +474,12 @@ fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
             settings.llm_provider.as_str()
         )
         .into());
+    }
+    if let Some(model) = &args.reviewer_model {
+        settings.reviewer_model = model.trim().to_string();
+    }
+    if let Some(model) = &args.judge_model {
+        settings.judge_model = model.trim().to_string();
     }
     if settings.active_model().is_empty() {
         return Err(format!(

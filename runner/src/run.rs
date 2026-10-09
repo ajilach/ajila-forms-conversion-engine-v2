@@ -238,6 +238,20 @@ async fn drive(
         }
     };
 
+    // The roles with a model of their own fail the same way, before the run.
+    let roles = match crate::turns::RoleModels::for_settings(&opts.settings) {
+        Ok(roles) => roles,
+        Err(e) => {
+            obs.emit(RunEvent::Warning(e));
+            return Completed {
+                session_id,
+                outcome: None,
+                elapsed_secs: started_at.elapsed().as_secs(),
+            };
+        }
+    };
+    let models_described = format!("{}{}", plan.describe(), crate::turns::describe_role_models(&opts.settings));
+
     let run_config = pipeline::RunConfig {
         profile: opts.profile.clone(),
         target: opts.target,
@@ -251,6 +265,8 @@ async fn drive(
         price: resolved.price,
         max_tokens: resolved.max_tokens,
         context_budget: resolved.context_budget,
+        reviewer_model: roles.reviewer.map(|(_, m)| m.into_stage_model()),
+        judge_model: roles.judge.map(|(_, m)| m.into_stage_model()),
         capture_review: true,
         final_rule_check: true,
     };
@@ -268,7 +284,7 @@ async fn drive(
     // Recording starts once the run is certain to start, so a run refused
     // for its settings leaves no empty folder behind.
     let analysis = crate::analysis::root_dir(&opts.settings).and_then(|root| {
-        let meta = run_meta(opts, &seed, &session_id, label, plan.describe());
+        let meta = run_meta(opts, &seed, &session_id, label, models_described.clone());
         crate::analysis::RunAnalysis::start(&root, meta, obs)
     });
     let run_obs = match &analysis {

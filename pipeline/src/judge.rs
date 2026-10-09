@@ -869,6 +869,40 @@ mod tests {
         assert!(handed.contains("too large to quote") && handed.contains("`Panel`"), "{handed}");
     }
 
+    /// A run that gives the judges a model of their own sends them there,
+    /// priced at that model's rates, and never to the stage's model.
+    #[tokio::test]
+    async fn the_judges_run_on_their_own_model_when_the_run_gives_one() {
+        let stage_model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
+        let mut usage = Usage::new();
+        usage.input_tokens = 100;
+        let judge_model = MockCompletionModel::from_stream_turns([vec![
+            MockStreamEvent::tool_call(
+                "verdict",
+                "submit_rule_verdict",
+                serde_json::json!({"judgement": "judgement-1", "pass": true, "violations": []}),
+            ),
+            MockStreamEvent::final_response(usage),
+        ]]);
+        let own = test_support::stage_model(judge_model.clone(), 0.001);
+        let stage = context(stage_model.clone(), AbortFlag::default());
+        let ctx = SubStageContext::for_stage(
+            stage.target,
+            stage.model.clone(),
+            stage.price.clone(),
+            stage.max_tokens,
+            stage.context_budget.clone(),
+            Some(&own),
+            AbortFlag::default(),
+            stage.obs.clone(),
+        );
+        let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
+        assert_eq!(judged(&report)[0]["verdict"], "positive");
+        assert_eq!((stage_model.request_count(), judge_model.request_count()), (0, 1));
+        let spent = *ctx.spend.lock().unwrap();
+        assert!((spent.cost_usd.unwrap() - 0.1).abs() < 1e-9, "priced at the judge model's rate: {spent:?}");
+    }
+
     /// The cache follows the content, not the revision: an edit sends the
     /// judge again, and undoing it gives back the verdict the first content
     /// had, though the revision moved on twice.

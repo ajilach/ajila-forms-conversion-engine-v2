@@ -104,6 +104,8 @@ async fn a_pipeline_run_is_recorded_into_a_readable_folder() {
         price: Arc::new(|usage| Some(usage.input_tokens as f64 * 0.000_005)),
         max_tokens: 4096,
         context_budget: Arc::new(NoBudget),
+        reviewer_model: None,
+        judge_model: None,
         capture_review: false,
         final_rule_check: false,
     };
@@ -233,6 +235,8 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         price: Arc::new(|usage| Some(usage.input_tokens as f64 * 0.000_005)),
         max_tokens: 4096,
         context_budget: Arc::new(NoBudget),
+        reviewer_model: None,
+        judge_model: None,
         capture_review: false,
         final_rule_check: true,
     };

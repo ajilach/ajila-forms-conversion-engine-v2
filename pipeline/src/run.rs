@@ -61,6 +61,12 @@ pub struct RunConfig {
     /// the provider actually bills — see [`ContextBudget`]. `runner` builds
     /// this from the same model knowledge as `price`/`max_tokens`.
     pub context_budget: Arc<dyn ContextBudget>,
+    /// The Reviewer's own model, when it is not the run's (`model` above,
+    /// which the Author runs on).
+    pub reviewer_model: Option<crate::StageModel>,
+    /// The judges' own model, when it is not the model of the stage that
+    /// dispatches them. The final rule check's judges run on it too.
+    pub judge_model: Option<crate::StageModel>,
     /// Whether the run ends by verifying its final build once more and
     /// keeping what that looked like ([`RunOutcome::review`]). Off only where
     /// no verifier may be booted: the controller tests.
@@ -195,16 +201,13 @@ async fn run_stages(
     // ── Stage 1: Author → build the artefact ────────────────────────────────
     let author_seed = author_seed_for(&seed, &reviews, &stages);
     begin_stage(shared_agent, obs, "Author", stages.author_doing.into()).await;
-    run_stage(
+    run_role_stage(
         shared_agent,
         stages.author,
         &roles::sys_author(target, extra, config.template_note, &reviews),
         author_seed,
-        &config.abort,
-        config.model.clone(),
-        config.price.clone(),
-        config.max_tokens,
-        config.context_budget.clone(),
+        config,
+        None,
         obs,
         &mut spend,
     )
@@ -238,17 +241,14 @@ async fn run_stages(
             }
             Ok(()) => {
                 begin_stage(shared_agent, obs, "Reviewer", format!("reviewing (round {})", round + 1)).await;
-                run_stage(
+                run_role_stage(
                     shared_agent,
                     stages.reviewer,
                     &roles::sys_reviewer(target, extra, &reviews),
                     "Review the built form end to end against the source, then finish by calling \
                      submit_review.",
-                    &config.abort,
-                    config.model.clone(),
-                    config.price.clone(),
-                    config.max_tokens,
-                    config.context_budget.clone(),
+                    config,
+                    config.reviewer_model.as_ref(),
                     obs,
                     &mut spend,
                 )
@@ -290,16 +290,13 @@ async fn run_stages(
                     format!("applying review feedback (round {})", round + 1),
                 )
                 .await;
-                run_stage(
+                run_role_stage(
                     shared_agent,
                     stages.author,
                     &roles::sys_author(target, extra, config.template_note, &reviews),
                     stages.author_fix_seed,
-                    &config.abort,
-                    config.model.clone(),
-                    config.price.clone(),
-                    config.max_tokens,
-                    config.context_budget.clone(),
+                    config,
+                    None,
                     obs,
                     &mut spend,
                 )
@@ -454,12 +451,13 @@ async fn final_rule_check(
     warnings: &mut Vec<String>,
 ) {
     obs.emit(RunEvent::Stage { role: FINAL_CHECK, doing: "checking every rule".into() });
-    let judges = crate::substage::SubStageContext::new(
+    let judges = crate::substage::SubStageContext::for_stage(
         config.target,
         config.model.clone(),
         config.price.clone(),
         config.max_tokens,
         config.context_budget.clone(),
+        config.judge_model.as_ref(),
         config.abort.clone(),
         obs.clone(),
     );
@@ -722,6 +720,43 @@ pub(crate) async fn run_stage(
         obs,
         total_spend,
         &caller,
+        None,
+    )
+    .await
+}
+
+/// One of the run's own stages (an Author or a Reviewer) on `own` model, or
+/// the run's when `own` is `None`, its judges on the run's judge model when
+/// it has one.
+#[allow(clippy::too_many_arguments)]
+async fn run_role_stage(
+    shared_agent: &SharedAgent,
+    role: &'static Role,
+    system: &str,
+    seed_user_msg: &str,
+    config: &RunConfig,
+    own: Option<&crate::StageModel>,
+    obs: &SharedObserver,
+    total_spend: &mut Spend,
+) -> Option<String> {
+    let (model, price, max_tokens, context_budget) = match own {
+        Some(m) => (m.model.clone(), m.price.clone(), m.max_tokens, m.context_budget.clone()),
+        None => (config.model.clone(), config.price.clone(), config.max_tokens, config.context_budget.clone()),
+    };
+    run_stage_as(
+        shared_agent,
+        role,
+        system,
+        seed_user_msg,
+        &config.abort,
+        model,
+        price,
+        max_tokens,
+        context_budget,
+        obs,
+        total_spend,
+        &stage_caller(role),
+        config.judge_model.as_ref(),
     )
     .await
 }
@@ -742,6 +777,8 @@ pub(crate) async fn run_stage_as(
     obs: &SharedObserver,
     total_spend: &mut Spend,
     caller: &agent::Caller,
+    // The model the stage's judges run on, when not the stage's own.
+    judge: Option<&crate::StageModel>,
 ) -> Option<String> {
     let started = std::time::Instant::now();
     let spend_before = *total_spend;
@@ -752,12 +789,13 @@ pub(crate) async fn run_stage_as(
         (agent.tools_for_stage(role.scope), agent.session_id().to_string(), agent.target())
     };
     // What a `rule_check` of this stage needs to dispatch its judges.
-    let sub_stages = crate::substage::SubStageContext::new(
+    let sub_stages = crate::substage::SubStageContext::for_stage(
         target,
         model.clone(),
         price.clone(),
         max_tokens,
         context_budget.clone(),
+        judge,
         abort.clone(),
         obs.clone(),
     );
@@ -1927,6 +1965,8 @@ mod controller {
             price: no_price(),
             max_tokens: 4096,
             context_budget: no_budget(),
+            reviewer_model: None,
+            judge_model: None,
             capture_review: false,
             final_rule_check: false,
         }
@@ -1945,6 +1985,21 @@ mod controller {
             .expect("attaching the verifier needs no Docker");
         assert!(agent.has_verifier());
         shared(agent)
+    }
+
+    /// A run that gives the Reviewer a model of its own reviews on it: the
+    /// Author's turns go to the run's model, the Reviewer's to its own.
+    #[tokio::test]
+    async fn the_reviewer_runs_on_its_own_model_when_the_run_gives_one() {
+        let author = MockCompletionModel::from_stream_turns([text_turn("BUILT")]);
+        let reviewer = MockCompletionModel::from_stream_turns([review_turn(true, "")]);
+        let own = crate::substage::test_support::stage_model(reviewer.clone(), 0.0);
+        let config = RunConfig { reviewer_model: Some(own), ..config(AbortFlag::default(), 1, author.clone()) };
+        let (obs, _) = recorder();
+        let outcome = run(bare_agent(), config, RunSeed::Fresh, obs).await;
+        assert!(outcome.is_some());
+        assert_eq!((author.request_count(), reviewer.request_count()), (1, 1));
+        assert!(turn_system(&reviewer.requests()[0]).contains("submit_review"));
     }
 
     /// Whatever way a run ends, its verifier is torn down: no AEM or Postgres
