@@ -89,10 +89,13 @@ pub(crate) struct Role {
     pub(crate) resume: bool,
 }
 
+/// The Author's turn budget, shared by both targets.
+const AUTHOR_TURNS: usize = 200;
+
 pub(crate) const AUTHOR: Role = Role {
     name: "Author",
     scope: agent::scope::AEM_AUTHOR,
-    max_iterations: 110,
+    max_iterations: AUTHOR_TURNS,
     stuck_tool: Some("build_aem_package"),
     stuck_activity: "the package build",
     max_tokens_nudge: AEM_MAX_TOKENS_NUDGE,
@@ -129,7 +132,7 @@ pub(crate) const REVIEWER: Role = Role {
 pub(crate) const REDACTO_AUTHOR: Role = Role {
     name: "Author",
     scope: agent::scope::REDACTO_AUTHOR,
-    max_iterations: 110,
+    max_iterations: AUTHOR_TURNS,
     stuck_tool: Some("build_redacto_dump"),
     stuck_activity: "the dump build",
     max_tokens_nudge: REDACTO_MAX_TOKENS_NUDGE,
