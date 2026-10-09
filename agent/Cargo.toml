@@ -19,6 +19,8 @@ bollard = { workspace = true }
 # rmcp3 names their result types; it is not a transport here.
 rmcp3 = { package = "rmcp", version = "3.1", default-features = false }
 tempfile = "3"
+# `review::renders_blank`: reading a rendered page back to judge it.
+image = { workspace = true }
 # The reference store, its semantic matcher and the reference tools.
 references-mcp = { path = "../references-mcp" }
 u2s-aem-ubs-verify-mcp = { workspace = true }
@@ -29,8 +31,6 @@ u2s-redacto-verify-core = { workspace = true }
 u2s-render-core = { workspace = true }
 u2s-verify-core = { workspace = true }
 u2s-render-pdf = { workspace = true }
-# `review::renders_blank`: reading a rendered page back to judge it.
-image = { workspace = true }
 u2s-render-pdf-mcp = { workspace = true }
 u2s-render-xfa = { workspace = true }
 u2s-render-xfa-mcp = { workspace = true }
