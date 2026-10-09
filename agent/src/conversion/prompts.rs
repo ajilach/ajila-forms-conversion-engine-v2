@@ -57,7 +57,9 @@ platform renders from the summary data. Read it with pdf_info and pdf_render_pag
 aem_verify_run does the whole walk in one call (`fill` gives field values) and suits a quick \
 re-check, but it does not count as the walk. The form opens in the language its metadata resolves \
 to, so check the other languages' wording in the document against each language's PDF instead. \
-aem_verify_status explains a verifier that does not answer. A page that cannot be reached, a field \
+aem_verify_status explains a verifier that does not answer. A verifier call that runs past its \
+deadline stops the verifier and says so: aem_verify_open boots a fresh one, so open the form again \
+and redo the steps that were lost. A page that cannot be reached, a field \
 that cannot be filled, a conditional panel that never appears, a submission that fails, or a PDF \
 missing entered data is a defect. \
 (e) LAYOUT (gated): render the source pages with xfa_render_pages and compare each AEM screenshot \
@@ -85,7 +87,8 @@ json_search), section by section. \
 (c) VERIFY ON A REAL PLATFORM (gated): redacto_verify_dump_check (offline: it decodes the dump the \
 way the platform will), then redacto_verify_run, which imports the latest build into a Redacto \
 platform of this run's own, reports the row counts and returns one rendered PDF per language. A \
-failed import or render is a defect. \
+failed import or render is a defect. A redacto_verify_run that runs past its deadline stops the \
+verifier and says so; calling it again boots a fresh one. \
 (d) LAYOUT (gated): read EVERY rendered PDF with pdf_render_pages (its path is `doc_path`) and \
 compare it with that language's source pages from xfa_render_pages: the same sections in the same \
 order, the same columns, headings and footnotes. Where the document and the source disagree, the \

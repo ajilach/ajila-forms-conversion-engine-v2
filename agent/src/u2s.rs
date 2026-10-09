@@ -631,9 +631,63 @@ const REDACTO_VERIFIER_LOCK: &str = "redacto-verifier.lock";
 /// Matches upstream's own idle timeout.
 const VERIFIER_IDLE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
 
-/// The verifier tools that touch neither Docker nor the platform, and so need
-/// no lock.
-const OFFLINE_VERIFY_TOOLS: &[&str] = &["verify_status", "verify_package_check", "verify_dump_check"];
+/// What a verifier call that may boot the platform gets on top of the
+/// profile's boot timeout: installing the package and walking or rendering it.
+const VERIFY_WORK_AFTER_BOOT: Duration = Duration::from_secs(10 * 60);
+
+/// `aem_verify_submit`: upstream waits up to 90 s for the download, and the
+/// Document of Record renders on top of that.
+const VERIFY_SUBMIT_DEADLINE: Duration = Duration::from_secs(5 * 60);
+
+/// One interactive step on an open form (set, next, reset, screenshot...),
+/// which takes seconds on a live AEM. Generous, because missing it costs a
+/// reboot.
+const VERIFY_STEP_DEADLINE: Duration = Duration::from_secs(3 * 60);
+
+/// Tearing the verifier down talks to Docker, which may be what went away.
+const VERIFY_TEARDOWN_DEADLINE: Duration = Duration::from_secs(2 * 60);
+
+/// What a verifier call does, which decides its deadline and whether it needs
+/// the verifier lock. Every verifier tool has one (`VerifyCall::of`), so a
+/// call can never wait on a container that is gone for longer than its
+/// deadline while it holds the agent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum VerifyCall {
+    /// Touches neither Docker nor the platform: no lock, no deadline.
+    Offline,
+    /// May boot the platform first.
+    Boots,
+    /// Submits the open form and renders what that produces.
+    Submit,
+    /// One step on the open form.
+    Step,
+}
+
+impl VerifyCall {
+    /// The class of the server's tool `server_name`, or `None` for a tool
+    /// this adapter does not know, which is then refused.
+    fn of(server_name: &str) -> Option<Self> {
+        match server_name {
+            "verify_status" | "verify_package_check" | "verify_dump_check" => Some(Self::Offline),
+            "verify_run" | "verify_open" => Some(Self::Boots),
+            "verify_submit" => Some(Self::Submit),
+            "verify_controls" | "verify_set" | "verify_next" | "verify_prev" | "verify_reset"
+            | "verify_screenshot" | "verify_close" => Some(Self::Step),
+            _ => None,
+        }
+    }
+
+    /// How long the call may run on a verifier whose platform boots within
+    /// `boot_timeout`.
+    fn deadline(self, boot_timeout: Duration) -> Option<Duration> {
+        match self {
+            Self::Offline => None,
+            Self::Boots => Some(boot_timeout + VERIFY_WORK_AFTER_BOOT),
+            Self::Submit => Some(VERIFY_SUBMIT_DEADLINE),
+            Self::Step => Some(VERIFY_STEP_DEADLINE),
+        }
+    }
+}
 
 fn open_lock(name: &str) -> Result<File, String> {
     let dir = crate::db::state_dir();
@@ -659,16 +713,58 @@ struct Activity {
 #[derive(Clone)]
 enum Verifier {
     Aem(AemVerifyServer, Arc<Profile>),
-    Redacto(RedactoVerifyServer),
+    /// The server, and how long its platform may take to boot.
+    Redacto(RedactoVerifyServer, Duration),
 }
 
 impl Verifier {
+    /// Removes the verifier's containers, giving up after
+    /// [`VERIFY_TEARDOWN_DEADLINE`].
     async fn shutdown(&self) -> Result<(), String> {
+        let shutdown = async {
+            match self {
+                Verifier::Aem(server, _) => server.shutdown().await,
+                Verifier::Redacto(server, _) => server.shutdown().await,
+            }
+        };
+        tokio::time::timeout(VERIFY_TEARDOWN_DEADLINE, shutdown).await.unwrap_or_else(|_| {
+            Err(format!("removing its containers did not finish within {VERIFY_TEARDOWN_DEADLINE:?}"))
+        })
+    }
+
+    async fn dispatch(&self, server_name: &str, input: &Value) -> Result<CallToolResult, String> {
         match self {
-            Verifier::Aem(server, _) => server.shutdown().await,
-            Verifier::Redacto(server) => server.shutdown().await,
+            Verifier::Aem(server, _) => server.dispatch(server_name, input).await,
+            Verifier::Redacto(server, _) => server.dispatch(server_name, input).await,
         }
     }
+
+    /// How long the verifier's platform may take to boot.
+    fn boot_timeout(&self) -> Duration {
+        match self {
+            Verifier::Aem(_, profile) => profile.boot_timeout,
+            Verifier::Redacto(_, boot_timeout) => *boot_timeout,
+        }
+    }
+
+    /// The call that boots a fresh platform after a teardown.
+    fn reboot_call(&self) -> &'static str {
+        match self {
+            Verifier::Aem(..) => "aem_verify_open (or aem_verify_run)",
+            Verifier::Redacto(..) => "redacto_verify_run",
+        }
+    }
+}
+
+/// Removes the verifier's containers and releases its lock for the next
+/// conversion: what the idle watcher, the end of a run and a missed deadline
+/// all do.
+async fn tear_down(verifier: &Verifier, activity: &Mutex<Activity>) -> Result<(), String> {
+    let result = verifier.shutdown().await;
+    if let Ok(mut activity) = activity.lock() {
+        activity.lock = None;
+    }
+    result
 }
 
 /// The u2s servers of one conversion agent, plus the documents its calls may
@@ -724,8 +820,10 @@ impl U2sTools {
     }
 
     pub fn attach_redacto_verify(&mut self, settings: &RedactoVerifySettings) -> Result<(), String> {
-        let server = RedactoVerifyServer::with_parts(Ok(settings.profile()?), self.verify_blobs());
-        self.verifier = Some(Verifier::Redacto(server));
+        let profile = settings.profile()?;
+        let boot_timeout = profile.boot_timeout;
+        let server = RedactoVerifyServer::with_parts(Ok(profile), self.verify_blobs());
+        self.verifier = Some(Verifier::Redacto(server, boot_timeout));
         Ok(())
     }
 
@@ -743,12 +841,13 @@ impl U2sTools {
         if let Some(watcher) = self.watcher.take() {
             watcher.abort();
         }
-        let result = match self.verifier.take() {
-            Some(verifier) => verifier.shutdown().await,
-            None => Ok(()),
-        };
-        self.release_lock();
-        result
+        match self.verifier.take() {
+            Some(verifier) => tear_down(&verifier, &self.activity).await,
+            None => {
+                self.release_lock();
+                Ok(())
+            }
+        }
     }
 
     /// Takes the verifier's lock, if this agent does not hold it yet, before a
@@ -781,7 +880,7 @@ impl U2sTools {
                 .await;
                 file
             }
-            Some(Verifier::Redacto(_)) => {
+            Some(Verifier::Redacto(..)) => {
                 let file = open_lock(REDACTO_VERIFIER_LOCK)?;
                 if file.try_lock().is_ok() {
                     u2s_verify_core::session::remove_leftovers(
@@ -825,13 +924,8 @@ impl U2sTools {
                 let idle = activity.lock().is_ok_and(|a| {
                     a.lock.is_some() && a.last_used.elapsed() >= VERIFIER_IDLE_TIMEOUT
                 });
-                if idle {
-                    if let Err(e) = verifier.shutdown().await {
-                        eprintln!("blueprint: the idle verifier could not be torn down: {e}");
-                    }
-                    if let Ok(mut activity) = activity.lock() {
-                        activity.lock = None;
-                    }
+                if idle && let Err(e) = tear_down(&verifier, &activity).await {
+                    eprintln!("blueprint: the idle verifier could not be torn down: {e}");
                 }
             }
         }));
@@ -922,28 +1016,37 @@ impl U2sTools {
                     Box::pin(blocking(move || server.dispatch(&server_name, &input).map_err(|e| e.to_string())))
                 }
                 Family::AemVerify | Family::RedactoVerify => {
-                    let attached = matches!(
-                        (&self.verifier, entry.family),
-                        (Some(Verifier::Aem(..)), Family::AemVerify)
-                            | (Some(Verifier::Redacto(_)), Family::RedactoVerify)
-                    );
-                    if attached && !OFFLINE_VERIFY_TOOLS.contains(&server_name.as_str()) {
-                        self.acquire_lock().await.map_err(ToolReply::Error)?;
-                        self.touch();
-                    }
-                    match &self.verifier {
-                        Some(Verifier::Aem(server, _)) if entry.family == Family::AemVerify => {
-                            let server = server.clone();
-                            Box::pin(spawned(async move { server.dispatch(&server_name, &input).await }))
-                        }
-                        Some(Verifier::Redacto(server)) if entry.family == Family::RedactoVerify => {
-                            let server = server.clone();
-                            Box::pin(spawned(async move { server.dispatch(&server_name, &input).await }))
+                    let Some(call) = VerifyCall::of(&server_name) else {
+                        return Err(ToolReply::Error(format!(
+                            "{name} has no deadline in this engine, so it is not run"
+                        )));
+                    };
+                    let verifier = match &self.verifier {
+                        Some(verifier @ Verifier::Aem(..)) if entry.family == Family::AemVerify => verifier.clone(),
+                        Some(verifier @ Verifier::Redacto(..)) if entry.family == Family::RedactoVerify => {
+                            verifier.clone()
                         }
                         _ => {
                             return Err(ToolReply::Error(format!(
                                 "{name} is not available in this run: its verifier was not started"
                             )));
+                        }
+                    };
+                    if call != VerifyCall::Offline {
+                        self.acquire_lock().await.map_err(ToolReply::Error)?;
+                        self.touch();
+                    }
+                    let dispatch = {
+                        let verifier = verifier.clone();
+                        async move { verifier.dispatch(&server_name, &input).await }
+                    };
+                    match call.deadline(verifier.boot_timeout()) {
+                        None => Box::pin(spawned(dispatch)),
+                        Some(deadline) => {
+                            let activity = Arc::clone(&self.activity);
+                            let reboot = verifier.reboot_call();
+                            let stop = move || async move { tear_down(&verifier, &activity).await };
+                            Box::pin(within_deadline(name.to_string(), deadline, dispatch, stop, reboot))
                         }
                     }
                 }
@@ -1024,12 +1127,48 @@ async fn blocking(
 }
 
 /// Runs async tool work as its own task; a panic becomes an error.
-async fn spawned(
-    work: impl std::future::Future<Output = Result<CallToolResult, String>> + Send + 'static,
-) -> Result<CallToolResult, String> {
-    tokio::spawn(work)
-        .await
-        .unwrap_or_else(|join| Err(format!("the tool server failed: {join}")))
+async fn spawned<T: Send + 'static>(
+    work: impl std::future::Future<Output = Result<T, String>> + Send + 'static,
+) -> Result<T, String> {
+    joined(tokio::spawn(work).await)
+}
+
+/// A spawned task's outcome, a panic as an error.
+fn joined<T>(outcome: Result<Result<T, String>, tokio::task::JoinError>) -> Result<T, String> {
+    outcome.unwrap_or_else(|join| Err(format!("the tool server failed: {join}")))
+}
+
+/// [`spawned`], within `deadline`: a call still running then is aborted (it
+/// may hold the verifier session the teardown needs), the verifier is torn
+/// down with `stop`, and the call is reported as an error naming `reboot`, the
+/// call that boots a fresh verifier. `tool` names the call in that error.
+async fn within_deadline<T, Stop, Stopped>(
+    tool: String,
+    deadline: Duration,
+    work: impl std::future::Future<Output = Result<T, String>> + Send + 'static,
+    stop: Stop,
+    reboot: &'static str,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    Stop: FnOnce() -> Stopped,
+    Stopped: std::future::Future<Output = Result<(), String>>,
+{
+    let mut task = tokio::spawn(work);
+    match tokio::time::timeout(deadline, &mut task).await {
+        Ok(outcome) => joined(outcome),
+        Err(_) => {
+            task.abort();
+            let stopped = match stop().await {
+                Ok(()) => "its containers are removed".to_string(),
+                Err(e) => format!("removing its containers failed: {e}"),
+            };
+            Err(format!(
+                "{tool} did not answer within {deadline:?}, so the verifier was stopped and {stopped}. \
+                 Whatever it had open is gone: {reboot} boots a fresh one."
+            ))
+        }
+    }
 }
 
 /// Registers every profile's parser fonts with the u2s font manager, once per
@@ -1213,5 +1352,96 @@ mod tests {
         assert!(!description.contains(" verify_controls"), "{description}");
         assert!(takes_artifact("aem_verify_run") && takes_artifact("redacto_verify_run"));
         assert!(!takes_artifact("aem_verify_controls"));
+    }
+
+    /// Sets its flag when dropped, which is how a test sees that a spawned
+    /// call's future was aborted rather than left running.
+    struct DropFlag(Arc<std::sync::atomic::AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    /// Regression guard: an `aem_verify_reset` on a verifier whose container
+    /// Docker had removed never answered, and the agent lock it held stalled
+    /// the whole run. A call past its deadline must end with an error, its
+    /// task aborted (it held the verifier session) and the verifier torn down.
+    #[tokio::test]
+    async fn a_verifier_call_past_its_deadline_is_aborted_torn_down_and_reported() {
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = DropFlag(Arc::clone(&dropped));
+        let torn_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let tear_down = {
+            let torn_down = Arc::clone(&torn_down);
+            move || async move {
+                torn_down.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        };
+
+        let hung = async move {
+            let _flag = flag;
+            std::future::pending::<()>().await;
+            Ok(())
+        };
+        let outcome = tokio::time::timeout(
+            Duration::from_secs(10),
+            within_deadline("aem_verify_reset".into(), Duration::from_millis(50), hung, tear_down, "aem_verify_open"),
+        )
+        .await
+        .expect("the call must end at its deadline, not hang");
+
+        let error = outcome.expect_err("a call past its deadline is an error");
+        assert!(error.contains("aem_verify_reset") && error.contains("50ms"), "{error}");
+        assert!(error.contains("aem_verify_open"), "the error must say how to recover: {error}");
+        assert!(torn_down.load(std::sync::atomic::Ordering::SeqCst), "the verifier was not torn down");
+        for _ in 0..100 {
+            if dropped.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the hung call was left running instead of aborted");
+    }
+
+    /// A call that answers in time keeps its result and leaves the verifier up.
+    #[tokio::test]
+    async fn a_verifier_call_within_its_deadline_keeps_its_result() {
+        let torn_down = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let tear_down = {
+            let torn_down = Arc::clone(&torn_down);
+            move || async move {
+                torn_down.store(true, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+        };
+        let outcome =
+            within_deadline("aem_verify_set".into(), Duration::from_secs(10), async { Ok(7) }, tear_down, "aem_verify_open").await;
+        assert_eq!(outcome, Ok(7));
+        assert!(!torn_down.load(std::sync::atomic::Ordering::SeqCst));
+    }
+
+    /// Every verifier tool the catalog offers is classified, so a tool added
+    /// upstream cannot reach the model without a deadline; only the offline
+    /// ones, which touch neither Docker nor the platform, run without one.
+    #[test]
+    fn every_verifier_tool_has_a_deadline() {
+        let boot = Duration::from_secs(900);
+        let mut seen = 0;
+        for spec in tool_specs() {
+            let name = spec["name"].as_str().unwrap();
+            let Some(server_name) = name.strip_prefix("aem_").or_else(|| name.strip_prefix("redacto_")) else {
+                continue;
+            };
+            seen += 1;
+            let call = VerifyCall::of(server_name).unwrap_or_else(|| panic!("{name} has no deadline class"));
+            let offline = matches!(server_name, "verify_status" | "verify_package_check" | "verify_dump_check");
+            assert_eq!(call.deadline(boot).is_none(), offline, "{name}");
+        }
+        assert!(seen >= 15, "expected every aem_verify_* and redacto_verify_* tool, saw {seen}");
+        let open = VerifyCall::of("verify_open").unwrap().deadline(boot).unwrap();
+        assert!(open > boot, "a call that may boot the platform must outlast the boot");
     }
 }
