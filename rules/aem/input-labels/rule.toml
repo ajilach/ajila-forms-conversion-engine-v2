@@ -14,4 +14,9 @@ XFA (a parenthetical aside, a rich-text paragraph) is not its label. Check each 
 source page, put the real question into the label, and leave any hint as its own static text.
 Use the question the source asks next to the field. A hint in brackets belongs to the question,
 not in its place.
+
+Precedence: this rule wins over ubs-aem-verbatim-source-text where the source gives an input no
+caption. The label is then the nearest source text that names the input, the caption of its group
+or the text of its option, verbatim and without surrounding brackets. Never leave it empty and
+never write wording of your own.
 """

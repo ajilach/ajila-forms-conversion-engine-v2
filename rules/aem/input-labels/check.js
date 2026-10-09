@@ -1,5 +1,10 @@
 const INPUTS = ["TextField", "NumberField", "DatePicker", "Dropdown", "Checkbox", "RadioButton"];
 
+// Where the source gives the input no caption, the label still comes from the source
+// (precedence over ubs-aem-verbatim-source-text).
+const NO_CAPTION = "; where the source gives it no caption, use the nearest source text that names it " +
+  "(its group's caption or its option's text) verbatim, without surrounding brackets";
+
 function problem(text) {
   const t = String(text).trim();
   if (t === "") return "is empty";
@@ -29,7 +34,8 @@ function check(output, ctx) {
           const at = Object.prototype.hasOwnProperty.call(label, lang) ? pointer + "/label/" + lang : pointer + "/label";
           violations.push({
             pointer: at,
-            message: node.type + " `" + node.name + "`'s " + lang + " label " + why,
+            message: node.type + " `" + node.name + "`'s " + lang + " label " + why +
+              (why === "is empty" ? NO_CAPTION : ""),
           });
         }
       }

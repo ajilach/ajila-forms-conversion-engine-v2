@@ -19,5 +19,10 @@ page, and a draw that is only "UBS Europe SE".
 
 Add `{"type": "Preface", "name": "PN_BR"}` as the first of the first page's `children` (copy the
 shape from a reference form with get_reference_package), and delete any draw whose text is "UBS
-Europe SE".
+Europe SE" (where it heads the bank's signature block, it becomes that signature Repeatable's
+`title`).
+
+Precedence: this rule wins over ubs-aem-sub-headings-are-title-draws. Where the source heads the
+bank's signature block with "UBS Europe SE", the heading is the `title` of that signature
+Repeatable (AEM renders it as "UBS Europe SE 1", "UBS Europe SE 2"), never a draw.
 """

@@ -21,9 +21,16 @@ another language's.
 
 A break is a language the source has that is missing from `/languages`, a language in `/languages`
 that the source lacks, a regional variant authored as a language of its own, or texts that carry
-one language's wording under another's key.
+one language's wording under another's key (except on a page printed in one language only: see
+Precedence).
 
 Fix: add the missing language to `/languages` and write its text everywhere (the
 ubs-aem-text-languages-complete rule lists the gaps); delete a language the source lacks together
 with all its texts.
+
+Precedence: where a page exists in one language only (another language's PDF prints it in the
+same wording, as an internal page printed only in German), that wording under both keys is each
+language's own PDF, not another language's text, and is not a break. This wins over
+ubs-aem-repeatable-add-label: a party title on such a page copies the source's text in every
+language, `title/en` included.
 """
