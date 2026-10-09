@@ -24,6 +24,6 @@ image = { workspace = true }
 agent = { path = "../agent" }
 pipeline = { path = "../pipeline" }
 runner = { path = "../runner" }
-tokio = { version = "1", features = ["rt", "time", "macros"] }
+tokio = { version = "1", features = ["rt", "time", "macros", "sync"] }
 dirs = { workspace = true }
 reqwest = { workspace = true }

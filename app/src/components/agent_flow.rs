@@ -86,7 +86,7 @@ pub fn AgentFlow(
     /// Discard the finished result and return to a clean upload state.
     on_reset: EventHandler<()>,
 ) -> Element {
-    let mut processing_state = tab.state;
+    let processing_state = tab.state;
     let mut uploaded_files = tab.files;
     let mut feedback = tab.feedback;
     let mut timeline_open = tab.timeline_open;
@@ -138,14 +138,10 @@ pub fn AgentFlow(
                                 feedback,
                                 on_feedback: move |text: String| on_feedback.call(text),
                                 on_continue: move |()| on_continue.call(()),
-                                // Answer a paused run's retry prompt; the agent loop
-                                // polls these on the shared processing state.
-                                on_retry: move |_| {
-                                    processing_state.write().retry_action = Some(RetryAction::Retry);
-                                },
-                                on_give_up: move |_| {
-                                    processing_state.write().retry_action = Some(RetryAction::Cancel);
-                                },
+                                // Answer a paused run's retry prompt; the paused
+                                // run polls the tab's answer cell for it.
+                                on_retry: move |_| tab.retry.peek().answer(RetryAction::Retry),
+                                on_give_up: move |_| tab.retry.peek().answer(RetryAction::Cancel),
                                 on_new: move |_| {
                                     uploaded_files.set(Vec::new());
                                     feedback.set(String::new());
@@ -372,13 +368,15 @@ fn RunBox(
         RunStatus::Failed => "ag-box failed",
         _ => "ag-box",
     };
-    // Read once, and released before rendering: the run writes this state from
-    // worker threads, and a second read while a guard is held blocks behind a
-    // queued write forever. `rsx!` keeps an `if let` scrutinee's guard alive
-    // through its `else` branches, so reading in the template is not safe.
+    // Read the state once, take what this box shows, and let go before
+    // rendering. A `state.read()` inside `rsx!` can outlive its line, so
+    // several of them meant one render holding a read while asking for the
+    // next — which froze the app for good whenever a write from the run's
+    // thread was waiting in between. The run no longer writes the state, but a
+    // render that never nests reads cannot fall into that again.
     let (elapsed_secs, error, aborted, warnings) = {
-        let run = state.read();
-        (run.elapsed_secs, run.error.clone(), run.aborted, run.warnings.clone())
+        let s = state.read();
+        (s.elapsed_secs, s.error.clone(), s.aborted, s.warnings.clone())
     };
 
     rsx! {
@@ -1286,6 +1284,8 @@ mod tests {
         }
     }
 
+
+
     #[test]
     fn filename_falls_back_when_the_form_code_is_unknown() {
         assert_eq!(
@@ -1297,8 +1297,6 @@ mod tests {
             "redacto.sql"
         );
     }
-
-
 
     /// The log is the only durable record of a run once the window is closed, so
     /// every step kind has to survive the transcript.
@@ -1413,26 +1411,45 @@ mod tests {
 
 #[cfg(test)]
 mod concurrent_writes {
-    //! The run writes its state from worker threads while the window renders
-    //! it. A render that reads the state twice while holding a guard blocks
-    //! behind a queued write forever, which froze the app as soon as judges
-    //! wrote the state from several threads at once.
+    //! The run reports from worker threads while the window renders its box.
+    //! Rendering used to share a lock with the run's writes, and a render that
+    //! read the state twice blocked behind a queued write forever, freezing the
+    //! app and the run with it. Now the run only sends updates down a channel,
+    //! and the UI thread applies them, so rendering can never wait on the run.
 
     use super::*;
+    use std::cell::RefCell;
     use std::collections::HashMap;
+    use std::rc::Rc;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Arc, mpsc};
     use std::time::{Duration, Instant};
 
     use dioxus::dioxus_core::NoOpMutations;
 
+    use crate::agent_runner::{ProgressReceiver, UiUpdate, progress_channel, show_progress};
     use crate::models::{ProcessingState, RunState};
 
-    /// A `RunBox` of a running run, handing its state out to the test.
+    /// What the harness takes in and hands back. Shared cells only because a
+    /// root component's props must be `Clone`; the dom and the test run on one
+    /// thread.
+    #[derive(Clone)]
+    struct Harness {
+        updates: Rc<RefCell<Option<ProgressReceiver>>>,
+        state: Rc<RefCell<Option<RunState>>>,
+    }
+
+    /// A `RunBox` of a running run whose state `show_progress` keeps current.
     #[expect(clippy::needless_pass_by_value, reason = "a root component takes its props by value")]
-    fn harness(out: mpsc::Sender<RunState>) -> Element {
-        let state = use_signal_sync(ProcessingState::default);
-        use_hook(|| out.send(state).expect("the test waits for the state"));
+    fn harness(props: Harness) -> Element {
+        let state = use_signal(ProcessingState::default);
+        use_hook(|| {
+            let updates = props.updates.borrow_mut().take().expect("the harness is built once");
+            spawn(async move {
+                show_progress(updates, state).await;
+            });
+            *props.state.borrow_mut() = Some(state);
+        });
         let files = use_signal(Vec::new);
         let last_download = use_signal(HashMap::new);
         let timeline_open = use_signal(|| false);
@@ -1462,38 +1479,54 @@ mod concurrent_writes {
     }
 
     #[test]
-    fn the_run_box_renders_while_another_thread_writes_the_run_state() {
+    fn the_run_box_renders_while_the_run_reports_from_another_thread() {
         const RENDERING: Duration = Duration::from_secs(3);
         let (done_tx, done_rx) = mpsc::channel();
         std::thread::spawn(move || {
-            let (state_tx, state_rx) = mpsc::channel();
-            let mut dom = VirtualDom::new_with_props(harness, state_tx);
+            let (progress, updates) = progress_channel();
+            let props = Harness {
+                updates: Rc::new(RefCell::new(Some(updates))),
+                state: Rc::new(RefCell::new(None)),
+            };
+            let mut dom = VirtualDom::new_with_props(harness, props.clone());
             dom.rebuild_in_place();
-            let mut state = state_rx.recv().expect("the harness hands out its state");
+            let state = props.state.borrow_mut().take().expect("the harness hands out its state");
             let stop = Arc::new(AtomicBool::new(false));
-            // Joined before the dom drops, which drops the state it writes.
-            let writer = std::thread::spawn({
+            let reporter = std::thread::spawn({
                 let stop = stop.clone();
                 move || {
+                    let mut tokens = 0;
                     while !stop.load(Ordering::Relaxed) {
-                        state.write().context_used_tokens += 1;
+                        tokens += 1;
+                        if progress.send(UiUpdate::ContextWindow(tokens)).is_err() {
+                            break;
+                        }
+                        // Paced, so the queue the UI drains stays small.
+                        std::thread::sleep(Duration::from_micros(50));
                     }
                 }
             });
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .expect("a test runtime");
             let start = Instant::now();
-            while start.elapsed() < RENDERING {
-                // Takes in the writes' marks, so the run box renders again.
-                dom.process_events();
-                dom.render_immediate(&mut NoOpMutations);
-            }
+            runtime.block_on(async {
+                while start.elapsed() < RENDERING {
+                    // Polls the progress task, which marks the box dirty.
+                    let _ = tokio::time::timeout(Duration::from_millis(20), dom.wait_for_work()).await;
+                    dom.render_immediate(&mut NoOpMutations);
+                }
+            });
             stop.store(true, Ordering::Relaxed);
-            writer.join().expect("the writer ends");
-            let _ = done_tx.send(());
+            reporter.join().expect("the reporter ends");
+            let applied = state.peek().context_window;
+            let _ = done_tx.send(applied);
         });
 
         match done_rx.recv_timeout(RENDERING + Duration::from_secs(10)) {
-            Ok(()) => {}
-            Err(mpsc::RecvTimeoutError::Timeout) => panic!("a render of the run box deadlocked against the run's writes"),
+            Ok(applied) => assert!(applied > 0, "the UI applied none of the run's updates"),
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!("a render of the run box deadlocked against the run's reports"),
             Err(mpsc::RecvTimeoutError::Disconnected) => panic!("the rendering thread panicked"),
         }
     }

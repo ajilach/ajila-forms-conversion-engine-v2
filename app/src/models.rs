@@ -1,24 +1,77 @@
 //! The state the agent run publishes to the UI.
 
-use dioxus::prelude::{ReadSignal, SyncSignal, SyncStorage};
+use std::sync::{Arc, Mutex, PoisonError};
+
+use dioxus::prelude::{ReadSignal, Signal};
 
 // The run's cancellation flag and retry verdict are the controller's vocabulary,
 // not the UI's — they live in `pipeline` and are re-exported here so components
 // keep one import path for everything they render.
 pub use pipeline::{AbortFlag, RetryAction};
 
-/// A handle on one run's state, held by the run's own future for its whole life
-/// and by the components that render it.
+/// A handle on one run's state, held by the tab and by the components that
+/// render it.
 ///
-/// Sync storage, because a run is driven on a worker thread rather than on the
-/// UI thread — conversions have to make progress at the same time, and a package
-/// build in one tab must not freeze every other tab and the window with it. The
-/// wake path from a cross-thread write is a `futures_channel` send to the
-/// scheduler, with no thread-locals in the way.
-pub type RunState = SyncSignal<ProcessingState>;
+/// Only the UI thread touches it. The run is driven on a worker thread, but it
+/// reports through [`crate::agent_runner::ProgressSender`] and the tab's progress
+/// task applies what arrives (see [`crate::agent_runner::show_progress`]). Two
+/// things depend on keeping it that way:
+///
+/// - a run never waits for the UI: a slow or stuck render cannot stall a
+///   conversion, because sending progress never blocks;
+/// - a write cannot land between two reads of one render. This used to be a
+///   sync signal, whose storage is a reader–writer lock that stops handing out
+///   reads once a writer is waiting: a render that read the state twice while
+///   the run's worker wrote it froze both threads for good — the freeze that
+///   stopped long runs around the half-hour mark.
+///
+/// A plain, thread-local signal on purpose: the compiler refuses to move it
+/// into a worker's task, so the state cannot quietly be handed back to the run.
+pub type RunState = Signal<ProcessingState>;
 
 /// A read-only view of [`RunState`], for the components that only render it.
-pub type RunStateRead = ReadSignal<ProcessingState, SyncStorage>;
+pub type RunStateRead = ReadSignal<ProcessingState>;
+
+/// The Retry / Give up answer to a paused run, handed from the button to the
+/// run's thread.
+///
+/// Kept apart from [`RunState`] for the same reason progress travels over a
+/// channel: the run polls this while paused, and must never have to reach into
+/// the UI's state to do so. The mutex is held only for a set or a take, never across
+/// anything else.
+#[derive(Clone, Debug, Default)]
+pub struct RetryAnswer(Arc<Mutex<Option<RetryAction>>>);
+
+impl RetryAnswer {
+    /// Record the user's answer for the paused run to pick up.
+    pub fn answer(&self, action: RetryAction) {
+        *self.cell() = Some(action);
+    }
+
+    /// The answer, if one has been given, consuming it.
+    pub fn take(&self) -> Option<RetryAction> {
+        self.cell().take()
+    }
+
+    /// Forget any answer, so a new prompt does not inherit an old click.
+    pub fn clear(&self) {
+        *self.cell() = None;
+    }
+
+    fn cell(&self) -> std::sync::MutexGuard<'_, Option<RetryAction>> {
+        // A panic while holding this lock leaves only an `Option` behind,
+        // which is always valid.
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Two handles are the same answer when they share one cell, as with
+/// [`AbortFlag`].
+impl PartialEq for RetryAnswer {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum ProcessingStep {
@@ -114,9 +167,6 @@ pub struct ProcessingState {
     /// agent, its working tree and the stage history are all held in memory — so
     /// a retry resumes at the failed turn instead of restarting the run.
     pub retry_pending: bool,
-    /// The user's answer to a pending retry prompt, set by the progress UI and
-    /// consumed by the paused agent loop.
-    pub retry_action: Option<RetryAction>,
     pub warnings: Vec<String>,
     /// Live activity log for the Agent Processing run (thoughts + tool calls).
     pub agent_steps: Vec<AgentStep>,

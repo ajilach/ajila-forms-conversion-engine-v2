@@ -173,10 +173,12 @@ fn App() -> Element {
         target: *tab.target.read(),
         settings: app_settings.read().clone(),
         abort: tab.abort.peek().clone(),
+        retry: tab.retry.peek().clone(),
     };
     let begin_run = move |tab: Tab| {
-        // A previous run in this tab may have left it set.
+        // A previous run in this tab may have left them set.
         tab.abort.peek().reset();
+        tab.retry.peek().clear();
         // Whatever the box was explaining about the last session no longer
         // describes what is on screen.
         tab.restored.clone().set(None);
@@ -185,6 +187,41 @@ fn App() -> Element {
             step: ProcessingStep::Running,
             ..ProcessingState::default()
         });
+    };
+
+    // What every run does once it is under way, however it was started: show
+    // its progress until it ends, then do the tab's bookkeeping, all on the UI
+    // thread.
+    let settle_run = move |tab: Tab,
+                           run: tokio::task::JoinHandle<()>,
+                           updates: agent_runner::ProgressReceiver| async move {
+        let session = match agent_runner::show_progress(updates, tab.state).await {
+            agent_runner::Settled::Finished(session) => session,
+            // Only a panic ends the run's task without a result, and its
+            // channel has closed, so the task is already unwinding. The tab
+            // still counts as running here, so closing it meanwhile parks it
+            // rather than releasing the signals written below.
+            agent_runner::Settled::Vanished => {
+                let error = match run.await {
+                    Err(e) => format!("The run stopped unexpectedly: {e}"),
+                    Ok(()) => "The run stopped without reporting a result.".to_string(),
+                };
+                tab.state.clone().write().error.get_or_insert(error);
+                None
+            }
+        };
+        // Nothing has been awaited since the result was applied, so no click on
+        // the finished box can have run in between.
+        if let Some(session) = session {
+            tab.session_id.clone().set(Some(session));
+        }
+        // Fold what this run cost into the tab's running total before the next
+        // run's `begin_run` clears `state`'s own copy.
+        if let Some(spend) = tab.state.read().spend {
+            tab.total_spend.clone().write().merge(&spend);
+        }
+        workspace.finish_run(tab.id);
+        save_workspace();
     };
 
     // ── AI processing ───────────────────────────────────────────────────────
@@ -212,10 +249,10 @@ fn App() -> Element {
 
         // Two layers on purpose. The run itself goes to a worker thread, so a
         // package build or a PDF extraction in one tab cannot freeze the other
-        // tabs and the window along with them — it reaches the UI only through
-        // the run state, which is the one handle built to cross threads. The
-        // bookkeeping around it stays on the UI thread, where the rest of the
-        // tab's signals live.
+        // tabs and the window along with them. It never touches the tab's
+        // signals: it sends its progress down a channel, and this task — on the
+        // UI thread, where the tab's signals live — applies it and does the
+        // bookkeeping once the run is over.
         spawn(async move {
             let session_label = file_data
                 .iter()
@@ -223,20 +260,14 @@ fn App() -> Element {
                 .collect::<Vec<_>>()
                 .join(", ");
 
-            let run = tokio::spawn(async move {
-                agent_runner::run_agent(file_data, config, session_label, tab.state).await
-            });
-
-            if let Some(session) = run.await.ok().flatten() {
-                tab.session_id.clone().set(Some(session));
-            }
-            // Fold what this run cost into the tab's running total before the
-            // next run's `begin_run` clears `state`'s own copy.
-            if let Some(spend) = tab.state.read().spend {
-                tab.total_spend.clone().write().merge(&spend);
-            }
-            workspace.finish_run(tab.id);
-            save_workspace();
+            let (progress, updates) = agent_runner::progress_channel();
+            let run = tokio::spawn(agent_runner::run_agent(
+                file_data,
+                config,
+                session_label,
+                progress,
+            ));
+            settle_run(tab, run, updates).await;
         });
     };
 
@@ -266,20 +297,11 @@ fn App() -> Element {
         save_workspace();
 
         spawn(async move {
-            let run = tokio::spawn(async move {
-                agent_runner::run_agent_resume(seed, pdfs, config, session, tab.state).await
-            });
-
-            if let Some(session) = run.await.ok().flatten() {
-                tab.session_id.clone().set(Some(session));
-            }
-            // Fold what this round cost into the tab's running total before
-            // the next run's `begin_run` clears `state`'s own copy.
-            if let Some(spend) = tab.state.read().spend {
-                tab.total_spend.clone().write().merge(&spend);
-            }
-            workspace.finish_run(tab.id);
-            save_workspace();
+            let (progress, updates) = agent_runner::progress_channel();
+            let run = tokio::spawn(agent_runner::run_agent_resume(
+                seed, pdfs, config, session, progress,
+            ));
+            settle_run(tab, run, updates).await;
         });
     };
 
