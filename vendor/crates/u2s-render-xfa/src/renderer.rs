@@ -218,6 +218,11 @@ enum Job {
         target: Target,
         reply: Sender<Result<u2s_xfa::states::Controls, RenderError>>,
     },
+    Field {
+        target: Target,
+        field: String,
+        reply: Sender<Result<Option<u2s_xfa::states::Control>, RenderError>>,
+    },
     Open {
         path: PathBuf,
         reply: Sender<Result<OpenedSession, RenderError>>,
@@ -227,6 +232,12 @@ enum Job {
         expected_revision: u64,
         field: String,
         value: String,
+        reply: Sender<Result<InteractionOutcome, RenderError>>,
+    },
+    Click {
+        handle: String,
+        expected_revision: u64,
+        field: String,
         reply: Sender<Result<InteractionOutcome, RenderError>>,
     },
     Reset {
@@ -246,7 +257,7 @@ type Prepares = Arc<Mutex<HashMap<PathBuf, u64>>>;
 /// the view at that revision.
 type OpenedSession = (String, u64, Arc<Prepared>);
 
-/// What an interaction (`xfa_set` or `xfa_reset`) leaves behind: the
+/// What an interaction (`xfa_set`, `xfa_click` or `xfa_reset`) leaves behind: the
 /// session's new view, and the report of what happened.
 type InteractionOutcome = (Arc<Prepared>, crate::session::Interaction);
 
@@ -333,6 +344,25 @@ impl Renderer {
         )
     }
 
+    /// One field of a document addressed by `target`, described exactly as
+    /// [`Renderer::controls`] lists it -- its kind, value, visibility and
+    /// effective access -- or `None` when there is no field at that path.
+    pub fn field(
+        &self,
+        target: &Target,
+        field: impl Into<String>,
+    ) -> Result<Option<u2s_xfa::states::Control>, RenderError> {
+        let (reply, rx) = channel();
+        self.submit(
+            Job::Field {
+                target: target.clone(),
+                field: field.into(),
+                reply,
+            },
+            rx,
+        )
+    }
+
     /// Open a session on this document, returning its handle, its starting
     /// revision (always 0) and the view at that revision.
     pub fn open(&self, path: impl AsRef<Path>) -> Result<(String, u64, DocumentInfo), RenderError> {
@@ -365,6 +395,29 @@ impl Renderer {
                 expected_revision,
                 field: field.into(),
                 value: value.into(),
+                reply,
+            },
+            rx,
+        )?;
+        Ok(interaction)
+    }
+
+    /// Press one button the way a person would: its click scripts run, and
+    /// on a repeatable section that is how instances are added or removed
+    /// (XFA 3.3 §9) -- see [`u2s_xfa::xfa::scripting::XfaForm::click`].
+    /// `expected_revision` must be the session's current revision.
+    pub fn click(
+        &self,
+        handle: impl Into<String>,
+        expected_revision: u64,
+        field: impl Into<String>,
+    ) -> Result<crate::session::Interaction, RenderError> {
+        let (reply, rx) = channel();
+        let (_, interaction) = self.submit(
+            Job::Click {
+                handle: handle.into(),
+                expected_revision,
+                field: field.into(),
                 reply,
             },
             rx,
@@ -672,11 +725,31 @@ fn run(rx: Receiver<Job>, prepares: Prepares) {
             }
             Job::Controls { target, reply } => {
                 let r = match &target {
-                    Target::Doc { path, .. } => nodes_of(path).and_then(|(nodes, _names)| {
-                        u2s_xfa::states::controls(&nodes)
-                            .map_err(|e| RenderError::backend(ENGINE, e.to_string()))
+                    Target::Doc { path, state } => nodes_of(path).and_then(|(nodes, _names)| {
+                        if state.is_default() {
+                            u2s_xfa::states::controls(&nodes)
+                        } else {
+                            u2s_xfa::states::controls_in_state(&nodes, state)
+                        }
+                        .map_err(|e| RenderError::backend(ENGINE, e.to_string()))
                     }),
                     Target::View { handle, revision } => sessions.controls(handle, *revision),
+                };
+                let _ = reply.send(r);
+            }
+            Job::Field {
+                target,
+                field,
+                reply,
+            } => {
+                let r = match &target {
+                    Target::Doc { path, state } => nodes_of(path).and_then(|(nodes, _names)| {
+                        u2s_xfa::states::field_in_state(&nodes, state, &field)
+                            .map_err(|e| RenderError::backend(ENGINE, e.to_string()))
+                    }),
+                    Target::View { handle, revision } => {
+                        sessions.field(handle, *revision, &field)
+                    }
                 };
                 let _ = reply.send(r);
             }
@@ -692,6 +765,15 @@ fn run(rx: Receiver<Job>, prepares: Prepares) {
                 reply,
             } => {
                 let r = sessions.set(&handle, expected_revision, &field, &value);
+                let _ = reply.send(r);
+            }
+            Job::Click {
+                handle,
+                expected_revision,
+                field,
+                reply,
+            } => {
+                let r = sessions.click(&handle, expected_revision, &field);
                 let _ = reply.send(r);
             }
             Job::Reset {

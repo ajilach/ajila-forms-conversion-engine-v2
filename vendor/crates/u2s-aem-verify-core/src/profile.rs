@@ -22,6 +22,8 @@
 
 use std::time::Duration;
 
+use u2s_verify_core::docker::RegistryCredentials;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SubmitArtefact {
     /// The UBS overlay's submit action triggers a browser download.
@@ -51,6 +53,13 @@ pub struct Profile {
     /// `"aem"` -- becomes the manifest's `FormatScope`.
     pub format: String,
     pub aem_image: String,
+    /// The login [`Self::aem_image`] is pulled with when the daemon does
+    /// not have it yet: `U2S_AEM_VERIFY_REGISTRY_USERNAME` and
+    /// `U2S_AEM_VERIFY_REGISTRY_PASSWORD`, both or neither. `None` pulls
+    /// anonymously, which only works for an image already on the daemon or
+    /// a public one. Never used for [`Self::chromium_image`], which is
+    /// public.
+    pub registry_credentials: Option<RegistryCredentials>,
     pub aem_user: String,
     pub aem_password: String,
     pub submit: SubmitArtefact,
@@ -133,6 +142,11 @@ pub enum ProfileError {
     InvalidContainerPort(String),
     #[error("MAX_INLINE_BYTES={0:?} is not a positive integer")]
     InvalidMaxInlineBytes(String),
+    #[error(
+        "U2S_AEM_VERIFY_REGISTRY_USERNAME and U2S_AEM_VERIFY_REGISTRY_PASSWORD must be set \
+         together, and neither may be empty"
+    )]
+    PartialRegistryCredentials,
 }
 
 const DEFAULT_CHROMIUM_IMAGE: &str = "chromedp/headless-shell:stable";
@@ -175,6 +189,17 @@ impl Profile {
 
         let format = required("U2S_AEM_VERIFY_FORMAT")?;
         let aem_image = required("U2S_AEM_VERIFY_IMAGE")?;
+        let registry_credentials = match (
+            read("U2S_AEM_VERIFY_REGISTRY_USERNAME"),
+            read("U2S_AEM_VERIFY_REGISTRY_PASSWORD"),
+        ) {
+            (None, None) => None,
+            (Some(username), Some(password)) => Some(
+                RegistryCredentials::new(username, password)
+                    .ok_or(ProfileError::PartialRegistryCredentials)?,
+            ),
+            _ => return Err(ProfileError::PartialRegistryCredentials),
+        };
         let aem_user = required("U2S_AEM_VERIFY_USER")?;
         let aem_password = required("U2S_AEM_VERIFY_PASSWORD")?;
 
@@ -240,6 +265,7 @@ impl Profile {
         Ok(Self {
             format,
             aem_image,
+            registry_credentials,
             aem_user,
             aem_password,
             submit,
@@ -326,6 +352,51 @@ mod tests {
         assert_eq!(profile.self_container, None);
         assert_eq!(profile.aem_container_port, 4502);
         assert_eq!(profile.max_inline_bytes, DEFAULT_MAX_INLINE_BYTES);
+        assert_eq!(profile.registry_credentials, None);
+    }
+
+    #[test]
+    fn registry_credentials_are_carried_through_when_both_are_set() {
+        let mut pairs = minimal_env();
+        pairs.push(("U2S_AEM_VERIFY_REGISTRY_USERNAME", "puller"));
+        pairs.push(("U2S_AEM_VERIFY_REGISTRY_PASSWORD", "token"));
+        let profile = Profile::from_reader(env(&pairs)).expect("parses");
+        assert_eq!(
+            profile.registry_credentials,
+            RegistryCredentials::new("puller".to_owned(), "token".to_owned())
+        );
+    }
+
+    #[test]
+    fn registry_credentials_without_their_other_half_or_empty_are_rejected() {
+        for extra in [
+            vec![("U2S_AEM_VERIFY_REGISTRY_USERNAME", "puller")],
+            vec![("U2S_AEM_VERIFY_REGISTRY_PASSWORD", "token")],
+            vec![
+                ("U2S_AEM_VERIFY_REGISTRY_USERNAME", ""),
+                ("U2S_AEM_VERIFY_REGISTRY_PASSWORD", "token"),
+            ],
+            vec![
+                ("U2S_AEM_VERIFY_REGISTRY_USERNAME", "puller"),
+                ("U2S_AEM_VERIFY_REGISTRY_PASSWORD", ""),
+            ],
+        ] {
+            let mut pairs = minimal_env();
+            pairs.extend(extra);
+            assert!(matches!(
+                Profile::from_reader(env(&pairs)),
+                Err(ProfileError::PartialRegistryCredentials)
+            ));
+        }
+    }
+
+    #[test]
+    fn a_profile_debug_never_prints_the_registry_password() {
+        let mut pairs = minimal_env();
+        pairs.push(("U2S_AEM_VERIFY_REGISTRY_USERNAME", "puller"));
+        pairs.push(("U2S_AEM_VERIFY_REGISTRY_PASSWORD", "s3cret-token"));
+        let profile = Profile::from_reader(env(&pairs)).expect("parses");
+        assert!(!format!("{profile:?}").contains("s3cret-token"));
     }
 
     #[test]

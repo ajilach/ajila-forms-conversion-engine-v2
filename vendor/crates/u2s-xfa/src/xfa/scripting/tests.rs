@@ -94,33 +94,162 @@ fn test_som_resolver_basic() {
 
 #[test]
 fn test_som_resolver_indexed() {
+    // Three instances of one repeated field: XFA 3.3 §3 gives each its own
+    // path, index 0 written without brackets.
     let mut resolver = SomResolver::new();
-    resolver.register_node(
-        &SomPath::new("Detail.Item"),
-        "Item",
-        "field",
-        Some(&SomPath::new("Detail")),
+    for path in ["Detail.Item", "Detail.Item[1]", "Detail.Item[2]"] {
+        resolver.register_node(
+            &SomPath::new(path),
+            "Item",
+            "field",
+            Some(&SomPath::new("Detail")),
+        );
+    }
+
+    assert_eq!(
+        resolver.resolve_nodes("Item[0]", None),
+        vec![SomPath::new("Detail.Item")]
     );
-    resolver.register_node(
-        &SomPath::new("Detail.Item"),
-        "Item",
-        "field",
-        Some(&SomPath::new("Detail")),
+    assert_eq!(
+        resolver.resolve_nodes("Item[2]", None),
+        vec![SomPath::new("Detail.Item[2]")]
     );
-    resolver.register_node(
-        &SomPath::new("Detail.Item"),
-        "Item",
-        "field",
-        Some(&SomPath::new("Detail")),
+    assert_eq!(resolver.resolve_nodes("Item[*]", None).len(), 3);
+    assert!(resolver.resolve_nodes("Item[3]", None).is_empty());
+}
+
+// =============================================================================
+// Instance-indexed SOM paths (XFA 3.3 §3)
+// =============================================================================
+
+fn parse_template(body: &str) -> Vec<crate::xfa::XfaNode> {
+    let xml = format!(
+        r#"<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">{body}</template></xdp:xdp>"#
+    );
+    crate::xfa::XfaNode::parse(xml.as_bytes()).expect("parse")
+}
+
+#[test]
+fn som_segments_round_trip_and_index_zero_has_no_brackets() {
+    use super::som::{SegmentIndex, child_som_path, parse_segment};
+
+    assert_eq!(child_som_path("A", "Row", 0), "A.Row");
+    assert_eq!(child_som_path("A", "Row", 2), "A.Row[2]");
+    assert_eq!(child_som_path("", "Row", 1), "Row[1]");
+
+    let path = SomPath::new("A.Row[2].F");
+    assert_eq!(path.name(), "F");
+    assert_eq!(
+        path.segments().collect::<Vec<_>>(),
+        vec![("A", 0), ("Row", 2), ("F", 0)]
+    );
+    assert_eq!(path.parent().unwrap().name(), "Row");
+    assert_eq!(path.parent().unwrap().leaf(), "Row[2]");
+    assert_eq!(path.parent().unwrap().index(), 2);
+    assert_eq!(path.index_free(), SomPath::new("A.Row.F"));
+    assert_eq!(
+        SomPath::new("A").child_indexed("Row", 1),
+        SomPath::new("A.Row[1]")
     );
 
-    // Test [0] index
-    let result = resolver.resolve_nodes("Item[0]", None);
-    assert_eq!(result.len(), 1);
+    assert_eq!(parse_segment("Row"), Some(("Row", SegmentIndex::At(0))));
+    assert_eq!(parse_segment("Row[*]"), Some(("Row", SegmentIndex::All)));
+    assert_eq!(parse_segment("Row[x]"), None);
+    assert_eq!(parse_segment("Row[1"), None);
+}
 
-    // Test [*] all instances
-    let result = resolver.resolve_nodes("Item[*]", None);
-    assert_eq!(result.len(), 3);
+#[test]
+fn walk_som_path_picks_the_nth_same_named_sibling_through_an_unnamed_container() {
+    let nodes = parse_template(
+        r#"<subform name="A"><subform><field name="F" id="first"/><field name="F" id="second"/></subform></subform>"#,
+    );
+    let id_of = |path: &str| {
+        super::som::walk_som_path(&nodes, path).and_then(|n| n.attributes.get("id").cloned())
+    };
+    assert_eq!(id_of("A.F").as_deref(), Some("first"));
+    assert_eq!(id_of("A.F[1]").as_deref(), Some("second"));
+    assert_eq!(id_of("A.F[2]"), None);
+    assert_eq!(id_of("A.F[*]"), None, "a walk follows exactly one node");
+}
+
+#[test]
+fn the_resolver_indexes_siblings_per_parent_not_across_the_document() {
+    let nodes = parse_template(
+        r#"<subform name="Root"><subform name="A"><field name="Item"/><field name="Item"/></subform>
+<subform name="B"><field name="Item"/><field name="Item"/></subform></subform>"#,
+    );
+    let resolver = SomResolver::from_nodes(&nodes);
+
+    // `B.Item[1]` is B's second Item, not the document's fourth.
+    assert_eq!(
+        resolver.resolve_node("Root.B.Item[1]", None),
+        Some(SomPath::new("Root.B.Item[1]"))
+    );
+    assert_eq!(
+        resolver.resolve_nodes("B.Item[1]", Some(&SomPath::new("Root.A.Item"))),
+        vec![SomPath::new("Root.B.Item[1]")]
+    );
+    // From inside A, an unqualified `Item[1]` is A's own second Item.
+    assert_eq!(
+        resolver.resolve_node("Item[1]", Some(&SomPath::new("Root.A"))),
+        Some(SomPath::new("Root.A.Item[1]"))
+    );
+    assert_eq!(
+        resolver.expand_template(&SomPath::new("Root.B.Item[1]")),
+        vec![SomPath::new("Root.B.Item"), SomPath::new("Root.B.Item[1]")]
+    );
+}
+
+#[test]
+fn star_selects_every_instance_under_one_parent_only() {
+    let nodes = parse_template(
+        r#"<subform name="Root"><subform name="Row"><field name="Idx"/></subform>
+<subform name="Row"><field name="Idx"/></subform><subform name="Row"><field name="Idx"/></subform>
+<subform name="Other"><subform name="Row"><field name="Idx"/></subform></subform></subform>"#,
+    );
+    let resolver = SomResolver::from_nodes(&nodes);
+    let found = resolver.resolve_nodes("Row[*].Idx", Some(&SomPath::new("Root.Row[1]")));
+    assert_eq!(
+        found,
+        vec![
+            SomPath::new("Root.Row.Idx"),
+            SomPath::new("Root.Row[1].Idx"),
+            SomPath::new("Root.Row[2].Idx"),
+        ]
+    );
+}
+
+#[test]
+fn the_registry_keys_scripts_by_template_path_and_registers_each_declaration_once() {
+    let mut registry = ScriptRegistry::new();
+    let script = || XfaScript {
+        source: "this.rawValue = 1;".to_string(),
+        content_type: ScriptContentType::JavaScript,
+        activity: EventActivity::Calculate,
+        event_ref: EventRef::Current,
+        name: None,
+        run_at: RunAt::Client,
+        listen: ListenScope::default(),
+    };
+    for owner in ["A.Row.F", "A.Row[1].F", "A.Row[2].F"] {
+        registry.register(RegisteredScript {
+            script: script(),
+            owner_path: SomPath::new(owner),
+            owner_name: "F".to_string(),
+            child_fields: Vec::new(),
+            script_type: ScriptType::Calculate,
+        });
+    }
+    assert_eq!(
+        registry.get_owners_with_activity(&EventActivity::Calculate),
+        vec![&SomPath::new("A.Row.F")]
+    );
+    assert_eq!(
+        registry
+            .get_event_scripts(&SomPath::new("A.Row[2].F"), &EventActivity::Calculate)
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -989,9 +1118,10 @@ fn test_exclgroup_deselection_preserves_empty_values() {
 #[test]
 fn test_resolve_nodes_all_instances() {
     let mut engine = XfaScriptEngine::new();
+    engine.register_field("Detail", "Detail", "");
     engine.register_field("Detail.Item", "Item", "val1");
-    engine.register_field("Detail.Item", "Item", "val2");
-    engine.register_field("Detail.Item", "Item", "val3");
+    engine.register_field("Detail.Item[1]", "Item", "val2");
+    engine.register_field("Detail.Item[2]", "Item", "val3");
 
     // resolveNodes("Item[*]") should return all 3 instances
     engine.set_current_field("Detail.Test", "Test", "");
@@ -1018,8 +1148,9 @@ fn test_resolve_nodes_all_instances() {
 #[test]
 fn test_resolve_nodes_specific_index() {
     let mut engine = XfaScriptEngine::new();
+    engine.register_field("Detail", "Detail", "");
     engine.register_field("Detail.Item", "Item", "first");
-    engine.register_field("Detail.Item", "Item", "second");
+    engine.register_field("Detail.Item[1]", "Item", "second");
 
     // resolveNodes("Item[0]") should return exactly 1 item
     engine.set_current_field("Detail.Test", "Test", "");
@@ -1110,16 +1241,23 @@ fn test_resolve_nodes_descendant_accessor() {
 #[test]
 fn test_resolve_nodes_by_simple_name() {
     let mut engine = XfaScriptEngine::new();
+    // Containers first, as the form's hierarchy builder registers them.
+    engine.register_field_with_presence("Page1", "Page1", "", "visible", true);
+    engine.register_field_with_presence("Page2", "Page2", "", "visible", true);
     engine.register_field("Page1.Field1", "Field1", "a");
     engine.register_field("Page2.Field1", "Field1", "b");
     engine.register_field("Page1.Field2", "Field2", "c");
 
-    // resolveNodes("Field1") should return 2 instances (both pages)
+    // XFA 3.3 §3: an unqualified name with no index is instance 0 of the
+    // nearest match in scope -- one node, not every node of that name in the
+    // document. `Page2.Field1` is the other page's, reached by qualifying it.
     engine.set_current_field("Page1.Test", "Test", "");
     let script = XfaScript {
         source: r#"
             var nodes = xfa.resolveNodes("Field1");
-            this.rawValue = String(nodes.length);
+            var other = xfa.resolveNodes("Page2.Field1");
+            this.rawValue = String(nodes.length) + nodes.item(0).rawValue
+                + String(other.length) + other.item(0).rawValue;
         "#
         .to_string(),
         content_type: ScriptContentType::JavaScript,
@@ -1133,8 +1271,8 @@ fn test_resolve_nodes_by_simple_name() {
     assert!(result.is_ok());
     if let Ok(Some(value)) = result {
         assert_eq!(
-            value, "2",
-            "resolveNodes('Field1') should return all 2 instances by name"
+            value, "1a1b",
+            "resolveNodes('Field1') is the one Field1 in scope; Page2's is qualified"
         );
     }
 }
@@ -2498,6 +2636,20 @@ fn test_field_object_does_not_have_instance_manager() {
 fn test_subform_object_has_instance_manager() {
     let mut engine = XfaScriptEngine::new();
 
+    // A subform's instance manager lives on its parent (XFA 3.3 §9), so the
+    // parent is registered first, as the hierarchy builder always does.
+    engine.register_xfa_node(
+        "Root",
+        "Root",
+        None,
+        false,
+        "",
+        false,
+        None,
+        None,
+        "visible",
+        &[],
+    );
     // register_xfa_node with is_field=false creates a subform object with instanceManager
     engine.register_xfa_node(
         "MySubform",
@@ -2536,6 +2688,8 @@ fn test_subform_object_has_instance_manager() {
 fn test_subform_via_register_field_with_presence_has_instance_manager() {
     let mut engine = XfaScriptEngine::new();
 
+    // The parent first: the instance manager lives on it (XFA 3.3 §9).
+    engine.register_field_with_presence("Root", "Root", "", "visible", true);
     // register_field_with_presence with is_subform=true should add instanceManager
     engine.register_field_with_presence(
         "Root.DynSubform",
@@ -2727,5 +2881,180 @@ fn choice_list_delete_item_and_item_state() {
         Some("A,C|1,0|a".to_string()),
         "deleteItem must remove exactly that item; getItemState must report the item matching \
          rawValue as selected; setItemState must set rawValue to the given item's save value"
+    );
+}
+
+// =============================================================================
+// Form DOM object model: parent links and node-relative SOM (XFA 3.3 §3)
+// =============================================================================
+
+/// A form with a page set, so it lays out, around `body` inside `Root`.
+fn form_with(body: &str) -> XfaForm {
+    let nodes = parse_template(&format!(
+        r#"<subform name="Root" layout="tb"><pageSet><pageArea name="P1" w="612pt" h="792pt"><contentArea x="36pt" y="36pt" w="540pt" h="720pt"/></pageArea></pageSet>{body}</subform>"#
+    ));
+    XfaForm::new(nodes).expect("form")
+}
+
+fn click_script(name: &str, source: &str) -> String {
+    format!(
+        r#"<field name="{name}" w="40pt" h="20pt"><ui><button/></ui><event activity="click"><script contentType="application/x-javascript">{source}</script></event></field>"#
+    )
+}
+
+fn value_of(form: &mut XfaForm, path: &str) -> Option<String> {
+    form.current_field_values().get(path).cloned()
+}
+
+#[test]
+fn every_node_object_links_to_its_parent() {
+    let mut form = form_with(&format!(
+        r#"<subform name="Outer" layout="tb"><subform name="Inner" layout="tb"><field name="Out" w="40pt" h="20pt"/>{}</subform></subform>"#,
+        click_script(
+            "Btn",
+            "this.parent.Out.rawValue = this.parent.name + '/' + this.parent.parent.name + '/' + this.parent.parent.parent.name;"
+        )
+    ));
+    form.click("Root.Outer.Inner.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Outer.Inner.Out").as_deref(),
+        Some("Inner/Outer/Root")
+    );
+}
+
+#[test]
+fn a_nodes_own_resolve_nodes_is_relative_to_that_node_and_answers_item() {
+    // The corpus `soPlusMinus.applyIndex` shape: number every instance's
+    // index field through `this.resolveNodes("Row[*].Idx")` and `.item(i)`.
+    let rows: String = (0..3)
+        .map(|_| r#"<subform name="Row" layout="tb"><field name="Idx" w="40pt" h="20pt"/></subform>"#)
+        .collect();
+    let mut form = form_with(&format!(
+        "{rows}{}",
+        click_script(
+            "Number",
+            "var l = this.resolveNodes('Row[*].Idx'); for (var i = 0; i &lt; l.length; i++) { l.item(i).rawValue = String(i + 1); }"
+        )
+    ));
+    form.click("Root.Number").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Row.Idx").as_deref(), Some("1"));
+    assert_eq!(value_of(&mut form, "Root.Row[1].Idx").as_deref(), Some("2"));
+    assert_eq!(value_of(&mut form, "Root.Row[2].Idx").as_deref(), Some("3"));
+}
+
+#[test]
+fn a_bare_name_is_instance_zero_and_an_index_reaches_a_later_sibling() {
+    let rows: String = (0..2)
+        .map(|_| r#"<subform name="Row" layout="tb"><field name="F" w="40pt" h="20pt"/></subform>"#)
+        .collect();
+    let mut form = form_with(&format!(
+        "{rows}{}",
+        click_script(
+            "Set",
+            "Row.F.rawValue = 'zero'; xfa.resolveNode('Row[1].F').rawValue = 'one'; this.resolveNode('Root.Row[1]').F.rawValue += '!';"
+        )
+    ));
+    form.click("Root.Set").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Row.F").as_deref(), Some("zero"));
+    assert_eq!(
+        value_of(&mut form, "Root.Row[1].F").as_deref(),
+        Some("one!")
+    );
+}
+
+#[test]
+fn a_nested_button_reaches_its_sections_instance_manager_through_parent_links() {
+    // `soPlusMinus.insertNode(this.parent.parent)` from `STP_PlusMinus.Button_Add`.
+    let mut form = form_with(&format!(
+        r#"<subform name="Section" layout="tb"><field name="Seen" w="40pt" h="20pt"/><subform name="STP_PlusMinus" layout="tb">{}</subform></subform>"#,
+        click_script(
+            "Button_Add",
+            "var s = this.parent.parent; s.Seen.rawValue = s.name + ':' + typeof s.instanceManager.addInstance;"
+        )
+    ));
+    form.click("Root.Section.STP_PlusMinus.Button_Add")
+        .expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Section.Seen").as_deref(),
+        Some("Section:function")
+    );
+}
+
+// =============================================================================
+// Instance manager (XFA 3.3 §9): limits and the JS side of add/remove
+// =============================================================================
+
+fn repeat_form(occur: &str, script: &str) -> XfaForm {
+    form_with(&format!(
+        r#"<subform name="Row" layout="tb"><occur {occur}/><field name="F" w="40pt" h="20pt"/></subform><field name="Out" w="200pt" h="20pt"/>{}"#,
+        click_script("Go", script)
+    ))
+}
+
+#[test]
+fn the_instance_manager_carries_the_declared_limits_and_is_reachable_by_its_underscore_name() {
+    let mut form = repeat_form(
+        r#"min="1" max="3" initial="2""#,
+        "Out.rawValue = [_Row.name, _Row.count, _Row.min, _Row.max, Row.instanceManager === _Row, xfa.resolveNode('Row[1]').instanceIndex].join(',');",
+    );
+    form.click("Root.Go").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("_Row,2,1,3,true,1")
+    );
+}
+
+#[test]
+fn an_unlimited_repeatable_reports_max_minus_one_and_a_plain_subform_is_one_one() {
+    let mut form = form_with(&format!(
+        r#"<subform name="Row" layout="tb"><occur max="-1"/></subform><subform name="Plain" layout="tb"/><field name="Out" w="200pt" h="20pt"/>{}"#,
+        click_script(
+            "Go",
+            // A plain subform still has `instanceManager` (a 1/1 one); only a
+            // repeatable's manager is also reachable as a bare `_Name`.
+            "var m = Plain.instanceManager; Out.rawValue = [_Row.max, m.min, m.max, m.addInstance() === null, m.count].join(',');"
+        )
+    ));
+    form.click("Root.Go").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("-1,1,1,true,1")
+    );
+}
+
+#[test]
+fn adding_past_max_and_removing_below_min_do_nothing_and_return_null() {
+    let mut form = repeat_form(
+        r#"min="1" max="2" initial="1""#,
+        "var a = _Row.addInstance(); var b = _Row.addInstance(); var c = _Row.removeInstance(0); var d = _Row.removeInstance(0); Out.rawValue = [a !== null, b === null, _Row.count].join(',');",
+    );
+    form.click("Root.Go").expect("click");
+    // add 1 -> 2 (ok), add again refused at max 2, remove 2 -> 1, remove refused at min 1.
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("true,true,1")
+    );
+}
+
+#[test]
+fn set_instances_is_clamped_to_the_occurrence_limits() {
+    let mut form = repeat_form(
+        r#"min="1" max="3" initial="1""#,
+        "_Row.setInstances(9); var high = _Row.count; _Row.setInstances(0); Out.rawValue = high + ',' + _Row.count;",
+    );
+    form.click("Root.Go").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("3,1"));
+}
+
+#[test]
+fn a_new_instance_is_addressable_in_the_same_script_and_starts_empty() {
+    let mut form = repeat_form(
+        r#"min="1" max="-1" initial="1""#,
+        "Row.F.rawValue = 'first'; var r = _Row.addInstance(); xfa.resolveNode('Row[1].F').rawValue = 'second'; Out.rawValue = [r === Row.all.item(1), r.instanceIndex, Row.F.rawValue, r.F.rawValue, r.parent === Row.parent].join(',');",
+    );
+    form.click("Root.Go").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("true,1,first,second,true")
     );
 }

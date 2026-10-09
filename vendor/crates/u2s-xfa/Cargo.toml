@@ -28,8 +28,16 @@ name = "u2s_xfa"
 path = "src/lib.rs"
 
 [[test]]
+name = "access"
+path = "tests/access.rs"
+
+[[test]]
 name = "pagination"
 path = "tests/pagination.rs"
+
+[[test]]
+name = "repeatables"
+path = "tests/repeatables.rs"
 
 [[test]]
 name = "smoke"
@@ -77,6 +85,9 @@ features = ["derive"]
 
 [dependencies.thiserror]
 version = "2"
+
+[dev-dependencies.serde_json]
+version = "1.0"
 
 [dev-dependencies.u2s-test-assets]
 path = "../u2s-test-assets"

@@ -25,15 +25,18 @@ finding (its judge failed or the document changed meanwhile): run rule_check aga
 (b) COVERAGE: a judge reads the source too, but finding what is missing is still the review's work. \
 coverage_check lists per language every source text the document does not carry (a lead to look \
 up on the rendered page, not a verdict: a text a referenced fragment renders, or one only scripts \
-use, is an expected miss); count the fillable controls in xfa_controls against the document; and \
+use, is an expected miss); count the fillable fields in xfa_controls against the document (it lists \
+them a window at a time: follow `next_offset` until it is null); and \
 walk the source section by section with xfa_page_text and xfa_search, in every language, from each \
 language's own PDF (get_source_info gives each `doc_path`). \
 (c) SOURCE BEHAVIOUR (gated): what the form does is decided by the source, so start from it, not \
-from the AEM form. Open each language's PDF with xfa_open and list its controls with xfa_controls: \
-every control with `affects_layout` is read by the form's scripts. Set each one with xfa_set (every \
+from the AEM form. Open each language's PDF with xfa_open and list its choices with xfa_controls \
+(`kinds` radio, checkbox, dropdown and button): every choice with `affects_layout` and `access` open \
+is read by the form's scripts. Set each one with xfa_set (every \
 option of it that changes something; xfa_reset between explorations) and note what the reply's \
 `appeared`, `disappeared` and `side_effects` say; a control another one reveals counts once a \
-listing shows it, so list the controls again after revealing a section. Make the same choice in the \
+listing shows it, so list the controls again after revealing a section. Press the add button of a \
+repeatable section with xfa_click to see the rows it adds. Make the same choice in the \
 AEM form (aem_verify_set, below) and check that the same sections appear and disappear and the \
 same values change: a source choice that changes nothing in AEM is a dropped condition. Read the \
 source's own logic as well: find its `<validate>` (nullTest, picture), `<calculate>` and event \
@@ -133,8 +136,9 @@ Read the XFA, the authoritative text, fields and options in every language: xfa_
 then xfa_outline / xfa_node to browse the template, xfa_search to find a label or field, xfa_read to \
 quote exact text. Look at the pages with xfa_info and xfa_render_pages, and xfa_render_region for \
 fine print. Nobody has enumerated the form's variants for you: open the form with xfa_open, list its \
-controls with xfa_controls (it says which ones drive visibility), change each configurator choice \
-with xfa_set, re-render to see which sections appear, and xfa_reset between explorations. Hidden \
+controls with xfa_controls (it says which ones drive visibility; `kinds` narrows it to the choices), \
+change each configurator choice with xfa_set, press a repeatable section's add button with \
+xfa_click, re-render to see which sections appear, and xfa_reset between explorations. Hidden \
 sections exist in your output only if you reveal them here. A form is multilingual whenever \
 get_source_info lists more than one language: each language is its own PDF.\n\
 2. Find precedents (before building): BEFORE authoring any node, consult the reference DOCUMENTATION \

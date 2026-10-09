@@ -5,12 +5,16 @@ prebuilt images, each published for arm64 and amd64:
 
 | Image | Verifies | Contents |
 |---|---|---|
-| `ajila.azurecr.io/u2s-aem-generic:<tag>` | the generic `aem` format | ajila's AEM Forms base image, as is |
-| `ajila.azurecr.io/u2s-aem-ubs:<tag>` | `aem-ubs` | the base image plus the UBS platform (`ajila-forms-ubs`), the Redacto summary renderer and the OSGi settings they need |
+| `ghcr.io/ajilach/u2s-aem-generic:<tag>` | the generic `aem` format | ajila's AEM Forms base image, as is |
+| `ghcr.io/ajilach/u2s-aem-ubs:<tag>` | `aem-ubs` | the base image plus the UBS platform (`ajila-forms-ubs`), the Redacto summary renderer and the OSGi settings they need |
 
-`.env` names them (`U2S_AEM_VERIFY_UBS_IMAGE`, `U2S_AEM_VERIFY_GENERIC_IMAGE`)
-and `docker compose up` pulls them with the host's registry login. Nothing
-else is needed to use them.
+Both are private packages of the `ajilach` GitHub organization. `.env` names
+them (`U2S_AEM_VERIFY_UBS_IMAGE`, `U2S_AEM_VERIFY_GENERIC_IMAGE`) and a GitHub
+login that can read them (`U2S_AEM_VERIFY_REGISTRY_USERNAME`, and a token with
+`read:packages` as `U2S_AEM_VERIFY_REGISTRY_PASSWORD`). Each verifier pulls
+its image with that login on its first run, when the Docker daemon does not
+have it yet; `verify_status` reports both `aem_image_present` and
+`registry_login_configured`. Nothing else is needed to use them.
 
 **Why a seeding image, not a committed one.** The base images declare
 `/aem/crx-quickstart` (the JCR repository and quickstart install) a
@@ -36,9 +40,12 @@ Needed whenever `ajila-forms-ubs` or the base image changes. On a machine
 with Docker buildx:
 
 - **Azure CLI**, logged in to ajila's registry (`az login`, then
-  `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`), with push
-  rights on `u2s-aem-generic` and `u2s-aem-ubs`, and both base images
-  (arm64: `ajila.azurecr.io/aemforms-arm:<version>`, plus the amd64 one).
+  `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`), to pull both
+  base images (arm64: `ajila.azurecr.io/aemforms-arm:<version>`, amd64:
+  `ajila.azurecr.io/aemforms:<version>`).
+- **Push access to GitHub's registry**: a GitHub account that can create
+  packages in `ajilach`, with `gh auth refresh -s write:packages,read:packages`
+  and then `gh auth token | docker login ghcr.io -u <user> --password-stdin`.
 - **`ajila-forms-ubs`**, checked out on the branch to verify against (e.g.
   `local-setup/redacto-summary`), with Maven and JDK 8. If the Maven deploy
   fails on a missing dependency, build `ajila-forms-ubs-OP2-mock` first
@@ -61,7 +68,13 @@ It tags the two base images together as the generic image, runs
 [bake-ubs-platform.sh](bake-ubs-platform.sh) once per architecture (the
 amd64 bake runs under emulation on an Apple silicon machine, slowly),
 exports each baked volume into a seeding image, and pushes the UBS image
-for both architectures. Put the printed tags into `.env.example`.
+for both architectures. It refuses to start when any tag it would write
+already exists, so pick a new tag (the date) for every publish. Put the
+printed tags into `.env.example`.
+
+A new package is private. To let others pull it, give them (or a team) read
+access in the package's settings on GitHub (organization `ajilach`,
+Packages).
 
 The bake itself Maven-deploys the UBS platform, uploads the fragment
 library and the Redacto summary bundle, writes four OSGi configs as
@@ -103,6 +116,16 @@ the form's `summaryComponent` field before submitting -- the condition
 before routing the submission through Redacto rather than the native path.
 
 ## Debugging checklist
+
+If `verify_run` reports `guide_bridge_not_detected` with a near-empty
+screenshot, and AEM's `error.log` says `No renderer for extension html` for
+a resource type under `/apps/ajila-forms-customers/ajila-forms-ubs`: the
+image has no UBS platform in it. The bake checks for that page component
+after its Maven deploy and stops when it is missing, so this only happens
+with an image baked before that check (`u2s-aem-ubs:2026-10-09-arm64` is
+one). A bake once deployed to another AEM on this host: it used a fixed
+`localhost:4502`, which Java resolved to a Parallels VM forwarding that
+port. The bake now publishes AEM on a random port of `127.0.0.1` only.
 
 If `verify_run` reports `submit_failed`: `window.forms.ubs.navigation` is
 missing on the page -- check the UBS clientlib actually loaded (right

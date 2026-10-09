@@ -520,7 +520,7 @@ pub async fn pull_verifier_images(
     let images = [chromium, redacto.postgres_image.trim().to_string()];
     for image in &images {
         docker
-            .ensure_image(image, &platform)
+            .ensure_image(image, &platform, None)
             .await
             .map_err(|e| format!("could not pull {image}: {e}"))?;
     }

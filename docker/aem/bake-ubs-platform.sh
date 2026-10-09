@@ -132,9 +132,14 @@ echo "creating volume $VOLUME_NAME (a no-op if it already exists) ..."
 docker volume create "$VOLUME_NAME" >/dev/null
 
 echo "starting $BASE_IMAGE as $CONTAINER_NAME with $VOLUME_NAME attached at /aem/crx-quickstart ..."
+# Published on a free port of 127.0.0.1, never a fixed one, and every step
+# below addresses it by that exact address. A fixed `localhost:4502` once
+# reached two different AEMs: curl went to this container over IPv6, while
+# Maven (Java prefers IPv4) went to a Parallels VM forwarding IPv4 4502, so
+# the UBS platform was installed into that VM and silently missing here.
 docker run -d --name "$CONTAINER_NAME" --platform "$PLATFORM" \
     --add-host=host.docker.internal:host-gateway \
-    -p 4502:8080 \
+    -p 127.0.0.1::8080 \
     -v "$VOLUME_NAME:/aem/crx-quickstart" \
     "$BASE_IMAGE" >/dev/null
 
@@ -142,6 +147,14 @@ cleanup() {
     docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
+
+AEM_PORT="$(docker port "$CONTAINER_NAME" 8080/tcp | sed -n 's/^127\.0\.0\.1:\([0-9][0-9]*\)$/\1/p' | head -1)"
+if [ -z "$AEM_PORT" ]; then
+    echo "error: $CONTAINER_NAME has no port published on 127.0.0.1 for 8080" >&2
+    exit 1
+fi
+AEM_URL="http://127.0.0.1:$AEM_PORT"
+echo "AEM is published at $AEM_URL"
 
 # A single 200 here is not enough: live testing found AEM can answer the
 # login page once, then 503 again for a stretch (a repository/HTTP-service
@@ -153,7 +166,7 @@ trap cleanup EXIT
 echo "waiting for AEM to report ready (first boot into an empty volume can take several minutes; a re-run against an already-populated volume is much faster) ..."
 STABLE=0
 while [ "$STABLE" -lt 3 ]; do
-    if curl -fsS -o /dev/null --max-time 5 "http://localhost:4502/libs/granite/core/content/login.html"; then
+    if curl -fsS -o /dev/null --max-time 5 "$AEM_URL/libs/granite/core/content/login.html"; then
         STABLE=$((STABLE + 1))
     else
         STABLE=0
@@ -163,7 +176,18 @@ done
 echo "ready."
 
 echo "deploying the UBS forms platform from $UBS_DIR ..."
-( cd "$UBS_DIR" && JAVA_HOME="$(/usr/libexec/java_home -v 1.8)" mvn -q clean install -PautoInstallPackage )
+( cd "$UBS_DIR" && JAVA_HOME="$(/usr/libexec/java_home -v 1.8)" mvn -q clean install -PautoInstallPackage \
+    -Daem.server=http://127.0.0.1 -Daem.port="$AEM_PORT" )
+
+# Maven reporting success only means *some* package manager accepted the
+# upload. The form page component every UBS form renders through must be
+# in this AEM, or every form comes up as a blank page.
+UBS_PAGE_COMPONENT=/apps/ajila-forms-customers/ajila-forms-ubs/components/pages/aftemplatedpage
+if ! curl -fsS -o /dev/null -u "$AEM_USER:$AEM_PASSWORD" "$AEM_URL$UBS_PAGE_COMPONENT.json"; then
+    echo "error: $UBS_PAGE_COMPONENT is missing in this AEM after the Maven deploy" >&2
+    exit 1
+fi
+echo "  $UBS_PAGE_COMPONENT is present"
 
 # Built without the project's own `autoInstallBundle` profile on purpose:
 # that profile's maven-sling-plugin config hardcodes
@@ -189,7 +213,7 @@ echo "deploying the UBS forms platform from $UBS_DIR ..."
 echo "uploading $(basename "$FRAGMENTS_PACKAGE") to the CRX Package Manager ..."
 UPLOAD_RESPONSE="$(curl -fsS -u "$AEM_USER:$AEM_PASSWORD" \
     -F "package=@$FRAGMENTS_PACKAGE" \
-    "http://localhost:4502/crx/packmgr/service/.json/?cmd=upload&force=true")"
+    "$AEM_URL/crx/packmgr/service/.json/?cmd=upload&force=true")"
 
 FRAGMENTS_PATH="$(printf '%s' "$UPLOAD_RESPONSE" | python3 -c '
 import json, sys
@@ -201,7 +225,7 @@ print(response["path"])
 
 echo "installing $FRAGMENTS_PATH ..."
 curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST \
-    "http://localhost:4502/crx/packmgr/service/.json$FRAGMENTS_PATH?cmd=install" \
+    "$AEM_URL/crx/packmgr/service/.json$FRAGMENTS_PATH?cmd=install" \
     | python3 -c '
 import json, sys
 response = json.load(sys.stdin)
@@ -220,7 +244,7 @@ for fragment_root in \
     /content/forms/af/afforms_ubs_fragmentlib
 do
     if ! curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -o /dev/null \
-            "http://localhost:4502$fragment_root.json"; then
+            "$AEM_URL$fragment_root.json"; then
         echo "error: $fragment_root is not readable after installing the package;" >&2
         echo "       forms referencing it would render it as nothing." >&2
         exit 1
@@ -246,7 +270,7 @@ SUMMARY_CLIENTLIB="/apps/ajila-forms-customers/ajila-forms-ubs/clientlibs/compon
 
 echo "installing DOMPurify as $DOMPURIFY_CATEGORY ..."
 curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -o /dev/null -X POST \
-    "http://localhost:4502$DOMPURIFY_ROOT" \
+    "$AEM_URL$DOMPURIFY_ROOT" \
     -F "jcr:primaryType=cq:ClientLibraryFolder" \
     -F "categories=$DOMPURIFY_CATEGORY" \
     -F "categories@TypeHint=String[]"
@@ -256,14 +280,14 @@ curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -o /dev/null -X POST \
 # client library, and no hint that anything went wrong. Without it, each part
 # name becomes the child node's name, which is what an `nt:file` needs.
 curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -o /dev/null -X POST \
-    "http://localhost:4502$DOMPURIFY_ROOT" \
+    "$AEM_URL$DOMPURIFY_ROOT" \
     -F "purify.min.js=@$DOMPURIFY_DIR/purify.min.js" \
     -F "js.txt=@$DOMPURIFY_DIR/js.txt"
 
 # A 200 from the POST does not mean the library is servable, and an empty
 # client library is exactly the silent failure this whole exercise was about.
 if ! curl -fsS -u "$AEM_USER:$AEM_PASSWORD" \
-        "http://localhost:4502$DOMPURIFY_ROOT.js" | grep -q 'DOMPurify'; then
+        "$AEM_URL$DOMPURIFY_ROOT.js" | grep -q 'DOMPurify'; then
     echo "error: $DOMPURIFY_ROOT.js does not serve DOMPurify after installing it;" >&2
     echo "       the summary component would fail with 'DOMPurify is not defined'" >&2
     echo "       and every rendered PDF would come back holding only a header." >&2
@@ -272,7 +296,7 @@ fi
 
 echo "making the summary client library depend on it ..."
 curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -o /dev/null -X POST \
-    "http://localhost:4502$SUMMARY_CLIENTLIB" \
+    "$AEM_URL$SUMMARY_CLIENTLIB" \
     -F "dependencies=$DOMPURIFY_CATEGORY" \
     -F "dependencies@TypeHint=String[]"
 
@@ -292,14 +316,14 @@ echo "installing $(basename "$REDACTO_JAR") into AEM ..."
 curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -o /dev/null \
     -F action=install -F bundlestartlevel=20 \
     -F "bundlefile=@$REDACTO_JAR" \
-    "http://localhost:4502/system/console/bundles"
+    "$AEM_URL/system/console/bundles"
 
 echo "starting the Redacto summary bundle ..."
 until curl -fsS -u "$AEM_USER:$AEM_PASSWORD" \
-        "http://localhost:4502/system/console/bundles/com.ajila.redacto.summary.bundle.json" \
+        "$AEM_URL/system/console/bundles/com.ajila.redacto.summary.bundle.json" \
         | grep -q '"state":"Active"'; do
     curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -o /dev/null -X POST -F action=start \
-        "http://localhost:4502/system/console/bundles/com.ajila.redacto.summary.bundle" || true
+        "$AEM_URL/system/console/bundles/com.ajila.redacto.summary.bundle" || true
     sleep 2
 done
 
@@ -317,7 +341,7 @@ done
 set_osgi_config() {
     pid="$1"
     shift
-    curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST "http://localhost:4502/apps/system/config/$pid" \
+    curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST "$AEM_URL/apps/system/config/$pid" \
         -F "jcr:primaryType=sling:OsgiConfig" "$@" >/dev/null
 }
 
@@ -367,15 +391,15 @@ set_osgi_config "org.apache.sling.engine.impl.auth.SlingAuthenticator" \
 # `verify_run`'s own readiness waits do rather than guessing a fixed sleep.
 echo "waiting for the OSGi installer to apply the new configuration ..."
 until curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST \
-        "http://localhost:4502/system/console/configMgr/com.ubs.OP2.forms.internal.service.ConfigurationService" \
+        "$AEM_URL/system/console/configMgr/com.ubs.OP2.forms.internal.service.ConfigurationService" \
         | grep -q '"is_set":true'; do
     sleep 2
 done
 
 echo "rebuilding client libraries ..."
-curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST "http://localhost:4502/libs/granite/ui/content/dumplibs.rebuild.html" \
+curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST "$AEM_URL/libs/granite/ui/content/dumplibs.rebuild.html" \
     -F cmd=invalidateCaches >/dev/null
-curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST "http://localhost:4502/libs/granite/ui/content/dumplibs.rebuild.html" \
+curl -fsS -u "$AEM_USER:$AEM_PASSWORD" -X POST "$AEM_URL/libs/granite/ui/content/dumplibs.rebuild.html" \
     -F cmd=rebuildAll >/dev/null
 
 echo "stopping $CONTAINER_NAME (the deployed state stays in $VOLUME_NAME) ..."

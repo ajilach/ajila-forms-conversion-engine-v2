@@ -8,7 +8,7 @@
 //! pixels and this test would not reliably see them change).
 
 // `support` also carries the oracle used by corpus_state_discovery.rs; this
-// file only needs `require_fonts`.
+// file only needs `require_fonts` and `all_controls`.
 #[allow(dead_code)]
 mod support;
 
@@ -77,14 +77,16 @@ async fn crop(c: &Client, session: &str, revision: u64, pos: &Value) -> String {
 /// A representative slice of the corpus, chosen to cover all three control
 /// kinds with controls whose own box is expected to visibly redraw:
 /// `AAAB_019_DE`'s radio group, `AAOE_033_IT`'s dropdown, `AALP_019_EN`'s
-/// checkboxes. Deliberately not `AALQ_019_DE`, whose only checkboxes
-/// (`Table_AssetClasses.Column{New,Old}.Layout.CB`) each live inside a
-/// 10-row repeated table section with no per-row index in their SOM path —
-/// every row's `Control` carries the identical `field` string (a real,
-/// separate limitation: `xfa_set` has no way to address one specific row),
-/// which `positions.len() > 1` already flags and this test's sampling skips
-/// rather than silently exercising.
-const FORMS: &[&str] = &["AAAB_019_DE.pdf", "AAOE_033_IT.pdf", "AALP_019_EN.pdf"];
+/// checkboxes, and `AALQ_019_DE`, whose checkboxes
+/// (`Table_AssetClasses.Column{New,Old}.Layout.CB`) live in a 10-row table:
+/// each row is its own instance with its own indexed path (`Layout[3].CB`),
+/// so one row's checkbox is addressable on its own.
+const FORMS: &[&str] = &[
+    "AAAB_019_DE.pdf",
+    "AAOE_033_IT.pdf",
+    "AALP_019_EN.pdf",
+    "AALQ_019_DE.pdf",
+];
 
 /// Sampled controls per form, capped to keep this test's runtime reasonable
 /// across three real forms while still exercising every control kind a form
@@ -105,9 +107,9 @@ async fn setting_a_control_redraws_its_own_box_and_reset_reverts_it() {
         let session = so["session"].as_str().expect("session").to_string();
         let base_revision = so["revision"].as_u64().expect("revision");
 
-        let controls = call(&c, "xfa_controls", json!({ "session": session, "revision": base_revision })).await;
-        let sc = structured(&controls);
-        let list = sc["controls"].as_array().expect("controls array").clone();
+        let list =
+            support::all_controls(&c, json!({ "session": session, "revision": base_revision }))
+                .await;
 
         // One control per exclGroup (siblings would just re-prove the same
         // mechanism), deterministically ordered so failures reproduce.
@@ -117,11 +119,17 @@ async fn setting_a_control_redraws_its_own_box_and_reset_reverts_it() {
             if !ctrl["visible"].as_bool().unwrap_or(false) {
                 continue;
             }
-            // Exactly one position: a control repeated across several table
-            // rows shares one ambiguous SOM path (see the module doc's
-            // `AALQ_019_DE` note) — `xfa_set` cannot address a single row of
-            // it, so cropping any one of its positions would not be testing
-            // what this test claims to test.
+            // Only choices have a value to move to: buttons are pressed (see
+            // the repeatable-section test below), free-value fields take any
+            // text. And only an open one can be set at all.
+            if !["radio", "checkbox", "dropdown"].contains(&ctrl["kind"].as_str().unwrap_or_default())
+                || ctrl["access"] != "open"
+            {
+                continue;
+            }
+            // Exactly one position, so there is one box to crop. Every field,
+            // each instance of a repeated section included, has its own path;
+            // a second position only means the layout draws it twice.
             if ctrl["positions"].as_array().map(Vec::len) != Some(1) {
                 continue;
             }
@@ -208,4 +216,102 @@ async fn setting_a_control_redraws_its_own_box_and_reset_reverts_it() {
     c.cancel().await.ok();
 
     assert!(findings.is_empty(), "\n{findings}");
+}
+
+/// The corpus's repeatable-section pattern, end to end (`AACC_019_DE`): a
+/// `Client_Section_DYN` section with `<occur max="5"/>` and, inside it,
+/// `STP_PlusMinus.Button_Add`/`Button_Minus`, whose click scripts call the
+/// shared `soPlusMinus.insertNode`/`removeNode` (XFA 3.3 §9 instance manager)
+/// and renumber every section through `resolveNodes(...[*]...)`.
+#[tokio::test]
+async fn clicking_add_on_aacc_creates_a_second_client_section_and_minus_removes_it() {
+    support::require_fonts();
+    let s = server();
+    let c = s.connect().await;
+
+    let form = corpus_form("AACC_019_DE.pdf");
+    let opened = call(
+        &c,
+        "xfa_open",
+        json!({ "doc_path": form.display().to_string() }),
+    )
+    .await;
+    let session = structured(&opened)["session"]
+        .as_str()
+        .expect("session")
+        .to_string();
+
+    let list = support::all_controls(&c, json!({ "session": session, "revision": 0 })).await;
+    let add = list
+        .iter()
+        .find(|c| {
+            c["field"]
+                .as_str()
+                .unwrap_or_default()
+                .ends_with("Client_Section_DYN.STP_PlusMinus.Button_Add")
+        })
+        .expect("the section's add button is listed")
+        .clone();
+    assert_eq!(add["kind"], "button");
+    assert_eq!(add["click"], "instances", "{add}");
+    let add_field = add["field"].as_str().unwrap().to_string();
+    let section = add_field
+        .strip_suffix(".STP_PlusMinus.Button_Add")
+        .unwrap()
+        .to_string();
+    let count_under = |list: &[Value], prefix: &str| {
+        list.iter()
+            .filter(|c| c["field"].as_str().unwrap_or_default().starts_with(prefix))
+            .count()
+    };
+    let first_count = count_under(&list, &format!("{section}."));
+    assert!(first_count > 0);
+
+    let clicked = call(
+        &c,
+        "xfa_click",
+        json!({ "session": session, "expected_revision": 0, "field": add_field }),
+    )
+    .await;
+    let sc = structured(&clicked);
+    assert_eq!(sc["instances_changed"], true, "{sc}");
+    let second = format!("{section}[1].");
+    assert!(
+        sc["appeared"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p.as_str().unwrap_or_default().starts_with(&second)),
+        "{sc}"
+    );
+
+    let after_list = support::all_controls(&c, json!({ "session": session, "revision": 1 })).await;
+    assert_eq!(
+        count_under(&after_list, &second),
+        first_count,
+        "the new section has the same controls as the first"
+    );
+
+    let minus = call(
+        &c,
+        "xfa_click",
+        json!({
+            "session": session,
+            "expected_revision": 1,
+            "field": format!("{section}[1].STP_PlusMinus.Button_Minus"),
+        }),
+    )
+    .await;
+    let sm = structured(&minus);
+    assert_eq!(sm["instances_changed"], true, "{sm}");
+    let gone = sm["disappeared"].as_array().unwrap();
+    assert!(!gone.is_empty(), "{sm}");
+    assert!(
+        gone.iter()
+            .all(|p| p.as_str().unwrap_or_default().starts_with(&second)),
+        "only the second section's fields go: {sm}"
+    );
+
+    call(&c, "xfa_close", json!({ "session": session })).await;
+    c.cancel().await.ok();
 }

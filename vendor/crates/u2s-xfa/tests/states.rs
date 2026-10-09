@@ -4,7 +4,7 @@
 //! being enumerable: a caller lists the controls, picks a point, and gets it —
 //! no matter how large the product is.
 
-use u2s_xfa::states::{SelectionSpec, StateSpec, controls, materialize};
+use u2s_xfa::states::{ClickEffect, ControlKind, SelectionSpec, StateSpec, controls, materialize};
 use u2s_xfa::{XfaNode, fonts};
 
 /// Panics naming what's missing — the corpus and fallback fonts are both
@@ -28,6 +28,12 @@ fn controls_describe_the_space_without_exploring_it() {
     assert!(c.space_size >= 1);
     for control in &c.controls {
         assert!(!control.field.is_empty(), "every control needs a handle");
+        if !control.kind.is_choice() {
+            // A button is pressed and a free-value field takes any text:
+            // nothing to select, and not a dimension of the space.
+            assert!(control.options.is_empty(), "{} has options", control.field);
+            continue;
+        }
         assert!(
             !control.options.is_empty(),
             "control {} offers nothing to select",
@@ -35,12 +41,22 @@ fn controls_describe_the_space_without_exploring_it() {
         );
     }
 
+    // This form's repeatable `DYN_Input` sections add and remove rows through
+    // the shared `soPlusMinus` script object; its buttons say so.
+    let add = c
+        .controls
+        .iter()
+        .find(|c| c.field.ends_with("DYN_Input.STP_PlusMinus.Button_Add"))
+        .expect("the add button is listed");
+    assert_eq!(add.kind, ControlKind::Button);
+    assert_eq!(add.click, Some(ClickEffect::Instances));
+
     // space_size multiplies *dimensions*, not controls: radio buttons sharing
     // an exclGroup are alternatives, so they contribute one factor between
     // them. Multiplying every control would misreport the space on any form
     // with radios.
     let mut dims: std::collections::BTreeMap<String, u64> = std::collections::BTreeMap::new();
-    for control in &c.controls {
+    for control in c.controls.iter().filter(|c| c.kind.is_choice()) {
         let dim = control
             .group
             .clone()
@@ -55,6 +71,7 @@ fn controls_describe_the_space_without_exploring_it() {
         let naive: u64 = c
             .controls
             .iter()
+            .filter(|c| c.kind.is_choice())
             .fold(1u64, |a, c| a.saturating_mul(c.options.len().max(1) as u64));
         assert_ne!(
             c.space_size, naive,
@@ -79,18 +96,16 @@ fn an_explicit_selection_is_reachable_without_enumerating() {
     let Some(target) = c
         .controls
         .iter()
-        .find(|c| c.options.len() > 1 || c.default.is_some())
+        .find(|c| c.kind.is_choice() && c.access.is_interactive())
     else {
         eprintln!("skipping: this form has no settable control");
         return;
     };
 
-    let spec = StateSpec {
-        selections: vec![SelectionSpec {
-            field: target.field.clone(),
-            value: target.options[0].value.clone(),
-        }],
-    };
+    let spec = StateSpec::selections(vec![SelectionSpec {
+        field: target.field.clone(),
+        value: target.options[0].value.clone(),
+    }]);
     let state = materialize(&nodes, &spec).expect("materialize");
     assert_ne!(state.key, "default");
     assert!(state.flattened.node_count() > 0);
@@ -102,22 +117,22 @@ fn an_explicit_selection_is_reachable_without_enumerating() {
 fn selection_order_does_not_change_the_state() {
     let nodes = nodes_of("AAAA_019_DE.pdf");
     let c = controls(&nodes).expect("controls");
-    if c.controls.len() < 2 {
-        eprintln!("skipping: need two controls to permute");
-        return;
-    }
-    let (a, b) = (&c.controls[0], &c.controls[1]);
+    // Two settable choices: a free-value field has no option to pick, and a
+    // locked one cannot be set.
+    let choices: Vec<_> = c
+        .controls
+        .iter()
+        .filter(|c| c.kind.is_choice() && c.access.is_interactive())
+        .collect();
+    assert!(choices.len() >= 2, "AAAA_019_DE has several settable choices");
+    let (a, b) = (choices[0], choices[1]);
     let sel = |x: &u2s_xfa::states::Control| SelectionSpec {
         field: x.field.clone(),
         value: x.options[0].value.clone(),
     };
 
-    let forward = StateSpec {
-        selections: vec![sel(a), sel(b)],
-    };
-    let reverse = StateSpec {
-        selections: vec![sel(b), sel(a)],
-    };
+    let forward = StateSpec::selections(vec![sel(a), sel(b)]);
+    let reverse = StateSpec::selections(vec![sel(b), sel(a)]);
     assert_eq!(forward.key(), reverse.key(), "canonical keys must agree");
 
     let one = materialize(&nodes, &forward).expect("forward");
@@ -138,12 +153,10 @@ fn selection_order_does_not_change_the_state() {
 #[test]
 fn an_unknown_control_says_where_the_real_names_are() {
     let nodes = nodes_of("AAAA_019_DE.pdf");
-    let spec = StateSpec {
-        selections: vec![SelectionSpec {
-            field: "NoSuchField".into(),
-            value: "x".into(),
-        }],
-    };
+    let spec = StateSpec::selections(vec![SelectionSpec {
+        field: "NoSuchField".into(),
+        value: "x".into(),
+    }]);
     let msg = match materialize(&nodes, &spec) {
         Err(e) => e.to_string(),
         Ok(_) => panic!("an unknown control must be refused, not silently ignored"),

@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use bollard::Docker;
+use bollard::auth::DockerCredentials;
 use bollard::models::{ContainerCreateBody, HostConfig, PortBinding, PortMap};
 use bollard::query_parameters::{
     CreateContainerOptions, CreateImageOptionsBuilder,
@@ -20,6 +21,48 @@ use bollard::query_parameters::{
     StopContainerOptionsBuilder,
 };
 use futures::TryStreamExt;
+
+/// A login for the private registry an image is pulled from, sent with the
+/// pull itself. `bollard` cannot read what `docker login` stored in the OS
+/// keychain, so a process that has to pull a private image on its own (a
+/// standalone verifier, with no operator `docker pull` before it) is given
+/// the login explicitly instead.
+///
+/// Both parts are non-empty by construction. `Debug` never prints the
+/// password.
+#[derive(Clone, PartialEq, Eq)]
+pub struct RegistryCredentials {
+    username: String,
+    password: String,
+}
+
+impl RegistryCredentials {
+    /// `None` when either part is empty: an empty username or password is
+    /// never a usable login, so it is rejected here rather than sent.
+    pub fn new(username: String, password: String) -> Option<Self> {
+        if username.is_empty() || password.is_empty() {
+            return None;
+        }
+        Some(Self { username, password })
+    }
+
+    fn to_bollard(&self) -> DockerCredentials {
+        DockerCredentials {
+            username: Some(self.username.clone()),
+            password: Some(self.password.clone()),
+            ..Default::default()
+        }
+    }
+}
+
+impl std::fmt::Debug for RegistryCredentials {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegistryCredentials")
+            .field("username", &self.username)
+            .field("password", &"<redacted>")
+            .finish()
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum DockerError {
@@ -207,20 +250,18 @@ impl DockerLifecycle {
 
     /// Pulls `image` if the daemon does not already have it -- and *only*
     /// if it does not, checked first via [`Self::image_id`] rather than
-    /// always attempting the pull. This is not an optimisation: `bollard`'s
-    /// `create_image` call carries no registry credentials (there is no
-    /// generic way to reconstruct what `docker login`/`az acr login` wrote
-    /// into the OS keychain via `credsStore`), so an unconditional pull
-    /// against a private registry -- ajila's own ACR, in
-    /// `u2s-aem-verify-core`'s real usage -- fails with a 401 even when the
-    /// image is already present locally and nothing needed pulling at all.
-    /// Confirmed live: `docker pull` from the CLI (which does read that
-    /// credential store) succeeded against the same image and tag this
-    /// call 401'd on. An operator's own `docker pull` (`docker/aem/README.md`'s
-    /// own setup step) is what puts the image there in the first place;
-    /// this only ever needs to reach the registry itself for a tag that is
-    /// missing or has never been pulled on this machine.
-    pub async fn ensure_image(&self, image: &str, platform: &str) -> Result<(), DockerError> {
+    /// always attempting the pull. `bollard` cannot read what `docker login`
+    /// stored in the OS keychain (`credsStore`), so a pull from a private
+    /// registry only works with `credentials`; without them it 401s even
+    /// when the host's own `docker pull` would succeed. Checking first means
+    /// an image already on the daemon never needs the registry at all,
+    /// with or without credentials.
+    pub async fn ensure_image(
+        &self,
+        image: &str,
+        platform: &str,
+        credentials: Option<&RegistryCredentials>,
+    ) -> Result<(), DockerError> {
         if self.image_id(image).await?.is_some() {
             return Ok(());
         }
@@ -230,7 +271,11 @@ impl DockerLifecycle {
             options = options.platform(platform);
         }
         self.docker
-            .create_image(Some(options.build()), None, None)
+            .create_image(
+                Some(options.build()),
+                None,
+                credentials.map(RegistryCredentials::to_bollard),
+            )
             .try_collect::<Vec<_>>()
             .await
             .map_err(|source| DockerError::PullFailed {
@@ -910,7 +955,7 @@ mod tests {
     async fn networks_addresses_and_file_copies_work_against_a_real_daemon() {
         let lifecycle = DockerLifecycle::connect().await.expect("a real Docker daemon");
         lifecycle
-            .ensure_image("postgres:16-alpine", "")
+            .ensure_image("postgres:16-alpine", "", None)
             .await
             .expect("postgres:16-alpine pulls or is already present");
         let unique = format!(
@@ -985,7 +1030,7 @@ mod tests {
     async fn exec_pipes_stdin_and_reports_the_real_exit_code() {
         let lifecycle = DockerLifecycle::connect().await.expect("a real Docker daemon");
         lifecycle
-            .ensure_image("postgres:16-alpine", "")
+            .ensure_image("postgres:16-alpine", "", None)
             .await
             .expect("postgres:16-alpine pulls or is already present");
 
@@ -1060,5 +1105,50 @@ mod tests {
             .expect("the container runs and exits");
         assert_eq!(result.exit_code, 1, "{result:?}");
         assert!(result.output.contains("POSTGRES_PASSWORD"), "{result:?}");
+    }
+
+    /// Real registry coverage for [`DockerLifecycle::ensure_image`]'s
+    /// credentials, run only when explicitly asked: a private image the
+    /// daemon does not have is refused without a login and pulled with one.
+    /// Reads the image and login from `U2S_VERIFY_LIVE_PRIVATE_IMAGE`,
+    /// `U2S_VERIFY_LIVE_REGISTRY_USERNAME` and
+    /// `U2S_VERIFY_LIVE_REGISTRY_PASSWORD`; removes the image locally first,
+    /// so it must be one nothing else on the daemon is using.
+    #[tokio::test]
+    #[ignore = "needs a real Docker daemon and a private registry login"]
+    async fn a_private_image_pulls_only_with_registry_credentials() {
+        let read = |key: &str| std::env::var(key).unwrap_or_else(|_| panic!("{key} must be set"));
+        let image = read("U2S_VERIFY_LIVE_PRIVATE_IMAGE");
+        let credentials = RegistryCredentials::new(
+            read("U2S_VERIFY_LIVE_REGISTRY_USERNAME"),
+            read("U2S_VERIFY_LIVE_REGISTRY_PASSWORD"),
+        )
+        .expect("a non-empty login");
+        let lifecycle = DockerLifecycle::connect()
+            .await
+            .expect("a real Docker daemon");
+
+        // Absent locally, or the pulls below would never reach the registry.
+        let _ = lifecycle
+            .docker
+            .remove_image(
+                &image,
+                None::<bollard::query_parameters::RemoveImageOptions>,
+                None,
+            )
+            .await;
+        assert!(lifecycle.image_id(&image).await.expect("inspect").is_none());
+
+        let anonymous = lifecycle.ensure_image(&image, "", None).await;
+        assert!(
+            matches!(anonymous, Err(DockerError::PullFailed { .. })),
+            "a private image must not pull without a login: {anonymous:?}"
+        );
+
+        lifecycle
+            .ensure_image(&image, "", Some(&credentials))
+            .await
+            .expect("the private image pulls with the login");
+        assert!(lifecycle.image_id(&image).await.expect("inspect").is_some());
     }
 }

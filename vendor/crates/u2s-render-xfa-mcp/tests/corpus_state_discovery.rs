@@ -11,7 +11,7 @@ mod support;
 use std::path::PathBuf;
 
 use serde_json::{Value, json};
-use u2s_render_test_harness::{ServerUnderTest, call, structured};
+use u2s_render_test_harness::ServerUnderTest;
 
 fn corpus_form(name: &str) -> PathBuf {
     u2s_test_assets::corpus_form(name)
@@ -32,10 +32,8 @@ fn server() -> ServerUnderTest {
         )
 }
 
-fn reported_fields(controls: &Value) -> Vec<String> {
-    controls["controls"]
-        .as_array()
-        .expect("controls array")
+fn reported_fields(controls: &[Value]) -> Vec<String> {
+    controls
         .iter()
         .map(|c| c["field"].as_str().expect("field").to_string())
         .collect()
@@ -50,6 +48,7 @@ const FORMS: &[&str] = &[
     "AAOE_033_IT.pdf",
     "AAKS_019_DE.pdf",
     "AABK_019_DE.pdf",
+    "AACC_019_DE.pdf",
 ];
 
 /// The core claim: nothing the template declares as a checkbox, radio or
@@ -69,9 +68,10 @@ async fn every_form_reports_every_oracle_control() {
         let expected = support::oracle_controls(&form);
         assert!(!expected.is_empty(), "{name}: oracle found no controls at all");
 
-        let controls = call(&c, "xfa_controls", json!({ "doc_path": form.display().to_string() })).await;
+        let controls =
+            support::all_controls(&c, json!({ "doc_path": form.display().to_string() })).await;
         let reported: std::collections::BTreeSet<String> =
-            reported_fields(structured(&controls)).into_iter().collect();
+            reported_fields(&controls).into_iter().collect();
 
         let missing: Vec<&String> = expected.difference(&reported).collect();
         if !missing.is_empty() {
@@ -88,7 +88,8 @@ async fn every_form_reports_every_oracle_control() {
 }
 
 /// Internal consistency, no oracle needed: every reported field is unique,
-/// every radio names its group, and every checkbox has exactly two options.
+/// every radio names its group, every checkbox has exactly two options, and
+/// every button has no options, no group, and a known `click` effect.
 /// A form-wide sweep rather than one hand-picked control, since a violation
 /// specific to one exclGroup shape would otherwise need its own form to show
 /// up.
@@ -100,14 +101,26 @@ async fn the_controls_listing_is_internally_consistent_on_every_form() {
 
     for name in FORMS {
         let form = corpus_form(name);
-        let controls = call(&c, "xfa_controls", json!({ "doc_path": form.display().to_string() })).await;
-        let sc = structured(&controls);
-        let list = sc["controls"].as_array().expect("controls array");
+        let list =
+            support::all_controls(&c, json!({ "doc_path": form.display().to_string() })).await;
 
         let mut seen = std::collections::HashSet::new();
-        for ctrl in list {
+        for ctrl in &list {
             let field = ctrl["field"].as_str().expect("field");
             assert!(seen.insert(field.to_string()), "{name}: duplicate field {field}");
+
+            // Every field has an XFA access keyword (XFA 3.3 §17), and names
+            // the container it inherits from only when that container is
+            // what locks it.
+            let access = ctrl["access"].as_str().expect("access");
+            assert!(
+                ["open", "readOnly", "protected", "nonInteractive"].contains(&access),
+                "{name}: {field} has access {access}"
+            );
+            assert!(
+                ctrl.get("access_from").is_none() || access != "open",
+                "{name}: open field {field} names a locking container"
+            );
 
             match ctrl["kind"].as_str().expect("kind") {
                 "radio" => assert!(
@@ -130,6 +143,23 @@ async fn the_controls_listing_is_internally_consistent_on_every_form() {
                         values.len(),
                         2,
                         "{name}: checkbox {field}'s two options share a value"
+                    );
+                }
+                "button" => {
+                    assert!(
+                        ctrl["options"].as_array().is_none_or(Vec::is_empty),
+                        "{name}: button {field} has options"
+                    );
+                    assert!(
+                        ctrl["group"].is_null(),
+                        "{name}: button {field} has a group"
+                    );
+                    assert!(
+                        ctrl.get("click").is_none()
+                            || ctrl["click"] == "instances"
+                            || ctrl["click"] == "script",
+                        "{name}: button {field} has click {}",
+                        ctrl["click"]
                     );
                 }
                 _ => {}

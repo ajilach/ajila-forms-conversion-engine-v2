@@ -135,7 +135,8 @@ verified by auditing every `crate::` path in the copied files.
     (`states::enumerate`) no longer exists — see deviation 11.
 
 14. **`SelectableField`, `SelectableFieldKind` and
-    `get_all_selectable_fields_ordered` made public**, and `FontManager::
+    `get_all_selectable_fields_ordered` made public** (since renamed
+    `InteractiveField*`, see 20), and `FontManager::
     loaded_variants` added. These expose a form's *controls* without exploring
     its state space — the basis of on-demand addressing. `get_all_selectable_fields_ordered`'s
     filter has since narrowed to only the XFA 3.3 §17 access rule (a control
@@ -203,6 +204,80 @@ verified by auditing every `crate::` path in the copied files.
     truncated every list past two entries. `dropdown_options()` already
     existed, pairing every entry's display and save value and handling
     `<items save="1">`; `controls` now uses it and reports both.
+
+20. **Repeatable subforms follow XFA 3.3 §9.** Upstream laid out one copy
+    of a subform with `<occur>` (none for `initial="0"`), never `initial`
+    copies; grew instances only through `setInstances`, once, by cloning
+    template nodes under `*_inst` names shifted by a y-offset; left
+    `addInstance` and `removeInstance` as no-ops; and gave every instance's
+    fields the same SOM path. Now:
+    - SOM paths carry instance indices (`Row[1].F`, index 0 written without
+      brackets), built and parsed by one set of helpers in `som.rs`; `Row[n]`
+      indexes same-named siblings under one parent (§3), not across the
+      document. The script registry stays keyed by index-free template path.
+    - The Form DOM is materialised from the template before any script runs
+      (`xfa::instances`): each repeatable subform becomes its `initial`
+      sibling instances, its pristine declaration kept as the prototype for
+      later ones, and each later copy gets its own element ids so an
+      `xfa:embed` inside it shows its own instance's value.
+    - JS node objects have `parent` links and node-level `resolveNode(s)`;
+      every subform has an `instanceManager` (1/1 without `<occur>`), and a
+      repeatable's is also its parent's `_Name` (§9). `addInstance`,
+      `insertInstance`, `removeInstance`, `moveInstance` and `setInstances`
+      honour `[min, max]`, change the JS side at once (a new instance is a
+      placeholder a script can write into in the same run), and queue the
+      change; the engine then applies it to the Form DOM, re-keys the
+      instances after it, registers the new one, and fires `initialize`
+      then `indexChange` (§10). The load pass applies queued changes between
+      its phases.
+    - The `*_inst` cloning, `get_dynamic_instances`, the flattener's occur
+      branches and `Hint::Occurrence` are removed. `FlattenedKind::Group` is
+      kept but nothing emits it.
+    - `exhaustive`'s collector also lists buttons
+      (`InteractiveFieldKind::Button`), and `states` reports what a press
+      does (`ClickEffect`); a `StateSpec` is an ordered list of set and click
+      steps.
+
+    Covered by `tests/repeatables.rs` and the instance-manager tests in
+    `src/xfa/scripting/tests.rs`.
+
+21. **Field access follows XFA 3.3 §17 and §2.** Upstream read `access`
+    only from template attributes (and `nonInteractive` from the `<form>`
+    packet), and used it only to leave locked controls out of the control
+    list. A script's `this.access = "protected"` landed on a plain JS
+    property nothing read, so a field a form locked at runtime stayed open.
+    Now:
+    - Every registered field, exclusion group and subform object carries
+      `access` (its own declared value) and an `_initialAccess` baseline.
+      `XfaScriptEngine::take_access_changes` reports what scripts changed
+      and rebases; the load pass, every event and every refresh write those
+      changes onto the node tree (`ScriptExecutor::apply_access_changes`), so
+      layout and lookups see them. A value that is not one of the four
+      keywords is logged and put back, not read as `open`.
+    - `XfaForm::effective_access` combines a node's own `access` with every
+      enclosing subform's and exclusion group's, the most restrictive
+      winning (precedence nonInteractive, protected, readOnly, open), and
+      names the container when it is the stricter one.
+    - `interact` and `click` refuse a field whose effective access is not
+      `open`, before any event fires: none of the three restricted levels
+      allows a direct change by the person filling the form.
+    - `exhaustive`'s collector lists every field with a widget, whatever its
+      access and whatever its kind (text, date, numeric, ...), classified by
+      `Flattened::extract_widget_kind`; `states::Control` reports `access`
+      and `access_from`. A node whose name contains a dot is skipped with its
+      subtree, since no SOM path can address it.
+    - The spec disagrees with itself on `nonInteractive`: the chapter 2
+      table says its content "can not be modified by scripts", the chapter
+      17 property text says it "can be modified by scripts". This follows
+      chapter 17, the normative reference, and the engine never stopped
+      scripts writing such fields anyway.
+    - Master-page content keeps the access of the document-wide pass (page 1
+      of 1); the per-page re-evaluation does not feed back into it. A
+      master-page node's script path skips its pageSet and pageArea, so a
+      change is applied to the one node with that name, or to every
+      page-area copy when all of them are master-page content.
+
+    Covered by `tests/access.rs` here and in `u2s-render-xfa`.
 
 Not yet reached: `render_labelled` is not ported (it needs the excluded analysis
 pipeline).

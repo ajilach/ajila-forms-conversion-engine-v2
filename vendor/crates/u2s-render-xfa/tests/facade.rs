@@ -418,12 +418,10 @@ fn a_requested_state_renders_differently_from_the_default() {
         eprintln!("skipping: no settable control on this form");
         return;
     };
-    let spec = StateSpec {
-        selections: vec![u2s_render_xfa::states::SelectionSpec {
-            field: target.field.clone(),
-            value: target.options[0].value.clone(),
-        }],
-    };
+    let spec = StateSpec::selections(vec![u2s_render_xfa::states::SelectionSpec {
+        field: target.field.clone(),
+        value: target.options[0].value.clone(),
+    }]);
 
     // Render whichever page the target control actually lands on, rather
     // than assuming page 1: a positioned subform that used to straddle a

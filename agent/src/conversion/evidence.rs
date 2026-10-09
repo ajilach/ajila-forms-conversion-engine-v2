@@ -96,8 +96,19 @@ impl StageEvidence {
                     self.dimension_of
                         .insert(field.to_string(), dimension.clone());
                     // A hidden control is required once a listing shows it,
-                    // which a listing after revealing its section does.
-                    if control["affects_layout"] == true && control["visible"] == true {
+                    // which a listing after revealing its section does. Only
+                    // an open choice is: buttons are pressed rather than set,
+                    // free-value fields choose nothing, and xfa_set refuses a
+                    // locked control.
+                    let choice = matches!(
+                        control["kind"].as_str(),
+                        Some("radio" | "checkbox" | "dropdown")
+                    );
+                    if choice
+                        && control["access"] == "open"
+                        && control["affects_layout"] == true
+                        && control["visible"] == true
+                    {
                         self.driving.insert(dimension);
                     }
                 }
@@ -266,10 +277,10 @@ mod tests {
 
     fn controls() -> ToolReply {
         text(json!({ "controls": [
-            { "field": "form.p1.yes", "group": "form.p1.choice", "affects_layout": true, "visible": true },
-            { "field": "form.p1.no", "group": "form.p1.choice", "affects_layout": true, "visible": true },
-            { "field": "form.p1.extra", "affects_layout": true, "visible": false },
-            { "field": "form.p1.plain", "affects_layout": false, "visible": true },
+            { "field": "form.p1.yes", "kind": "radio", "group": "form.p1.choice", "affects_layout": true, "visible": true, "access": "open" },
+            { "field": "form.p1.no", "kind": "radio", "group": "form.p1.choice", "affects_layout": true, "visible": true, "access": "open" },
+            { "field": "form.p1.extra", "kind": "checkbox", "affects_layout": true, "visible": false, "access": "open" },
+            { "field": "form.p1.plain", "kind": "dropdown", "affects_layout": false, "visible": true, "access": "open" },
         ], "space_size": 8, "saturated": false }))
     }
 
@@ -348,7 +359,7 @@ mod tests {
         e.observe_reply(
             "xfa_controls",
             &json!({}),
-            &text(json!({ "controls": [{ "field": "form.p1.extra", "affects_layout": true, "visible": true }] })),
+            &text(json!({ "controls": [{ "field": "form.p1.extra", "kind": "checkbox", "affects_layout": true, "visible": true, "access": "open" }] })),
         );
         assert!(e.missing(OutputTarget::Aem, true)[0].ends_with("form.p1.extra"));
         e.observe_reply(
@@ -431,6 +442,26 @@ mod tests {
         e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
         e.observe_reply("redacto_verify_run", &json!({ "dry_run": true }), &text(json!({ "artefacts": [] })));
         assert!(e.missing(OutputTarget::Redacto, true)[0].contains("redacto_verify_run"));
+    }
+
+    /// Only an open choice can be set: a button is pressed, not set, a
+    /// free-value field under a calculating subform is flagged without
+    /// choosing anything, and a locked control is refused by xfa_set. None
+    /// of them is required, or the gate could never be passed.
+    #[test]
+    fn only_open_choices_are_required() {
+        let mut e = complete_aem("/blobs/a.pdf");
+        e.observe_reply(
+            "xfa_controls",
+            &json!({}),
+            &text(json!({ "controls": [
+                { "field": "form.p1.add", "kind": "button", "click": "instances", "affects_layout": true, "visible": true, "access": "open" },
+                { "field": "form.p1.name", "kind": "text", "affects_layout": true, "visible": true, "access": "open" },
+                { "field": "form.p1.locked", "kind": "radio", "group": "form.p1.sheet", "affects_layout": true, "visible": true,
+                  "access": "protected", "access_from": "form.p1.sheet" },
+            ], "total": 3, "next_offset": null })),
+        );
+        assert!(e.missing(OutputTarget::Aem, true).is_empty());
     }
 
     /// A radio set before the listing that names its group counts for the

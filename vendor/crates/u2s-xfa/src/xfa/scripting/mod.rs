@@ -82,7 +82,7 @@ pub use state::{FormState, Presence, SharedFormState, XfaValue};
 
 // Engine
 pub use engine::XfaScriptEngine;
-pub use form::{EventResult, NodeBounds, XfaForm, XfaNodeRef, XfaNodeRefMut};
+pub use form::{EffectiveAccess, EventResult, NodeBounds, XfaForm, XfaNodeRef, XfaNodeRefMut};
 
 // Script object wrapper
 pub use script_object::wrap_script_object;

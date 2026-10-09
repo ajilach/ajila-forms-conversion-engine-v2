@@ -16,7 +16,7 @@ mod support;
 use std::path::PathBuf;
 
 use serde_json::json;
-use u2s_render_test_harness::{ServerUnderTest, call, structured};
+use u2s_render_test_harness::{ServerUnderTest, call, error_text, structured};
 
 fn corpus_form(name: &str) -> PathBuf {
     u2s_test_assets::corpus_form(name)
@@ -47,11 +47,8 @@ async fn aaoe_dropdown_has_legal_entity_and_individual_options() {
     let c = s.connect().await;
     let form = corpus_form("AAOE_033_IT.pdf");
 
-    let controls = call(&c, "xfa_controls", json!({ "doc_path": form.display().to_string() })).await;
-    let sc = structured(&controls);
-    let dropdown = sc["controls"]
-        .as_array()
-        .expect("controls")
+    let all = support::all_controls(&c, json!({ "doc_path": form.display().to_string() })).await;
+    let dropdown = all
         .iter()
         .find(|ctrl| ctrl["field"].as_str().unwrap_or_default().ends_with("CL_ClientType"))
         .expect("CL_ClientType must be listed");
@@ -79,11 +76,8 @@ async fn aaks_exemptions_radio_group_has_three_options() {
     let c = s.connect().await;
     let form = corpus_form("AAKS_019_DE.pdf");
 
-    let controls = call(&c, "xfa_controls", json!({ "doc_path": form.display().to_string() })).await;
-    let sc = structured(&controls);
-    let members: Vec<&str> = sc["controls"]
-        .as_array()
-        .expect("controls")
+    let all = support::all_controls(&c, json!({ "doc_path": form.display().to_string() })).await;
+    let members: Vec<&str> = all
         .iter()
         .filter(|ctrl| {
             ctrl["group"]
@@ -118,11 +112,8 @@ async fn aaab_selecting_rb3_changes_the_section_title_to_loeschung() {
     assert!(!before_matches.is_empty(), "default state must show the Neuanlage title");
     let page = before_matches[0]["page"].as_u64().expect("page");
 
-    let controls = call(&c, "xfa_controls", json!({ "session": session, "revision": 0 })).await;
-    let sc = structured(&controls);
-    let rb3 = sc["controls"]
-        .as_array()
-        .expect("controls")
+    let all = support::all_controls(&c, json!({ "session": session, "revision": 0 })).await;
+    let rb3 = all
         .iter()
         .find(|ctrl| ctrl["field"].as_str().unwrap_or_default().ends_with("RB_3"))
         .expect("RB_3 must be listed")
@@ -143,6 +134,88 @@ async fn aaab_selecting_rb3_changes_the_section_title_to_loeschung() {
     assert!(
         !text.contains("Neuanlage (möglich"),
         "the old title should be gone, got {text:?}"
+    );
+
+    call(&c, "xfa_close", json!({ "session": session })).await;
+    c.cancel().await.ok();
+}
+
+/// `AAGS_019_DE`: choosing the first signature option prefills the sheet
+/// number with "1" and locks it, the way the form's own change script does
+/// in Acrobat (`TF_Sheet.rawValue = "1"; TF_Sheet.access = "protected"`);
+/// the second option clears and unlocks it. The lock must be reported, must
+/// be readable afterwards, and must refuse a direct set the way Acrobat
+/// refuses typing into the field.
+#[tokio::test]
+async fn aags_the_signature_option_prefills_and_locks_the_sheet_number() {
+    const SHEET: &str = "UBSForms_66352.Page.AccountHolder.Date_Sheet.STP_Sheet.TF_Sheet";
+    const OPTION: &str = "UBSForms_66352.Page.SpecimenSignatures.STP_RB_Vertical.RB_Group_yyy";
+
+    support::require_fonts();
+    let s = server();
+    let c = s.connect().await;
+    let form = corpus_form("AAGS_019_DE.pdf");
+
+    let opened = call(&c, "xfa_open", json!({ "doc_path": form.display().to_string() })).await;
+    let session = structured(&opened)["session"].as_str().expect("session").to_string();
+
+    let before = call(&c, "xfa_field", json!({ "session": session, "revision": 0, "field": SHEET })).await;
+    let before = structured(&before);
+    assert_eq!(before["kind"], "text");
+    assert_eq!(before["access"], "open", "{before}");
+
+    let first = call(
+        &c,
+        "xfa_set",
+        json!({ "session": session, "expected_revision": 0, "field": format!("{OPTION}.RB_1"), "value": "1" }),
+    )
+    .await;
+    let first = structured(&first).clone();
+    assert!(
+        first["side_effects"]
+            .as_array()
+            .expect("side_effects")
+            .iter()
+            .any(|e| e["field"] == SHEET && e["to"] == "1"),
+        "the sheet number is prefilled: {first}"
+    );
+    assert_eq!(
+        first["access_changes"],
+        json!([{ "field": SHEET, "from": "open", "to": "protected" }])
+    );
+    let revision = first["revision"].as_u64().expect("revision");
+
+    let locked = call(&c, "xfa_field", json!({ "session": session, "revision": revision, "field": SHEET })).await;
+    let locked = structured(&locked);
+    assert_eq!((locked["value"].as_str(), locked["access"].as_str()), (Some("1"), Some("protected")));
+
+    let refused = call(
+        &c,
+        "xfa_set",
+        json!({ "session": session, "expected_revision": revision, "field": SHEET, "value": "7" }),
+    )
+    .await;
+    assert_eq!(refused.is_error, Some(true), "a protected field cannot be set");
+    assert!(error_text(&refused).contains("protected"), "{}", error_text(&refused));
+
+    let second = call(
+        &c,
+        "xfa_set",
+        json!({ "session": session, "expected_revision": revision, "field": format!("{OPTION}.RB_2"), "value": "2" }),
+    )
+    .await;
+    let second = structured(&second);
+    assert_eq!(
+        second["access_changes"],
+        json!([{ "field": SHEET, "from": "protected", "to": "open" }])
+    );
+    assert!(
+        second["side_effects"]
+            .as_array()
+            .expect("side_effects")
+            .iter()
+            .any(|e| e["field"] == SHEET && e["to"] == ""),
+        "the sheet number is cleared again: {second}"
     );
 
     call(&c, "xfa_close", json!({ "session": session })).await;

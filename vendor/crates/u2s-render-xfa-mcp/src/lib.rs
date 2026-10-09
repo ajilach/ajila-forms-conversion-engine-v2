@@ -31,19 +31,24 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
+use rmcp::ErrorData as McpError;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::*;
 use rmcp::service::{RequestContext, RoleServer};
-use rmcp::ErrorData as McpError;
 use serde_json::{Value, json};
-use u2s_render_xfa::states::SelectionSpec;
+use u2s_render_xfa::states::{ControlKind, SelectionSpec, Step};
 use u2s_render_xfa::{
     BlobStore, ImageFormat, Limits, Pattern, RectPt, RenderError, RenderedPage, Renderer, Target,
-    fonts,
-    states::StateSpec,
+    fonts, states::StateSpec,
 };
 
 const MANIFEST_URI: &str = "u2s://manifest";
+
+/// How many controls `xfa_controls` returns when no `limit` is given, and
+/// the most it returns whatever `limit` asks for: a large form has several
+/// hundred fields, far more than one response should carry.
+const CONTROLS_DEFAULT_LIMIT: usize = 100;
+const CONTROLS_MAX_LIMIT: usize = 500;
 
 #[derive(Clone)]
 pub struct XfaRenderServer {
@@ -146,32 +151,98 @@ impl XfaRenderServer {
         let Some(obj) = state.as_object() else {
             return Err(RenderError::invalid_argument(
                 "state",
-                "must be an object of the shape { \"selections\": [...] }",
+                "must be an object of the shape { \"steps\": [...] }",
             ));
         };
-        let Some(list) = obj.get("selections").and_then(Value::as_array) else {
-            let keys: Vec<&str> = obj.keys().map(String::as_str).collect();
-            return Err(RenderError::invalid_argument(
-                "state",
-                format!("must have a \"selections\" array; this object has keys {keys:?}"),
-            ));
+        let field_of = |item: &Value, what: &str| -> Result<String, RenderError> {
+            item.get("field")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| {
+                    RenderError::invalid_argument("state", format!("each {what} needs a \"field\""))
+                })
         };
-        let mut selections = Vec::with_capacity(list.len());
-        for item in list {
-            let field = item
-                .get("field")
-                .and_then(Value::as_str)
-                .ok_or_else(|| RenderError::invalid_argument("state", "each selection needs a \"field\""))?;
-            let value = item
-                .get("value")
-                .and_then(Value::as_str)
-                .ok_or_else(|| RenderError::invalid_argument("state", "each selection needs a \"value\""))?;
-            selections.push(SelectionSpec {
-                field: field.to_string(),
+        let selection_of = |item: &Value, what: &str| -> Result<SelectionSpec, RenderError> {
+            let value = item.get("value").and_then(Value::as_str).ok_or_else(|| {
+                RenderError::invalid_argument("state", format!("each {what} needs a \"value\""))
+            })?;
+            Ok(SelectionSpec {
+                field: field_of(item, what)?,
                 value: value.to_string(),
-            });
+            })
+        };
+        match (obj.get("steps"), obj.get("selections")) {
+            (Some(_), Some(_)) => Err(RenderError::invalid_argument(
+                "state",
+                "has both \"steps\" and \"selections\"; give one (selections are set steps)",
+            )),
+            (Some(steps), None) => {
+                let list = steps.as_array().ok_or_else(|| {
+                    RenderError::invalid_argument("state", "\"steps\" must be an array")
+                })?;
+                let mut out = Vec::with_capacity(list.len());
+                for item in list {
+                    match (item.get("set"), item.get("click")) {
+                        (Some(set), None) => out.push(Step::Set(selection_of(set, "set step")?)),
+                        (None, Some(click)) => out.push(Step::Click {
+                            field: field_of(click, "click step")?,
+                        }),
+                        _ => {
+                            return Err(RenderError::invalid_argument(
+                                "state",
+                                "each step is {\"set\": {field, value}} or {\"click\": {field}}",
+                            ));
+                        }
+                    }
+                }
+                Ok(StateSpec { steps: out })
+            }
+            (None, Some(selections)) => {
+                let list = selections.as_array().ok_or_else(|| {
+                    RenderError::invalid_argument("state", "\"selections\" must be an array")
+                })?;
+                let selections = list
+                    .iter()
+                    .map(|item| selection_of(item, "selection"))
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(StateSpec::selections(selections))
+            }
+            (None, None) => {
+                let keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+                Err(RenderError::invalid_argument(
+                    "state",
+                    format!(
+                        "must have a \"steps\" array (or the older \"selections\"); this \
+                         object has keys {keys:?}"
+                    ),
+                ))
+            }
         }
-        Ok(StateSpec { selections })
+    }
+
+    /// The optional `kinds` filter of `xfa_controls`, parsed once here into
+    /// [`ControlKind`]s; an unknown kind is refused, naming the valid ones.
+    fn kinds_of(args: &Value) -> Result<Option<Vec<ControlKind>>, RenderError> {
+        let Some(list) = args.get("kinds") else {
+            return Ok(None);
+        };
+        let list = list.as_array().ok_or_else(|| {
+            RenderError::invalid_argument("kinds", "must be an array of control kinds")
+        })?;
+        list.iter()
+            .map(|k| {
+                serde_json::from_value::<ControlKind>(k.clone()).map_err(|_| {
+                    RenderError::invalid_argument(
+                        "kinds",
+                        format!(
+                            "{k} is not a control kind; use any of {}",
+                            ControlKind::ALL.map(ControlKind::wire_name).join(", ")
+                        ),
+                    )
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()
+            .map(Some)
     }
 
     /// What a call addresses: a document on disk in a requested state, or
@@ -228,6 +299,17 @@ impl XfaRenderServer {
                 let field = arg_str(args, "field")?;
                 let value = arg_str(args, "value")?;
                 let interaction = self.renderer.set(handle, expected_revision, field, value)?;
+                let value = serde_json::to_value(&interaction).map_err(|e| {
+                    RenderError::backend("xfa", format!("serialize interaction: {e}"))
+                })?;
+                Ok(CallToolResult::structured(value))
+            }
+
+            "xfa_click" => {
+                let handle = arg_str(args, "session")?;
+                let expected_revision = arg_u64(args, "expected_revision")?;
+                let field = arg_str(args, "field")?;
+                let interaction = self.renderer.click(handle, expected_revision, field)?;
                 let value = serde_json::to_value(&interaction).map_err(|e| {
                     RenderError::backend("xfa", format!("serialize interaction: {e}"))
                 })?;
@@ -365,9 +447,38 @@ impl XfaRenderServer {
 
             "xfa_controls" => {
                 let target = Self::target_of(args)?;
-                let c = self.renderer.controls(&target)?;
+                let kinds = Self::kinds_of(args)?;
+                let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
+                let limit = match args.get("limit").and_then(Value::as_u64) {
+                    None => CONTROLS_DEFAULT_LIMIT,
+                    Some(0) => {
+                        return Err(RenderError::invalid_argument(
+                            "limit",
+                            "must be at least 1",
+                        ));
+                    }
+                    Some(n) => (n as usize).min(CONTROLS_MAX_LIMIT),
+                };
+                let c = self
+                    .renderer
+                    .controls(&target)?
+                    .window(kinds.as_deref(), offset, limit);
                 let value = serde_json::to_value(&c)
                     .map_err(|e| RenderError::backend("xfa", format!("serialize controls: {e}")))?;
+                Ok(CallToolResult::structured(value))
+            }
+
+            "xfa_field" => {
+                let target = Self::target_of(args)?;
+                let field = arg_str(args, "field")?;
+                let control = self.renderer.field(&target, field.as_str())?.ok_or_else(|| {
+                    RenderError::invalid_argument(
+                        "field",
+                        format!("no field {field} on this form; call xfa_controls for the available ones"),
+                    )
+                })?;
+                let value = serde_json::to_value(&control)
+                    .map_err(|e| RenderError::backend("xfa", format!("serialize field: {e}")))?;
                 Ok(CallToolResult::structured(value))
             }
 
@@ -449,17 +560,20 @@ impl ServerHandler for XfaRenderServer {
              Call `xfa_info` first. If it reports kind 'not_xfa' the document is an \
              ordinary PDF — use the PDF renderer for it.\n\n\
              To use the form the way a person would, call `xfa_open` once, then `xfa_set` \
-             one control at a time. Each call fires the field's own scripts and reports what \
-             changed, including controls that appeared or disappeared, plus the `revision` to \
-             carry forward: pass that `session` and `revision` to any read tool \
+             one control at a time and `xfa_click` to press a button. Each call fires the \
+             field's own scripts and reports what changed, including fields that appeared or \
+             disappeared, plus the `revision` to carry forward: pass that `session` and `revision` to any read tool \
              (`xfa_render_page`, `xfa_page_text`, `xfa_search_text`, `xfa_controls`, ...) to \
              see or read the form as it now stands. `xfa_reset` puts a session back the way it \
              opened without losing the handle; `xfa_close` releases it, though an unused \
              session is reclaimed on its own after a while.\n\n\
+             On a form with a repeatable section, pressing its add button creates the next \
+             instance; its fields are listed under indexed paths (`Row[1].Amount`) in \
+             `appeared` and in `xfa_controls`.\n\n\
              For a single one-shot read with no interaction, `doc_path` plus the `state` \
-             argument still works exactly as before, addressing a state directly by its \
-             selections — call `xfa_controls` with `doc_path` to see a form's controls before \
-             opening a session on it.\n\n\
+             argument addresses a state directly by its ordered `steps` (sets and presses) — \
+             call `xfa_controls` with `doc_path` to see a form's controls before opening a \
+             session on it.\n\n\
              For multi-page work use `xfa_render_pages` and follow `next_from` until it \
              is null.\n\n\
              To locate something rather than read everything, use `xfa_search_text`: it \

@@ -136,8 +136,9 @@ impl AemVerifyServer {
     }
 
     async fn verify_status(&self, args: &Value) -> Result<CallToolResult, String> {
-        // The verifier cannot pull the private AEM image itself, so its
-        // presence on the daemon is worth reporting before a run fails on it.
+        // A missing private AEM image is pulled on the first run only with a
+        // registry login configured, so both facts are worth reporting before
+        // a run fails on them.
         let (docker_reachable, aem_image_present) = match DockerLifecycle::connect().await {
             Ok(docker) => (
                 docker.is_reachable().await,
@@ -169,6 +170,7 @@ impl AemVerifyServer {
             "submit": submit_str(&self.profile.submit),
             "docker_reachable": docker_reachable,
             "aem_image_present": aem_image_present,
+            "registry_login_configured": self.profile.registry_credentials.is_some(),
             "aem_data_volume": self.profile.aem_data_volume,
             "redacto_url": self.profile.redacto_url,
             "redacto_reachable": redacto_reachable,

@@ -289,7 +289,7 @@ pub async fn boot(
     // The daemon must already hold the private images: this process has no
     // registry credentials (compose pulls them with the host's login).
     for image in profile.images.all() {
-        docker.ensure_image(image, &profile.platform).await.map_err(|err| {
+        docker.ensure_image(image, &profile.platform, None).await.map_err(|err| {
             VerifyError::new(
                 ErrorKind::ImageMissing,
                 format!("{err} (`docker compose pull` puts the platform images on this host)"),

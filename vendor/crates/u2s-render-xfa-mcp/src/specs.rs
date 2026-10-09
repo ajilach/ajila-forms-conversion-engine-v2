@@ -6,7 +6,7 @@
 //! server's `form_type` routes XFA documents here — and identical names
 //! would collide in the tool list.
 //!
-//! `xfa_open`, `xfa_set`, `xfa_reset` and `xfa_close` are the interaction
+//! `xfa_open`, `xfa_set`, `xfa_click`, `xfa_reset` and `xfa_close` are the interaction
 //! surface: a session, not a state address. `xfa_controls` and every read
 //! tool take either `doc_path` (a one-shot, stateless address, with the
 //! optional `state` shorthand for a specific point in the space) or
@@ -19,6 +19,7 @@
 //! prompt surface — visible in one file.
 
 use serde_json::{Value, json};
+use u2s_render_xfa::states::ControlKind;
 
 // This is the shared MCP *convention*'s contract version (roles, ingest
 // capabilities, blob-handle discipline, and now the additive `sessions`
@@ -77,10 +78,39 @@ fn state_prop() -> Value {
         "type": "object",
         "description": "Which form state to use, when addressing by doc_path. Omit for the \
                         state the form opens in. To choose another, list the form's controls \
-                        with xfa_controls and name the ones you want changed — every other \
-                        control keeps its default. Ignored when addressing by session, since \
-                        a session's own interactions already determine its state.",
+                        with xfa_controls and say what to do to them, in order, as `steps`: \
+                        `{\"set\": {\"field\", \"value\"}}` sets a control, \
+                        `{\"click\": {\"field\"}}` presses a button. Everything not touched \
+                        keeps its default. Presses happen in the order given, so two presses \
+                        of an add button make two new rows, and a later step can set a field \
+                        of a row an earlier press created (`Row[1].Amount`). `selections`, a \
+                        list of sets only, is the older spelling and still accepted; give one \
+                        of the two, not both. Ignored when addressing by session, since a \
+                        session's own interactions already determine its state.",
         "properties": {
+            "steps": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "set": {
+                            "type": "object",
+                            "properties": {
+                                "field": { "type": "string", "description": "A field path, from xfa_controls." },
+                                "value": { "type": "string", "description": "What to set it to." }
+                            },
+                            "required": ["field", "value"]
+                        },
+                        "click": {
+                            "type": "object",
+                            "properties": {
+                                "field": { "type": "string", "description": "A button's field path, from xfa_controls (kind `button`)." }
+                            },
+                            "required": ["field"]
+                        }
+                    }
+                }
+            },
             "selections": {
                 "type": "array",
                 "items": {
@@ -117,14 +147,43 @@ pub fn tool_specs() -> Vec<Value> {
              which controls appeared or disappeared, the new page count, and the fidelity \
              this interaction was reached at. Pass the `revision` you last saw as \
              `expected_revision`; a stale or future one is refused and the error names the \
-             current one, so an agent can never act on a view that has moved.",
+             current one, so an agent can never act on a view that has moved. Field paths \
+             are indexed inside repeated sections: `Row.Amount` is the first row, \
+             `Row[1].Amount` the second, exactly as xfa_controls lists them. A button has \
+             no value to set; press it with xfa_click instead. A field whose `access` is \
+             not `open` (see xfa_controls) is refused, since a person filling the form \
+             cannot change it either. The form's scripts can lock or unlock fields in \
+             response to a change, and prefill them: `access_changes` lists every field \
+             whose access changed, as `{field, from, to}`, and `side_effects` every value \
+             the scripts wrote.",
             json!({
                 "session": session_prop(),
                 "expected_revision": revision_prop(),
-                "field": { "type": "string", "description": "A control's field path, from xfa_controls." },
+                "field": { "type": "string", "description": "A field path, from xfa_controls." },
                 "value": { "type": "string", "description": "What to set it to — one of the control's options, or its own on-value for a radio button." }
             }),
             json!(["session", "expected_revision", "field", "value"]),
+        ),
+        tool(
+            "xfa_click",
+            "Press one button the way a person would. The button's own click script runs, \
+             so on a form with a repeatable section this is how rows are added or removed: \
+             pressing an add button creates the next instance, and every field in it is \
+             listed in `appeared` under an indexed path such as `form1.Body.Row[1].Amount` \
+             (the first instance has no index) and in the next xfa_controls. Pressing a \
+             remove button lists the removed instance's fields in `disappeared`; the \
+             instances after it move down one index. A press the form refuses, because the \
+             section is already at its minimum or maximum number of instances, leaves \
+             `instances_changed` false and says so in `warning`. Returns the same shape as \
+             xfa_set. Pass the `revision` you last saw as `expected_revision`; a stale or \
+             future one is refused and the error names the current one. A button whose \
+             `access` is not `open` is refused, since a person cannot press it either.",
+            json!({
+                "session": session_prop(),
+                "expected_revision": revision_prop(),
+                "field": { "type": "string", "description": "A button's field path, from xfa_controls (kind `button`)." }
+            }),
+            json!(["session", "expected_revision", "field"]),
         ),
         tool(
             "xfa_reset",
@@ -268,10 +327,32 @@ pub fn tool_specs() -> Vec<Value> {
         ),
         tool(
             "xfa_controls",
-            "Every control on the form: every radio group, checkbox and dropdown, with its \
-             options, what it is set to, whether it is currently visible, and whether the \
-             form's own scripts react to it (`affects_layout`) — a form with many controls \
-             is worth triaging by that flag first. Addressed by `session` and `revision`, \
+            "The fields on the form, a window at a time: radio buttons, checkboxes, dropdowns and \
+             buttons, and the \
+             free-value fields (`text`, `text_area`, `date`, `time`, `date_time`, `numeric`, \
+             `password`, `signature`, `barcode`, `image`), each with its options (empty for a \
+             free-value field, which takes any text), what it is set to, whether it is \
+             currently visible, and whether the form's own scripts react to it \
+             (`affects_layout`) — a form with many controls is worth triaging by that flag \
+             first.\n\n\
+             Each field also reports `access`, the XFA keyword for what a person filling the \
+             form may do with it: `open` can be set or pressed; `readOnly`, `protected` and \
+             `nonInteractive` cannot, and xfa_set and xfa_click refuse them. A locked field \
+             is still listed, because the form's scripts can still write its value and can \
+             unlock it in response to another field; watch `access_changes` in the xfa_set \
+             result. `access` is effective: a field inside a locked subform or exclusion \
+             group is locked too, and `access_from` then names that container.\n\n\
+             A large form has hundreds of fields, so the listing is windowed: it returns at \
+             most `limit` (default 100, at most 500) from `offset` (default 0), in field path \
+             order, with `total` and `next_offset`; walk `next_offset` until it is null. \
+             `kinds` narrows the listing to the kinds given, before windowing — \
+             `[\"radio\", \"checkbox\", \"dropdown\", \"button\"]` for the choices that \
+             shape the form. `space_size` always describes the whole form.\n\n\
+             A button carries `click`: \
+             `instances` when pressing it adds or removes rows of a repeatable section, \
+             `script` when it does something else, absent when pressing it does nothing. \
+             Buttons have no options and do not count towards `space_size`; press them with \
+             xfa_click in a session, or with a `click` step in `state`. Addressed by `session` and `revision`, \
              this answers for the form AS IT STANDS after those interactions, which is how a \
              control a script only reveals mid-fill is found: it is invisible before the \
              interaction that reveals it and listed after. Cheap: it reads the form, it does \
@@ -280,12 +361,41 @@ pub fn tool_specs() -> Vec<Value> {
              `{page, x, y, width, height}` in points with the origin at the page's top-left — \
              the exact shape xfa_render_region's rect_pt takes, so an entry here can be passed \
              straight to that tool to zoom in on it. An empty list means the form is not \
-             currently showing this control; more than one entry means it lives inside a \
-             repeated section and is drawn more than once. Positions come from the laid-out \
-             form, which is why this tool — not the raw XFA data server's xfa_node — is where \
-             to find them.",
-            json!({ "doc_path": doc_path_prop(), "session": session_prop(), "revision": revision_prop() }),
+             currently showing this control. Each instance of a repeated section is its own \
+             control with its own indexed path (`Row.Amount`, `Row[1].Amount`, ...) and its \
+             own position. Positions come from the laid-out form, which is why this tool — \
+             not the raw XFA data server's xfa_node — is where to find them.",
+            json!({
+                "doc_path": doc_path_prop(),
+                "session": session_prop(),
+                "revision": revision_prop(),
+                "state": state_prop(),
+                "offset": { "type": "integer", "minimum": 0, "description": "First field to return; default 0. Pass the previous next_offset." },
+                "limit": { "type": "integer", "minimum": 1, "maximum": 500, "description": "Fields to return; default 100." },
+                "kinds": {
+                    "type": "array",
+                    "items": { "type": "string", "enum": ControlKind::ALL.map(ControlKind::wire_name) },
+                    "description": "Only fields of these kinds. Omit for every kind."
+                }
+            }),
             json!([]),
+        ),
+        tool(
+            "xfa_field",
+            "One field's current state, exactly as xfa_controls lists it: its kind, value, \
+             options, whether it is visible, its `access` (`open`, `readOnly`, `protected` or \
+             `nonInteractive`, and `access_from` when a locked container imposes it) and \
+             where it is drawn. The cheap way to check a single field after an interaction, \
+             for example whether a script locked or prefilled it, without listing the whole \
+             form. Addressed like xfa_controls.",
+            json!({
+                "doc_path": doc_path_prop(),
+                "session": session_prop(),
+                "revision": revision_prop(),
+                "state": state_prop(),
+                "field": { "type": "string", "description": "A field path, from xfa_controls." }
+            }),
+            json!(["field"]),
         ),
     ]
 }
@@ -303,6 +413,7 @@ pub fn manifest() -> Value {
     let names = [
         "xfa_open",
         "xfa_set",
+        "xfa_click",
         "xfa_reset",
         "xfa_close",
         "xfa_info",
@@ -312,6 +423,7 @@ pub fn manifest() -> Value {
         "xfa_page_text",
         "xfa_search_text",
         "xfa_controls",
+        "xfa_field",
     ];
     json!({
         "contract": CONTRACT_VERSION,
@@ -324,7 +436,7 @@ pub fn manifest() -> Value {
             "open": "xfa_open",
             "close": "xfa_close",
             "probe": "xfa_info",
-            "mutators": ["xfa_set", "xfa_reset"],
+            "mutators": ["xfa_set", "xfa_click", "xfa_reset"],
         },
         "test_vectors": [
             {

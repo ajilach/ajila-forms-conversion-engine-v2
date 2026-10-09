@@ -141,3 +141,89 @@ pub fn choices() -> PathBuf {
     );
     write("choices.xfa.pdf", &template(&body))
 }
+
+/// A button with a caption and one click script.
+fn button(name: &str, caption: &str, script: &str) -> String {
+    format!(
+        r#"<field name="{name}" w="80pt" h="22pt"><ui><button/></ui><caption><value><text>{caption}</text></value></caption>
+<event activity="click" name="ev{name}"><script contentType="application/x-javascript">{script}</script></event></field>"#
+    )
+}
+
+/// The body both repeat fixtures share: a repeatable `Row` (an `Amount` and a
+/// `Remove` button that removes its own row), an `Add` button, and two
+/// calculated fields that read every row, so a press is visible in values
+/// as well as in the layout. The calculations assign `this.rawValue`: the
+/// engine does not take a script's last expression as its result.
+fn repeat_body(occur: &str, extra: &str) -> String {
+    format!(
+        r#"{}<subform name="Row" layout="lr-tb" w="540pt"><occur {occur}/>
+<field name="Amount" w="120pt" h="22pt"><ui><textEdit/></ui><value><text>0</text></value></field>
+{}</subform>
+{}
+<field name="Total" w="120pt" h="22pt"><ui><textEdit/></ui><calculate><script contentType="application/x-javascript">var s = 0; var a = this.parent.Row ? this.parent.Row.all : []; for (var i = 0; i &lt; a.length; i++) {{ s += Number(a.item(i).Amount.rawValue); }} this.rawValue = String(s);</script></calculate></field>
+<field name="Count" w="120pt" h="22pt"><ui><textEdit/></ui><calculate><script contentType="application/x-javascript">this.rawValue = String(_Row.count);</script></calculate></field>
+{extra}"#,
+        draw("Title", "Repeat", 30),
+        button(
+            "Remove",
+            "Remove",
+            "this.parent.instanceManager.removeInstance(this.parent.index);"
+        ),
+        button("Add", "Add", "_Row.addInstance(1);"),
+    )
+}
+
+/// A repeatable section of one to three rows (XFA 3.3 §9), with buttons that
+/// add and remove rows, plus a button whose script does something else.
+pub fn repeat() -> PathBuf {
+    let body = repeat_body(
+        r#"min="1" max="3" initial="1""#,
+        &button("Noop", "Hello", "xfa.host.messageBox(\"hello\");"),
+    );
+    write("repeat.xfa.pdf", &template(&body))
+}
+
+/// The same section with no row at open and no upper limit.
+pub fn repeat_open() -> PathBuf {
+    write(
+        "repeat_open.xfa.pdf",
+        &template(&repeat_body(r#"min="0" max="-1" initial="0""#, "")),
+    )
+}
+
+/// Field access (XFA 3.3 §17), set every way a form sets it.
+///
+/// - `RB_Sheet` mirrors UBS's AAGS form: its change script prefills `Sheet`
+///   and locks it when `RB_1` is selected, and clears and unlocks it for
+///   `RB_2`.
+/// - `Locked` is a protected subform around an open field, `Inner`, which
+///   inherits the lock (XFA 3.3 §2: an object may only tighten what it
+///   inherits).
+/// - `Fixed` is readOnly in the template.
+/// - `InitLocked` locks itself in its initialize script.
+/// - `BadAccess` assigns a value that is not an XFA keyword, which must not
+///   change its access.
+/// - `LockedButton` is a protected button.
+pub fn access() -> PathBuf {
+    let body = format!(
+        r#"{}<exclGroup name="RB_Sheet" w="400pt" h="44pt" layout="tb">
+<field name="RB_1" w="200pt" h="20pt"><ui><checkButton shape="round"/></ui><items><text>1</text></items></field>
+<field name="RB_2" w="200pt" h="20pt"><ui><checkButton shape="round"/></ui><items><text>2</text></items></field>
+<event activity="change" name="eSheet"><script contentType="application/x-javascript">if (this.rawValue == "1") {{ Body.Sheet.rawValue = "1"; Body.Sheet.access = "protected"; }} else {{ Body.Sheet.rawValue = ""; Body.Sheet.access = "open"; }}</script></event>
+</exclGroup>
+<field name="Sheet" w="200pt" h="22pt"><ui><textEdit/></ui></field>
+<subform name="Locked" access="protected" layout="tb" w="540pt">
+<field name="Inner" w="200pt" h="22pt"><ui><textEdit/></ui></field>
+</subform>
+<field name="Fixed" access="readOnly" w="200pt" h="22pt"><ui><textEdit/></ui><value><text>fixed</text></value></field>
+<field name="InitLocked" w="200pt" h="22pt"><ui><textEdit/></ui>
+<event activity="initialize" name="eInit"><script contentType="application/x-javascript">this.access = "protected";</script></event></field>
+<field name="BadAccess" w="200pt" h="22pt"><ui><textEdit/></ui>
+<event activity="initialize" name="eBad"><script contentType="application/x-javascript">this.access = "locked";</script></event></field>
+<field name="LockedButton" access="protected" w="80pt" h="22pt"><ui><button/></ui><caption><value><text>Go</text></value></caption>
+<event activity="click" name="eGo"><script contentType="application/x-javascript">Body.Sheet.rawValue = "pressed";</script></event></field>"#,
+        draw("Title", "Access", 30),
+    );
+    write("access.xfa.pdf", &template(&body))
+}
