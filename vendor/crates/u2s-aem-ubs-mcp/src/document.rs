@@ -571,6 +571,56 @@ mod tests {
         assert_eq!(hidden, ["PN_EntityBasic", "PN_Address"]);
     }
 
+    /// A translation that spans lines and carries `>` and `'` comes back
+    /// from the package as it went in: the dictionary spells a newline as
+    /// `&#xa;` (an XML reader turns a raw one into a space) and leaves `>`
+    /// and `'` as AEM does.
+    #[test]
+    fn a_multi_line_translation_survives_the_dictionary() {
+        let field = json!({
+            "type": "TextField", "uuid": "00000000-0000-0000-0000-000000000020",
+            "name": "TXT_Note", "label": {"en": "Note", "de": "Zeile 1\nZeile 2 > 1, l'autre"},
+            "mandatory": false, "visible": true,
+            "max_chars": null, "colspan": 12, "dor_colspan": null, "bind_ref": null
+        });
+        let doc = UbsAemDocument::from_json(&document(json!([{
+            "type": "Panel", "uuid": "00000000-0000-0000-0000-000000000010", "name": "PN_Client",
+            "title": {"en": "Client", "de": "Kunde"}, "is_page": true, "visible": true,
+            "is_conditional": false, "dor_num_cols": null, "colspan": 12, "dor_colspan": null,
+            "bind_ref": null, "frag_ref": null, "children": [field]
+        }])))
+        .unwrap();
+        let build = encode(&doc).unwrap();
+
+        let decoded = decode(&build.package).unwrap();
+        let mut label = None;
+        decoded.form.visit(&mut |node| {
+            if let AemNodeTranslated::TextField { name, label: text, .. } = node
+                && name == "TXT_Note"
+            {
+                label = text.get("de").map(str::to_owned);
+            }
+        });
+        assert_eq!(label.as_deref(), Some("Zeile 1\nZeile 2 > 1, l'autre"));
+
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&build.package)).unwrap();
+        let dictionary = (0..archive.len())
+            .map(|i| {
+                let mut entry = archive.by_index(i).unwrap();
+                let mut xml = String::new();
+                entry.read_to_string(&mut xml).unwrap();
+                (entry.name().to_owned(), xml)
+            })
+            .find(|(name, _)| name.ends_with("/dictionary/de.xml"))
+            .expect("the package carries the German dictionary")
+            .1;
+        assert!(
+            dictionary.contains("sling:message=\"Zeile 1&#xa;Zeile 2 > 1, l'autre\""),
+            "{dictionary}"
+        );
+    }
+
     /// The value of `name` on the first `tag` element of `xml`.
     fn attribute(xml: &str, tag: &str, name: &str) -> Option<String> {
         let element = xml.split(&format!("<{tag}")).nth(1)?.split('>').next()?;

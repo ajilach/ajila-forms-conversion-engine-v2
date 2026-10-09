@@ -484,4 +484,27 @@ pub mod test_support {
     pub fn runner_with(workers: usize) -> RuleRunner {
         RuleRunner::new(worker_bin(), workers).expect("the worker binary is present")
     }
+
+    /// Some rule tests load the machine on purpose: a script that spins
+    /// until it is killed, one that asks for more memory than macOS can cap,
+    /// a batch that keeps every worker busy. Beside them, an honest script on
+    /// a two-second budget is starved past its deadline and reported broken,
+    /// which is a test measuring its neighbours rather than the runner. So in
+    /// a test binary, a test that loads the machine holds this lock
+    /// exclusively ([`alone`]) and a test that runs honest scripts holds it
+    /// shared ([`beside_others`]): light tests still run together, never
+    /// beside a load.
+    static LOAD: std::sync::LazyLock<tokio::sync::RwLock<()>> =
+        std::sync::LazyLock::new(|| tokio::sync::RwLock::new(()));
+
+    /// For a test that loads the machine: no rule test runs beside it.
+    pub async fn alone() -> tokio::sync::RwLockWriteGuard<'static, ()> {
+        LOAD.write().await
+    }
+
+    /// For a test whose scripts must finish inside their budget: it runs
+    /// beside other such tests, never beside one that loads the machine.
+    pub async fn beside_others() -> tokio::sync::RwLockReadGuard<'static, ()> {
+        LOAD.read().await
+    }
 }

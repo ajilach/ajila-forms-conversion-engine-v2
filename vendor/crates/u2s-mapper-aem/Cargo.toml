@@ -28,6 +28,10 @@ name = "u2s_mapper_aem"
 path = "src/lib.rs"
 
 [[test]]
+name = "attribute_spelling"
+path = "tests/attribute_spelling.rs"
+
+[[test]]
 name = "catalog_matches_spec"
 path = "tests/catalog_matches_spec.rs"
 

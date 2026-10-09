@@ -1143,7 +1143,7 @@ mod tests {
             "each locale is named:\n{xml}"
         );
         assert!(
-            xml.contains("&lt;table&gt;") && !xml.contains("<table>"),
+            xml.contains("&lt;table>") && !xml.contains("<table>"),
             "the markup is escaped INTO the attribute, not emitted as elements:\n{xml}"
         );
         assert!(
@@ -3235,13 +3235,13 @@ mod tests {
             (
                 "BT_Remove fd:visible",
                 format!(
-                    r#"fd:visible="[{{&quot;script&quot;:{{&quot;field&quot;:&quot;BT_Remove&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}}\,&quot;content&quot;:&quot;{comment}\\nthis.parent.instanceIndex === this.parent.instanceManager.instances.length - 1 &amp;&amp; this.parent.instanceManager.instances.length &gt; this.parent.instanceManager.minOccur;&quot;}}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true\,&quot;_archetype&quot;:&quot;repeating-panel&quot;}}]""#
+                    r#"fd:visible="[{{&quot;script&quot;:{{&quot;field&quot;:&quot;BT_Remove&quot;\,&quot;event&quot;:&quot;Visibility&quot;\,&quot;model&quot;:{{&quot;nodeName&quot;:&quot;EVENT_SCRIPTS&quot;}}\,&quot;content&quot;:&quot;{comment}\\nthis.parent.instanceIndex === this.parent.instanceManager.instances.length - 1 &amp;&amp; this.parent.instanceManager.instances.length > this.parent.instanceManager.minOccur;&quot;}}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true\,&quot;_archetype&quot;:&quot;repeating-panel&quot;}}]""#
                 ),
             ),
             (
                 "BT_Remove fd:init",
                 format!(
-                    r#"fd:init="[{{&quot;script&quot;:{{&quot;content&quot;:&quot;{comment}\\nthis.visible = (this.parent.instanceIndex === this.parent.instanceManager.instances.length - 1 &amp;&amp; this.parent.instanceManager.instances.length &gt; this.parent.instanceManager.minOccur);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;BT_Remove&quot;}}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true\,&quot;_archetype&quot;:&quot;repeating-panel&quot;}}]""#
+                    r#"fd:init="[{{&quot;script&quot;:{{&quot;content&quot;:&quot;{comment}\\nthis.visible = (this.parent.instanceIndex === this.parent.instanceManager.instances.length - 1 &amp;&amp; this.parent.instanceManager.instances.length > this.parent.instanceManager.minOccur);&quot;\,&quot;event&quot;:&quot;Initialize&quot;\,&quot;field&quot;:&quot;BT_Remove&quot;}}\,&quot;nodeName&quot;:&quot;SCRIPTMODEL&quot;\,&quot;version&quot;:1\,&quot;enabled&quot;:true\,&quot;_archetype&quot;:&quot;repeating-panel&quot;}}]""#
                 ),
             ),
         ];

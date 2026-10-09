@@ -40,15 +40,7 @@ pub fn structure_without(xml: &str, masked: &[&str]) -> String {
     let mut depth = 0usize;
     // The depth of the masked element being skipped, if any.
     let mut skipping: Option<usize> = None;
-    // XML's attribute-value normalisation first (a raw newline, carriage
-    // return or tab reads as a space), then the references: a writer that
-    // leaves a line break raw reads differently from one that writes `&#xa;`.
-    let value = |a: &quick_xml::events::attributes::Attribute| {
-        let raw = String::from_utf8_lossy(&a.value).replace(['\n', '\r', '\t'], " ");
-        quick_xml::escape::unescape(&raw)
-            .unwrap_or_else(|e| panic!("an attribute value AEM can read: {e}"))
-            .into_owned()
-    };
+    let value = |a: &quick_xml::events::attributes::Attribute| unescaped(&String::from_utf8_lossy(&a.value));
     let is_masked = |e: &BytesStart| {
         e.attributes()
             .flatten()
@@ -129,8 +121,19 @@ pub fn dictionary(xml: &str) -> BTreeMap<String, String> {
     let entry = Regex::new(r#"sling:key="([^"]*)"\s+sling:message="([^"]*)""#).unwrap();
     entry
         .captures_iter(xml)
-        .map(|c| (c[1].to_string(), c[2].to_string()))
+        .map(|c| (unescaped(&c[1]), unescaped(&c[2])))
         .collect()
+}
+
+/// An attribute value as XML reads it: two writers may spell one value
+/// differently (`>` or `&gt;`), and both are the same value. XML's
+/// attribute-value normalisation comes first (a raw newline, carriage return
+/// or tab reads as a space), then the references: a writer that leaves a line
+/// break raw reads differently from one that writes `&#xa;`.
+pub fn unescaped(raw: &str) -> String {
+    quick_xml::escape::unescape(&raw.replace(['\n', '\r', '\t'], " "))
+        .unwrap_or_else(|e| panic!("{raw:?} is not an attribute value AEM can read: {e}"))
+        .into_owned()
 }
 
 /// Where `expected` and `actual` first part, line by line.

@@ -1305,7 +1305,7 @@ mod tests {
         let ctx = ctx_for(&master, &xsd.bind_refs);
         let xml = write_form_xml(&form, &ctx).expect("writes");
         assert!(
-            xml.contains("&lt;p&gt;Intro&lt;/p&gt;"),
+            xml.contains("&lt;p>Intro&lt;/p>"),
             "escaped exactly once: {xml}"
         );
         assert!(

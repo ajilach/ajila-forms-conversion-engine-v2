@@ -53,22 +53,21 @@ fn escape_jcr_list_item(item: &str) -> String {
 }
 
 /// A value as it is written between the double quotes of an XML attribute,
-/// by every writer of an AEM package (this crate's, and the UBS layer's).
-/// `&`, `<`, `>` and `"` are escaped as quick-xml would; so are a newline, a
-/// carriage return and a tab (`&#xa;`, `&#xd;`, `&#x9;`), which XML's
-/// attribute-value normalisation would otherwise read back as spaces. AEM
-/// reads the value it was given; a raw newline in a rule's JavaScript would
-/// silently become a space and can end a `//` comment in the wrong place.
-/// `'` stays raw: the value is always double-quoted. A character XML cannot
-/// carry at all passes through unchanged; [`check_xml_chars`] refuses the
-/// file it ends up in.
+/// by every writer of an AEM package (this crate's, and the UBS layer's),
+/// spelled the way AEM's own export (FileVault) spells it, so a package read
+/// and written again is the same bytes: `&amp;`, `&lt;` and `&quot;`, and a
+/// newline, carriage return and tab as `&#xa;`, `&#xd;` and `&#x9;`, which
+/// XML's attribute-value normalisation would otherwise read back as spaces (a
+/// raw newline in a rule's JavaScript would silently become a space and can
+/// end a `//` comment in the wrong place). `>` and `'` stay raw: neither can
+/// end a double-quoted value. A character XML cannot carry at all passes
+/// through unchanged; [`check_xml_chars`] refuses the file it ends up in.
 pub fn escape_attribute_value(value: &str) -> String {
     let mut escaped = String::with_capacity(value.len());
     for ch in value.chars() {
         match ch {
             '&' => escaped.push_str("&amp;"),
             '<' => escaped.push_str("&lt;"),
-            '>' => escaped.push_str("&gt;"),
             '"' => escaped.push_str("&quot;"),
             '\n' => escaped.push_str("&#xa;"),
             '\r' => escaped.push_str("&#xd;"),
@@ -176,13 +175,14 @@ mod tests {
     }
 
     /// A newline, carriage return or tab in an attribute is written as a
-    /// character reference: XML reads a raw one back as a space.
+    /// character reference: XML reads a raw one back as a space. `>` and `'`
+    /// stay raw, as AEM writes them.
     #[test]
     fn xml_attribute_escapes_markup_and_whitespace_that_xml_normalises() {
         let attribute = xml_attribute("fd:click", "a\n\r\tb & <c> \"d\" 'e'");
         assert_eq!(
             std::str::from_utf8(&attribute.value).unwrap(),
-            "a&#xa;&#xd;&#x9;b &amp; &lt;c&gt; &quot;d&quot; 'e'"
+            "a&#xa;&#xd;&#x9;b &amp; &lt;c> &quot;d&quot; 'e'"
         );
         assert_eq!(
             attribute.unescape_value().unwrap(),

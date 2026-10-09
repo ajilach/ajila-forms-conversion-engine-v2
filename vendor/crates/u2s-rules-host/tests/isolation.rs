@@ -15,6 +15,8 @@ use u2s_rules_host::runner::{RuleRunner, WORKER_BIN, into_map};
 // `test_support`, so this file, `u2s-agent`'s tests and `u2s-server`'s all
 // share one copy of it.
 use u2s_rules_host::runner::test_support::runner_with as runner;
+// Tests that load the machine on purpose run alone; see `test_support::alone`.
+use u2s_rules_host::runner::test_support::{alone, beside_others};
 
 fn request(script_js: &str, budget: ScriptBudget) -> CheckRequest {
     CheckRequest::new(
@@ -29,6 +31,7 @@ fn request(script_js: &str, budget: ScriptBudget) -> CheckRequest {
 
 const PASSING: &str = "function check(output, ctx) { return { pass: true, violations: [] }; }";
 
+
 /// **The reason this crate exists.**
 ///
 /// `String.prototype.repeat` to near the maximum string length spends zero
@@ -42,6 +45,7 @@ const PASSING: &str = "function check(output, ctx) { return { pass: true, violat
 /// test process is still alive.
 #[tokio::test]
 async fn a_script_that_exhausts_memory_breaks_its_own_rule_and_nothing_else() {
+    let _load = alone().await;
     let runner = runner(2);
     let hungry = r#"function check(output, ctx) {
         var huge = "x".repeat(4294967294);
@@ -81,6 +85,7 @@ async fn a_script_that_exhausts_memory_breaks_its_own_rule_and_nothing_else() {
 /// and invisible to every limit boa offers.
 #[tokio::test]
 async fn a_script_that_never_finishes_is_stopped_at_its_deadline() {
+    let _load = alone().await;
     let runner = runner(2);
     let budget = ScriptBudget {
         wall_clock: std::time::Duration::from_secs(1),
@@ -116,13 +121,20 @@ async fn a_script_that_never_finishes_is_stopped_at_its_deadline() {
 /// N scripts that each take about `d` must not take about `N*d`.
 #[tokio::test]
 async fn a_batch_runs_in_parallel_across_workers() {
+    let _load = alone().await;
     // Busy work rather than a sleep: there is no clock in the sandbox, so
     // the only way to spend time is to spend it. The loop limit is raised
     // to match -- the point here is elapsed time, and a script stopped by
     // boa's own limit would measure nothing.
-    let slow = "function check(output, ctx) { \
-         var n = 0; for (var i = 0; i < 3000000; i++) { n += i; } \
-         return { pass: true, violations: [] }; }";
+    // About a second and a half per script either way: an unoptimised boa
+    // is some five times slower, and four of them in a row there would
+    // otherwise keep every core busy for most of a minute.
+    let iterations = if cfg!(debug_assertions) { 600_000 } else { 3_000_000 };
+    let slow = format!(
+        "function check(output, ctx) {{ \
+         var n = 0; for (var i = 0; i < {iterations}; i++) {{ n += i; }} \
+         return {{ pass: true, violations: [] }}; }}"
+    );
     let budget = ScriptBudget {
         loop_iterations: u64::MAX,
         wall_clock: std::time::Duration::from_secs(30),
@@ -130,7 +142,7 @@ async fn a_batch_runs_in_parallel_across_workers() {
     };
 
     let jobs = |count: u32| -> Vec<(u32, CheckRequest)> {
-        (0..count).map(|k| (k, request(slow, budget))).collect()
+        (0..count).map(|k| (k, request(&slow, budget))).collect()
     };
     let warmup = |count: u32| -> Vec<(u32, CheckRequest)> {
         (0..count).map(|k| (k, request(PASSING, budget))).collect()
@@ -172,6 +184,7 @@ async fn a_batch_runs_in_parallel_across_workers() {
 /// extends it to a script that takes its interpreter down.
 #[tokio::test]
 async fn a_throwing_script_still_only_breaks_itself() {
+    let _load = beside_others().await;
     let runner = runner(2);
     let results = runner
         .run_batch(vec![
@@ -202,6 +215,7 @@ async fn a_throwing_script_still_only_breaks_itself() {
 /// included, since those are what the review page renders.
 #[tokio::test]
 async fn a_failing_script_returns_its_violations_through_the_worker() {
+    let _load = beside_others().await;
     let runner = runner(1);
     let failing = r#"function check(output, ctx) {
         return { pass: false, violations: [{ pointer: "/a", message: "must not be 1" }] };
@@ -224,6 +238,7 @@ async fn a_failing_script_returns_its_violations_through_the_worker() {
 /// that.
 #[tokio::test]
 async fn one_script_cannot_leave_state_for_the_next() {
+    let _load = beside_others().await;
     let runner = runner(1);
     let planter = "globalThis.__planted = 'here'; \
                    function check(output, ctx) { return { pass: true, violations: [] }; }";
@@ -269,45 +284,56 @@ fn a_missing_worker_binary_is_refused_rather_than_worked_around() {
 /// is comfortably inside its own budget, and their sum is not.
 #[tokio::test]
 async fn honest_scripts_do_not_inherit_each_others_cpu_time() {
+    let _load = alone().await;
     // One worker, so every job in the batch really does run on the same
     // process. With a pool the sharing would still happen, just less
     // reliably from a test's point of view.
     let runner = runner(1);
 
-    // ~0.4s of CPU each, well inside the two-second default, and six of
-    // them is over twice the ceiling a single-shot limit would have set.
+    // Each script is a small fraction of the two-second default; together
+    // they must spend more than a worker's per-job CPU ceiling (the budget
+    // plus a second, `RLIMIT_CPU`'s granularity), or a ceiling set once
+    // would never be reached and the test would prove nothing. What one
+    // script costs depends on the build (an unoptimised boa is some five
+    // times slower) and the machine, so it is measured, and the number of
+    // scripts follows from it.
     let burner = r#"
         function check(output, ctx) {
             var n = 0;
-            for (var i = 0; i < 300000; i++) { n = (n + i) % 7919; }
+            for (var i = 0; i < 50000; i++) { n = (n + i) % 7919; }
             return { pass: n >= 0, violations: [] };
         }
     "#;
+    let job = || CheckRequest {
+        script_js: burner.to_owned(),
+        fix_js: None,
+        output: json!({ "a": 1 }),
+        schema: json!({}),
+        facts: serde_json::Map::new(),
+        budget: (&ScriptBudget::default()).into(),
+    };
+    let budget = ScriptBudget::default().wall_clock;
+    let ceiling = budget + std::time::Duration::from_secs(1);
 
-    let jobs: Vec<(usize, CheckRequest)> = (0..6)
-        .map(|i| {
-            (
-                i,
-                CheckRequest {
-                    script_js: burner.to_owned(),
-                    fix_js: None,
-                    output: json!({ "a": 1 }),
-                    schema: json!({}),
-                    facts: serde_json::Map::new(),
-                    budget: (&ScriptBudget::default()).into(),
-                },
-            )
-        })
-        .collect();
+    // The worker started, then one script timed on it.
+    runner.run_batch(vec![(0usize, request(PASSING, ScriptBudget::default()))]).await;
+    let started = std::time::Instant::now();
+    runner.run_batch(vec![(0usize, job())]).await;
+    let one = started.elapsed();
+    assert!(
+        one * 4 < budget,
+        "one script must be well inside its budget for this test to mean anything: {one:?}"
+    );
+    let count = ((2 * ceiling).as_secs_f64() / one.as_secs_f64()).ceil() as usize;
 
-    let results = into_map(runner.run_batch(jobs).await);
-    assert_eq!(results.len(), 6);
-    for i in 0..6 {
+    let results = into_map(runner.run_batch((0..count).map(|i| (i, job())).collect()).await);
+    assert_eq!(results.len(), count);
+    for i in 0..count {
         let outcome = &results[&i];
         assert_eq!(
             outcome.verdict,
             CheckVerdict::Positive,
-            "script {i} ran inside its own budget and must get its own verdict, \
+            "script {i} of {count} ran inside its own budget and must get its own verdict, \
              not one inherited from its predecessors: {:?}",
             outcome.broken_reason
         );
@@ -316,6 +342,7 @@ async fn honest_scripts_do_not_inherit_each_others_cpu_time() {
 
 #[tokio::test]
 async fn facts_reach_ctx_through_the_worker() {
+    let _load = beside_others().await;
     let script = r#"
         const requires = ["expected"];
         function check(output, ctx) {
@@ -341,6 +368,7 @@ async fn facts_reach_ctx_through_the_worker() {
 
 #[tokio::test]
 async fn a_requires_declaration_is_read_through_the_worker() {
+    let _load = beside_others().await;
     let runner = runner(1);
     let keys = runner
         .read_requires(
@@ -360,6 +388,7 @@ async fn a_requires_declaration_is_read_through_the_worker() {
 
 #[tokio::test]
 async fn an_extract_runs_through_the_worker_and_a_runaway_one_is_stopped() {
+    let _load = alone().await;
     let runner = runner(1);
     let value = runner
         .run_extract(
@@ -388,6 +417,7 @@ async fn an_extract_runs_through_the_worker_and_a_runaway_one_is_stopped() {
 #[cfg(unix)]
 #[tokio::test]
 async fn a_worker_started_with_arguments_answers_like_any_other() {
+    let _load = beside_others().await;
     let worker = u2s_rules_host::runner::test_support::worker_bin();
     let runner = RuleRunner::with_args(
         PathBuf::from("/bin/sh"),

@@ -699,7 +699,7 @@ fn the_banking_preface_carries_the_dor_header_slot_text() {
         "the slot-2 draw exists to reach the DoR:\n{draw}"
     );
     assert!(
-        draw.contains("&lt;b&gt;UBS Europe SE&lt;/b&gt; (Succursale Italia)"),
+        draw.contains("&lt;b>UBS Europe SE&lt;/b> (Succursale Italia)"),
         "the slot-2 text is not the source's own header:\n{draw}"
     );
 }

@@ -16,6 +16,7 @@ use zip::write::SimpleFileOptions;
 use super::{AemConfig, AemNode};
 use crate::aem::generate_aem_xml;
 use crate::aem::xml_writer::reformat_attributes;
+use u2s_mapper_aem::jcr::xml_attribute;
 
 // ============================================================================
 // Public API
@@ -586,12 +587,12 @@ fn generate_filter_xml(roots: &[String]) -> String {
             .unwrap();
 
         let mut ws = BytesStart::new("workspaceFilter");
-        ws.push_attribute(("version", "1.0"));
+        ws.push_attribute(xml_attribute("version", "1.0"));
         w.write_event(Event::Start(ws)).unwrap();
 
         for root in roots {
             let mut f = BytesStart::new("filter");
-            f.push_attribute(("root", root.as_str()));
+            f.push_attribute(xml_attribute("root", root.as_str()));
             w.write_event(Event::Empty(f)).unwrap();
         }
 
@@ -636,35 +637,35 @@ fn generate_definition_xml(package_name: &str, author: &str, roots: &[String]) -
             .unwrap();
 
         let mut root_elem = BytesStart::new("jcr:root");
-        root_elem.push_attribute(("xmlns:vlt", "http://www.day.com/jcr/vault/1.0"));
-        root_elem.push_attribute(("xmlns:jcr", "http://www.jcp.org/jcr/1.0"));
-        root_elem.push_attribute(("xmlns:nt", "http://www.jcp.org/jcr/nt/1.0"));
-        root_elem.push_attribute(("jcr:primaryType", "vlt:PackageDefinition"));
-        root_elem.push_attribute(("buildCount", "1"));
-        root_elem.push_attribute(("group", "fd/export"));
+        root_elem.push_attribute(xml_attribute("xmlns:vlt", "http://www.day.com/jcr/vault/1.0"));
+        root_elem.push_attribute(xml_attribute("xmlns:jcr", "http://www.jcp.org/jcr/1.0"));
+        root_elem.push_attribute(xml_attribute("xmlns:nt", "http://www.jcp.org/jcr/nt/1.0"));
+        root_elem.push_attribute(xml_attribute("jcr:primaryType", "vlt:PackageDefinition"));
+        root_elem.push_attribute(xml_attribute("buildCount", "1"));
+        root_elem.push_attribute(xml_attribute("group", "fd/export"));
         let created = format!("{{Date}}{}", now);
-        root_elem.push_attribute(("jcr:created", created.as_str()));
-        root_elem.push_attribute(("jcr:createdBy", author));
-        root_elem.push_attribute(("jcr:lastModified", created.as_str()));
-        root_elem.push_attribute(("jcr:lastModifiedBy", author));
-        root_elem.push_attribute(("lastWrapped", created.as_str()));
-        root_elem.push_attribute(("lastWrappedBy", author));
-        root_elem.push_attribute(("name", package_name));
-        root_elem.push_attribute(("version", ""));
+        root_elem.push_attribute(xml_attribute("jcr:created", created.as_str()));
+        root_elem.push_attribute(xml_attribute("jcr:createdBy", author));
+        root_elem.push_attribute(xml_attribute("jcr:lastModified", created.as_str()));
+        root_elem.push_attribute(xml_attribute("jcr:lastModifiedBy", author));
+        root_elem.push_attribute(xml_attribute("lastWrapped", created.as_str()));
+        root_elem.push_attribute(xml_attribute("lastWrappedBy", author));
+        root_elem.push_attribute(xml_attribute("name", package_name));
+        root_elem.push_attribute(xml_attribute("version", ""));
         w.write_event(Event::Start(root_elem)).unwrap();
 
         // <filter>
         let mut filter_elem = BytesStart::new("filter");
-        filter_elem.push_attribute(("jcr:primaryType", "nt:unstructured"));
+        filter_elem.push_attribute(xml_attribute("jcr:primaryType", "nt:unstructured"));
         w.write_event(Event::Start(filter_elem)).unwrap();
 
         for (i, root) in roots.iter().enumerate() {
             let tag = format!("f{}", i);
             let mut f = BytesStart::new(tag.as_str());
-            f.push_attribute(("jcr:primaryType", "nt:unstructured"));
-            f.push_attribute(("mode", "replace"));
-            f.push_attribute(("root", root.as_str()));
-            f.push_attribute(("rules", "[]"));
+            f.push_attribute(xml_attribute("jcr:primaryType", "nt:unstructured"));
+            f.push_attribute(xml_attribute("mode", "replace"));
+            f.push_attribute(xml_attribute("root", root.as_str()));
+            f.push_attribute(xml_attribute("rules", "[]"));
             w.write_event(Event::Empty(f)).unwrap();
         }
 
@@ -698,14 +699,14 @@ fn generate_dictionary_xml(locale: &str, entries: &[(String, String)], basename:
 
         // <jcr:root>
         let mut root = BytesStart::new("jcr:root");
-        root.push_attribute(("xmlns:sling", "http://sling.apache.org/jcr/sling/1.0"));
-        root.push_attribute(("xmlns:jcr", "http://www.jcp.org/jcr/1.0"));
-        root.push_attribute(("xmlns:mix", "http://www.jcp.org/jcr/mix/1.0"));
-        root.push_attribute(("xmlns:nt", "http://www.jcp.org/jcr/nt/1.0"));
-        root.push_attribute(("jcr:language", locale));
-        root.push_attribute(("jcr:mixinTypes", "[mix:language]"));
-        root.push_attribute(("jcr:primaryType", "sling:Folder"));
-        root.push_attribute(("sling:basename", basename));
+        root.push_attribute(xml_attribute("xmlns:sling", "http://sling.apache.org/jcr/sling/1.0"));
+        root.push_attribute(xml_attribute("xmlns:jcr", "http://www.jcp.org/jcr/1.0"));
+        root.push_attribute(xml_attribute("xmlns:mix", "http://www.jcp.org/jcr/mix/1.0"));
+        root.push_attribute(xml_attribute("xmlns:nt", "http://www.jcp.org/jcr/nt/1.0"));
+        root.push_attribute(xml_attribute("jcr:language", locale));
+        root.push_attribute(xml_attribute("jcr:mixinTypes", "[mix:language]"));
+        root.push_attribute(xml_attribute("jcr:primaryType", "sling:Folder"));
+        root.push_attribute(xml_attribute("sling:basename", basename));
         w.write_event(Event::Start(root)).unwrap();
 
         // Fixed namespace for deterministic UUIDs
@@ -719,10 +720,10 @@ fn generate_dictionary_xml(locale: &str, entries: &[(String, String)], basename:
             let elem_name = format!("fd_{}", uuid.as_hyphenated());
 
             let mut entry = BytesStart::new(elem_name.as_str());
-            entry.push_attribute(("jcr:mixinTypes", "[sling:Message]"));
-            entry.push_attribute(("jcr:primaryType", "nt:folder"));
-            entry.push_attribute(("sling:key", key.as_str()));
-            entry.push_attribute(("sling:message", translated_text.as_str()));
+            entry.push_attribute(xml_attribute("jcr:mixinTypes", "[sling:Message]"));
+            entry.push_attribute(xml_attribute("jcr:primaryType", "nt:folder"));
+            entry.push_attribute(xml_attribute("sling:key", key.as_str()));
+            entry.push_attribute(xml_attribute("sling:message", translated_text.as_str()));
             w.write_event(Event::Empty(entry)).unwrap();
         }
 

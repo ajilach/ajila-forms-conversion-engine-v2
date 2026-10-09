@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use u2s_aem_ubs_mcp::{UbsAemDocument, encode};
 
 mod support;
-use support::package::{canonical, dictionary, first_difference, structure_without, unzip};
+use support::package::{canonical, dictionary, first_difference, structure_without, unescaped, unzip};
 
 const FORMS: &[&str] = &["AAOS_033_IT", "AAEV_019_EN", "AABF_019"];
 
@@ -74,7 +74,8 @@ fn known_gaps(form: &str) -> BTreeSet<(String, String)> {
         .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
         .map(|l| {
             let (locale, key) = l.split_once(' ').expect("`<locale> <key>`");
-            (locale.to_string(), key.to_string())
+            // Written as the golden dictionary spells it; compared as read.
+            (locale.to_string(), unescaped(key))
         })
         .collect()
 }

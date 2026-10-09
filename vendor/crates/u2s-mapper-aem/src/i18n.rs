@@ -150,8 +150,8 @@ pub fn write_dictionary_xml(language: &Language, dictionary: &Dictionary) -> Str
 
     let mut body = String::new();
     for (index, (key, message)) in dictionary.iter().enumerate() {
-        let escaped_key = quick_xml::escape::escape(key);
-        let escaped_message = quick_xml::escape::escape(message);
+        let escaped_key = crate::jcr::escape_attribute_value(key);
+        let escaped_message = crate::jcr::escape_attribute_value(message);
         let _ = writeln!(
             body,
             "    <fd_{index} jcr:mixinTypes=\"[sling:Message]\"\n\

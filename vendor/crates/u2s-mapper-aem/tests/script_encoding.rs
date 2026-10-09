@@ -9,8 +9,9 @@
 //! - **The corpus**: every distinct rule attribute of the 420 reviewed UBS
 //!   packages (`tests/fixtures/script-corpus.zip`, written by
 //!   `scripts/extract-script-corpus.py`). Each must decode, re-encode to the
-//!   same bytes, survive the XML writer, and, where it is spelled the way
-//!   this encoder writes rules, rebuild from its typed view byte for byte.
+//!   same bytes (the XML spelling included), survive the XML writer, and,
+//!   where it is spelled the way this encoder writes rules, rebuild from its
+//!   typed view byte for byte.
 //! - **Generated content**: JavaScript built from the characters that each
 //!   layer escapes (`"` `\` `,` `<` `&` `'` newlines, ...), run through the
 //!   writer of a whole form and the decoder of a whole package, and compared
@@ -155,7 +156,12 @@ fn every_corpus_rule_decodes_and_re_encodes_to_its_own_bytes() {
         let value = read_attribute(&entry.xml);
         let at = format!("{} {} {} {}", entry.form, entry.element, entry.owner, entry.attribute);
 
-        // Layer 1: the writer and reader of this crate give the value back.
+        // Layer 1: the writer spells the value as the file does, and the
+        // writer and reader of this crate give the value back.
+        let spelled = u2s_mapper_aem::jcr::escape_attribute_value(&value);
+        if spelled != entry.xml {
+            failures.push(format!("{at}: the writer spells it differently from AEM"));
+        }
         match through_xml_writer(&entry.attribute, &value) {
             Ok(back) if back == value => {}
             Ok(_) => failures.push(format!("{at}: the XML writer changed the value")),
