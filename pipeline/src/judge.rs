@@ -8,14 +8,23 @@
 //! `submit_rule_verdict`. Its stage is one-shot (no stored conversation), it
 //! never prompts the operator (a judge that fails is reported unchecked), and
 //! its spend is folded into the stage that dispatched it.
+//!
+//! The trace gets the check as a whole ([`TraceEvent::RuleCheckStarted`] and
+//! [`TraceEvent::RuleCheckFinished`]) and one [`TraceEvent::JudgeFinished`] per
+//! judge, carrying what the judge decided and what it took: a judge's own
+//! turns are not traced, so these are what the run analysis counts judges by.
+
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 
 use agent::rules::{JudgedRule, RuleVerdict, merge_rule_report};
 use agent::{Caller, ToolReply};
 use futures_util::StreamExt;
 
-use crate::observer::{RunEvent, SharedObserver};
+use crate::observer::{RunEvent, SharedObserver, Spend};
 use crate::substage::{SubStageContext, run_sub_stage};
 use crate::tools::SharedAgent;
+use crate::trace::{self, JudgeVerdict, TraceEvent};
 
 /// How many judges run at once.
 const JUDGES_AT_ONCE: usize = 4;
@@ -23,6 +32,10 @@ const JUDGES_AT_ONCE: usize = 4;
 /// Why a judged rule has no verdict when the document was edited while it was
 /// judged.
 const CHANGED_WHILE_JUDGED: &str = "the document changed while it was judged: check this rule again";
+
+/// Numbers every `rule_check` of the process, so a judge's trace line names
+/// the check it belongs to even when two checks overlap.
+static CHECKS: AtomicU64 = AtomicU64::new(0);
 
 /// Tells the observer where every rule stands now.
 pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
@@ -34,8 +47,10 @@ pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
 /// without it (each judge's tools take the agent call by call). A judged rule
 /// that already has a verdict on the document's content, from any earlier
 /// check of the run, keeps it and sends no judge (see
-/// [`agent::ConversionAgent::cached_verdict`]).
+/// [`agent::ConversionAgent::cached_verdict`]). The trace counts only the
+/// judges the check sent: a reused verdict costs nothing and traces nothing.
 pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input: &serde_json::Value) -> ToolReply {
+    let started = Instant::now();
     let (plan, scripted, revision, content, cached) = {
         let mut guard = agent.lock().await;
         let plan = match guard.rule_check_plan(input) {
@@ -66,13 +81,27 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
         .filter(|(_, verdict)| verdict.is_none())
         .map(|(rule, _)| rule.clone())
         .collect();
+    let check = CHECKS.fetch_add(1, Ordering::Relaxed) + 1;
+    let stage = judge_stage(ctx);
+    ctx.obs.trace(TraceEvent::RuleCheckStarted {
+        stage: stage.clone(),
+        check,
+        partial: is_partial(input),
+        scripted: scripted.get("verdicts").and_then(serde_json::Value::as_array).map_or(0, Vec::len),
+        judged: to_judge.len(),
+        revision,
+    });
     // `buffered`, not `buffer_unordered`: the report keeps the rules' order.
-    let mut judged = futures_util::stream::iter(to_judge)
-        .map(|rule| judge(agent, ctx, rule, revision, content))
+    let judged: Vec<Judged> = futures_util::stream::iter(to_judge)
+        .map(|rule| judge(agent, ctx, rule, revision, content, check))
         .buffered(JUDGES_AT_ONCE)
-        .collect::<Vec<_>>()
-        .await
-        .into_iter();
+        .collect()
+        .await;
+    let mut judges_spend = Spend::default();
+    for one in &judged {
+        judges_spend.merge(&one.spend);
+    }
+    let mut judged = judged.into_iter().map(|one| (one.rule, one.outcome));
     let mut verdicts: Vec<(JudgedRule, Result<RuleVerdict, String>)> = plan
         .judged
         .into_iter()
@@ -86,11 +115,19 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
     // made since (another call of the same turn) shows as outdated. The model
     // is told to check again instead: a verdict on an older document is not
     // one on the document it now has.
-    if agent.lock().await.revision() != revision {
+    let outdated = agent.lock().await.revision() != revision;
+    if outdated {
         for (_, outcome) in &mut verdicts {
             *outcome = Err(CHANGED_WHILE_JUDGED.into());
         }
     }
+    ctx.obs.trace(TraceEvent::RuleCheckFinished {
+        stage,
+        check,
+        duration_ms: trace::elapsed_ms(started),
+        judges_spend,
+        outdated,
+    });
     let mut report = merge_rule_report(scripted, &verdicts);
     mark_reused(&mut report, &verdicts, &cached);
     ToolReply::Text(report.to_string())
@@ -120,6 +157,23 @@ fn mark_reused(
     }
 }
 
+/// The judges' stage name, which their trace lines carry.
+fn judge_stage(ctx: &SubStageContext) -> String {
+    crate::roles::roles_for(ctx.target).judge.name.to_string()
+}
+
+/// Whether `rule_check` was asked for chosen rules rather than all of them.
+fn is_partial(input: &serde_json::Value) -> bool {
+    input.get("rule_ids").and_then(serde_json::Value::as_array).is_some_and(|ids| !ids.is_empty())
+}
+
+/// One judge's outcome and what it spent.
+struct Judged {
+    rule: JudgedRule,
+    outcome: Result<RuleVerdict, String>,
+    spend: Spend,
+}
+
 /// Runs one judge on `rule`, dispatched on `revision` (whose content hashed to
 /// `content`), and puts its outcome on the board as soon as it ends, before
 /// the rule stops showing as judged: a check's judges end one by one, and a
@@ -131,22 +185,60 @@ async fn judge(
     rule: JudgedRule,
     revision: u64,
     content: u64,
-) -> (JudgedRule, Result<RuleVerdict, String>) {
+    check: u64,
+) -> Judged {
     ctx.obs.emit(RunEvent::Judging { rule_id: rule.id.clone(), running: true });
     let _ended = JudgingEnds { obs: &ctx.obs, rule_id: rule.id.clone() };
-    let outcome = judge_rule(agent, ctx, &rule).await;
+    let started = Instant::now();
+    let (outcome, turns, spend) = judge_rule(agent, ctx, &rule).await;
+    let duration_ms = trace::elapsed_ms(started);
     let mut guard = agent.lock().await;
     // The judge read the live document. An edit made while it did means its
     // verdict may describe neither revision.
-    let judged = (rule, if guard.revision() == revision { outcome } else { Err(CHANGED_WHILE_JUDGED.into()) });
-    if let (rule, Ok(verdict)) = &judged {
-        guard.cache_verdict(rule, content, verdict.clone());
+    let outcome = if guard.revision() == revision { outcome } else { Err(CHANGED_WHILE_JUDGED.into()) };
+    if let Ok(verdict) = &outcome {
+        guard.cache_verdict(&rule, content, verdict.clone());
     }
+    let judged = (rule, outcome);
     guard.record_judged(std::slice::from_ref(&judged), revision);
     let board = guard.rule_board();
     drop(guard);
+    let (rule, outcome) = judged;
+    let judged = Judged { rule, outcome, spend };
+    ctx.obs.trace(judge_finished(ctx, check, &judged, turns, duration_ms, revision));
     ctx.obs.emit(RunEvent::Rules(board));
     judged
+}
+
+/// The trace line of one ended judge.
+fn judge_finished(
+    ctx: &SubStageContext,
+    check: u64,
+    judged: &Judged,
+    turns: usize,
+    duration_ms: u64,
+    revision: u64,
+) -> TraceEvent {
+    let rule = &judged.rule;
+    let (verdict, violations, unchecked_reason) = match &judged.outcome {
+        Ok(v) if v.pass => (JudgeVerdict::Positive, 0, None),
+        Ok(v) => (JudgeVerdict::Negative, v.violations.len(), None),
+        Err(reason) => (JudgeVerdict::Unchecked, 0, Some(reason.clone())),
+    };
+    TraceEvent::JudgeFinished {
+        stage: judge_stage(ctx),
+        check,
+        rule_id: rule.id.clone(),
+        rule_name: rule.name.clone(),
+        rule_title: rule.title.clone(),
+        verdict,
+        violations,
+        unchecked_reason,
+        turns,
+        duration_ms,
+        revision,
+        spend: judged.spend,
+    }
 }
 
 /// Reports a judge's end however its future ends, a dropped one included, so
@@ -162,7 +254,13 @@ impl Drop for JudgingEnds<'_> {
     }
 }
 
-async fn judge_rule(agent: &SharedAgent, ctx: &SubStageContext, rule: &JudgedRule) -> Result<RuleVerdict, String> {
+/// Runs the judge, and returns its verdict with the turns it took and what it
+/// spent.
+async fn judge_rule(
+    agent: &SharedAgent,
+    ctx: &SubStageContext,
+    rule: &JudgedRule,
+) -> (Result<RuleVerdict, String>, usize, Spend) {
     let role = crate::roles::roles_for(ctx.target).judge;
     let judgement = agent.lock().await.open_judgement();
     let end = run_sub_stage(
@@ -175,7 +273,8 @@ async fn judge_rule(agent: &SharedAgent, ctx: &SubStageContext, rule: &JudgedRul
         format!("judge: {}", rule.title),
     )
     .await;
-    agent.lock().await.take_judgement(&judgement).ok_or_else(|| end.why_no("judge", "a verdict"))
+    let verdict = agent.lock().await.take_judgement(&judgement).ok_or_else(|| end.why_no("judge", "a verdict"));
+    (verdict, end.turns, end.spend)
 }
 
 #[cfg(test)]
@@ -256,12 +355,15 @@ mod tests {
         assert_eq!(ctx.spend.lock().unwrap().input_tokens, 100);
     }
 
-    /// Records every event a check reports.
+    /// Records every event a check reports, and its trace.
     #[derive(Clone, Default)]
-    struct Recorder(Arc<Mutex<Vec<RunEvent>>>);
+    struct Recorder(Arc<Mutex<Vec<RunEvent>>>, Arc<Mutex<Vec<TraceEvent>>>);
     impl RunObserver for Recorder {
         fn emit(&mut self, event: RunEvent) {
             self.0.lock().unwrap().push(event);
+        }
+        fn trace(&mut self, event: TraceEvent) {
+            self.1.lock().unwrap().push(event);
         }
         fn retry_prompt(&mut self, _role: &str, _error: &str) {}
         fn poll_retry(&mut self) -> Option<RetryAction> {
@@ -321,6 +423,93 @@ mod tests {
         });
         let judging_ended = position(&|e| matches!(e, RunEvent::Judging { running: false, .. }));
         assert!(judged_on_board < judging_ended, "the verdict reached the board only after the judging ended");
+    }
+
+    /// Every judge is traced as a whole inside its check: the rule, its
+    /// verdict, the turns it took and what it spent, which
+    /// is exactly what the dispatching stage gets to fold in.
+    #[tokio::test]
+    async fn a_judge_is_traced_with_its_verdict_turns_and_spend() {
+        let turn = |judgement: &str| {
+            let mut usage = Usage::new();
+            usage.input_tokens = 100;
+            usage.output_tokens = 10;
+            vec![
+                MockStreamEvent::tool_call(
+                    "verdict",
+                    "submit_rule_verdict",
+                    serde_json::json!({"judgement": judgement, "pass": false,
+                        "violations": [{"pointer": "/body/0", "message": "split the table"}]}),
+                ),
+                MockStreamEvent::final_response(usage),
+            ]
+        };
+        // A refused verdict first: the judge takes two turns.
+        let model = MockCompletionModel::from_stream_turns([turn("judgement-9"), turn("judgement-1")]);
+        let recorder = Recorder::default();
+        let mut ctx = context(model, AbortFlag::default());
+        ctx.obs = SharedObserver::new(recorder.clone());
+        let agent = agent_with(vec![rule("a")]);
+        let revision = agent.lock().await.revision();
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+
+        let traced = recorder.1.lock().unwrap().clone();
+        assert_eq!(traced.len(), 3, "{traced:?}");
+        let TraceEvent::RuleCheckStarted { stage, check, partial, judged, scripted, revision: on, .. } = &traced[0] else {
+            panic!("the check opens the trace: {traced:?}");
+        };
+        assert_eq!((stage.as_str(), *partial, *judged, *on), ("Judge", false, 1, revision));
+        assert!(*scripted > 0, "the Redacto target has scripted rules too");
+        let TraceEvent::JudgeFinished {
+            check: judge_check,
+            rule_id,
+            rule_name,
+            verdict,
+            violations,
+            unchecked_reason,
+            turns,
+            revision: judged_on,
+            spend,
+            ..
+        } = &traced[1]
+        else {
+            panic!("one line per judge: {traced:?}");
+        };
+        assert_eq!(judge_check, check);
+        assert_eq!((rule_id.as_str(), rule_name.as_str()), ("id-a", "a"));
+        assert_eq!((*verdict, *violations, unchecked_reason.clone()), (JudgeVerdict::Negative, 1, None));
+        assert_eq!((*turns, *judged_on), (2, revision));
+        assert_eq!((spend.input_tokens, spend.output_tokens), (200, 20));
+        assert!((spend.cost_usd.unwrap() - 2.0).abs() < 1e-9);
+        let TraceEvent::RuleCheckFinished { check: finished, judges_spend, outdated, .. } = &traced[2] else {
+            panic!("the check closes the trace: {traced:?}");
+        };
+        assert_eq!((finished, *outdated), (check, false));
+        assert_eq!(judges_spend, spend);
+        assert_eq!(*ctx.spend.lock().unwrap(), *spend, "the stage folds in what the judges were traced with");
+    }
+
+    /// A check of chosen rules says so, and a judge without a verdict is
+    /// traced as unchecked with the reason.
+    #[tokio::test]
+    async fn a_partial_check_and_an_unchecked_judge_are_traced_as_such() {
+        let model = MockCompletionModel::from_stream_turns([vec![
+            MockStreamEvent::text("I think it is fine."),
+            MockStreamEvent::final_response(Usage::new()),
+        ]]);
+        let recorder = Recorder::default();
+        let mut ctx = context(model, AbortFlag::default());
+        ctx.obs = SharedObserver::new(recorder.clone());
+        report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({"rule_ids": ["id-a"]})).await);
+
+        let traced = recorder.1.lock().unwrap().clone();
+        assert!(matches!(&traced[0], TraceEvent::RuleCheckStarted { partial: true, judged: 1, .. }), "{traced:?}");
+        let TraceEvent::JudgeFinished { verdict, unchecked_reason, turns, .. } = &traced[1] else {
+            panic!("{traced:?}");
+        };
+        assert_eq!(*verdict, JudgeVerdict::Unchecked);
+        assert_eq!(unchecked_reason.as_deref(), Some("the judge ended without a verdict"));
+        assert_eq!(*turns, 1);
     }
 
     /// A verdict under a judgement nobody opened, or with violations that do
@@ -460,6 +649,28 @@ mod tests {
         assert_eq!(reviewer_model.request_count(), 0, "the Reviewer sent a judge");
         assert!(judged(&review).iter().all(|v| v["verdict"] == "positive" && v["cached"] == true), "{review}");
         assert_eq!(reviewer.spend.lock().unwrap().input_tokens, 0);
+    }
+
+    /// A check whose verdicts all come from the cache traces no judge: it
+    /// opens with no judged rule to send and closes having spent nothing.
+    #[tokio::test]
+    async fn a_check_answered_from_the_cache_traces_no_judge() {
+        let model = MockCompletionModel::from_stream_turns([verdict_turn("judgement-1", true)]);
+        let recorder = Recorder::default();
+        let mut ctx = context(model, AbortFlag::default());
+        ctx.obs = SharedObserver::new(recorder.clone());
+        let agent = agent_with(vec![rule("a")]);
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        recorder.1.lock().unwrap().clear();
+
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        let traced = recorder.1.lock().unwrap().clone();
+        assert_eq!(traced.len(), 2, "{traced:?}");
+        assert!(matches!(&traced[0], TraceEvent::RuleCheckStarted { judged: 0, .. }), "{traced:?}");
+        let TraceEvent::RuleCheckFinished { judges_spend, outdated: false, .. } = &traced[1] else {
+            panic!("{traced:?}");
+        };
+        assert_eq!(*judges_spend, Spend::default());
     }
 
     /// The cache follows the content, not the revision: an edit sends the

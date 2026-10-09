@@ -213,6 +213,9 @@ async fn run_stages(
 
     // ── Stage 2: Reviewer → (Author fix)* ───────────────────────────────────
     let mut approved = false;
+    // Set when the Reviewer left nothing for the Author but rule conflicts:
+    // the run stops for a person rather than spend a round undoing the last.
+    let mut needs_operator: Option<Vec<agent::review::RuleConflict>> = None;
     for round in 0..config.max_review_rounds {
         // The Reviewer builds nothing: it judges the build of the Author's
         // last document, made here. A document that does not build goes back
@@ -230,6 +233,7 @@ async fn run_stages(
                         "The document does not build, so it could not be reviewed. Fix this, rebuild \
                          and verify before finishing:\n{e}"
                     ),
+                    rule_conflicts: Vec::new(),
                 })
             }
             Ok(()) => {
@@ -256,7 +260,7 @@ async fn run_stages(
             stage: stages.reviewer.name.to_string(),
             round: round + 1,
             approved: review.as_ref().map(|r| r.approved),
-            report: review.as_ref().map(|r| r.report.clone()).unwrap_or_default(),
+            report: review.as_ref().map(|r| r.trace_report()).unwrap_or_default(),
         });
         match review {
             Some(r) if r.approved => {
@@ -264,12 +268,21 @@ async fn run_stages(
                 obs.emit(RunEvent::Thought("Reviewer approved the form.".into()));
                 break;
             }
+            Some(r) if r.needs_operator() => {
+                obs.emit(RunEvent::Thought(format!(
+                    "Only rule conflicts remain (round {}): stopping for a person instead of another \
+                     round.",
+                    round + 1
+                )));
+                needs_operator = Some(r.rule_conflicts);
+                break;
+            }
             Some(r) => {
                 obs.emit(RunEvent::Thought(format!(
                     "Reviewer requested changes (round {}). Returning to the author.",
                     round + 1
                 )));
-                reviews.push(r.report);
+                reviews.push(fix_round_review(&r));
                 begin_stage(
                     shared_agent,
                     obs,
@@ -305,7 +318,9 @@ async fn run_stages(
         }
     }
 
-    if !approved {
+    if let Some(conflicts) = &needs_operator {
+        warn(obs, &mut warnings, needs_operator_warning(conflicts));
+    } else if !approved {
         warn(
             obs,
             &mut warnings,
@@ -331,6 +346,32 @@ async fn run_stages(
         outcome.review = capture_review(shared_agent, &config.abort, obs, &mut outcome.warnings).await;
     }
     Some(outcome)
+}
+
+/// What the Author's fix round is pinned: the Reviewer's report and, when it
+/// found any, the rule conflicts the Author must leave alone — a change there
+/// breaks the other rule, and the next review would ask for it back.
+fn fix_round_review(review: &agent::ReviewResult) -> String {
+    if review.rule_conflicts.is_empty() {
+        return review.report.clone();
+    }
+    format!(
+        "{}\n\nRULE CONFLICTS — do NOT change these points. The rules named ask for opposite things \
+         there and a person will decide which one wins; leave each node as it is:\n{}",
+        review.report.trim_end(),
+        agent::review::conflict_list(&review.rule_conflicts)
+    )
+}
+
+/// The run's result when only rule conflicts kept the form from approval.
+fn needs_operator_warning(conflicts: &[agent::review::RuleConflict]) -> String {
+    format!(
+        "Needs a person: the reviewer found nothing left for the author but {} rule conflict(s), \
+         where the rules ask for opposite things. Decide which rule wins at each and fix the form or \
+         the rules:\n{}",
+        conflicts.len(),
+        agent::review::conflict_list(conflicts)
+    )
 }
 
 /// A note the run accumulates without stopping: shown now, and kept with the
@@ -2205,6 +2246,125 @@ mod controller {
             warnings.iter().any(|w| w.contains("without a clean review")),
             "an unapproved run must say so: {warnings:?}"
         );
+    }
+
+    /// One scripted `submit_review` call that also reports rule conflicts.
+    fn conflict_review_turn(report: &str, conflicts: serde_json::Value) -> Vec<MockStreamEvent> {
+        vec![
+            MockStreamEvent::tool_call(
+                "call-review",
+                "submit_review",
+                serde_json::json!({"approved": false, "report": report, "rule_conflicts": conflicts}),
+            ),
+            MockStreamEvent::final_response(Usage::new()),
+        ]
+    }
+
+    fn one_conflict() -> serde_json::Value {
+        serde_json::json!([{
+            "rules": ["sub-headings-are-title-draws", "2943a027"],
+            "path": "/body/0",
+            "why": "one asks for a title draw, the other forbids it"
+        }])
+    }
+
+    /// A Reviewer that reports only rule conflicts ends the review loop: the
+    /// controller starts no fix round, though rounds remain, and the run
+    /// says it needs a person, naming each conflict.
+    #[tokio::test]
+    async fn only_rule_conflicts_stop_the_run_for_a_person() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            conflict_review_turn("", one_conflict()),
+        ]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 3, model.clone()), RunSeed::Fresh, obs)
+            .await
+            .expect("a run stopped for a person still produces its result");
+
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"], "no fix round for a conflict");
+        assert_eq!(model.requests().len(), 2);
+        let needs = outcome.warnings.iter().find(|w| w.starts_with("Needs a person")).unwrap_or_else(|| panic!("{:?}", outcome.warnings));
+        assert!(needs.contains("sub-headings-are-title-draws vs 2943a027 at /body/0"), "{needs}");
+        assert!(
+            !outcome.warnings.iter().any(|w| w.contains("without a clean review")),
+            "the needs-a-person result replaces the generic one: {:?}",
+            outcome.warnings
+        );
+        let verdicts = rec.lock().unwrap().verdicts();
+        assert_eq!(verdicts.len(), 1);
+        assert_eq!(verdicts[0].1, Some(false));
+        assert!(verdicts[0].2.contains("RULE CONFLICTS (for a person)"), "{verdicts:?}");
+    }
+
+    /// A report that only lists engine defects asks the Author for nothing,
+    /// so with conflicts it too stops the run for a person.
+    #[tokio::test]
+    async fn conflicts_and_engine_defects_alone_also_stop_the_run() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            conflict_review_turn("ENGINE DEFECTS\n- /body/0: fixed writer output", one_conflict()),
+        ]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 3, model), RunSeed::Fresh, obs).await.unwrap();
+
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert!(outcome.warnings.iter().any(|w| w.starts_with("Needs a person")), "{:?}", outcome.warnings);
+    }
+
+    /// Issues and conflicts together go back to the Author, with the issues
+    /// to fix and the conflicting points to leave alone.
+    #[tokio::test]
+    async fn a_review_mixing_issues_and_conflicts_tells_the_author_to_leave_the_conflicts() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            conflict_review_turn("The footer is missing.", one_conflict()),
+            text_turn("FIXED"),
+        ]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await.unwrap();
+
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer", "Author"]);
+        let fix_system = turn_system(&model.requests()[2]);
+        assert!(fix_system.contains("The footer is missing."), "{fix_system}");
+        assert!(fix_system.contains("RULE CONFLICTS — do NOT change these points"), "{fix_system}");
+        assert!(fix_system.contains("sub-headings-are-title-draws vs 2943a027 at /body/0"), "{fix_system}");
+        assert!(!outcome.warnings.iter().any(|w| w.starts_with("Needs a person")), "{:?}", outcome.warnings);
+    }
+
+    /// Without conflicts the fix round is pinned the report unchanged.
+    #[test]
+    fn the_fix_round_review_is_the_report_alone_without_conflicts() {
+        let review = agent::ReviewResult { approved: false, report: "fix x".into(), rule_conflicts: Vec::new() };
+        assert_eq!(fix_round_review(&review), "fix x");
+    }
+
+    /// `submit_review` records the conflicts it is given, refuses a malformed
+    /// one (rather than drop it silently) and refuses an approval that
+    /// carries any.
+    #[tokio::test]
+    async fn submit_review_records_rule_conflicts() {
+        let mut agent = buildable_agent(String::new());
+        let refused = agent
+            .execute("submit_review", &serde_json::json!({"approved": true, "report": "", "rule_conflicts": one_conflict()}))
+            .await;
+        assert!(matches!(&refused, ToolReply::Error(e) if e.contains("approved=false")), "{refused:?}");
+        let malformed = agent
+            .execute("submit_review", &serde_json::json!({"approved": false, "rule_conflicts": [{"rules": ["a"], "path": "/x", "why": "w"}]}))
+            .await;
+        assert!(matches!(&malformed, ToolReply::Error(e) if e.contains("rule_conflicts[0]")), "{malformed:?}");
+        assert!(agent.take_review().is_none(), "a refused call records nothing");
+
+        let recorded = agent
+            .execute("submit_review", &serde_json::json!({"approved": false, "report": "", "rule_conflicts": one_conflict()}))
+            .await;
+        assert!(matches!(&recorded, ToolReply::Text(t) if t.contains("handing the form to a person")), "{recorded:?}");
+        let review = agent.take_review().expect("recorded");
+        assert!(review.needs_operator());
+        assert_eq!(review.rule_conflicts[0].rules, ["sub-headings-are-title-draws", "2943a027"]);
     }
 
     /// The run's final spend has to be every stage's usage summed — the

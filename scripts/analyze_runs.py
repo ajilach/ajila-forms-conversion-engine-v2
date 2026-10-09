@@ -13,6 +13,11 @@ fixes would pay off across the remaining forms, which work a deterministic
 script or a new MCP tool should take over, and which stages dominate the
 wall time and so are worth parallelising.
 
+Runs recorded with schema 2 also carry their judges (the agents that decide
+the rules without a script): how many ran, what they cost, which rules they
+judged and how each stage's cost splits into its own turns and its judges'.
+A schema-1 run recorded none of that, so its judge figures show as "-".
+
 Usage:
 
     # Every run under the app's default folder (macOS)
@@ -36,7 +41,7 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-SUPPORTED_SCHEMA = 1
+SUPPORTED_SCHEMAS = (1, 2)
 TOP = 25
 
 
@@ -94,10 +99,10 @@ def load(path: Path) -> dict | None:
     if not isinstance(data, dict) or not isinstance(data.get("time"), dict):
         print(f"warning: skipping {path}: not a run summary", file=sys.stderr)
         return None
-    if data.get("schema_version") != SUPPORTED_SCHEMA:
+    if data.get("schema_version") not in SUPPORTED_SCHEMAS:
         print(
             f"warning: skipping {path}: schema version {data.get('schema_version')} "
-            f"(this script reads {SUPPORTED_SCHEMA})",
+            f"(this script reads {', '.join(map(str, SUPPORTED_SCHEMAS))})",
             file=sys.stderr,
         )
         return None
@@ -114,16 +119,43 @@ def outcome(run: dict) -> str:
     return {True: "approved", False: "not approved", None: "no verdict"}[approved]
 
 
+def has_judges(run: dict) -> bool:
+    """Whether the run recorded its judges (schema 2 on): a run that did not
+    has no judge figures, which is not the same as zero."""
+    return "judge_runs" in run
+
+
+def cost_of(spend) -> float:
+    return (spend or {}).get("cost_usd") or 0.0
+
+
+def stage_end(stage: dict) -> str:
+    """How a stage ended, naming the terminal tool when one ended it."""
+    ended = stage.get("ended")
+    if isinstance(ended, dict):
+        return "error"
+    if ended == "review_submitted" and stage.get("ended_by"):
+        return stage["ended_by"]
+    return ended or "running"
+
+
 def aggregate(runs: list[dict]) -> dict:
     stages = defaultdict(lambda: {"runs": set(), "occurrences": 0, "ms": 0, "model_ms": 0, "tool_ms": 0,
-                                  "turns": 0, "cost": 0.0, "ends": defaultdict(int)})
+                                  "turns": 0, "cost": 0.0, "agent_cost": 0.0, "judge_cost": 0.0,
+                                  "judged_cost": 0.0, "judged_occurrences": 0, "judge_runs": 0,
+                                  "ends": defaultdict(int)})
+    judges = defaultdict(lambda: {"runs": set(), "judge_runs": 0, "positive": 0, "negative": 0, "unchecked": 0,
+                                  "turns": 0, "ms": 0, "cost": 0.0, "title": ""})
     tools = defaultdict(lambda: {"runs": set(), "calls": 0, "failures": 0, "ms": 0, "max_ms": 0,
                                  "result_chars": 0})
     errors = defaultdict(lambda: {"runs": set(), "count": 0, "example": ""})
     repeats = defaultdict(lambda: {"runs": set(), "wasted": 0, "repeated": 0, "ms": 0})
     controls = defaultdict(lambda: {"runs": set(), "count": 0})
     for i, run in enumerate(runs):
-        for s in run.get("stages", []):
+        # The final rule check runs after the last stage: no stage of its own
+        # in the trace, but a row of its own here.
+        final_check = (run.get("judges") or {}).get("final_check")
+        for s in run.get("stages", []) + ([final_check] if final_check else []):
             agg = stages[s["name"]]
             agg["runs"].add(i)
             agg["occurrences"] += 1
@@ -131,11 +163,25 @@ def aggregate(runs: list[dict]) -> dict:
             agg["model_ms"] += s.get("model_ms", 0)
             agg["tool_ms"] += s.get("tool_ms", 0)
             agg["turns"] += s.get("turns", 0)
-            agg["cost"] += (s.get("spend") or {}).get("cost_usd") or 0.0
-            ended = s.get("ended")
-            if isinstance(ended, dict):
-                ended = "error"
-            agg["ends"][ended or "running"] += 1
+            agg["cost"] += cost_of(s.get("spend"))
+            # The split is known only for ended stages of runs that recorded
+            # their judges; its own total keeps Agent + Judges = Cost.
+            if "judges_spend" in s and s.get("ended") is not None:
+                agg["judged_occurrences"] += 1
+                agg["judged_cost"] += cost_of(s.get("spend"))
+                agg["judge_cost"] += cost_of(s.get("judges_spend"))
+                agg["agent_cost"] += cost_of(s.get("agent_spend"))
+                agg["judge_runs"] += s.get("judge_runs", 0)
+            agg["ends"][stage_end(s)] += 1
+        for r in (run.get("judges") or {}).get("by_rule", []):
+            agg = judges[r.get("rule_name") or r.get("rule_id")]
+            agg["runs"].add(i)
+            agg["title"] = agg["title"] or r.get("rule_title", "")
+            for key in ("positive", "negative", "unchecked", "turns"):
+                agg[key] += r.get(key, 0)
+            agg["judge_runs"] += r.get("runs", 0)
+            agg["ms"] += r.get("total_ms", 0)
+            agg["cost"] += cost_of(r.get("spend"))
         for t in run.get("tools", []):
             agg = tools[t["name"]]
             agg["runs"].add(i)
@@ -159,7 +205,19 @@ def aggregate(runs: list[dict]) -> dict:
         for kind, count in (run.get("control_counts") or {}).items():
             controls[kind]["runs"].add(i)
             controls[kind]["count"] += count
-    return {"stages": stages, "tools": tools, "errors": errors, "repeats": repeats, "controls": controls}
+    return {"stages": stages, "tools": tools, "errors": errors, "repeats": repeats, "controls": controls,
+            "judges": judges}
+
+
+def split_cell(stage: dict, cost: float, runs: int | None = None) -> str:
+    """One side of a stage's agent/judges split, saying how many occurrences
+    it covers when that is not all of them."""
+    if not stage["judged_occurrences"]:
+        return "-"
+    text = usd(cost) + (f" ({runs})" if runs is not None else "")
+    if stage["judged_occurrences"] < stage["occurrences"]:
+        text += f" of {stage['judged_occurrences']}"
+    return text
 
 
 def render(runs: list[dict], agg: dict) -> str:
@@ -179,11 +237,20 @@ def render(runs: list[dict], agg: dict) -> str:
     w(f"- Waiting for requests that then failed: {duration(total_failed)} ({percent(total_failed, total_wall)})")
     w(f"- Shaping requests to fit the context budget: {duration(total_shaping)} ({percent(total_shaping, total_wall)})")
     other = sum(r["time"].get("other_ms", 0) for r in runs)
-    w(f"- Everything else (retry waits, operator pauses, controller): {duration(other)} ({percent(other, total_wall)})\n")
+    w(f"- Everything else (retry waits, operator pauses, controller): {duration(other)} ({percent(other, total_wall)})")
+    judged = [r for r in runs if has_judges(r)]
+    if judged:
+        judge_cost = sum(r.get("judge_cost_usd") or 0.0 for r in judged)
+        judged_total = sum(cost_of(r.get("spend")) for r in judged)
+        judge_runs = sum(r.get("judge_runs", 0) for r in judged)
+        share = "-" if not judged_total else f"{judge_cost * 100 / judged_total:.0f}%"
+        w(f"- Judges: {number(judge_runs)} run(s), {usd(judge_cost)} ({share} of the spend of the "
+          f"{len(judged)} run(s) that recorded them)")
+    w("")
 
     w("## Runs\n")
-    w("| Started | Form | Kind | Outcome | Wall | Model | Tools | Stages | Turns | Tool calls (failed) | Reviews | Cost | Folder |")
-    w("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
+    w("| Started | Form | Kind | Outcome | Wall | Model | Tools | Stages | Turns | Tool calls (failed) | Reviews | Cost | Judges (runs) | Folder |")
+    w("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in runs:
         meta = r.get("run", {})
         t = r["time"]
@@ -194,24 +261,43 @@ def render(runs: list[dict], agg: dict) -> str:
             f"| {outcome(r)} | {duration(t['wall_ms'])} | {percent(t['model_ms'], t['wall_ms'])} "
             f"| {percent(t['tool_ms'], t['wall_ms'])} | {c.get('stages', 0)} | {c.get('turns', 0)} "
             f"| {c.get('tool_calls', 0)} ({c.get('failed_tool_calls', 0)}) | {len(r.get('review_verdicts', []))} "
-            f"| {usd((r.get('spend') or {}).get('cost_usd'))} | `{Path(r['_folder']).name}` |"
+            f"| {usd((r.get('spend') or {}).get('cost_usd'))} "
+            f"| {usd(r.get('judge_cost_usd')) + ' (' + str(r['judge_runs']) + ')' if r.get('judge_runs') else '-'} "
+            f"| `{Path(r['_folder']).name}` |"
         )
     w("")
 
     w("## Stages across runs\n")
     w("Where the wall time goes, by kind of stage. A stage that dominates is the first candidate for "
       "splitting into parallel agents or for moving work into deterministic tools.\n")
-    w("| Stage | Runs | Times run | Total time | Share of all stage time | Average per occurrence | Model | Tools | Turns (avg) | Cost | How it ended |")
-    w("|---|---|---|---|---|---|---|---|---|---|---|")
+    w("Agent and Judges split the cost of the occurrences that recorded their judges (schema 2, ended): "
+      "\"of N\" says how many those are when it is not all of them.\n")
+    w("| Stage | Runs | Times run | Total time | Share of all stage time | Average per occurrence | Model | Tools | Turns (avg) | Cost | Agent | Judges (runs) | How it ended |")
+    w("|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     stage_total = sum(s["ms"] for s in agg["stages"].values())
     for name, s in sorted(agg["stages"].items(), key=lambda kv: -kv[1]["ms"]):
         ends = ", ".join(f"{k} ×{v}" for k, v in sorted(s["ends"].items()))
         w(
             f"| {name} | {len(s['runs'])} | {s['occurrences']} | {duration(s['ms'])} | {percent(s['ms'], stage_total)} "
             f"| {duration(s['ms'] / max(s['occurrences'], 1))} | {percent(s['model_ms'], s['ms'])} "
-            f"| {percent(s['tool_ms'], s['ms'])} | {s['turns'] / max(s['occurrences'], 1):.1f} | {usd(s['cost'])} | {ends} |"
+            f"| {percent(s['tool_ms'], s['ms'])} | {s['turns'] / max(s['occurrences'], 1):.1f} | {usd(s['cost'])} "
+            f"| {split_cell(s, s['agent_cost'])} "
+            f"| {split_cell(s, s['judge_cost'], s['judge_runs'])} | {ends} |"
         )
     w("")
+
+    if agg["judges"]:
+        w("## Judges across runs, by cost\n")
+        w("The rules a judge agent decides (no `check.js`). The most expensive ones that come back the same "
+          "every time are the first candidates for a script; the ones often unchecked need a clearer rule.\n")
+        w("| Rule | Runs | Judge runs | Positive | Negative | Unchecked | Turns (avg) | Total time | Cost |")
+        w("|---|---|---|---|---|---|---|---|---|")
+        for name, j in sorted(agg["judges"].items(), key=lambda kv: -kv[1]["cost"])[:TOP * 2]:
+            w(
+                f"| `{name}` | {len(j['runs'])} | {j['judge_runs']} | {j['positive']} | {j['negative']} "
+                f"| {j['unchecked']} | {j['turns'] / max(j['judge_runs'], 1):.1f} | {duration(j['ms'])} | {usd(j['cost'])} |"
+            )
+        w("")
 
     w("## Tools across runs, by total time\n")
     w("| Tool | Runs using it | Calls | Failed | Total time | Average | Longest | Result characters |")
@@ -287,7 +373,8 @@ def to_json(runs: list[dict], agg: dict) -> dict:
         }
 
     return {
-        "runs": [{k: v for k, v in r.items() if k in ("run", "outcome", "approved", "time", "spend", "counts", "_folder")}
+        "runs": [{k: v for k, v in r.items() if k in ("run", "outcome", "approved", "time", "spend", "counts", "_folder",
+                                                      "judge_runs", "judge_cost_usd", "agent_cost_usd")}
                  for r in runs],
         **{name: plain(table) for name, table in agg.items()},
     }

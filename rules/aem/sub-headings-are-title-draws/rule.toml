@@ -18,4 +18,10 @@ A break is a source sub-heading carried only by a nested Panel's `title`, or by 
 
 Fix: add a TitleDraw before the section's fields with the heading text in every language (name
 `TTL_...`), and clear the nested Panel's title if it only duplicated the heading.
+
+Precedence: ubs-aem-banking-relationship-present wins over this rule for the heading "UBS Europe
+SE". Where the source heads the bank's signature block with "UBS Europe SE", that heading is the
+`title` of the bank's signature Repeatable, which AEM renders on each instance ("UBS Europe SE 1",
+"UBS Europe SE 2"); a draw that is only "UBS Europe SE" breaks that rule. So that heading needs no
+TitleDraw: do not report it while the signature Repeatable's title carries it.
 """

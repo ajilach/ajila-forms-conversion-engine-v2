@@ -269,7 +269,7 @@
     "name": "submit_rule_verdict"
   },
   {
-    "description": "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused.",
+    "description": "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
     "input_schema": {
       "properties": {
         "approved": {
@@ -278,6 +278,36 @@
         "report": {
           "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible.",
           "type": "string"
+        },
+        "rule_conflicts": {
+          "description": "Places where the rules contradict each other, so that whatever the author does there one of them breaks. Not issues for the author; only with approved=false.",
+          "items": {
+            "properties": {
+              "path": {
+                "description": "The JSON Pointer of the node they disagree about.",
+                "type": "string"
+              },
+              "rules": {
+                "description": "The ids of the rules involved.",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 2,
+                "type": "array"
+              },
+              "why": {
+                "description": "What each rule asks for there.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "rules",
+              "path",
+              "why"
+            ],
+            "type": "object"
+          },
+          "type": "array"
         }
       },
       "required": [

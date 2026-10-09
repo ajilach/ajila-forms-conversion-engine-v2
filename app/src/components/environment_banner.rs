@@ -1,6 +1,10 @@
 //! Whether this machine can run conversions, checked at startup and whenever
 //! the settings change, so a missing Docker, image or registry login shows up
 //! before a run is started rather than as its refusal.
+//!
+//! Only the output targets the operator uses are checked: a target switched
+//! off in Settings (or from the banner) is not offered, so what it would need
+//! is not reported either.
 
 use dioxus::prelude::*;
 
@@ -9,72 +13,106 @@ use agent::u2s::NotReady;
 
 use crate::settings::AppSettings;
 
-/// Both targets' readiness: the check rules' sandbox and the verifier, each
-/// as `agent::u2s::readiness` reports it.
+/// Each target's readiness as `agent::u2s::readiness` reports it, or `None`
+/// for a target switched off in the settings, which is not checked.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Readiness {
-    pub aem: Result<String, NotReady>,
-    pub redacto: Result<String, NotReady>,
+    pub aem: Option<Result<String, NotReady>>,
+    pub redacto: Option<Result<String, NotReady>>,
 }
 
 impl Readiness {
-    /// Checks both targets at once against `settings`.
+    /// Checks every target `settings` offers, at once.
     pub async fn check(settings: AppSettings) -> Self {
-        let (aem, redacto) = tokio::join!(
-            agent::u2s::readiness(OutputTarget::Aem, &settings.aem_verify, &settings.redacto_verify),
-            agent::u2s::readiness(OutputTarget::Redacto, &settings.aem_verify, &settings.redacto_verify),
-        );
+        let check = |target: OutputTarget| {
+            let settings = settings.clone();
+            async move {
+                if !settings.target_enabled(target) {
+                    return None;
+                }
+                Some(agent::u2s::readiness(target, &settings.aem_verify, &settings.redacto_verify).await)
+            }
+        };
+        let (aem, redacto) = tokio::join!(check(OutputTarget::Aem), check(OutputTarget::Redacto));
         Self { aem, redacto }
     }
 
-    pub fn of(&self, target: OutputTarget) -> &Result<String, NotReady> {
+    /// `target`'s result, or `None` when it is switched off.
+    pub fn of(&self, target: OutputTarget) -> Option<&Result<String, NotReady>> {
         match target {
-            OutputTarget::Aem => &self.aem,
-            OutputTarget::Redacto => &self.redacto,
+            OutputTarget::Aem => self.aem.as_ref(),
+            OutputTarget::Redacto => self.redacto.as_ref(),
         }
     }
 
-    /// Every target with its result, in display order.
-    fn targets(&self) -> [(&'static str, &Result<String, NotReady>); 2] {
-        [("AEM", &self.aem), ("Redacto", &self.redacto)]
+    /// Every checked target with its result, in display order.
+    fn targets(&self) -> Vec<(OutputTarget, &Result<String, NotReady>)> {
+        OutputTarget::ALL
+            .into_iter()
+            .filter_map(|target| self.of(target).map(|result| (target, result)))
+            .collect()
     }
 
-    /// One text for both targets: their reports when both are ready, otherwise
-    /// every problem, prefixed with its target.
+    /// One text for the checked targets: their reports when all are ready,
+    /// otherwise every problem, prefixed with its target. A target switched
+    /// off is named as such, so the report does not read as if it were ready.
     pub fn report(&self) -> Result<String, String> {
         let problems: Vec<String> = self
             .targets()
             .into_iter()
-            .filter_map(|(name, result)| result.as_ref().err().map(|e| format!("{name}: {e}")))
+            .filter_map(|(target, result)| {
+                result.as_ref().err().map(|e| format!("{}: {e}", name(target)))
+            })
             .collect();
         if !problems.is_empty() {
             return Err(problems.join("\n"));
         }
-        Ok(self
-            .targets()
+        Ok(OutputTarget::ALL
             .into_iter()
-            .filter_map(|(name, result)| result.as_ref().ok().map(|r| format!("{name}: {r}")))
+            .map(|target| match self.of(target) {
+                Some(Ok(report)) => format!("{}: {report}", name(target)),
+                _ => format!("{}: switched off in Settings, not checked", name(target)),
+            })
             .collect::<Vec<_>>()
             .join("\n"))
     }
 }
 
-/// Lists what keeps each target from running, under the header. Renders
-/// nothing while every target is ready, or before the first check finishes.
+/// The short name the banner and the report give a target.
+fn name(target: OutputTarget) -> &'static str {
+    match target {
+        OutputTarget::Aem => "AEM",
+        OutputTarget::Redacto => "Redacto",
+    }
+}
+
+/// Lists what keeps each checked target from running, under the header.
+/// Renders nothing while every checked target is ready, or before the first
+/// check finishes. Each failing target can be switched off from here when it
+/// is not used (`on_switch_off`), as long as another target stays on.
 #[component]
-pub fn EnvironmentBanner(readiness: Resource<Readiness>) -> Element {
+pub fn EnvironmentBanner(
+    readiness: Resource<Readiness>,
+    /// Targets currently offered; one that is the last cannot be switched off.
+    enabled_targets: Vec<OutputTarget>,
+    /// Switches a target off in the settings (persisted by the caller).
+    on_switch_off: EventHandler<OutputTarget>,
+) -> Element {
     let Some(current) = readiness.value().read().clone() else {
         return rsx! {};
     };
-    let failing: Vec<(&str, Vec<String>)> = current
+    let failing: Vec<(OutputTarget, Vec<String>)> = current
         .targets()
         .into_iter()
-        .filter_map(|(name, result)| result.as_ref().err().map(|NotReady(problems)| (name, problems.clone())))
+        .filter_map(|(target, result)| {
+            result.as_ref().err().map(|NotReady(problems)| (target, problems.clone()))
+        })
         .collect();
     if failing.is_empty() {
         return rsx! {};
     }
     let checking = readiness.pending();
+    let can_switch_off = enabled_targets.len() > 1;
     rsx! {
         div { class: "environment-banner",
             div { class: "environment-banner-head",
@@ -86,12 +124,20 @@ pub fn EnvironmentBanner(readiness: Resource<Readiness>) -> Element {
                     if checking { "Checking…" } else { "Re-check" }
                 }
             }
-            for (name, problems) in failing {
+            for (target, problems) in failing {
                 div { class: "environment-banner-target",
-                    span { class: "environment-banner-name", "{name}" }
+                    span { class: "environment-banner-name", "{name(target)}" }
                     ul {
                         for problem in problems {
                             li { "{problem}" }
+                        }
+                    }
+                    if can_switch_off {
+                        button {
+                            class: "btn btn-secondary btn-sm environment-banner-off",
+                            title: "Stop offering this output format and stop checking for it. Switch it back on under Settings > Verification > Output formats.",
+                            onclick: move |_| on_switch_off.call(target),
+                            "I don't use {name(target)}"
                         }
                     }
                 }
@@ -104,13 +150,13 @@ pub fn EnvironmentBanner(readiness: Resource<Readiness>) -> Element {
 mod tests {
     use super::*;
 
-    fn not_ready(problems: &[&str]) -> Result<String, NotReady> {
-        Err(NotReady(problems.iter().map(|p| p.to_string()).collect()))
+    fn not_ready(problems: &[&str]) -> Option<Result<String, NotReady>> {
+        Some(Err(NotReady(problems.iter().map(|p| p.to_string()).collect())))
     }
 
     #[test]
     fn a_ready_machine_reports_both_targets() {
-        let readiness = Readiness { aem: Ok("a".into()), redacto: Ok("r".into()) };
+        let readiness = Readiness { aem: Some(Ok("a".into())), redacto: Some(Ok("r".into())) };
         assert_eq!(readiness.report(), Ok("AEM: a\nRedacto: r".into()));
     }
 
@@ -119,14 +165,27 @@ mod tests {
     #[test]
     fn only_the_failing_targets_problems_are_reported() {
         let readiness = Readiness {
-            aem: Ok("a".into()),
+            aem: Some(Ok("a".into())),
             redacto: not_ready(&["Docker is not reachable", "the image x is missing"]),
         };
         assert_eq!(
             readiness.report(),
             Err("Redacto: Docker is not reachable\nthe image x is missing".into())
         );
-        assert!(readiness.of(OutputTarget::Aem).is_ok());
-        assert!(readiness.of(OutputTarget::Redacto).is_err());
+        assert!(readiness.of(OutputTarget::Aem).is_some_and(|r| r.is_ok()));
+        assert!(readiness.of(OutputTarget::Redacto).is_some_and(|r| r.is_err()));
+    }
+
+    /// A switched-off target is not checked, so its missing images are no
+    /// problem, and the report says it was skipped rather than ready.
+    #[test]
+    fn a_switched_off_target_is_neither_a_problem_nor_ready() {
+        let readiness = Readiness { aem: Some(Ok("a".into())), redacto: None };
+        assert_eq!(
+            readiness.report(),
+            Ok("AEM: a\nRedacto: switched off in Settings, not checked".into())
+        );
+        assert!(readiness.of(OutputTarget::Redacto).is_none());
+        assert_eq!(readiness.targets().len(), 1);
     }
 }

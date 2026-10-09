@@ -41,4 +41,9 @@ lost control and add it. Never rebuild a fragment's fields as loose nodes: a par
 against the source goes into `init_hide`, a hidden one the source asks for into `init_show`, and a
 field the partner generic does not have goes into a content `Panel` beside the `Fragment` inside the
 party's `Repeatable`, never inside the fragment.
+
+Precedence: where a page exists in one language only (another language's PDF prints it in the
+same wording), each language's text is that wording as its own PDF prints it, and nothing is
+missing. This wins over ubs-aem-repeatable-add-label: a party title on such a page copies the
+source's text in every language, `title/en` included.
 """
