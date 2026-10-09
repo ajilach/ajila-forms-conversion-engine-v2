@@ -4,6 +4,7 @@
 //! build, the `AI:` snapshot, the lint) is [`ConversionAgent::edited`].
 
 use super::*;
+use crate::rule_board::RuleState;
 
 /// Lines `read_package_file` returns by default, when the caller does not ask
 /// for a specific window.
@@ -95,6 +96,39 @@ pub(super) fn cap_total(text: String) -> String {
 /// instead (`pipeline::judge`).
 const NO_JUDGE: &str = "no judge agent runs here: check the document against this rule's \
                         description (rule_list) yourself";
+
+/// A rule `finish_authoring` hands over broken, and the Author's reason.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct Waiver {
+    rule: String,
+    why: String,
+}
+
+/// `finish_authoring`'s `waivers`: absent means none. Each needs the rule's id
+/// and a reason that says something.
+fn waivers_of(input: &Value) -> Result<Vec<Waiver>, String> {
+    let entries = match input.get("waivers") {
+        None | Some(Value::Null) => return Ok(Vec::new()),
+        Some(Value::Array(entries)) => entries,
+        Some(_) => return Err("waivers is a list of {\"rule\": \"<rule id>\", \"why\": \"...\"}".into()),
+    };
+    entries
+        .iter()
+        .map(|entry| {
+            let rule = entry["rule"].as_str().map(str::trim).unwrap_or_default();
+            let why = entry["why"].as_str().map(str::trim).unwrap_or_default();
+            if rule.is_empty() {
+                return Err(format!("a waiver needs the rule's id in \"rule\": {entry}"));
+            }
+            if why.is_empty() {
+                return Err(format!(
+                    "the waiver of rule {rule} gives no reason: say in \"why\" why the rule cannot be kept"
+                ));
+            }
+            Ok(Waiver { rule: rule.to_string(), why: why.to_string() })
+        })
+        .collect()
+}
 
 /// Which rules one `rule_check` covers: the scripted ones (`None` for all of
 /// them), and the judged ones.
@@ -442,7 +476,20 @@ impl ConversionAgent {
                 if let Some(refusal) = self.unverified("finish_authoring") {
                     return refusal;
                 }
-                self.finish = Some(input["summary"].as_str().unwrap_or_default().to_string());
+                let waivers = match waivers_of(input) {
+                    Ok(waivers) => waivers,
+                    Err(e) => return ToolReply::Error(format!("finish_authoring refused: {e}")),
+                };
+                let waived = match self.unruled(&waivers) {
+                    Ok(waived) => waived,
+                    Err(refusal) => return ToolReply::Error(format!("finish_authoring refused: {refusal}")),
+                };
+                let mut summary = input["summary"].as_str().unwrap_or_default().to_string();
+                if !waived.is_empty() {
+                    summary.push_str("\n\nRules left broken, with the Author's reasons:\n- ");
+                    summary.push_str(&waived.join("\n- "));
+                }
+                self.finish = Some(summary);
                 ToolReply::Text("Authoring finished: handing the form to the Reviewer.".into())
             }
 
@@ -479,6 +526,73 @@ impl ConversionAgent {
                 missing.join("\n- ")
             ))
         })
+    }
+
+    /// The rule gate of `finish_authoring`: every rule needs a verdict on the
+    /// document as it stands, and every rule that verdict leaves broken (a
+    /// negative, or a check that gave no verdict) needs a reason in
+    /// `waivers`. `Ok` carries the waived rules, one line each, for the
+    /// hand-over summary; `Err` says what is missing.
+    ///
+    /// Coverage is read off the rule board, which keeps each rule's latest
+    /// verdict and the revision it was given on: a `rule_check` with
+    /// `rule_ids` puts only the rules it names on the current revision, so a
+    /// partial check never covers the rest, and a verdict reused from the
+    /// verdict cache counts like a fresh one, since it is recorded on the
+    /// revision it was reused for.
+    fn unruled(&self, waivers: &[Waiver]) -> Result<Vec<String>, String> {
+        #[cfg(any(test, feature = "test-utils"))]
+        if self.evidence_waived {
+            return Ok(Vec::new());
+        }
+        let board = self.rule_board.snapshot(self.revision());
+        let unknown: Vec<&str> = waivers
+            .iter()
+            .map(|w| w.rule.as_str())
+            .filter(|id| !board.iter().any(|r| r.rule_id == *id))
+            .collect();
+        if !unknown.is_empty() {
+            return Err(format!("waivers name rules that do not exist: {unknown:?}; use the rule ids rule_check reports"));
+        }
+        let unchecked: Vec<String> = board
+            .iter()
+            .filter(|r| r.outdated || r.state == RuleState::NotChecked)
+            .map(|r| format!("{} ({})", r.rule_id, r.title))
+            .collect();
+        if !unchecked.is_empty() {
+            return Err(format!(
+                "{} rule(s) have no verdict on the document as it stands (never checked, or checked \
+                 before your last edit). Call rule_check WITHOUT rule_ids, so it covers every rule, \
+                 fix what it reports, and call finish_authoring again. A check limited to some \
+                 rule_ids never covers the others. Not covered:\n- {}",
+                unchecked.len(),
+                unchecked.join("\n- ")
+            ));
+        }
+        let mut waived = Vec::new();
+        let mut open = Vec::new();
+        for rule in &board {
+            let why = match &rule.state {
+                RuleState::Fail { violations } => format!("negative, {violations} violation(s)"),
+                RuleState::Unchecked { reason } => format!("no verdict: {reason}"),
+                RuleState::Pass | RuleState::NotChecked => continue,
+            };
+            match waivers.iter().find(|w| w.rule == rule.rule_id) {
+                Some(waiver) => waived.push(format!("{} ({}, {why}): {}", rule.rule_id, rule.title, waiver.why)),
+                None => open.push(format!("{} ({}): {why}", rule.rule_id, rule.title)),
+            }
+        }
+        if !open.is_empty() {
+            return Err(format!(
+                "{} rule(s) are left broken on the document as it stands. Fix them, or, where the \
+                 rule cannot be kept (it conflicts with another rule, or its check cannot run), say \
+                 why in waivers: [{{\"rule\": \"<rule id>\", \"why\": \"...\"}}] and call \
+                 finish_authoring again. Not justified:\n- {}",
+                open.len(),
+                open.join("\n- ")
+            ));
+        }
+        Ok(waived)
     }
 
     /// The tail of every edit to the document: the previous build no longer
@@ -704,5 +818,173 @@ impl ConversionAgent {
         });
         self.set_built(Some(Built::Redacto { dump }));
         ToolReply::Text(report.to_string())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rules::{JudgedRule, RuleVerdict, Violation};
+
+    fn agent() -> ConversionAgent {
+        crate::db::claim_scratch_db_for_test();
+        let name = "AAEV_019_EN.pdf";
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../forms").join(name);
+        let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+        let session = format!("test-{}", uuid::Uuid::new_v4());
+        ConversionAgent::new(Some("ubs".into()), vec![(name.to_string(), bytes)], session, OutputTarget::Aem)
+            .expect("the agent starts")
+    }
+
+    fn judged(id: &str) -> JudgedRule {
+        JudgedRule { id: id.into(), name: id.into(), title: format!("judged {id}"), ..Default::default() }
+    }
+
+    fn verdict(pass: bool) -> Result<RuleVerdict, String> {
+        let violations = if pass { vec![] } else { vec![Violation { pointer: "/form".into(), message: "m".into() }] };
+        Ok(RuleVerdict { pass, violations })
+    }
+
+    /// Adds a page, builds it and feeds the evidence gate everything it asks
+    /// for, so only the rule gate stands between the Author and its hand-over.
+    async fn built_and_verified(agent: &mut ConversionAgent, page: &str) {
+        let revision = agent.revision();
+        let page = json!({
+            "type": "Panel", "uuid": uuid::Uuid::new_v4().to_string(), "name": page,
+            "title": {"en": "Details"}, "children": [{
+                "type": "TextField", "uuid": uuid::Uuid::new_v4().to_string(),
+                "name": format!("TXT_{page}"), "label": {"en": "Last name"}, "mandatory": false,
+                "visible": true, "max_chars": null, "colspan": 12, "dor_colspan": null,
+                "bind_ref": null, "kind": "Plain"
+            }],
+            "is_page": true, "visible": true, "is_conditional": false, "dor_num_cols": null,
+            "colspan": 12, "dor_colspan": null, "bind_ref": null, "frag_ref": null
+        });
+        let ops = json!([{ "op": "add", "path": "/form/children/-", "value": page }]);
+        let patched = agent.execute("json_patch", &json!({ "ops": ops, "expected_revision": revision })).await;
+        assert!(matches!(patched, ToolReply::Text(_)), "{patched:?}");
+        let built = agent.execute("build_aem_package", &json!({})).await;
+        assert!(matches!(built, ToolReply::Text(_)), "{built:?}");
+        let text = |v: Value| ToolReply::Text(v.to_string());
+        let e = &mut agent.evidence;
+        e.observe_reply(
+            "xfa_controls",
+            &json!({}),
+            &text(json!({ "controls": [], "total": 0, "offset": 0, "next_offset": null, "space_size": 1, "saturated": false })),
+        );
+        e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
+        e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
+        e.observe_reply(
+            "aem_verify_submit",
+            &json!({}),
+            &text(json!({ "artefacts": [{ "blob": { "media_type": "application/pdf", "doc_path": "/blobs/dor.pdf" } }] })),
+        );
+        e.observe_call("pdf_render_pages", &json!({ "doc_path": "/blobs/dor.pdf" }));
+        assert!(agent.missing_evidence().is_empty(), "{:?}", agent.missing_evidence());
+    }
+
+    /// The rules the board shows broken on the current document: negative, or
+    /// without a verdict.
+    fn broken(agent: &ConversionAgent) -> Vec<String> {
+        agent
+            .rule_board()
+            .into_iter()
+            .filter(|r| matches!(r.state, RuleState::Fail { .. } | RuleState::Unchecked { .. }))
+            .map(|r| r.rule_id)
+            .collect()
+    }
+
+    fn waivers(ids: &[String]) -> Value {
+        json!(ids.iter().map(|id| json!({ "rule": id, "why": format!("{id} conflicts with another rule") })).collect::<Vec<_>>())
+    }
+
+    async fn finish(agent: &mut ConversionAgent, waivers: Value) -> Result<String, String> {
+        match agent.execute("finish_authoring", &json!({ "summary": "done", "waivers": waivers })).await {
+            ToolReply::Text(t) => Ok(t),
+            ToolReply::Error(e) => Err(e),
+            ToolReply::Blocks(_) => Err("blocks".into()),
+        }
+    }
+
+    /// The false green of 2026-10-09: a `rule_check` limited to some rules
+    /// leaves the others without a verdict on the document, so the hand-over
+    /// is refused until a check covers every rule; and an edit after that
+    /// check takes the judged verdicts off the document again.
+    #[tokio::test]
+    async fn a_partial_rule_check_never_earns_finish_authoring() {
+        let mut agent = agent();
+        agent.set_judged_rules(vec![judged("ja"), judged("jb")]);
+        built_and_verified(&mut agent, "PN_Details").await;
+
+        // rule_check with rule_ids, as the Author called it at 14:11.
+        let partial = agent.execute("rule_check", &json!({ "rule_ids": ["ja"] })).await;
+        assert!(matches!(partial, ToolReply::Text(_)), "{partial:?}");
+        let all = waivers(&broken(&agent));
+        let refused = finish(&mut agent, all).await.unwrap_err();
+        assert!(refused.contains("WITHOUT rule_ids") && refused.contains("jb"), "{refused}");
+        assert!(!refused.contains("- ja "), "ja has a verdict on this revision: {refused}");
+        assert!(agent.take_finish().is_none(), "a refused hand-over records nothing");
+
+        // The judges of a full check (or the verdict cache) put every judged
+        // rule on this revision; the remaining broken rules are waived.
+        let revision = agent.revision();
+        agent.record_judged(&[(judged("ja"), verdict(true)), (judged("jb"), verdict(true))], revision);
+        let all = waivers(&broken(&agent));
+        let accepted = finish(&mut agent, all).await;
+        assert!(accepted.is_ok(), "{accepted:?}");
+        assert!(agent.take_finish().is_some());
+
+        // An edit (rebuilt and re-verified) leaves the judged verdicts on the
+        // older revision: covered no more.
+        built_and_verified(&mut agent, "PN_More").await;
+        let all = waivers(&broken(&agent));
+        let refused = finish(&mut agent, all).await.unwrap_err();
+        assert!(refused.contains("ja") && refused.contains("jb") && refused.contains("before your last edit"), "{refused}");
+    }
+
+    /// Every rule a full check leaves broken needs a reason: one left out, or
+    /// one waived without saying why, refuses the hand-over; with every reason
+    /// given it goes through and the reasons reach the Reviewer in the
+    /// summary.
+    #[tokio::test]
+    async fn a_negative_verdict_needs_a_waiver_with_a_reason() {
+        let mut agent = agent();
+        agent.set_judged_rules(vec![judged("ja"), judged("jb")]);
+        built_and_verified(&mut agent, "PN_Details").await;
+        let revision = agent.revision();
+        agent.record_judged(&[(judged("ja"), verdict(false)), (judged("jb"), verdict(true))], revision);
+        let open = broken(&agent);
+        assert!(open.contains(&"ja".to_string()), "{open:?}");
+
+        let others: Vec<String> = open.iter().filter(|id| *id != "ja").cloned().collect();
+        let refused = finish(&mut agent, waivers(&others)).await.unwrap_err();
+        assert!(refused.contains("ja (judged ja): negative, 1 violation(s)") && refused.contains("waivers"), "{refused}");
+
+        let mut silent = waivers(&others);
+        silent.as_array_mut().unwrap().push(json!({ "rule": "ja", "why": "  " }));
+        let refused = finish(&mut agent, silent).await.unwrap_err();
+        assert!(refused.contains("rule ja gives no reason"), "{refused}");
+
+        let refused = finish(&mut agent, json!([{ "rule": "nope", "why": "x" }])).await.unwrap_err();
+        assert!(refused.contains("do not exist") && refused.contains("nope"), "{refused}");
+
+        let accepted = finish(&mut agent, waivers(&open)).await;
+        assert!(accepted.is_ok(), "{accepted:?}");
+        let summary = agent.take_finish().expect("the hand-over is recorded");
+        assert!(summary.starts_with("done"), "{summary}");
+        assert!(summary.contains("ja (judged ja, negative, 1 violation(s)): ja conflicts with another rule"), "{summary}");
+    }
+
+    /// Waivers are checked for shape before anything else is said.
+    #[test]
+    fn waivers_need_a_rule_and_a_reason() {
+        assert_eq!(waivers_of(&json!({})), Ok(vec![]));
+        assert_eq!(waivers_of(&json!({ "waivers": null })), Ok(vec![]));
+        assert!(waivers_of(&json!({ "waivers": "all" })).is_err());
+        assert!(waivers_of(&json!({ "waivers": [{ "why": "x" }] })).unwrap_err().contains("rule's id"));
+        assert_eq!(
+            waivers_of(&json!({ "waivers": [{ "rule": " r ", "why": " because " }] })),
+            Ok(vec![Waiver { rule: "r".into(), why: "because".into() }])
+        );
     }
 }

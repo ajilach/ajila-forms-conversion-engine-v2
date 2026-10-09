@@ -289,6 +289,7 @@ async fn drive(
         judge_model: roles.judge.map(|(_, m)| m.into_stage_model()),
         capture_review: true,
         final_rule_check: true,
+        finish_nudge: true,
     };
 
     // A session's review images show its last finished run. This run will

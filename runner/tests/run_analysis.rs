@@ -108,6 +108,7 @@ async fn a_pipeline_run_is_recorded_into_a_readable_folder() {
         judge_model: None,
         capture_review: false,
         final_rule_check: false,
+        finish_nudge: false,
     };
     let meta = RunMeta {
         label: "TEST_001_DE.pdf".into(),
@@ -239,6 +240,7 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         judge_model: None,
         capture_review: false,
         final_rule_check: true,
+        finish_nudge: false,
     };
     let meta = RunMeta {
         label: "TEST_002_DE.pdf".into(),

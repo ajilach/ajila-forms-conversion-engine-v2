@@ -377,9 +377,24 @@ fn tool_specs() -> Vec<serde_json::Value> {
                  verified it yourself. Refused, with the list of what is missing, until this stage \
                  has used the current build on its verifier, read the PDF that produced, rendered \
                  the source pages and (AEM) set every source control the form's scripts read; do \
-                 those and call it again. Ends your stage and hands the form to the Reviewer.",
+                 those and call it again. Also refused until every rule has a verdict on the \
+                 document as it stands (run rule_check WITHOUT rule_ids after your last edit) and \
+                 every rule it leaves broken is either fixed or named in waivers with the reason it \
+                 cannot be kept. Ends your stage and hands the form to the Reviewer.",
                 serde_json::json!({
-                    "summary": {"type": "string", "description": "What you compared against the source, what you changed, and what the verification showed."}
+                    "summary": {"type": "string", "description": "What you compared against the source, what you changed, and what the verification showed."},
+                    "waivers": {
+                        "type": "array",
+                        "description": "One entry per rule you hand over broken (negative, or without a verdict), with why it cannot be kept, e.g. it conflicts with another rule. The Reviewer reads them.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "rule": {"type": "string", "description": "The rule's id, as rule_check reports it."},
+                                "why": {"type": "string", "description": "Why the rule cannot be kept here."}
+                            },
+                            "required": ["rule", "why"]
+                        }
+                    }
                 }),
                 serde_json::json!(["summary"]),
             ),

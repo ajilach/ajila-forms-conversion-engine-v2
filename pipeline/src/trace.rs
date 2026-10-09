@@ -103,6 +103,9 @@ pub enum ControlKind {
     /// A turn hit the output-token cap and the model was asked to continue
     /// incrementally.
     OutputCapNudge,
+    /// The Author ended a turn without `finish_authoring` and was told to
+    /// check every rule and call it, with one more turn to do so.
+    FinishNudge,
     /// The stuck watch saw the same result too many times and ended the stage.
     StuckStop,
     /// The stage used its whole turn budget.
@@ -130,6 +133,7 @@ impl ControlKind {
     pub fn label(self) -> &'static str {
         match self {
             Self::OutputCapNudge => "output-cap nudge",
+            Self::FinishNudge => "finish nudge",
             Self::StuckStop => "stuck-watch stop",
             Self::TurnBudgetExhausted => "turn budget exhausted",
             Self::TransientRetry => "automatic retry",

@@ -76,6 +76,12 @@ pub struct RunConfig {
     /// tests that pin a run's stages and model calls, since every judged rule
     /// costs a judge's turns.
     pub final_rule_check: bool,
+    /// Whether an Author that stops without `finish_authoring` is told to
+    /// check every rule and hand over, and carries on once before the
+    /// Reviewer takes over (see [`crate::hooks::FINISH_NUDGE`]). Off only in
+    /// the controller tests that pin a run's stages and model calls, whose
+    /// Authors end with a plain answer.
+    pub finish_nudge: bool,
 }
 
 /// What starts a run: a fresh conversion, feedback on the previous result, or
@@ -201,15 +207,18 @@ async fn run_stages(
     // ── Stage 1: Author → build the artefact ────────────────────────────────
     let author_seed = author_seed_for(&seed, &reviews, &stages);
     begin_stage(shared_agent, obs, "Author", stages.author_doing.into()).await;
-    run_role_stage(
-        shared_agent,
-        stages.author,
-        &roles::sys_author(target, extra, config.template_note, &reviews),
-        author_seed,
-        config,
-        None,
-        obs,
-        &mut spend,
+    crate::hooks::nudging_unfinished(
+        config.finish_nudge,
+        run_role_stage(
+            shared_agent,
+            stages.author,
+            &roles::sys_author(target, extra, config.template_note, &reviews),
+            author_seed,
+            config,
+            None,
+            obs,
+            &mut spend,
+        ),
     )
     .await?;
     warn_unless_finished(shared_agent, obs, &mut warnings).await;
@@ -290,15 +299,18 @@ async fn run_stages(
                     format!("applying review feedback (round {})", round + 1),
                 )
                 .await;
-                run_role_stage(
-                    shared_agent,
-                    stages.author,
-                    &roles::sys_author(target, extra, config.template_note, &reviews),
-                    stages.author_fix_seed,
-                    config,
-                    None,
-                    obs,
-                    &mut spend,
+                crate::hooks::nudging_unfinished(
+                    config.finish_nudge,
+                    run_role_stage(
+                        shared_agent,
+                        stages.author,
+                        &roles::sys_author(target, extra, config.template_note, &reviews),
+                        stages.author_fix_seed,
+                        config,
+                        None,
+                        obs,
+                        &mut spend,
+                    ),
                 )
                 .await?;
                 warn_unless_finished(shared_agent, obs, &mut warnings).await;
@@ -1969,6 +1981,7 @@ mod controller {
             judge_model: None,
             capture_review: false,
             final_rule_check: false,
+            finish_nudge: false,
         }
     }
 
@@ -2273,6 +2286,47 @@ mod controller {
         let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), review_turn(true, "")]);
         let (obs, rec) = recorder();
         run(bare_agent(), config(AbortFlag::default(), 1, model), RunSeed::Fresh, obs).await;
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert!(warnings.iter().any(|w| w.contains("without finish_authoring")), "{warnings:?}");
+    }
+
+    /// With the finish nudge on, an Author that stops without
+    /// `finish_authoring` is told so once and carries on: one that then hands
+    /// over is not warned about, one that stops again is let go to the
+    /// Reviewer, and warned about. The Reviewer is never nudged.
+    #[tokio::test]
+    async fn an_unfinished_author_is_nudged_once_before_the_review() {
+        let nudged = |request: &rig_core::completion::CompletionRequest| {
+            format!("{:?}", request.chat_history).contains("You stopped without calling finish_authoring")
+        };
+        let finish = vec![
+            MockStreamEvent::tool_call("call-finish", "finish_authoring", serde_json::json!({ "summary": "done" })),
+            MockStreamEvent::final_response(Usage::new()),
+        ];
+        let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), finish, review_turn(true, "")]);
+        let (obs, rec) = recorder();
+        let nudging = RunConfig { finish_nudge: true, ..config(AbortFlag::default(), 1, model.clone()) };
+
+        let outcome = run(bare_agent(), nudging, RunSeed::Fresh, obs).await;
+
+        assert!(outcome.is_some());
+        assert_eq!(model.request_count(), 3, "the nudged Author gets one more turn, then the Reviewer one");
+        let requests = model.requests();
+        assert!(!nudged(&requests[0]) && nudged(&requests[1]), "the second Author turn carries the nudge");
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        let nudges = |rec: &Recorder| rec.controls().iter().filter(|(k, _)| *k == ControlKind::FinishNudge).count();
+        assert_eq!(nudges(&rec.lock().unwrap()), 1);
+        let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
+        assert!(!warnings.iter().any(|w| w.contains("finish_authoring")), "{warnings:?}");
+
+        // Stopping again ends the stage: no second nudge, and the warning.
+        let model = MockCompletionModel::from_stream_turns([text_turn("BUILT"), text_turn("DONE"), review_turn(true, "")]);
+        let (obs, rec) = recorder();
+        let nudging = RunConfig { finish_nudge: true, ..config(AbortFlag::default(), 1, model.clone()) };
+        run(bare_agent(), nudging, RunSeed::Fresh, obs).await;
+        assert_eq!(model.request_count(), 3);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(nudges(&rec.lock().unwrap()), 1);
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(warnings.iter().any(|w| w.contains("without finish_authoring")), "{warnings:?}");
     }
