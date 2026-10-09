@@ -20,4 +20,15 @@ A break is a text that does not exist in the source in that language: invented, 
 shortened.
 
 Fix: replace the text with the source's wording, or delete the node if the source has none.
+
+Precedence:
+- ubs-aem-input-labels wins where the source gives an input no caption. The input still needs a
+  label, so it takes the nearest source text that names it, the caption of its group or the text
+  of its option, verbatim in that language, with any surrounding brackets dropped (`(s. unten
+  stehende Erklärung)` becomes `s. unten stehende Erklärung`). Such a label is the source's text and
+  is not a break; wording of the author's own still is.
+- Where a page exists in one language only (another language's PDF prints it in the same wording),
+  every language carries that wording, copied from the source. It is the source's own text in
+  each language, including a party Repeatable's title on that page, whatever
+  ubs-aem-repeatable-add-label would ask in English.
 """

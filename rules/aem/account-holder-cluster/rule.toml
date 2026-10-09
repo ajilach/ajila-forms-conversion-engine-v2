@@ -41,4 +41,8 @@ in a form with no configurator.
 Fix: add the missing party or signature Repeatable inside the option's panel; correct the options
 or conditions; remove a partner generic from a form with no configurator and use plain `TXT_`
 fields.
+
+Precedence: this rule wins over ubs-aem-standard-sections-are-fragments. In a form with no
+configurator a person block is plain fields even where it looks like a standard section; the
+fragments rule yields.
 """

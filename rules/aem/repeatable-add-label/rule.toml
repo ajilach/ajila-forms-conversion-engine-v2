@@ -21,4 +21,10 @@ the source's wording rather than the standard phrase, or whose other languages a
 
 Fix: set `title/en` to the standard noun phrase and keep the source's wording in the other
 languages.
+
+Precedence: ubs-aem-source-languages, ubs-aem-verbatim-source-text and ubs-aem-source-coverage
+win over this rule where the page that carries the party exists in one language only (another
+language's PDF prints that page in the same wording). Every language of the title then copies the
+source's text, `title/en` included, and the Add button is accepted as it comes out: do not report
+it.
 """

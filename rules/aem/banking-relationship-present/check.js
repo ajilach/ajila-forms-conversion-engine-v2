@@ -42,7 +42,8 @@ function check(output, ctx) {
           violations.push({
             pointer: pointer + "/content/" + lang,
             message: "`" + node.name + "` is the line \"UBS Europe SE\", which the banking relationship fragment " +
-              "renders itself: delete the draw (the entity reaches the Document of Record header from `/header`)",
+              "renders itself: delete the draw (the entity reaches the Document of Record header from `/header`; " +
+              "where it heads the bank's signature block, it is that signature Repeatable's `title`)",
           });
         }
       }
