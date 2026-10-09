@@ -53,12 +53,13 @@ struct VerifyArgs {
 
 #[derive(Subcommand, Debug)]
 enum VerifyAction {
-    /// Pull the public images the verifiers run (headless Chromium, Postgres).
-    /// Needs a network connection once. The AEM image is private: pull it by
-    /// hand after `az acr login` (see docker/aem/README.md).
+    /// Pull the verifier images that are missing: headless Chromium, Postgres,
+    /// and the AEM image from GitHub with the GitHub CLI's login (`gh auth
+    /// login -s read:packages`). The private Redacto images are pulled by hand
+    /// after `az acr login --name ajilaclouddev` (see docker/redacto/README.md).
     Prepare,
-    /// The preflight a run performs: the settings, Docker, the images, the AEM
-    /// data volume and pdfium.
+    /// The preflight a run performs: the settings, Docker, the images (or, for
+    /// a missing AEM image, the GitHub CLI login a run pulls it with) and pdfium.
     Check,
 }
 

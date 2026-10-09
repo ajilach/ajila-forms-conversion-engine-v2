@@ -188,21 +188,41 @@ impl Verification {
 }
 
 /// Check that the target's rules and verifier can run: the rule sandbox,
-/// Docker, the images, the AEM data volume and pdfium. There is no way to run
-/// without them, so a target that is not ready refuses the run, before it
+/// Docker, the images and pdfium, then pull the AEM image from GitHub when
+/// Docker does not have it yet. There is no way to run without them, so a
+/// target that is not ready, or whose pull fails, refuses the run before it
 /// spends a token.
 async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<Verification, String> {
+    let refused = |e: String| {
+        format!(
+            "Verification is not possible, so the run cannot start:\n{e}\n\
+             See \"Verification setup\" in README.md."
+        )
+    };
     obs.emit(RunEvent::Thought("Checking the verification setup…".into()));
     let settings = &opts.settings;
     let report = agent::u2s::readiness(opts.target, &settings.aem_verify, &settings.redacto_verify)
         .await
-        .map_err(|e| {
-            format!(
-                "Verification is not possible, so the run cannot start:\n{e}\n\
-                 See docker/aem/README.md for the setup."
-            )
-        })?;
+        .map_err(|e| refused(e.to_string()))?;
     obs.emit(RunEvent::Thought(format!("Verification ready. {report}")));
+    if opts.target == OutputTarget::Aem {
+        obs.emit(RunEvent::Thought(format!(
+            "Making sure the AEM image {} is on Docker. When it is missing it is pulled from \
+             GitHub, several GB the first time, which can take minutes…",
+            agent::u2s::AEM_IMAGE
+        )));
+        let pull = agent::u2s::ensure_aem_image(&settings.aem_verify);
+        let stopped = async {
+            while !opts.abort.is_aborted() {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        };
+        let pulled = tokio::select! {
+            pulled = pull => pulled.map_err(refused)?,
+            () = stopped => return Err("The run was stopped while the AEM image was being pulled.".into()),
+        };
+        obs.emit(RunEvent::Thought(pulled));
+    }
     Ok(match opts.target {
         OutputTarget::Aem => Verification::Aem(settings.aem_verify.clone()),
         OutputTarget::Redacto => Verification::Redacto(settings.redacto_verify.clone()),
@@ -238,6 +258,20 @@ async fn drive(
         }
     };
 
+    // The roles with a model of their own fail the same way, before the run.
+    let roles = match crate::turns::RoleModels::for_settings(&opts.settings) {
+        Ok(roles) => roles,
+        Err(e) => {
+            obs.emit(RunEvent::Warning(e));
+            return Completed {
+                session_id,
+                outcome: None,
+                elapsed_secs: started_at.elapsed().as_secs(),
+            };
+        }
+    };
+    let models_described = format!("{}{}", plan.describe(), crate::turns::describe_role_models(&opts.settings));
+
     let run_config = pipeline::RunConfig {
         profile: opts.profile.clone(),
         target: opts.target,
@@ -251,6 +285,8 @@ async fn drive(
         price: resolved.price,
         max_tokens: resolved.max_tokens,
         context_budget: resolved.context_budget,
+        reviewer_model: roles.reviewer.map(|(_, m)| m.into_stage_model()),
+        judge_model: roles.judge.map(|(_, m)| m.into_stage_model()),
         capture_review: true,
         final_rule_check: true,
         finish_nudge: true,
@@ -269,7 +305,7 @@ async fn drive(
     // Recording starts once the run is certain to start, so a run refused
     // for its settings leaves no empty folder behind.
     let analysis = crate::analysis::root_dir(&opts.settings).and_then(|root| {
-        let meta = run_meta(opts, &seed, &session_id, label, plan.describe());
+        let meta = run_meta(opts, &seed, &session_id, label, models_described.clone());
         crate::analysis::RunAnalysis::start(&root, meta, obs)
     });
     let run_obs = match &analysis {
@@ -352,10 +388,7 @@ fn run_meta(
         model,
         max_review_rounds: opts.settings.max_review_rounds,
         verification: match opts.target {
-            OutputTarget::Aem => {
-                let v = &opts.settings.aem_verify;
-                format!("AEM verifier (image {}, volume {})", v.image, v.data_volume)
-            }
+            OutputTarget::Aem => format!("AEM verifier (image {})", agent::u2s::AEM_IMAGE),
             OutputTarget::Redacto => "Redacto verifier".to_string(),
         },
         engine_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -386,24 +419,29 @@ mod tests {
     use pipeline::{NullObserver, SharedObserver};
 
     /// An AEM run whose verifier is not set up must not start: no session is
-    /// opened, no token is spent, and the error says what to fix. Missing
-    /// settings are refused before Docker is even asked.
+    /// opened, no token is spent, no image is pulled, and the error says what
+    /// to fix. Missing settings are refused before Docker is even asked.
     #[tokio::test]
     async fn an_aem_run_without_its_verifier_refuses_to_start() {
         let opts = RunOptions {
             profile: None,
             target: OutputTarget::Aem,
-            settings: AppSettings::default(),
+            settings: AppSettings {
+                aem_verify: agent::u2s::AemVerifySettings {
+                    user: String::new(),
+                    ..Default::default()
+                },
+                ..AppSettings::default()
+            },
             abort: AbortFlag::default(),
         };
-        assert!(opts.settings.aem_verify.image.is_empty(), "no image by default");
         let err = run_fresh(Vec::new(), &opts, "preflight-test", &SharedObserver::new(NullObserver))
             .await
             .err()
             .expect("the run must be refused");
         assert!(err.contains("Verification is not possible"), "{err}");
-        assert!(err.contains("the AEM image is not set"), "{err}");
-        assert!(err.contains("docker/aem/README.md"), "{err}");
+        assert!(err.contains("the AEM user is not set"), "{err}");
+        assert!(err.contains("README.md"), "{err}");
     }
 
     /// The resume path runs the same preflight before restoring anything, and

@@ -204,6 +204,7 @@ mod tests {
         Profile {
             format: "aem-ubs".to_owned(),
             aem_image: "ajila.azurecr.io/aemforms-arm:6.5.17.0".to_owned(),
+            registry_credentials: None,
             aem_user: "admin".to_owned(),
             aem_password: "admin".to_owned(),
             submit: u2s_aem_verify_core::profile::SubmitArtefact::Download,

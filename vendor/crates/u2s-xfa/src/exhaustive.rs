@@ -10,14 +10,17 @@
 //! that listing controls was always built on.
 
 use crate::xfa::scripting::events::EventActivity;
+use crate::xfa::scripting::som::{child_som_path, sibling_indices};
 use crate::xfa::scripting::{SomPath, XfaForm};
+use crate::flattened::{Flattened, WidgetKind};
 use crate::xfa::{XfaNode, XfaNodeKind};
 
-/// The kind of selectable field found in the XFA tree.
+/// The kind of interactive field found in the XFA tree: its `<ui>` widget
+/// (XFA 3.3 §17 `ui`).
 // ADDITION: public so the on-demand state layer can list a form's controls
 // without enumerating its state space.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub enum SelectableFieldKind {
+pub enum InteractiveFieldKind {
     /// Radio button (checkButton with shape="round", inside an exclGroup)
     Radio,
     /// Checkbox (checkButton with shape="square")
@@ -25,76 +28,82 @@ pub enum SelectableFieldKind {
     /// Dropdown (choiceList). Options are resolved dynamically from the live form
     /// at exploration time, since they may come from merged data or scripts.
     Dropdown,
+    /// Button (`<ui><button/>`): no value, it is pressed. Its click script
+    /// is what it does -- on a repeatable section, commonly adding or
+    /// removing an instance (XFA 3.3 §9).
+    Button,
+    /// Single-line text (`textEdit`).
+    Text,
+    /// Multi-line text (`textEdit multiLine="1"`).
+    TextArea,
+    /// `dateTimeEdit` with a date, time or date-and-time picker.
+    Date,
+    Time,
+    DateTime,
+    /// `numericEdit`.
+    Numeric,
+    /// `passwordEdit`.
+    Password,
+    /// `signature`.
+    Signature,
+    /// `barcode`: its value is drawn as bars.
+    Barcode,
+    /// `imageEdit`.
+    Image,
 }
 
-/// A selectable field (radio button, checkbox, or dropdown) with its SOM path.
+impl From<WidgetKind> for InteractiveFieldKind {
+    fn from(kind: WidgetKind) -> Self {
+        match kind {
+            WidgetKind::Radio => InteractiveFieldKind::Radio,
+            WidgetKind::Checkbox => InteractiveFieldKind::Checkbox,
+            WidgetKind::Dropdown => InteractiveFieldKind::Dropdown,
+            WidgetKind::Button => InteractiveFieldKind::Button,
+            WidgetKind::Text => InteractiveFieldKind::Text,
+            WidgetKind::TextArea => InteractiveFieldKind::TextArea,
+            WidgetKind::Date => InteractiveFieldKind::Date,
+            WidgetKind::Time => InteractiveFieldKind::Time,
+            WidgetKind::DateTime => InteractiveFieldKind::DateTime,
+            WidgetKind::Numeric => InteractiveFieldKind::Numeric,
+            WidgetKind::Password => InteractiveFieldKind::Password,
+            WidgetKind::Signature => InteractiveFieldKind::Signature,
+            WidgetKind::Barcode => InteractiveFieldKind::Barcode,
+            WidgetKind::Image => InteractiveFieldKind::Image,
+        }
+    }
+}
+
+/// An interactive field (radio button, checkbox, dropdown or button) with its
+/// SOM path.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct SelectableField {
+pub struct InteractiveField {
     /// The SOM path uniquely identifying this field
     pub path: SomPath,
     /// The kind of selectable field
-    pub kind: SelectableFieldKind,
+    pub kind: InteractiveFieldKind,
 }
 
-impl SelectableField {
-    fn new(path: SomPath, kind: SelectableFieldKind) -> Self {
+impl InteractiveField {
+    fn new(path: SomPath, kind: InteractiveFieldKind) -> Self {
         Self { path, kind }
     }
 
     /// Returns true if this is a radio button
     fn is_radio(&self) -> bool {
-        matches!(self.kind, SelectableFieldKind::Radio)
+        matches!(self.kind, InteractiveFieldKind::Radio)
     }
 }
 
-/// Get every selectable field (radio button, checkbox, dropdown) a person
-/// could actually reach.
+/// Get every field of the form that has a widget, in SOM path order.
 ///
-/// Only the XFA 3.3 §17 access rule is applied: a field, or its parent
-/// exclGroup for a radio or checkbox, whose `access` is `protected`,
-/// `readOnly` or `nonInteractive` is excluded, because a person cannot touch
-/// it either. Everything else is included, whether or not a script reads it
-/// -- a checkbox nothing reacts to is still a field a person can click, and
-/// hiding it for that reason was only ever right for the exhaustive walk
-/// this list used to feed, where an unread control multiplied the space for
-/// no visual difference. See [`field_affects_layout`] for that same
-/// information kept as data instead of as a filter.
-pub fn get_all_selectable_fields_ordered(form: &XfaForm) -> Vec<SelectableField> {
+/// Every one, whatever its `access`: a field a person cannot change right
+/// now is still on the form, a script can unlock it (XFA 3.3 §17 lets
+/// scripts change `access`), and whether it is locked is reported as data --
+/// see [`XfaForm::effective_access`] -- rather than by leaving it out. The
+/// same goes for whether a script reads it; see [`field_affects_layout`].
+pub fn get_all_interactive_fields_ordered(form: &XfaForm) -> Vec<InteractiveField> {
     let mut results = Vec::new();
-    search_selectable_fields(form.xfa_nodes(), "", &mut results);
-
-    results.retain(|field| {
-        // Per XFA 3.3 §17: skip fields whose access (or parent exclGroup's access)
-        // prevents user interaction.
-        // - "protected": no events generated at all.
-        // - "readOnly": no direct user changes allowed.
-        // - "nonInteractive": behaves as rendering to paper.
-        // Only "open" (the default) allows full user interaction.
-        if let Some(resolved) = form.resolve(field.path.as_str()) {
-            let access = resolved
-                .xfa_node()
-                .attributes
-                .get("access")
-                .map(|s| s.as_str());
-            if matches!(access, Some("protected" | "readOnly" | "nonInteractive")) {
-                return false;
-            }
-        }
-
-        // For radio/checkbox in exclGroup, also check the parent exclGroup's access
-        if field.is_radio() || matches!(field.kind, SelectableFieldKind::Checkbox) {
-            if let Some(excl_group_path) = form.find_excl_group_for_field(field.path.as_str()) {
-                if let Some(eg) = form.resolve(excl_group_path.as_str()) {
-                    let eg_access = eg.xfa_node().attributes.get("access").map(|s| s.as_str());
-                    if matches!(eg_access, Some("protected" | "readOnly" | "nonInteractive")) {
-                        return false;
-                    }
-                }
-            }
-        }
-
-        true
-    });
+    search_interactive_fields(form.xfa_nodes(), "", &mut results);
 
     // Sort by SOM path to ensure consistent global ordering
     results.sort_by(|a, b| a.path.as_str().cmp(b.path.as_str()));
@@ -102,11 +111,11 @@ pub fn get_all_selectable_fields_ordered(form: &XfaForm) -> Vec<SelectableField>
 }
 
 /// Whether the form's own scripts react to this field: exactly the predicate
-/// that used to gate [`get_all_selectable_fields_ordered`]'s result, before
+/// that used to gate [`get_all_interactive_fields_ordered`]'s result, before
 /// interaction needed every control listed regardless. Kept as its own
 /// function so a caller can still tell which controls are worth trying first
 /// on a form with many.
-pub fn field_affects_layout(form: &XfaForm, field: &SelectableField) -> bool {
+pub fn field_affects_layout(form: &XfaForm, field: &InteractiveField) -> bool {
     let registry = form.script_registry();
 
     if registry.has_interactive_scripts(&field.path) {
@@ -182,66 +191,45 @@ pub fn field_affects_layout(form: &XfaForm, field: &SelectableField) -> bool {
     false
 }
 
-/// Search for all selectable fields in the XFA tree: checkButtons (radio/checkbox) and choiceLists (dropdown).
-fn search_selectable_fields(
+/// Search for every field with a widget in the XFA tree, classified by
+/// [`Flattened::extract_widget_kind`], the same reading layout uses. The
+/// `<form>` data packet is skipped: it repeats the template's field names to
+/// carry their saved values, and is not a second set of fields.
+fn search_interactive_fields(
     nodes: &[XfaNode],
     current_path: &str,
-    results: &mut Vec<SelectableField>,
+    results: &mut Vec<InteractiveField>,
 ) {
-    for node in nodes {
+    for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
+        if matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "form") {
+            continue;
+        }
+        // A name with a dot in it (AANE_019_SP has a field named
+        // `ffmySP.GV_AccountHolder`) cannot be written as one SOM segment, so
+        // no path reaches the node or anything inside it: it cannot be set,
+        // looked up or reported on, and listing it would only hand out a path
+        // that fails everywhere it is used.
+        if node.name.as_deref().is_some_and(|n| n.contains('.')) {
+            continue;
+        }
+
         // Build the SOM path for this node
-        let node_path = if let Some(name) = &node.name {
-            if current_path.is_empty() {
-                name.clone()
-            } else {
-                format!("{}.{}", current_path, name)
-            }
-        } else {
-            current_path.to_string()
+        let node_path = match &node.name {
+            Some(name) => child_som_path(current_path, name, index),
+            None => current_path.to_string(),
         };
 
-        // Check if this is a Field node
-        if matches!(&node.kind, XfaNodeKind::Field) {
-            let name = node.name.clone().unwrap_or_default();
-            if !name.is_empty() {
-                // Look for <ui> child and check for checkButton or choiceList
-                let field_kind = node.children.iter().find_map(|c| {
-                    if let XfaNodeKind::Element { tag_name: t, .. } = &c.kind
-                        && t == "ui"
-                    {
-                        return c.children.iter().find_map(|ui_c| {
-                            if let XfaNodeKind::Element { tag_name: t2, .. } = &ui_c.kind {
-                                match t2.as_str() {
-                                    "checkButton" => {
-                                        let shape = ui_c
-                                            .attributes
-                                            .get("shape")
-                                            .cloned()
-                                            .unwrap_or_else(|| "square".to_string());
-                                        if shape == "round" {
-                                            Some(SelectableFieldKind::Radio)
-                                        } else {
-                                            Some(SelectableFieldKind::Checkbox)
-                                        }
-                                    }
-                                    "choiceList" => Some(SelectableFieldKind::Dropdown),
-                                    _ => None,
-                                }
-                            } else {
-                                None
-                            }
-                        });
-                    }
-                    None
-                });
-
-                if let Some(kind) = field_kind {
-                    results.push(SelectableField::new(SomPath::new(node_path.clone()), kind));
-                }
-            }
+        if matches!(&node.kind, XfaNodeKind::Field)
+            && node.name.as_deref().is_some_and(|n| !n.is_empty())
+            && let Some(widget) = Flattened::extract_widget_kind(node)
+        {
+            results.push(InteractiveField::new(
+                SomPath::new(node_path.clone()),
+                widget.into(),
+            ));
         }
 
         // Recurse into children
-        search_selectable_fields(&node.children, &node_path, results);
+        search_interactive_fields(&node.children, &node_path, results);
     }
 }

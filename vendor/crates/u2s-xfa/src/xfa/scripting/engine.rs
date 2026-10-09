@@ -12,6 +12,7 @@ use super::dependency::DependencyTracker;
 use super::events::{EventActivity, ScriptContentType, XfaScript};
 use super::js_helpers;
 use super::som::{SomPath, SomResolver};
+use crate::flattened::FieldAccess;
 use super::state::{FormState, Presence, SharedFormState, XfaValue};
 
 use boa_engine::{
@@ -21,9 +22,6 @@ use boa_engine::{
 };
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
-
-/// A dynamically instantiated subform: (SOM path, instance count, per-instance field values).
-pub type DynamicInstance = (String, usize, Vec<HashMap<String, String>>);
 
 /// Read a string property from a JS object, returning `None` if the property
 /// is undefined, null, or cannot be converted to a string.
@@ -36,6 +34,27 @@ pub type DynamicInstance = (String, usize, Vec<HashMap<String, String>>);
 ///     .and_then(|v| v.to_string(ctx).ok())
 ///     .map(|s| s.to_std_string_escaped())
 /// ```
+/// What [`XfaScriptEngine::reconcile_instances`] found.
+#[derive(Debug, Default)]
+pub struct Reconciled {
+    /// Instances that survived at a new index: `(old path, new path)`.
+    pub moved: Vec<(SomPath, SomPath)>,
+    /// Instances the scripts removed.
+    pub removed: Vec<SomPath>,
+    /// New instances still standing as placeholders: their path, and the
+    /// values scripts wrote into them, by path relative to the instance.
+    pub placeholders: Vec<(SomPath, HashMap<String, String>)>,
+}
+
+/// How many leading segments two paths share.
+fn shared_prefix_len(a: &SomPath, b: &SomPath) -> usize {
+    a.as_str()
+        .split('.')
+        .zip(b.as_str().split('.'))
+        .take_while(|(x, y)| x == y)
+        .count()
+}
+
 fn read_js_string_prop(obj: &JsObject, prop: &str, context: &mut Context) -> Option<String> {
     let val = obj
         .get(PropertyKey::from(JsString::from(prop)), context)
@@ -63,6 +82,10 @@ pub struct XfaScriptEngine {
     field_objects: HashMap<SomPath, JsObject>,
     /// Maps field NAME to list of FULL SOM paths that have that name
     field_objects_by_name: HashMap<String, Vec<SomPath>>,
+    /// For each repeatable subform name, every parent that holds its
+    /// instance manager `_name`: what a bare `_name` in a script is
+    /// resolved against (XFA 3.3 §9: the manager is a peer of its subforms).
+    instance_manager_parents: HashMap<String, Vec<SomPath>>,
     /// Maps child field names to their unique IDs in the current context
     child_name_to_id: HashMap<String, String>,
     /// Tracks the INITIAL presence value from the XFA tree for each field object
@@ -98,6 +121,7 @@ impl XfaScriptEngine {
             page_area_objects: Vec::new(),
             page_area_objects_by_name: HashMap::new(),
             page_set_objects: HashMap::new(),
+            instance_manager_parents: HashMap::new(),
         };
 
         engine.setup_environment();
@@ -121,6 +145,7 @@ impl XfaScriptEngine {
             page_area_objects: Vec::new(),
             page_area_objects_by_name: HashMap::new(),
             page_set_objects: HashMap::new(),
+            instance_manager_parents: HashMap::new(),
         };
 
         engine.setup_environment();
@@ -132,61 +157,7 @@ impl XfaScriptEngine {
         self.setup_shortcuts();
         self.setup_field_registry();
         self.setup_som_fallback();
-        self.setup_instance_helpers();
         self.setup_console();
-    }
-
-    /// Register global JavaScript helpers for XFA dynamic subform instantiation.
-    ///
-    /// Per XFA 3.3 §6.16, `instanceManager.setInstances(N)` creates N instances
-    /// of a dynamic subform.  `.all` returns a collection of those instances.
-    fn setup_instance_helpers(&mut self) {
-        let _ = self.context.eval(Source::from_bytes(
-            r#"
-// Deep-clone a subform JS object's property tree for a new instance.
-// Each clone gets its own independent rawValue storage.
-function _xfa_cloneSubform(original, depth) {
-    if (depth === undefined) depth = 0;
-    if (depth > 20) return {};                // safety guard
-    var clone = {};
-    var keys = Object.getOwnPropertyNames(original);
-    for (var ki = 0; ki < keys.length; ki++) {
-        var key = keys[ki];
-        // Skip internal / circular properties
-        if (key === 'instanceManager' || key === '_exclGroupParent' ||
-            key === 'parent' || key === '_initialPresence' || key === 'all' ||
-            key === '_instances' || key === 'rawValue') continue;
-        var desc = Object.getOwnPropertyDescriptor(original, key);
-        if (!desc) continue;
-        if (desc.get || desc.set) continue;  // skip accessor properties
-        var val = desc.value;
-        if (typeof val === 'object' && val !== null && typeof val !== 'function') {
-            clone[key] = _xfa_cloneSubform(val, depth + 1);
-        } else {
-            clone[key] = val;
-        }
-    }
-    // Replicate rawValue backing field + accessor
-    if ('_rawValue' in original) {
-        clone._rawValue = original._rawValue;
-        Object.defineProperty(clone, 'rawValue', {
-            get: function() { return this._rawValue || ''; },
-            set: function(v) { this._rawValue = v; },
-            configurable: true, enumerable: true
-        });
-    }
-    // .all on clones returns single-element collection pointing to clone itself
-    Object.defineProperty(clone, 'all', {
-        get: function() {
-            var self = this;
-            return { length: 1, item: function(i) { return self; } };
-        },
-        configurable: true, enumerable: true
-    });
-    return clone;
-}
-"#,
-        ));
     }
 
     /// Get the rawValue of a specific field by its SOM path.
@@ -473,10 +444,14 @@ function _xfa_cloneSubform(original, depth) {
         )
         .ok();
 
-        // Add resolveNode as a global function (XFA 3.3 spec page 106-107)
+        // The name-based lookups. `xfa.resolveNode`/`resolveNodes` themselves
+        // are defined in `js_helpers::XFA_SOM_WALKER`, which resolves against
+        // the Form DOM's parent/child links first (XFA 3.3 §3) and falls back
+        // to these only for syntax the walker does not handle or names the
+        // object tree does not reach (script objects, variables).
         let resolve_node_fn = NativeFunction::from_fn_ptr(Self::resolve_node_impl);
         xfa.set(
-            PropertyKey::from(js_string!("resolveNode")),
+            PropertyKey::from(js_string!("_resolveNodeByName")),
             resolve_node_fn.to_js_function(self.context.realm()),
             false,
             &mut self.context,
@@ -487,7 +462,7 @@ function _xfa_cloneSubform(original, depth) {
         // Returns a JsArray of all matching nodes for a SOM expression.
         let resolve_nodes_fn = NativeFunction::from_fn_ptr(Self::resolve_nodes_impl);
         xfa.set(
-            PropertyKey::from(js_string!("resolveNodes")),
+            PropertyKey::from(js_string!("_resolveNodesByName")),
             resolve_nodes_fn.to_js_function(self.context.realm()),
             false,
             &mut self.context,
@@ -912,16 +887,18 @@ function _xfa_cloneSubform(original, depth) {
         }
 
         // Create JavaScript object with the actual initial presence
-        let field_obj = self.create_field_object_with_presence(
-            name,
-            path,
-            value,
-            initial_presence,
-            is_subform,
-            &[],
-        );
+        let field_obj =
+            self.create_field_object_with_presence(name, path, value, initial_presence, &[]);
         self.field_objects
             .insert(som_path.clone(), field_obj.clone());
+
+        self.link_child(
+            parent_path.as_ref(),
+            name,
+            som_path.index(),
+            &field_obj,
+            is_subform,
+        );
 
         // Track name -> paths mapping for context-aware resolution
         self.field_objects_by_name
@@ -929,16 +906,23 @@ function _xfa_cloneSubform(original, depth) {
             .or_default()
             .push(som_path.clone());
 
-        // Register globally for naked references (legacy)
-        self.context
-            .register_global_property(JsString::from(name), field_obj.clone(), Attribute::all())
-            .ok();
+        // Register globally for naked references (legacy). Only the first
+        // instance: a bare name means instance 0 (XFA 3.3 §3), and a later
+        // instance must not take the name over from it.
+        let first_instance = som_path.is_first_instance();
+        if first_instance {
+            self.context
+                .register_global_property(JsString::from(name), field_obj.clone(), Attribute::all())
+                .ok();
+        }
 
         // Register in _xfa_fields_ registry for resolveNode() lookups (legacy)
-        if let Ok(registry) = self.context.global_object().get(
-            PropertyKey::from(js_string!("_xfa_fields_")),
-            &mut self.context,
-        ) && let Some(registry_obj) = registry.as_object()
+        if first_instance
+            && let Ok(registry) = self.context.global_object().get(
+                PropertyKey::from(js_string!("_xfa_fields_")),
+                &mut self.context,
+            )
+            && let Some(registry_obj) = registry.as_object()
         {
             registry_obj
                 .set(
@@ -1082,7 +1066,7 @@ function _xfa_cloneSubform(original, depth) {
     }
 
     fn create_field_object(&mut self, name: &str, path: &str, initial_value: &str) -> JsObject {
-        self.create_field_object_with_presence(name, path, initial_value, "visible", false, &[])
+        self.create_field_object_with_presence(name, path, initial_value, "visible", &[])
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1092,7 +1076,6 @@ function _xfa_cloneSubform(original, depth) {
         path: &str,
         initial_value: &str,
         initial_presence: &str,
-        is_subform: bool,
         // This field's `<items>` as (display, save) pairs -- see
         // `register_xfa_node`'s `items` parameter. Empty for a subform, or a
         // field with no `<items>`.
@@ -1107,10 +1090,13 @@ function _xfa_cloneSubform(original, depth) {
                 JsValue::from(name_js.clone()),
                 Attribute::READONLY,
             )
+            // Configurable so a repeated instance can be re-keyed when an
+            // instance before it is added or removed (XFA 3.3 §9); still not
+            // writable from a script.
             .property(
                 js_string!("somExpression"),
                 JsValue::from(path_js),
-                Attribute::READONLY,
+                Attribute::CONFIGURABLE,
             )
             .build();
 
@@ -1343,6 +1329,10 @@ function _xfa_cloneSubform(original, depth) {
 
         // Add execEvent() method (XFA 3.3 §10 pp.407-409)
         self.add_exec_event_method(&field);
+        self.call_helper(
+            "_xfa_install_node_methods_",
+            &[JsValue::from(field.clone())],
+        );
 
         // instanceIndex: 0-based index among same-named sibling instances.
         // Initially 0 for a single instance.
@@ -1355,66 +1345,8 @@ function _xfa_cloneSubform(original, depth) {
             )
             .ok();
 
-        // XFA 3.3 §6.16: instanceManager is only for dynamic subforms.
-        // One instance manager is placed in the Form DOM for each dynamic
-        // subform. Fields do NOT get an instanceManager.
-        if is_subform {
-            let instance_manager = ObjectInitializer::new(&mut self.context)
-                .property(js_string!("count"), JsValue::from(1), Attribute::all())
-                .property(js_string!("max"), JsValue::from(-1), Attribute::all())
-                .build();
-
-            // Link instanceManager ↔ parent subform
-            instance_manager
-                .set(
-                    PropertyKey::from(js_string!("_parent")),
-                    JsValue::from(field.clone()),
-                    false,
-                    &mut self.context,
-                )
-                .ok();
-
-            // Define setInstances via eval so it can call _xfa_cloneSubform
-            self.context
-                .global_object()
-                .set(
-                    PropertyKey::from(js_string!("_xfa_tmp_im_")),
-                    JsValue::from(instance_manager.clone()),
-                    false,
-                    &mut self.context,
-                )
-                .ok();
-            let _ = self.context.eval(Source::from_bytes(
-                r#"
-_xfa_tmp_im_.setInstances = function(n) {
-    var parent = this._parent;
-    if (!parent) return;
-    parent._instances = [parent];
-    parent.instanceIndex = 0;
-    for (var i = 1; i < n; i++) {
-        var clone = _xfa_cloneSubform(parent);
-        clone.instanceIndex = i;
-        // Give clone its own instanceManager stub with correct count
-        clone.instanceManager = { count: n, _parent: clone,
-            setInstances: function(){}, addInstance: function(){}, removeInstance: function(){} };
-        parent._instances.push(clone);
-    }
-    this.count = n;
-};
-_xfa_tmp_im_.addInstance = function() {};
-_xfa_tmp_im_.removeInstance = function() {};
-"#,
-            ));
-
-            field
-                .set(
-                    PropertyKey::from(js_string!("instanceManager")),
-                    JsValue::from(instance_manager),
-                    false,
-                    &mut self.context,
-                )
-                .ok();
-        }
+        // A subform's instanceManager is attached when it is linked into its
+        // parent (`link_child`, XFA 3.3 §9); fields never get one.
 
         // XFA 3.3 §6.16: `.all` returns a collection of all instances with
         // the same name in the same scope.  When `setInstances(N)` has been
@@ -1507,9 +1439,8 @@ _xfa_tmp_.boundItem = function(value) {
 
     /// Add XFA `.all` collection property to a JS object (XFA 3.3 §6.16).
     ///
-    /// `.all` returns a collection `{length: N, item(i)}` of all instances
-    /// sharing the same name in the same scope.  If `_instances` has been
-    /// populated by `setInstances(N)`, the collection reflects those instances.
+    /// `.all` returns a collection `{length: N, item(i)}` of every instance
+    /// managed by the node's instance manager (XFA 3.3 §9).
     fn add_all_property(&mut self, obj: &JsObject) {
         self.context
             .global_object()
@@ -1523,16 +1454,455 @@ _xfa_tmp_.boundItem = function(value) {
         let _ = self.context.eval(Source::from_bytes(
             r#"Object.defineProperty(_xfa_tmp_, 'all', {
                 get: function() {
-                    var instances = this._instances || [this];
-                    return {
-                        length: instances.length,
-                        item: function(i) { return instances[i]; }
-                    };
+                    // XFA 3.3 §9: every instance this node's manager holds,
+                    // or just the node for one without a manager (a field).
+                    var m = this.instanceManager;
+                    return _xfa_collection_(m ? m._instances.slice() : [this]);
                 },
                 configurable: true,
                 enumerable: true
             });"#,
         ));
+    }
+
+    /// Call one of the global JS helpers from `js_helpers`. They are defined
+    /// by `setup_environment`, so a missing one is an engine construction bug.
+    fn call_helper(&mut self, name: &str, args: &[JsValue]) -> JsValue {
+        let helper = self
+            .context
+            .global_object()
+            .get(PropertyKey::from(JsString::from(name)), &mut self.context)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .unwrap_or_else(|| panic!("JS helper {name} is not defined"));
+        helper
+            .call(&JsValue::undefined(), args, &mut self.context)
+            .unwrap_or_else(|e| panic!("JS helper {name} threw: {e}"))
+    }
+
+    /// Link `child` into its parent as the instance at `index` of its name
+    /// (XFA 3.3 §3): `child.parent` points up, `parent[name]` is instance 0,
+    /// and every instance stays reachable through `Name[n]` resolution. A
+    /// subform also gets its instance manager (§9). A node with no parent
+    /// path is a root subform, whose parent is the form model, `xfa.form`.
+    fn link_child(
+        &mut self,
+        parent_path: Option<&SomPath>,
+        name: &str,
+        index: usize,
+        child: &JsObject,
+        is_subform: bool,
+    ) {
+        let parent = match parent_path {
+            Some(path) => match self.field_objects.get(path) {
+                Some(obj) => obj.clone(),
+                // A parent that was never registered (a test registering a
+                // bare leaf) has no object to link into.
+                None => return,
+            },
+            None => self.form_root(),
+        };
+        self.call_helper(
+            "_xfa_link_child_",
+            &[
+                JsValue::from(parent),
+                JsValue::from(JsString::from(name)),
+                JsValue::from(index as u32),
+                JsValue::from(child.clone()),
+                JsValue::from(is_subform),
+            ],
+        );
+    }
+
+    /// `xfa.form`, the Form DOM's root object.
+    fn form_root(&mut self) -> JsObject {
+        let xfa = self
+            .context
+            .global_object()
+            .get(PropertyKey::from(js_string!("xfa")), &mut self.context)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .expect("xfa is defined by setup_xfa_object");
+        xfa.get(PropertyKey::from(js_string!("form")), &mut self.context)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .expect("xfa.form is defined by setup_xfa_object")
+    }
+
+    /// Give the repeatable subform `name` under `parent_path` its declared
+    /// occurrence limits (XFA 3.3 §9). Called for every repeatable,
+    /// including one with no instance yet, so its manager `_name` exists and
+    /// `_name.addInstance()` works from zero.
+    pub fn install_instance_manager(
+        &mut self,
+        parent_path: &SomPath,
+        name: &str,
+        occur: &crate::xfa::instances::Occur,
+    ) {
+        let Some(parent) = self.field_objects.get(parent_path).cloned() else {
+            return;
+        };
+        let parents = self
+            .instance_manager_parents
+            .entry(name.to_string())
+            .or_default();
+        if !parents.contains(parent_path) {
+            parents.push(parent_path.clone());
+        }
+        self.call_helper(
+            "_xfa_install_manager_",
+            &[
+                JsValue::from(parent),
+                JsValue::from(JsString::from(parent_path.as_str())),
+                JsValue::from(JsString::from(name)),
+                JsValue::from(occur.min),
+                JsValue::from(occur.max_attr() as f64),
+            ],
+        );
+        // Until a script context picks the nearest one, a bare `_name` is
+        // the first manager of that name in document order.
+        if self.instance_manager_parents[name].len() == 1 {
+            self.bind_manager_global(name, parent_path);
+        }
+    }
+
+    /// Bind the global `_name` to the manager held by `parent`.
+    fn bind_manager_global(&mut self, name: &str, parent: &SomPath) {
+        let Some(parent_obj) = self.field_objects.get(parent).cloned() else {
+            return;
+        };
+        let key = format!("_{name}");
+        if let Ok(manager) = parent_obj.get(
+            PropertyKey::from(JsString::from(key.as_str())),
+            &mut self.context,
+        ) && !manager.is_undefined()
+        {
+            self.context
+                .register_global_property(JsString::from(key.as_str()), manager, Attribute::all())
+                .ok();
+        }
+    }
+
+    /// Bring the engine in line with the instances of `name` under `parent`
+    /// as the scripts left them (XFA 3.3 §9).
+    ///
+    /// A surviving instance keeps its JS object -- a script-object variable
+    /// holding it stays valid -- and every registry entry under it moves to
+    /// its new index. A removed instance's entries are dropped. A
+    /// placeholder is left in place for the caller to replace with a fully
+    /// registered instance; its index and the values scripts wrote into it
+    /// are returned.
+    pub fn reconcile_instances(&mut self, parent: &SomPath, name: &str) -> Reconciled {
+        let Some(parent_obj) = self.field_objects.get(parent).cloned() else {
+            return Reconciled::default();
+        };
+        let state = self.call_helper(
+            "_xfa_instance_state_",
+            &[
+                JsValue::from(parent_obj),
+                JsValue::from(JsString::from(name)),
+            ],
+        );
+        let entries = state
+            .as_object()
+            .cloned()
+            .expect("instance state is an array");
+        let length = self.js_len(&entries);
+
+        let registered: Vec<SomPath> = self
+            .field_objects
+            .keys()
+            .filter(|k| k.parent().as_ref() == Some(parent) && k.name() == name)
+            .cloned()
+            .collect();
+
+        let mut reconciled = Reconciled::default();
+        let mut survivors: Vec<SomPath> = Vec::new();
+        for i in 0..length {
+            let entry = entries
+                .get(PropertyKey::from(i as u32), &mut self.context)
+                .ok()
+                .and_then(|v| v.as_object().cloned())
+                .expect("instance state entry");
+            let placeholder = entry
+                .get(
+                    PropertyKey::from(js_string!("placeholder")),
+                    &mut self.context,
+                )
+                .map(|v| v.to_boolean())
+                .unwrap_or(false);
+            let new_path = parent.child_indexed(name, i);
+            if placeholder {
+                let values_obj = entry
+                    .get(PropertyKey::from(js_string!("values")), &mut self.context)
+                    .ok()
+                    .and_then(|v| v.as_object().cloned())
+                    .expect("placeholder values");
+                let mut values = HashMap::new();
+                for key in values_obj
+                    .own_property_keys(&mut self.context)
+                    .unwrap_or_default()
+                {
+                    let PropertyKey::String(rel) = &key else {
+                        continue;
+                    };
+                    let rel = rel.to_std_string_escaped();
+                    if let Some(v) = read_js_string_prop(&values_obj, &rel, &mut self.context) {
+                        values.insert(rel, v);
+                    }
+                }
+                reconciled.placeholders.push((new_path, values));
+            } else {
+                let old_path = SomPath::new(
+                    read_js_string_prop(&entry, "path", &mut self.context).unwrap_or_default(),
+                );
+                if old_path != new_path {
+                    reconciled.moved.push((old_path.clone(), new_path));
+                }
+                survivors.push(old_path);
+            }
+        }
+        reconciled.removed = registered
+            .into_iter()
+            .filter(|p| !survivors.contains(p))
+            .collect();
+        self.rekey(&reconciled.moved, &reconciled.removed);
+        reconciled
+    }
+
+    fn js_len(&mut self, array: &JsObject) -> usize {
+        array
+            .get(PropertyKey::from(js_string!("length")), &mut self.context)
+            .ok()
+            .and_then(|v| v.to_number(&mut self.context).ok())
+            .unwrap_or(0.0) as usize
+    }
+
+    /// Move every path-keyed registry entry under each `moved.0` to the same
+    /// place under `moved.1`, and drop every entry under a `removed` path.
+    /// Both canonical paths and the root-stripped aliases
+    /// `register_path_on_object` adds are covered. Moves are applied all at
+    /// once, so a swap (`moveInstance`) cannot collide with itself.
+    fn rekey(&mut self, moved: &[(SomPath, SomPath)], removed: &[SomPath]) {
+        if moved.is_empty() && removed.is_empty() {
+            return;
+        }
+        let strip_root = |p: &SomPath| {
+            p.as_str()
+                .split_once('.')
+                .map(|(_, rest)| SomPath::new(rest))
+        };
+        let mut renames: Vec<(SomPath, Option<SomPath>)> = Vec::new();
+        for (old, new) in moved {
+            renames.push((old.clone(), Some(new.clone())));
+            if let (Some(o), Some(n)) = (strip_root(old), strip_root(new)) {
+                renames.push((o, Some(n)));
+            }
+        }
+        for gone in removed {
+            renames.push((gone.clone(), None));
+            if let Some(o) = strip_root(gone) {
+                renames.push((o, None));
+            }
+        }
+        let remap = |key: &SomPath| -> Option<Option<SomPath>> {
+            renames
+                .iter()
+                .find(|(old, _)| key.starts_with(old))
+                .map(|(old, new)| {
+                    new.as_ref().map(|new| {
+                        SomPath::new(format!("{}{}", new, &key.as_str()[old.as_str().len()..]))
+                    })
+                })
+        };
+
+        // Take every affected entry out first, then put the survivors back.
+        let affected: Vec<SomPath> = self
+            .field_objects
+            .keys()
+            .filter(|k| remap(k).is_some())
+            .cloned()
+            .collect();
+        let taken: Vec<(SomPath, JsObject, Option<String>)> = affected
+            .iter()
+            .map(|k| {
+                let obj = self.field_objects.remove(k).expect("affected key");
+                let presence = self.initial_presence.remove(k);
+                (k.clone(), obj, presence)
+            })
+            .collect();
+        let taken_values: Vec<(SomPath, XfaValue)> = {
+            let mut state = self.form_state.write().unwrap();
+            let keys: Vec<SomPath> = state
+                .values
+                .keys()
+                .filter(|k| remap(k).is_some())
+                .cloned()
+                .collect();
+            keys.into_iter()
+                .filter_map(|k| state.values.remove(&k).map(|v| (k, v)))
+                .collect()
+        };
+        let registry = Self::get_path_registry(&mut self.context);
+        if let Some(registry) = &registry {
+            for key in &affected {
+                registry
+                    .delete_property_or_throw(
+                        PropertyKey::from(JsString::from(key.as_str())),
+                        &mut self.context,
+                    )
+                    .ok();
+            }
+        }
+
+        for (key, obj, presence) in taken {
+            let Some(Some(new_key)) = remap(&key) else {
+                continue;
+            };
+            let canonical = self.som_expression_of(&obj).as_ref() == Some(&key);
+            if canonical {
+                obj.define_property_or_throw(
+                    PropertyKey::from(js_string!("somExpression")),
+                    boa_engine::property::PropertyDescriptor::builder()
+                        .value(JsValue::from(JsString::from(new_key.as_str())))
+                        .writable(false)
+                        .enumerable(false)
+                        .configurable(true),
+                    &mut self.context,
+                )
+                .ok();
+                if new_key.is_first_instance() && !key.is_first_instance() {
+                    // Instance 0 changed hands: the bare name is now this one.
+                    let name = new_key.name().to_string();
+                    self.context
+                        .register_global_property(
+                            JsString::from(name.as_str()),
+                            obj.clone(),
+                            Attribute::all(),
+                        )
+                        .ok();
+                }
+            }
+            if let Some(registry) = &registry {
+                registry
+                    .set(
+                        PropertyKey::from(JsString::from(new_key.as_str())),
+                        obj.clone(),
+                        false,
+                        &mut self.context,
+                    )
+                    .ok();
+            }
+            if let Some(presence) = presence {
+                self.initial_presence.insert(new_key.clone(), presence);
+            }
+            self.field_objects.insert(new_key, obj);
+        }
+        {
+            let mut state = self.form_state.write().unwrap();
+            for (key, value) in taken_values {
+                if let Some(Some(new_key)) = remap(&key) {
+                    state.values.insert(new_key, value);
+                }
+            }
+        }
+
+        let mut touched_names: Vec<String> = Vec::new();
+        for (name, paths) in self.field_objects_by_name.iter_mut() {
+            let before = paths.len();
+            let mut changed = false;
+            *paths = paths
+                .drain(..)
+                .filter_map(|p| match remap(&p) {
+                    None => Some(p),
+                    Some(new) => {
+                        changed = true;
+                        new
+                    }
+                })
+                .collect();
+            if changed || paths.len() != before {
+                touched_names.push(name.clone());
+            }
+        }
+        for paths in self.instance_manager_parents.values_mut() {
+            *paths = paths
+                .drain(..)
+                .filter_map(|p| match remap(&p) {
+                    None => Some(p),
+                    Some(new) => new,
+                })
+                .collect();
+        }
+        for field in [&mut self.current_field_path, &mut self.current_context_path] {
+            if let Some(path) = field.as_ref()
+                && let Some(new) = remap(path)
+            {
+                *field = new;
+            }
+        }
+        for name in touched_names {
+            self.rebuild_paths_by_name(&name);
+        }
+    }
+
+    fn som_expression_of(&mut self, obj: &JsObject) -> Option<SomPath> {
+        read_js_string_prop(obj, "somExpression", &mut self.context).map(SomPath::new)
+    }
+
+    /// Rewrite `_xfa_paths_by_name_[name]` from `field_objects_by_name`.
+    fn rebuild_paths_by_name(&mut self, name: &str) {
+        let paths: Vec<JsValue> = self
+            .field_objects_by_name
+            .get(name)
+            .map(|v| {
+                v.iter()
+                    .map(|p| JsValue::from(JsString::from(p.as_str())))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let array = boa_engine::object::builtins::JsArray::from_iter(paths, &mut self.context);
+        if let Ok(by_name) = self.context.global_object().get(
+            PropertyKey::from(js_string!("_xfa_paths_by_name_")),
+            &mut self.context,
+        ) && let Some(by_name) = by_name.as_object()
+        {
+            by_name
+                .set(
+                    PropertyKey::from(JsString::from(name)),
+                    array,
+                    false,
+                    &mut self.context,
+                )
+                .ok();
+        }
+    }
+
+    /// Replace the engine's SOM resolver, after the Form DOM it mirrors has
+    /// changed shape.
+    pub fn replace_som_resolver(&mut self, resolver: SomResolver) {
+        self.som_resolver = resolver;
+    }
+
+    /// Take every instance-manager change queued since the last call, in
+    /// the order the scripts made them.
+    pub fn drain_instance_ops(&mut self) -> Vec<crate::xfa::instances::InstanceOp> {
+        let queued = self.call_helper("_xfa_drain_instance_ops_", &[]);
+        let Some(list) = queued.as_object().cloned() else {
+            return Vec::new();
+        };
+        let length = list
+            .get(PropertyKey::from(js_string!("length")), &mut self.context)
+            .ok()
+            .and_then(|v| v.to_number(&mut self.context).ok())
+            .unwrap_or(0.0) as u32;
+        (0..length)
+            .filter_map(|i| {
+                let entry = list.get(PropertyKey::from(i), &mut self.context).ok()?;
+                let entry = entry.as_object()?.clone();
+                crate::xfa::instances::InstanceOp::from_js(&entry, &mut self.context)
+            })
+            .collect()
     }
 
     /// Register a path on a JS object, creating intermediate objects as needed.
@@ -1542,13 +1912,32 @@ _xfa_tmp_.boundItem = function(value) {
         let mut current_path = String::new();
 
         for (i, part) in parts.iter().enumerate() {
-            let key = PropertyKey::from(js_string!(*part));
+            let (name, index) = super::som::split_segment(part);
+            let key = PropertyKey::from(js_string!(name));
 
             // Build the current path for this component
             if current_path.is_empty() {
                 current_path = part.to_string();
             } else {
                 current_path = format!("{}.{}", current_path, part);
+            }
+
+            // Only instance 0 is a plain property (`Row` is `Row[0]`); a later
+            // instance is reached through its parent's child links, never
+            // as a property literally named `Row[1]`.
+            if index > 0 {
+                if i == parts.len() - 1 {
+                    self.field_objects
+                        .insert(SomPath::new(&current_path), field_obj.clone());
+                    break;
+                }
+                match self.field_objects.get(&SomPath::new(&current_path)) {
+                    Some(obj) => {
+                        current = obj.clone();
+                        continue;
+                    }
+                    None => break,
+                }
             }
 
             if i == parts.len() - 1 {
@@ -1573,7 +1962,7 @@ _xfa_tmp_.boundItem = function(value) {
 
                 // Also track in field_objects_by_name
                 self.field_objects_by_name
-                    .entry(part.to_string())
+                    .entry(name.to_string())
                     .or_default()
                     .push(som_path);
             } else {
@@ -1591,7 +1980,7 @@ _xfa_tmp_.boundItem = function(value) {
                             let new_obj = ObjectInitializer::new(&mut self.context)
                                 .property(
                                     js_string!("name"),
-                                    JsValue::from(js_string!(*part)),
+                                    JsValue::from(js_string!(name)),
                                     Attribute::READONLY,
                                 )
                                 .property(
@@ -1608,13 +1997,17 @@ _xfa_tmp_.boundItem = function(value) {
 
                             // XFA 3.3 §6.16: `.all` on intermediates as well
                             self.add_all_property(&new_obj);
+                            self.call_helper(
+                                "_xfa_install_node_methods_",
+                                &[JsValue::from(new_obj.clone())],
+                            );
 
                             self.field_objects.insert(som_path.clone(), new_obj.clone());
                             self.initial_presence
                                 .insert(som_path.clone(), "visible".to_string());
 
                             self.field_objects_by_name
-                                .entry(part.to_string())
+                                .entry(name.to_string())
                                 .or_default()
                                 .push(som_path.clone());
 
@@ -1845,6 +2238,23 @@ _xfa_tmp_.boundItem = function(value) {
     /// For each field name that has multiple registrations, use the scope walk
     /// to find the contextually correct one and rebind the JS global property.
     fn rebind_globals_for_context(&mut self, context_path: &SomPath) {
+        // A bare `_name` is the manager under the parent nearest the script:
+        // the one sharing the longest path prefix with its context.
+        let managers: Vec<(String, SomPath)> = self
+            .instance_manager_parents
+            .iter()
+            .filter(|(_, parents)| parents.len() > 1)
+            .filter_map(|(name, parents)| {
+                parents
+                    .iter()
+                    .max_by_key(|p| shared_prefix_len(p, context_path))
+                    .map(|p| (name.clone(), p.clone()))
+            })
+            .collect();
+        for (name, parent) in managers {
+            self.bind_manager_global(&name, &parent);
+        }
+
         // Collect ambiguous names that need rebinding
         let ambiguous_names: Vec<String> = self
             .field_objects_by_name
@@ -2185,6 +2595,28 @@ _xfa_tmp_.boundItem = function(value) {
         values
     }
 
+    /// Every field's value under its canonical SOM path only: the path its
+    /// object reports as its `somExpression`. The root-stripped aliases
+    /// registration also stores (`Body.F` beside `form1.Body.F`) and bare
+    /// names are left out, so each field appears exactly once.
+    pub fn get_field_values_by_canonical_path(&mut self) -> HashMap<SomPath, String> {
+        let entries: Vec<(SomPath, JsObject)> = self
+            .field_objects
+            .iter()
+            .map(|(p, o)| (p.clone(), o.clone()))
+            .collect();
+        let mut values = HashMap::new();
+        for (path, obj) in entries {
+            if self.som_expression_of(&obj).as_ref() != Some(&path) {
+                continue;
+            }
+            if let Some(value) = read_js_string_prop(&obj, "rawValue", &mut self.context) {
+                values.insert(path, value);
+            }
+        }
+        values
+    }
+
     /// Get all presence changes from the SOM hierarchy that have been modified.
     pub fn get_all_som_presence_changes(&mut self) -> HashMap<String, String> {
         let mut changes = HashMap::new();
@@ -2215,143 +2647,81 @@ _xfa_tmp_.boundItem = function(value) {
             .insert(path.clone(), presence.to_string());
     }
 
-    /// Get all non-empty caption values from field JS objects.
+    /// Give the object registered at `path` its `access` property (XFA 3.3
+    /// §17), so a script can read it and assign it (`this.access =
+    /// "protected"`). `access` is the node's own declared value; the
+    /// `_initialAccess` beside it is the baseline [`Self::take_access_changes`]
+    /// compares against, kept on the object itself so every alias under
+    /// which the object is registered shares it.
     ///
-    /// Get all subforms where `setInstances(N)` was called with N > 1.
-    ///
-    /// Returns a list of `(subform_som_path, instance_count,
-    ///                       Vec<instance_field_values>)`.
-    /// Each `instance_field_values` is a map from relative field name to value
-    /// for that instance (set by scripts via the cloned objects).
-    ///
-    /// This allows the form layer to duplicate XFA nodes and set per-instance
-    /// values after script execution.
-    pub fn get_dynamic_instances(&mut self) -> Vec<DynamicInstance> {
-        let mut results = Vec::new();
+    /// A path with no registered object is ignored: only registered
+    /// containers and fields are reachable from a script at all.
+    pub fn init_access(&mut self, path: &str, access: FieldAccess) {
+        let Some(obj) = self.field_objects.get(&SomPath::new(path)).cloned() else {
+            return;
+        };
+        for key in ["access", "_initialAccess"] {
+            obj.set(
+                PropertyKey::from(JsString::from(key)),
+                JsValue::from(js_string!(access.as_str())),
+                false,
+                &mut self.context,
+            )
+            .ok();
+        }
+    }
 
-        // Walk all registered field_objects looking for subforms with _instances
-        let field_objs: Vec<(SomPath, JsObject)> = self
+    /// Every `access` a script has changed since the last call, under each
+    /// object's canonical path (its `somExpression`), and the baseline moved
+    /// to the new value so the next call reports only what changes after
+    /// this one.
+    ///
+    /// A value that is not one of the four XFA keywords is not applied: the
+    /// object's `access` is put back to its baseline and the write is logged.
+    /// Reading it as the spec default, `open`, would unlock a field a script
+    /// meant to lock.
+    pub fn take_access_changes(&mut self) -> Vec<(SomPath, FieldAccess)> {
+        let entries: Vec<(SomPath, JsObject)> = self
             .field_objects
             .iter()
             .map(|(p, o)| (p.clone(), o.clone()))
             .collect();
-
-        for (path, obj) in field_objs {
-            // Check if this object has _instances
-            let instances_val = obj
-                .get(
-                    PropertyKey::from(js_string!("_instances")),
-                    &mut self.context,
-                )
-                .ok()
-                .unwrap_or(JsValue::undefined());
-
-            if instances_val.is_undefined() || instances_val.is_null() {
+        let mut changes = Vec::new();
+        for (path, obj) in entries {
+            if self.som_expression_of(&obj).as_ref() != Some(&path) {
                 continue;
             }
-
-            let Some(instances_obj) = instances_val.as_object() else {
+            let Some(current) = read_js_string_prop(&obj, "access", &mut self.context) else {
                 continue;
             };
-
-            // Get the length of the _instances array
-            let length = instances_obj
-                .get(PropertyKey::from(js_string!("length")), &mut self.context)
-                .ok()
-                .and_then(|v| v.to_number(&mut self.context).ok())
-                .unwrap_or(0.0) as usize;
-
-            if length <= 1 {
+            let baseline = read_js_string_prop(&obj, "_initialAccess", &mut self.context)
+                .unwrap_or_else(|| FieldAccess::Open.as_str().to_string());
+            if current == baseline {
                 continue;
             }
-
-            // Collect per-instance field values by walking each clone's
-            // property tree.
-            let mut all_instance_values = Vec::new();
-            for i in 0..length {
-                let instance = instances_obj
-                    .get(PropertyKey::from(i as u32), &mut self.context)
-                    .ok()
-                    .unwrap_or(JsValue::undefined());
-
-                let Some(instance_obj) = instance.as_object() else {
-                    all_instance_values.push(HashMap::new());
-                    continue;
-                };
-
-                let mut values = HashMap::new();
-                self.collect_instance_values(instance_obj, "", &mut values, 0);
-                all_instance_values.push(values);
-            }
-
-            results.push((path.to_string(), length, all_instance_values));
-        }
-
-        results
-    }
-
-    /// Recursively collect rawValue fields from a JS object tree.
-    fn collect_instance_values(
-        &mut self,
-        obj: &JsObject,
-        prefix: &str,
-        values: &mut HashMap<String, String>,
-        depth: usize,
-    ) {
-        if depth > 20 {
-            return; // safety guard against circular references
-        }
-
-        // Check if this object has _rawValue (i.e. it's a field)
-        if let Ok(raw_val) = obj.get(
-            PropertyKey::from(js_string!("_rawValue")),
-            &mut self.context,
-        ) && !raw_val.is_undefined()
-            && !raw_val.is_null()
-            && let Ok(val_str) = raw_val.to_string(&mut self.context)
-        {
-            let val = val_str.to_std_string_escaped();
-            if !prefix.is_empty() {
-                values.insert(prefix.to_string(), val);
-            }
-        }
-
-        // Walk named child properties
-        if let Ok(keys) = obj.own_property_keys(&mut self.context) {
-            for key in keys {
-                let key_str = match &key {
-                    PropertyKey::String(s) => s.to_std_string_escaped(),
-                    _ => continue,
-                };
-                // Skip internal/known non-child properties
-                if key_str.starts_with('_')
-                    || key_str == "rawValue"
-                    || key_str == "presence"
-                    || key_str == "name"
-                    || key_str == "somExpression"
-                    || key_str == "value"
-                    || key_str == "instanceManager"
-                    || key_str == "instanceIndex"
-                    || key_str == "border"
-                    || key_str == "font"
-                    || key_str == "caption"
-                    || key_str == "assist"
-                    || key_str == "all"
-                {
-                    continue;
+            let (key, value) = match FieldAccess::parse_strict(&current) {
+                Some(access) => {
+                    changes.push((path.clone(), access));
+                    ("_initialAccess", access.as_str().to_string())
                 }
-                if let Ok(child_val) = obj.get(key.clone(), &mut self.context)
-                    && let Some(child_obj) = child_val.as_object()
-                {
-                    let child_prefix = if prefix.is_empty() {
-                        key_str
-                    } else {
-                        format!("{}.{}", prefix, key_str)
-                    };
-                    self.collect_instance_values(child_obj, &child_prefix, values, depth + 1);
+                None => {
+                    log::warn!(
+                        "ignoring access = {current:?} on {path}: not one of open, \
+                         nonInteractive, protected, readOnly (XFA 3.3 §17); it stays {baseline}"
+                    );
+                    ("access", baseline)
                 }
-            }
+            };
+            obj.set(
+                PropertyKey::from(JsString::from(key)),
+                JsValue::from(js_string!(value)),
+                false,
+                &mut self.context,
+            )
+            .ok();
         }
+        changes.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
+        changes
     }
 
     /// Reset all registered field values and presence to match a snapshot.
@@ -2608,31 +2978,6 @@ _xfa_tmp_.boundItem = function(value) {
         changes
     }
 
-    pub fn reset_field_states(
-        &mut self,
-        values: &HashMap<SomPath, String>,
-        presence_map: &HashMap<SomPath, String>,
-    ) {
-        // Sort paths for deterministic iteration order (HashMap iteration
-        // order varies across runs due to random hashing).
-        let mut paths: Vec<SomPath> = self.field_objects.keys().cloned().collect();
-        paths.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-        for path in &paths {
-            // Reset rawValue
-            let value = values
-                .get(path)
-                .or_else(|| values.get(&SomPath::new(path.name())))
-                .cloned()
-                .unwrap_or_default();
-            self.update_field_value(path.as_str(), &value);
-
-            // Reset presence + initial_presence baseline
-            if let Some(presence) = presence_map.get(path) {
-                self.update_field_presence_baseline(path, &value, presence);
-            }
-        }
-    }
-
     /// Update initial_presence baseline and form_state value for an
     /// already-registered SOM path.  Used by the Form DOM second pass to
     /// overlay saved runtime state (presence / values) from the `<form>`
@@ -2806,14 +3151,8 @@ _xfa_tmp_.boundItem = function(value) {
 
         // Create the JavaScript object for this node
         let node_obj = if is_field {
-            let obj = self.create_field_object_with_presence(
-                name,
-                path,
-                value,
-                initial_presence,
-                false,
-                items,
-            );
+            let obj =
+                self.create_field_object_with_presence(name, path, value, initial_presence, items);
             // Store the item key for exclGroup parent→child propagation.
             // Per XFA 3.3 §4 pp.195-197: each child in an exclGroup has a key
             // value from <items>. When the parent's rawValue is set, children
@@ -2851,7 +3190,7 @@ _xfa_tmp_.boundItem = function(value) {
                 .property(
                     js_string!("somExpression"),
                     JsValue::from(js_string!(path)),
-                    Attribute::READONLY,
+                    Attribute::CONFIGURABLE,
                 )
                 .property(
                     js_string!("presence"),
@@ -2864,21 +3203,6 @@ _xfa_tmp_.boundItem = function(value) {
                     Attribute::READONLY,
                 )
                 .build();
-
-            // Add stub instanceManager for dynamic subforms
-            let set_instances =
-                NativeFunction::from_fn_ptr(|_this, _args, _context| Ok(JsValue::undefined()));
-            let instance_manager = ObjectInitializer::new(&mut self.context)
-                .function(set_instances, js_string!("setInstances"), 1)
-                .build();
-            subform_obj
-                .set(
-                    PropertyKey::from(js_string!("instanceManager")),
-                    instance_manager,
-                    false,
-                    &mut self.context,
-                )
-                .ok();
 
             // All containers can have rawValue per XFA spec (exclGroups need it
             // for child→parent value propagation).
@@ -2919,6 +3243,10 @@ _xfa_tmp_.boundItem = function(value) {
 
             // Add execEvent() method (XFA 3.3 §10 pp.407-409)
             self.add_exec_event_method(&subform_obj);
+            self.call_helper(
+                "_xfa_install_node_methods_",
+                &[JsValue::from(subform_obj.clone())],
+            );
 
             // XFA 3.3 §6.16: `.all` returns a collection of every instance
             // sharing this name/scope -- for a subform that is not
@@ -2974,19 +3302,20 @@ _xfa_tmp_.boundItem = function(value) {
             parent_som_path.as_ref(),
         );
 
-        // If there's a parent, add this node as a child property
-        if let Some(ref parent_som) = parent_som_path {
-            if let Some(parent_obj) = self.field_objects.get(parent_som) {
-                parent_obj
-                    .set(
-                        PropertyKey::from(JsString::from(name)),
-                        node_obj.clone(),
-                        false,
-                        &mut self.context,
-                    )
-                    .ok();
-            }
-        }
+        // Link this node in as one of its parent's children. This path
+        // builds every non-field container (subform, exclGroup, draw) as the
+        // same subform-shaped object, so each gets an instance manager; for
+        // anything without `<occur>` it is a 1/1 manager whose every change
+        // is refused, which is what a script calling it on such a node gets
+        // in Acrobat too. Which nodes really repeat is decided on the Form
+        // DOM side, by node kind and `<occur>`, never by this flag.
+        self.link_child(
+            parent_som_path.as_ref(),
+            name,
+            som_path.index(),
+            &node_obj,
+            !is_field,
+        );
 
         // Per XFA 3.3 §3 pp.110-114: unqualified references in scripts resolve
         // by searching children, siblings, ancestors, etc. To support direct

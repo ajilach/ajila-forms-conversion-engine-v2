@@ -19,6 +19,23 @@
     "name": "get_source_info"
   },
   {
+    "description": "The full text of the rules you name: id, title, `check` and the description, which says what is required, how it is judged and how to fix a break. Name the ids from rule_list or from a rule_check verdict; omit ids for every rule.",
+    "input_schema": {
+      "properties": {
+        "ids": {
+          "description": "Rule ids from rule_list; omit for every rule.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "rule_get"
+  },
+  {
     "description": "Encode the document into the Redacto PostgreSQL dump, adding the UBS metadata, page header and footer from each language's source, and report what it holds: the document id, languages, asset count and dump size. A document the Redacto model refuses (an empty body, an asset missing a language, a reference to an asset that does not exist) is reported with every violation and builds nothing. Build after every substantive change; the redacto_verify_* tools check the latest build.",
     "input_schema": {
       "properties": {},
@@ -462,7 +479,7 @@
     "name": "json_validate"
   },
   {
-    "description": "List every rule the document is held to, by id, title and description. Read them all before you author: the description says what is required and how to fix a break. `check` says how a rule is checked: `script` (its script decides it, on every edit too) or `agent` (a judge agent reads the document against the description).",
+    "description": "Index of every rule the document is held to, by id and title, in two lists by how a rule is checked: `scripted` (its script decides it, on every edit too) and `judged` (a judge agent reads the document against the description). rule_get gives the descriptions, which say what is required, how it is judged and how to fix a break.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
@@ -471,7 +488,7 @@
     "name": "rule_list"
   },
   {
-    "description": "Check the document against its rules and return each rule's verdict and violations (a JSON Pointer and what to fix). A scripted rule runs its script; a judged rule is handed to a judge agent, several in parallel, which takes longer and costs a model run per rule, so name the rules you need with rule_ids when you do not need them all. Where no judge runs, a judged rule comes back `unchecked`. When the document has a current build, `package_findings` lists what its package breaks. Read-only.",
+    "description": "Check the document against its rules. `summary` counts the verdicts by kind and `positive` names the rules that hold; `verdicts` spells out every other one: `negative` with its violations (a JSON Pointer and what to fix), `unchecked` or `broken` with the reason. A scripted rule runs its script; a judged rule is handed to a judge agent, several in parallel, which takes longer and costs a model run per rule, so name the rules you need with rule_ids when you do not need them all. A judged rule whose part of the document has not changed since a judge last checked it keeps that verdict without a new judge (`cached`). Where no judge runs, a judged rule comes back `unchecked`. When the document has a current build, `package_findings` lists what its package breaks. Read-only.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -655,7 +672,7 @@
     "name": "xfa_open"
   },
   {
-    "description": "Set one control the way a person would: focus into it, change it, focus out. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the new page count, and the fidelity this interaction was reached at. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one, so an agent can never act on a view that has moved.",
+    "description": "Set one control the way a person would: focus into it, change it, focus out. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the new page count, and the fidelity this interaction was reached at. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one, so an agent can never act on a view that has moved. Field paths are indexed inside repeated sections: `Row.Amount` is the first row, `Row[1].Amount` the second, exactly as xfa_controls lists them. A button has no value to set; press it with xfa_click instead. A field whose `access` is not `open` (see xfa_controls) is refused, since a person filling the form cannot change it either. The form's scripts can lock or unlock fields in response to a change, and prefill them: `access_changes` lists every field whose access changed, as `{field, from, to}`, and `side_effects` every value the scripts wrote.",
     "input_schema": {
       "properties": {
         "expected_revision": {
@@ -664,7 +681,7 @@
           "type": "integer"
         },
         "field": {
-          "description": "A control's field path, from xfa_controls.",
+          "description": "A field path, from xfa_controls.",
           "type": "string"
         },
         "session": {
@@ -685,6 +702,33 @@
       "type": "object"
     },
     "name": "xfa_set"
+  },
+  {
+    "description": "Press one button the way a person would. The button's own click script runs, so on a form with a repeatable section this is how rows are added or removed: pressing an add button creates the next instance, and every field in it is listed in `appeared` under an indexed path such as `form1.Body.Row[1].Amount` (the first instance has no index) and in the next xfa_controls. Pressing a remove button lists the removed instance's fields in `disappeared`; the instances after it move down one index. A press the form refuses, because the section is already at its minimum or maximum number of instances, leaves `instances_changed` false and says so in `warning`. Returns the same shape as xfa_set. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one. A button whose `access` is not `open` is refused, since a person cannot press it either.",
+    "input_schema": {
+      "properties": {
+        "expected_revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "field": {
+          "description": "A button's field path, from xfa_controls (kind `button`).",
+          "type": "string"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "session",
+        "expected_revision",
+        "field"
+      ],
+      "type": "object"
+    },
+    "name": "xfa_click"
   },
   {
     "description": "Put a session's form back the way it opened, keeping the session and its handle. Cheaper than closing and opening again. Returns the same shape as xfa_set, with the new revision and what changed relative to how the session stood just before the reset.",
@@ -742,7 +786,7 @@
           "type": "string"
         },
         "state": {
-          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
           "properties": {
             "selections": {
               "items": {
@@ -760,6 +804,43 @@
                   "field",
                   "value"
                 ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
                 "type": "object"
               },
               "type": "array"
@@ -812,7 +893,7 @@
           "type": "string"
         },
         "state": {
-          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
           "properties": {
             "selections": {
               "items": {
@@ -830,6 +911,43 @@
                   "field",
                   "value"
                 ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
                 "type": "object"
               },
               "type": "array"
@@ -891,7 +1009,7 @@
           "type": "string"
         },
         "state": {
-          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
           "properties": {
             "selections": {
               "items": {
@@ -909,6 +1027,43 @@
                   "field",
                   "value"
                 ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
                 "type": "object"
               },
               "type": "array"
@@ -978,7 +1133,7 @@
           "type": "string"
         },
         "state": {
-          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
           "properties": {
             "selections": {
               "items": {
@@ -996,6 +1151,43 @@
                   "field",
                   "value"
                 ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
                 "type": "object"
               },
               "type": "array"
@@ -1044,7 +1236,7 @@
           "type": "string"
         },
         "state": {
-          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
           "properties": {
             "selections": {
               "items": {
@@ -1062,6 +1254,43 @@
                   "field",
                   "value"
                 ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
                 "type": "object"
               },
               "type": "array"
@@ -1113,7 +1342,7 @@
           "type": "string"
         },
         "state": {
-          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and name the ones you want changed — every other control keeps its default. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
           "properties": {
             "selections": {
               "items": {
@@ -1134,6 +1363,43 @@
                 "type": "object"
               },
               "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
             }
           },
           "type": "object"
@@ -1147,11 +1413,135 @@
     "name": "xfa_search_text"
   },
   {
-    "description": "Every control on the form: every radio group, checkbox and dropdown, with its options, what it is set to, whether it is currently visible, and whether the form's own scripts react to it (`affects_layout`) — a form with many controls is worth triaging by that flag first. Addressed by `session` and `revision`, this answers for the form AS IT STANDS after those interactions, which is how a control a script only reveals mid-fill is found: it is invisible before the interaction that reveals it and listed after. Cheap: it reads the form, it does not explore it.\n\nEach control also reports `positions`: where it is drawn, as `{page, x, y, width, height}` in points with the origin at the page's top-left — the exact shape xfa_render_region's rect_pt takes, so an entry here can be passed straight to that tool to zoom in on it. An empty list means the form is not currently showing this control; more than one entry means it lives inside a repeated section and is drawn more than once. Positions come from the laid-out form, which is why this tool — not the raw XFA data server's xfa_node — is where to find them.",
+    "description": "The fields on the form, a window at a time: radio buttons, checkboxes, dropdowns and buttons, and the free-value fields (`text`, `text_area`, `date`, `time`, `date_time`, `numeric`, `password`, `signature`, `barcode`, `image`), each with its options (empty for a free-value field, which takes any text), what it is set to, whether it is currently visible, and whether the form's own scripts react to it (`affects_layout`) — a form with many controls is worth triaging by that flag first.\n\nEach field also reports `access`, the XFA keyword for what a person filling the form may do with it: `open` can be set or pressed; `readOnly`, `protected` and `nonInteractive` cannot, and xfa_set and xfa_click refuse them. A locked field is still listed, because the form's scripts can still write its value and can unlock it in response to another field; watch `access_changes` in the xfa_set result. `access` is effective: a field inside a locked subform or exclusion group is locked too, and `access_from` then names that container.\n\nA large form has hundreds of fields, so the listing is windowed: it returns at most `limit` (default 100, at most 500) from `offset` (default 0), in field path order, with `total` and `next_offset`; walk `next_offset` until it is null. `kinds` narrows the listing to the kinds given, before windowing — `[\"radio\", \"checkbox\", \"dropdown\", \"button\"]` for the choices that shape the form. `space_size` always describes the whole form.\n\nA button carries `click`: `instances` when pressing it adds or removes rows of a repeatable section, `script` when it does something else, absent when pressing it does nothing. Buttons have no options and do not count towards `space_size`; press them with xfa_click in a session, or with a `click` step in `state`. Addressed by `session` and `revision`, this answers for the form AS IT STANDS after those interactions, which is how a control a script only reveals mid-fill is found: it is invisible before the interaction that reveals it and listed after. Cheap: it reads the form, it does not explore it.\n\nEach control also reports `positions`: where it is drawn, as `{page, x, y, width, height}` in points with the origin at the page's top-left — the exact shape xfa_render_region's rect_pt takes, so an entry here can be passed straight to that tool to zoom in on it. An empty list means the form is not currently showing this control. Each instance of a repeated section is its own control with its own indexed path (`Row.Amount`, `Row[1].Amount`, ...) and its own position. Positions come from the laid-out form, which is why this tool — not the raw XFA data server's xfa_node — is where to find them.",
     "input_schema": {
       "properties": {
         "doc_path": {
           "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "kinds": {
+          "description": "Only fields of these kinds. Omit for every kind.",
+          "items": {
+            "enum": [
+              "radio",
+              "checkbox",
+              "dropdown",
+              "button",
+              "text",
+              "text_area",
+              "date",
+              "time",
+              "date_time",
+              "numeric",
+              "password",
+              "signature",
+              "barcode",
+              "image"
+            ],
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "limit": {
+          "description": "Fields to return; default 100.",
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "description": "First field to return; default 0. Pass the previous next_offset.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "revision": {
+          "description": "Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
+          "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "xfa_controls"
+  },
+  {
+    "description": "One field's current state, exactly as xfa_controls lists it: its kind, value, options, whether it is visible, its `access` (`open`, `readOnly`, `protected` or `nonInteractive`, and `access_from` when a locked container imposes it) and where it is drawn. The cheap way to check a single field after an interaction, for example whether a script locked or prefilled it, without listing the whole form. Addressed like xfa_controls.",
+    "input_schema": {
+      "properties": {
+        "doc_path": {
+          "description": "Absolute path to the PDF on the machine running this server, normally inside U2S_BLOB_DIR. Exactly one of doc_path and session is required.",
+          "type": "string"
+        },
+        "field": {
+          "description": "A field path, from xfa_controls.",
           "type": "string"
         },
         "revision": {
@@ -1162,12 +1552,77 @@
         "session": {
           "description": "A session handle from xfa_open. Exactly one of doc_path and session is required — pass this instead of doc_path to address a live, interacted-with form rather than the document on disk.",
           "type": "string"
+        },
+        "state": {
+          "description": "Which form state to use, when addressing by doc_path. Omit for the state the form opens in. To choose another, list the form's controls with xfa_controls and say what to do to them, in order, as `steps`: `{\"set\": {\"field\", \"value\"}}` sets a control, `{\"click\": {\"field\"}}` presses a button. Everything not touched keeps its default. Presses happen in the order given, so two presses of an add button make two new rows, and a later step can set a field of a row an earlier press created (`Row[1].Amount`). `selections`, a list of sets only, is the older spelling and still accepted; give one of the two, not both. Ignored when addressing by session, since a session's own interactions already determine its state.",
+          "properties": {
+            "selections": {
+              "items": {
+                "properties": {
+                  "field": {
+                    "description": "A control's field path, from xfa_controls.",
+                    "type": "string"
+                  },
+                  "value": {
+                    "description": "One of that control's options.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "field",
+                  "value"
+                ],
+                "type": "object"
+              },
+              "type": "array"
+            },
+            "steps": {
+              "items": {
+                "properties": {
+                  "click": {
+                    "properties": {
+                      "field": {
+                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field"
+                    ],
+                    "type": "object"
+                  },
+                  "set": {
+                    "properties": {
+                      "field": {
+                        "description": "A field path, from xfa_controls.",
+                        "type": "string"
+                      },
+                      "value": {
+                        "description": "What to set it to.",
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "field",
+                      "value"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "type": "object"
         }
       },
-      "required": [],
+      "required": [
+        "field"
+      ],
       "type": "object"
     },
-    "name": "xfa_controls"
+    "name": "xfa_field"
   },
   {
     "description": "Page count, per-page dimensions in points, rotation, and form type. Call this FIRST: when form_type is xfa_full or xfa_foreground the document is an XFA form, and this server can only render its static 'please update your reader' shim page — route those to the XFA renderer instead.",

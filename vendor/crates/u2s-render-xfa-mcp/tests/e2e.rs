@@ -676,3 +676,319 @@ async fn a_search_honours_the_requested_state() {
 
     client.cancel().await.ok();
 }
+
+// ------------------------------------------------- repeatable sections
+
+fn control<'a>(controls: &'a serde_json::Value, field: &str) -> Option<&'a serde_json::Value> {
+    controls["controls"]
+        .as_array()
+        .expect("controls")
+        .iter()
+        .find(|c| c["field"] == field)
+}
+
+fn inline_image(r: &rmcp::model::CallToolResult) -> String {
+    r.content
+        .iter()
+        .find_map(|b| b.as_image().map(|i| i.data.clone()))
+        .expect("inline image")
+}
+
+/// Pressing an add button over MCP: the button is listed as one, the press
+/// adds a row with its own indexed paths and position, the new row is drawn
+/// where nothing was before, and a value set in it reaches the total.
+#[tokio::test]
+async fn a_click_adds_a_row_and_the_new_row_is_addressable_and_drawn() {
+    let s = require_server!();
+    let c = s.connect().await;
+    let opened = call(
+        &c,
+        "xfa_open",
+        json!({ "doc_path": fixture("repeat.xfa.pdf") }),
+    )
+    .await;
+    let session = structured(&opened)["session"]
+        .as_str()
+        .expect("session")
+        .to_string();
+
+    let before = call(
+        &c,
+        "xfa_controls",
+        json!({ "session": session, "revision": 0 }),
+    )
+    .await;
+    let add = control(structured(&before), "form1.Body.Add").expect("Add is listed");
+    assert_eq!(add["kind"], "button");
+    assert_eq!(add["click"], "instances");
+    assert!(control(structured(&before), "form1.Body.Row[1].Remove").is_none());
+
+    let clicked = call(
+        &c,
+        "xfa_click",
+        json!({ "session": session, "expected_revision": 0, "field": "form1.Body.Add" }),
+    )
+    .await;
+    let sc = structured(&clicked);
+    assert_eq!(sc["revision"], 1);
+    assert_eq!(sc["kind"], "click");
+    assert_eq!(sc["instances_changed"], true);
+    assert!(
+        sc["appeared"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|p| p == "form1.Body.Row[1].Amount"),
+        "{sc}"
+    );
+
+    let after = call(
+        &c,
+        "xfa_controls",
+        json!({ "session": session, "revision": 1 }),
+    )
+    .await;
+    let remove = control(structured(&after), "form1.Body.Row[1].Remove").expect("new row listed");
+    let positions = remove["positions"].as_array().expect("positions");
+    assert_eq!(positions.len(), 1, "{remove}");
+    let p = &positions[0];
+    let region = |revision: u64| {
+        json!({
+            "session": session, "revision": revision, "page": p["page"],
+            "rect_pt": { "x": p["x"], "y": p["y"], "width": p["width"], "height": p["height"] },
+            "dpi": 150, "format": "png"
+        })
+    };
+    // The same rectangle before the press: nothing was drawn there yet.
+    let new_row = call(&c, "xfa_render_region", region(1)).await;
+    let set = call(
+        &c,
+        "xfa_set",
+        json!({ "session": session, "expected_revision": 1, "field": "form1.Body.Row[1].Amount", "value": "5" }),
+    )
+    .await;
+    let ss = structured(&set);
+    assert!(
+        ss["side_effects"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|e| e["field"] == "form1.Body.Total" && e["to"] == "5"),
+        "{ss}"
+    );
+    call(
+        &c,
+        "xfa_reset",
+        json!({ "session": session, "expected_revision": 2 }),
+    )
+    .await;
+    let empty_slot = call(&c, "xfa_render_region", region(3)).await;
+    assert_ne!(
+        inline_image(&new_row),
+        inline_image(&empty_slot),
+        "the new row must be drawn where there was no row"
+    );
+
+    call(&c, "xfa_close", json!({ "session": session })).await;
+    c.cancel().await.ok();
+}
+
+#[tokio::test]
+async fn set_on_a_button_and_click_on_a_text_field_are_refused() {
+    let s = require_server!();
+    let c = s.connect().await;
+    let opened = call(
+        &c,
+        "xfa_open",
+        json!({ "doc_path": fixture("repeat.xfa.pdf") }),
+    )
+    .await;
+    let session = structured(&opened)["session"]
+        .as_str()
+        .expect("session")
+        .to_string();
+
+    let set = call(
+        &c,
+        "xfa_set",
+        json!({ "session": session, "expected_revision": 0, "field": "form1.Body.Add", "value": "x" }),
+    )
+    .await;
+    assert_eq!(set.is_error, Some(true));
+    assert!(
+        error_text(&set).contains("xfa_click"),
+        "{}",
+        error_text(&set)
+    );
+
+    let click = call(
+        &c,
+        "xfa_click",
+        json!({ "session": session, "expected_revision": 0, "field": "form1.Body.Row.Amount" }),
+    )
+    .await;
+    assert_eq!(click.is_error, Some(true));
+    assert!(
+        error_text(&click).contains("xfa_set"),
+        "{}",
+        error_text(&click)
+    );
+
+    call(&c, "xfa_close", json!({ "session": session })).await;
+    c.cancel().await.ok();
+}
+
+/// The same press as a one-shot `state`: ordered steps, no session.
+#[tokio::test]
+async fn a_click_step_in_state_renders_and_lists_the_new_row() {
+    let s = require_server!();
+    let c = s.connect().await;
+    let path = fixture("repeat.xfa.pdf");
+    let state = json!({ "steps": [
+        { "click": { "field": "form1.Body.Add" } },
+        { "set": { "field": "form1.Body.Row[1].Amount", "value": "7" } }
+    ] });
+
+    let controls = call(
+        &c,
+        "xfa_controls",
+        json!({ "doc_path": path, "state": state }),
+    )
+    .await;
+    assert!(control(structured(&controls), "form1.Body.Row[1].Remove").is_some());
+
+    let default_page = call(
+        &c,
+        "xfa_render_page",
+        json!({ "doc_path": path, "page": 1, "dpi": 36, "format": "png" }),
+    )
+    .await;
+    let stepped_page = call(
+        &c,
+        "xfa_render_page",
+        json!({ "doc_path": path, "page": 1, "dpi": 36, "format": "png", "state": state }),
+    )
+    .await;
+    assert_ne!(inline_image(&default_page), inline_image(&stepped_page));
+
+    let both = call(
+        &c,
+        "xfa_info",
+        json!({ "doc_path": path, "state": { "steps": [], "selections": [] } }),
+    )
+    .await;
+    assert_eq!(
+        both.is_error,
+        Some(true),
+        "steps and selections together are refused"
+    );
+    c.cancel().await.ok();
+}
+
+// ------------------------------------------------------------- field access
+
+/// Every field is listed with its access, a window at a time; `kinds`
+/// narrows the listing before it is windowed; and `xfa_field` answers for
+/// one field exactly as the listing does.
+#[tokio::test]
+async fn controls_are_windowed_filtered_and_agree_with_xfa_field() {
+    let s = require_server!();
+    let c = s.connect().await;
+    let path = fixture("access.xfa.pdf");
+
+    let whole = call(&c, "xfa_controls", json!({ "doc_path": path })).await;
+    let whole = structured(&whole).clone();
+    let all = whole["controls"].as_array().expect("controls").clone();
+    assert_eq!(whole["total"].as_u64(), Some(all.len() as u64));
+    assert_eq!(whole["next_offset"], serde_json::Value::Null, "one window holds this form");
+
+    // Two at a time, walked to the end, is the same listing in the same order.
+    let mut walked = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let w = call(&c, "xfa_controls", json!({ "doc_path": path, "offset": offset, "limit": 2 })).await;
+        let w = structured(&w).clone();
+        walked.extend(w["controls"].as_array().expect("controls").iter().cloned());
+        match w["next_offset"].as_u64() {
+            Some(next) => offset = next,
+            None => break,
+        }
+    }
+    assert_eq!(walked, all);
+
+    let radios = call(&c, "xfa_controls", json!({ "doc_path": path, "kinds": ["radio"] })).await;
+    let radios = structured(&radios);
+    let kinds: Vec<&str> = radios["controls"]
+        .as_array()
+        .expect("controls")
+        .iter()
+        .map(|c| c["kind"].as_str().expect("kind"))
+        .collect();
+    assert_eq!(kinds, ["radio", "radio"]);
+    assert_eq!(radios["space_size"], whole["space_size"], "the space is the whole form's");
+
+    let inner = all
+        .iter()
+        .find(|c| c["field"] == "form1.Body.Locked.Inner")
+        .expect("Inner is listed");
+    assert_eq!(inner["access"], "protected");
+    assert_eq!(inner["access_from"], "form1.Body.Locked");
+    let one = call(&c, "xfa_field", json!({ "doc_path": path, "field": "form1.Body.Locked.Inner" })).await;
+    assert_eq!(structured(&one), inner);
+
+    c.cancel().await.ok();
+}
+
+#[tokio::test]
+async fn controls_and_field_arguments_are_checked_at_the_edge() {
+    let s = require_server!();
+    let c = s.connect().await;
+    let path = fixture("access.xfa.pdf");
+
+    for (tool, args, needle) in [
+        ("xfa_controls", json!({ "doc_path": path, "kinds": ["slider"] }), "text_area"),
+        ("xfa_controls", json!({ "doc_path": path, "limit": 0 }), "at least 1"),
+        ("xfa_field", json!({ "doc_path": path, "field": "form1.Body.Nope" }), "xfa_controls"),
+    ] {
+        let r = call(&c, tool, args.clone()).await;
+        assert_eq!(r.is_error, Some(true), "{tool} {args} must be refused");
+        let text = error_text(&r);
+        assert!(text.contains(needle), "{tool} {args}: {text}");
+    }
+    c.cancel().await.ok();
+}
+
+/// The session surface over the wire: the lock a script sets is reported,
+/// and a set on the locked field is refused naming why.
+#[tokio::test]
+async fn a_script_lock_is_reported_and_enforced_over_the_wire() {
+    let s = require_server!();
+    let c = s.connect().await;
+    let path = fixture("access.xfa.pdf");
+
+    let opened = call(&c, "xfa_open", json!({ "doc_path": path })).await;
+    let session = structured(&opened)["session"].as_str().expect("session").to_string();
+
+    let set = call(
+        &c,
+        "xfa_set",
+        json!({ "session": session, "expected_revision": 0, "field": "form1.Body.RB_Sheet.RB_1", "value": "1" }),
+    )
+    .await;
+    assert_eq!(
+        structured(&set)["access_changes"],
+        json!([{ "field": "form1.Body.Sheet", "from": "open", "to": "protected" }])
+    );
+
+    let refused = call(
+        &c,
+        "xfa_set",
+        json!({ "session": session, "expected_revision": 1, "field": "form1.Body.Sheet", "value": "7" }),
+    )
+    .await;
+    assert_eq!(refused.is_error, Some(true));
+    assert!(error_text(&refused).contains("protected"), "{}", error_text(&refused));
+
+    call(&c, "xfa_close", json!({ "session": session })).await;
+    c.cancel().await.ok();
+}

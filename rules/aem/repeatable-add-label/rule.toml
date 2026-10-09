@@ -28,3 +28,7 @@ language's PDF prints that page in the same wording). Every language of the titl
 source's text, `title/en` included, and the Add button is accepted as it comes out: do not report
 it.
 """
+
+[judge]
+pointers = ["/languages"]
+node_types = ["Repeatable"]

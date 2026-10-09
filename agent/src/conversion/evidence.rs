@@ -15,6 +15,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::Value;
+use u2s_xfa::states::{ControlKind, ControlsWindow};
 
 use super::{OutputTarget, ReplyBlock, ToolReply};
 
@@ -44,16 +45,27 @@ pub struct StageEvidence {
     read: HashSet<String>,
     /// Whether this stage rendered a source page.
     source_rendered: bool,
-    /// Whether this stage listed the source's controls.
+    /// Whether this stage listed every source choice: the windows of one
+    /// `xfa_controls` listing that includes the choices, from its start to
+    /// its end.
     controls_listed: bool,
+    /// How far each listing reached without a gap, by its `kinds` filter
+    /// (offsets count within the filtered listing).
+    listed_to: HashMap<String, usize>,
+    /// Why a listing could not be read, when one could not: the reply is
+    /// upstream's `ControlsWindow`, so this is an engine defect.
+    unreadable_listing: Option<String>,
     /// The source controls the form's scripts read, by dimension: a radio
-    /// group's alternatives are one dimension, any other control its field.
+    /// group's alternatives are one dimension, any other control its field,
+    /// and every instance of a repeated section the same one.
     driving: BTreeSet<String>,
-    /// Each listed control's dimension, by field.
+    /// Each listed control's dimension, by its field without instance
+    /// indices.
     dimension_of: HashMap<String, String>,
-    /// The fields this stage set with `xfa_set`, resolved to their dimension
-    /// only when the gate is checked, since a field may be set before a
-    /// listing says which radio group it belongs to.
+    /// The fields this stage set with `xfa_set`, without instance indices,
+    /// resolved to their dimension only when the gate is checked, since a
+    /// field may be set before a listing says which radio group it belongs
+    /// to.
     exercised: HashSet<String>,
 }
 
@@ -85,26 +97,10 @@ impl StageEvidence {
             return;
         }
         match name {
-            "xfa_controls" => {
-                let Some(report) = json_of(reply) else { return };
-                self.controls_listed = true;
-                for control in report["controls"].as_array().into_iter().flatten() {
-                    let Some(field) = control["field"].as_str() else {
-                        continue;
-                    };
-                    let dimension = control["group"].as_str().unwrap_or(field).to_string();
-                    self.dimension_of
-                        .insert(field.to_string(), dimension.clone());
-                    // A hidden control is required once a listing shows it,
-                    // which a listing after revealing its section does.
-                    if control["affects_layout"] == true && control["visible"] == true {
-                        self.driving.insert(dimension);
-                    }
-                }
-            }
+            "xfa_controls" => self.observe_listing(input, reply),
             "xfa_set" => {
                 if let Some(field) = input["field"].as_str() {
-                    self.exercised.insert(field.to_string());
+                    self.exercised.insert(unindexed(field));
                 }
             }
             "aem_verify_open" => self.opened = true,
@@ -124,6 +120,66 @@ impl StageEvidence {
                 }
             }
             _ => {}
+        }
+    }
+
+    /// Records one `xfa_controls` window: the open choices the form's scripts
+    /// read become required, whichever window shows them, and the listing
+    /// counts once the windows from its start reach its end. Only a choice
+    /// is required: buttons are pressed rather than set, a free-value field
+    /// under a calculating subform chooses nothing, and xfa_set refuses a
+    /// locked control.
+    fn observe_listing(&mut self, input: &Value, reply: &ToolReply) {
+        let Some(report) = json_of(reply) else {
+            self.unreadable_listing = Some("no JSON report".to_string());
+            return;
+        };
+        let listing = match serde_json::from_value::<ControlsWindow>(report) {
+            Ok(listing) => listing,
+            Err(e) => {
+                self.unreadable_listing = Some(e.to_string());
+                return;
+            }
+        };
+        // Upstream refuses an unknown kind, so a reply's `kinds` parse.
+        let kinds: Option<Vec<ControlKind>> = input
+            .get("kinds")
+            .and_then(|k| serde_json::from_value(k.clone()).ok());
+        for control in &listing.controls {
+            let field = unindexed(&control.field);
+            let dimension = control.group.as_deref().map_or_else(|| field.clone(), unindexed);
+            self.dimension_of.insert(field, dimension.clone());
+            // A hidden control is required once a listing shows it, which a
+            // listing after revealing its section does.
+            if control.kind.is_choice()
+                && control.access == u2s_xfa::flattened::FieldAccess::Open
+                && control.affects_layout
+                && control.visible
+            {
+                self.driving.insert(dimension);
+            }
+        }
+        let choices = [ControlKind::Radio, ControlKind::Checkbox, ControlKind::Dropdown];
+        if kinds
+            .as_ref()
+            .is_some_and(|k| !choices.iter().all(|c| k.contains(c)))
+        {
+            return;
+        }
+        let filter = kinds
+            .map(|k| {
+                let mut names: Vec<&str> = k.into_iter().map(ControlKind::wire_name).collect();
+                names.sort_unstable();
+                names.dedup();
+                names.join(",")
+            })
+            .unwrap_or_default();
+        let reach = self.listed_to.entry(filter).or_default();
+        if listing.offset <= *reach {
+            *reach = (*reach).max(listing.offset + listing.controls.len());
+            if listing.next_offset.is_none() {
+                self.controls_listed = true;
+            }
         }
     }
 
@@ -198,8 +254,18 @@ impl StageEvidence {
             );
         }
         if target == OutputTarget::Aem {
+            if let Some(reason) = &self.unreadable_listing {
+                missing.push(format!(
+                    "an xfa_controls listing could not be read ({reason}); this is an engine defect, \
+                     report it"
+                ));
+            }
             if !self.controls_listed {
-                missing.push("list the source's controls (xfa_open, xfa_controls)".to_string());
+                missing.push(
+                    "list the source's controls (xfa_open, xfa_controls), following `next_offset` \
+                     until it is null"
+                        .to_string(),
+                );
             }
             let exercised: HashSet<&str> = self
                 .exercised
@@ -222,6 +288,25 @@ impl StageEvidence {
         }
         missing
     }
+}
+
+/// A field path without its instance indices (`Row[1].Amount` is
+/// `Row.Amount`): every instance of a repeated section holds the same choice.
+fn unindexed(path: &str) -> String {
+    let mut out = String::with_capacity(path.len());
+    let mut rest = path;
+    while let Some(open) = rest.find('[') {
+        out.push_str(&rest[..open]);
+        match rest[open..].find(']') {
+            Some(close) => rest = &rest[open + close + 1..],
+            None => {
+                rest = &rest[open..];
+                break;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 /// A path as the evidence keys it, so the same file named two ways (macOS's
@@ -257,6 +342,8 @@ pub(crate) fn json_of(reply: &ToolReply) -> Option<Value> {
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+    use u2s_xfa::flattened::FieldAccess;
+    use u2s_xfa::states::{ClickEffect, Control};
 
     use super::*;
 
@@ -264,13 +351,52 @@ mod tests {
         ToolReply::Text(value.to_string())
     }
 
+    /// A listed control, serialized by upstream's own type so the fixtures
+    /// follow the wire format.
+    fn control(field: &str, kind: ControlKind, group: Option<&str>, affects_layout: bool, visible: bool) -> Control {
+        Control {
+            field: field.to_string(),
+            kind,
+            group: group.map(str::to_string),
+            options: Vec::new(),
+            default: None,
+            value: None,
+            visible,
+            affects_layout,
+            positions: Vec::new(),
+            access: FieldAccess::Open,
+            access_from: None,
+            click: None,
+        }
+    }
+
+    /// One `xfa_controls` window from `offset`, of `total` controls in all.
+    fn window(controls: Vec<Control>, offset: usize, total: usize) -> ToolReply {
+        let end = offset + controls.len();
+        text(
+            serde_json::to_value(ControlsWindow {
+                controls,
+                total,
+                offset,
+                next_offset: (end < total).then_some(end),
+                space_size: 8,
+                saturated: false,
+            })
+            .unwrap(),
+        )
+    }
+
     fn controls() -> ToolReply {
-        text(json!({ "controls": [
-            { "field": "form.p1.yes", "group": "form.p1.choice", "affects_layout": true, "visible": true },
-            { "field": "form.p1.no", "group": "form.p1.choice", "affects_layout": true, "visible": true },
-            { "field": "form.p1.extra", "affects_layout": true, "visible": false },
-            { "field": "form.p1.plain", "affects_layout": false, "visible": true },
-        ], "space_size": 8, "saturated": false }))
+        window(
+            vec![
+                control("form.p1.yes", ControlKind::Radio, Some("form.p1.choice"), true, true),
+                control("form.p1.no", ControlKind::Radio, Some("form.p1.choice"), true, true),
+                control("form.p1.extra", ControlKind::Checkbox, None, true, false),
+                control("form.p1.plain", ControlKind::Dropdown, None, false, true),
+            ],
+            0,
+            4,
+        )
     }
 
     fn submitted(path: &str) -> ToolReply {
@@ -348,7 +474,7 @@ mod tests {
         e.observe_reply(
             "xfa_controls",
             &json!({}),
-            &text(json!({ "controls": [{ "field": "form.p1.extra", "affects_layout": true, "visible": true }] })),
+            &window(vec![control("form.p1.extra", ControlKind::Checkbox, None, true, true)], 0, 1),
         );
         assert!(e.missing(OutputTarget::Aem, true)[0].ends_with("form.p1.extra"));
         e.observe_reply(
@@ -431,6 +557,80 @@ mod tests {
         e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
         e.observe_reply("redacto_verify_run", &json!({ "dry_run": true }), &text(json!({ "artefacts": [] })));
         assert!(e.missing(OutputTarget::Redacto, true)[0].contains("redacto_verify_run"));
+    }
+
+    /// Only an open choice can be set: a button is pressed, not set, a
+    /// free-value field under a calculating subform is flagged without
+    /// choosing anything, and a locked control is refused by xfa_set. None
+    /// of them is required, or the gate could never be passed.
+    #[test]
+    fn only_open_choices_are_required() {
+        let mut e = complete_aem("/blobs/a.pdf");
+        let mut button = control("form.p1.add", ControlKind::Button, None, true, true);
+        button.click = Some(ClickEffect::Instances);
+        let mut locked = control("form.p1.sheet.a", ControlKind::Radio, Some("form.p1.sheet"), true, true);
+        locked.access = FieldAccess::Protected;
+        locked.access_from = Some("form.p1.sheet".into());
+        let name = control("form.p1.name", ControlKind::Text, None, true, true);
+        e.observe_reply("xfa_controls", &json!({}), &window(vec![button, name, locked], 0, 3));
+        assert!(e.missing(OutputTarget::Aem, true).is_empty());
+    }
+
+    /// The listing is windowed: it counts once the windows from the start
+    /// reach the end, and only when they include the choices.
+    #[test]
+    fn a_listing_counts_once_its_windows_reach_the_end() {
+        let first = || window(vec![control("form.p1.a", ControlKind::Checkbox, None, true, true)], 0, 2);
+        let second = || window(vec![control("form.p1.b", ControlKind::Checkbox, None, true, true)], 1, 2);
+        let listed = |e: &StageEvidence| {
+            !e.missing(OutputTarget::Aem, true).iter().any(|m| m.contains("list the source's controls"))
+        };
+
+        let mut e = StageEvidence::default();
+        e.observe_reply("xfa_controls", &json!({}), &first());
+        assert!(!listed(&e), "a first window with more to come");
+
+        let mut e = StageEvidence::default();
+        e.observe_reply("xfa_controls", &json!({ "offset": 1 }), &second());
+        assert!(!listed(&e), "a last window without the ones before it");
+
+        let mut e = StageEvidence::default();
+        e.observe_reply("xfa_controls", &json!({}), &first());
+        e.observe_reply("xfa_controls", &json!({ "offset": 1 }), &second());
+        assert!(listed(&e));
+        let missing = e.missing(OutputTarget::Aem, true);
+        assert!(missing.iter().any(|m| m.ends_with("not set yet: form.p1.a, form.p1.b")), "{missing:?}");
+
+        let mut e = StageEvidence::default();
+        let buttons = json!({ "kinds": ["button"] });
+        e.observe_reply("xfa_controls", &buttons, &window(Vec::new(), 0, 0));
+        assert!(!listed(&e), "a listing of the buttons alone");
+        let choices = json!({ "kinds": ["radio", "checkbox", "dropdown", "button"] });
+        e.observe_reply("xfa_controls", &choices, &window(Vec::new(), 0, 0));
+        assert!(listed(&e));
+    }
+
+    /// Every instance of a repeated section lists its own fields, but the
+    /// choice is the same one: setting it in any instance exercises it.
+    #[test]
+    fn a_repeated_choice_is_one_dimension() {
+        let mut e = complete_aem("/blobs/a.pdf");
+        e.observe_reply(
+            "xfa_controls",
+            &json!({}),
+            &window(
+                vec![
+                    control("form.Row.kind", ControlKind::Dropdown, None, true, true),
+                    control("form.Row[1].kind", ControlKind::Dropdown, None, true, true),
+                    control("form.Row[2].kind", ControlKind::Dropdown, None, true, true),
+                ],
+                0,
+                3,
+            ),
+        );
+        assert!(e.missing(OutputTarget::Aem, true)[0].ends_with("not set yet: form.Row.kind"));
+        e.observe_reply("xfa_set", &json!({ "field": "form.Row[1].kind" }), &text(json!({})));
+        assert!(e.missing(OutputTarget::Aem, true).is_empty());
     }
 
     /// A radio set before the listing that names its group counts for the

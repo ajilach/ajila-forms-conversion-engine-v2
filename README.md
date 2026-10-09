@@ -108,10 +108,8 @@ set values, advance pages, submit, close, screenshot). The PDF a submission prod
 is read with the `pdf_*` tools. The source form is read with the `xfa_*` tools.
 
 Prerequisites on the machine running an AEM conversion:
-- Docker running — or Podman 5.3+, selected in Settings → Verification → Container engine or with `--container-engine podman` (see [docs/podman.md](docs/podman.md))
-- The AEM Forms image from ajila's private Azure registry pulled locally: `az login`, `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`, then `docker pull ajila.azurecr.io/aemforms-arm:6.5.17.0`
-- The Docker data volume with the UBS platform baked in (one-time setup: `docker/aem/bake-ubs-platform.sh`, see `docker/aem/README.md`)
-- Only an ARM image exists today, so AEM conversions currently run only on Apple Silicon hosts
+- Docker running, or Podman 5.3+, selected in Settings > Verification > Container engine or with `--container-engine podman` (see [docs/podman.md](docs/podman.md))
+- The GitHub CLI signed in with access to ajila's packages: `gh auth login -s read:packages` (or `gh auth refresh -s read:packages` for an existing login). The AEM image (`ghcr.io/ajilach/u2s-aem-ubs`, pinned as `AEM_IMAGE` in `agent/src/u2s.rs`, published for arm64 and amd64) is a private package of the `ajilach` organization; a run pulls it with that login when the container engine does not have it yet, and does not start when the pull fails. The image seeds its own data volume on first boot (see `docker/aem/README.md`); a `u2s-aem-ubs-data` volume from the earlier setup is no longer used and can be removed with `docker volume rm u2s-aem-ubs-data`.
 
 For a **Redacto target**, the verifier boots a Redacto platform of the run's own (Postgres, migration, core and rendering containers), imports the built dump there and renders it once per language.
 
@@ -120,10 +118,9 @@ Prerequisites for Redacto: Docker running, the public Postgres image pulled (`ve
 **For both targets:**
 - Check rules: every rule runs in a sandboxed worker process, which is the converting binary itself started with `--u2s-rules-worker`, so nothing extra ships. The agent tests need the standalone worker built first: `cargo build --release -p u2s-rules-host --bin u2s-rules-worker`.
 - `pdfium`: downloaded and embedded by the build on first compilation; nothing to do beyond network access on the first build.
-- Settings: verifier settings live in the desktop app's settings (tab "Verification"): AEM image, data volume (default `u2s-aem-ubs-data`), container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL; for Redacto: the migration, core and rendering images, Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin). The CLI reads the same stored settings.
-- CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
-- `blueprint verify prepare` pulls the public verifier images (headless Chromium `chromedp/headless-shell:stable` and Postgres); the AEM image must be pulled by hand (see above).
-- `blueprint verify check [--target aem|redacto]` runs the readiness check a run performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry), the AEM data volume exists, and pdfium loads.
+- Settings: verifier settings live in the desktop app's settings (tab "Verification"): container port (default 8080), user/password (default admin/admin), optional platform, optional Redacto URL; for Redacto: the migration, core and rendering images, Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin). The CLI reads the same stored settings.
+- `blueprint verify prepare` pulls the missing verifier images: headless Chromium `chromedp/headless-shell:stable`, Postgres, and the AEM image with the GitHub CLI's login; the private Redacto images are pulled by hand (see above).
+- `blueprint verify check [--target aem|redacto]` runs the readiness check a run performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry; a missing AEM image needs the GitHub CLI signed in instead), and pdfium loads.
 
 ```sh
 cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images

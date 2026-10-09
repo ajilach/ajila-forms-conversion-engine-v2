@@ -15,16 +15,17 @@
 //! `rmcp` for roughly fifty lines of hashmap-with-a-TTL logic, which is a
 //! worse trade than the small, disclosed duplication below.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
 use u2s_render_core::RenderError;
-use u2s_xfa::states::{Controls, controls_of_form};
+use u2s_xfa::flattened::FieldAccess;
+use u2s_xfa::states::{Control, Controls, access_by_field, controls_of_form, drawn_field_set, field_of_form};
 use u2s_xfa::xfa::script_executor::LayoutScripts;
-use u2s_xfa::xfa::scripting::{SomPath, XfaForm};
+use u2s_xfa::xfa::scripting::{EventResult, SomPath, XfaForm};
 use u2s_xfa::{Fidelity, XfaNode, extract_xfa_packets};
 
 use crate::renderer::Prepared;
@@ -36,11 +37,31 @@ const SESSION_CAP: usize = 32;
 /// One field's value before and after an interaction -- what the form's own
 /// scripts changed as a side effect, distinct from the field the caller
 /// actually set.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FieldChange {
     pub field: String,
     pub from: String,
     pub to: String,
+}
+
+/// One field's effective access before and after an interaction: a field the
+/// form's own scripts locked or unlocked (XFA 3.3 §17 lets a script assign
+/// `access`), the way AAGS locks its sheet number once a radio button
+/// prefills it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct AccessChange {
+    pub field: String,
+    pub from: FieldAccess,
+    pub to: FieldAccess,
+}
+
+/// Which interaction produced an [`Interaction`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum InteractionKind {
+    Set,
+    Click,
+    Reset,
 }
 
 /// What a single interaction did, reported back rather than left for the
@@ -49,19 +70,33 @@ pub struct FieldChange {
 #[derive(Debug, Clone, Serialize)]
 pub struct Interaction {
     pub revision: u64,
+    pub kind: InteractionKind,
+    /// The field set or pressed; empty for a reset.
     pub field: String,
+    /// The value set; empty for a click or a reset.
     pub value: String,
     pub values_changed: bool,
     /// Other fields the form's scripts changed as a consequence, excluding
     /// `field` itself.
     pub side_effects: Vec<FieldChange>,
-    /// Controls that became visible as a consequence -- the only way an
-    /// agent learns the form grew, since a control a script hides is
-    /// unaddressable until it appears here or in a fresh `xfa_controls`.
+    /// Fields that became drawn as a consequence, sorted -- the way an agent
+    /// learns the form grew: a new instance of a repeated section shows up
+    /// here as every field in it (`form1.Body.Row[1].Amount`), and a field a
+    /// script reveals shows up the same way.
     pub appeared: Vec<String>,
     pub disappeared: Vec<String>,
+    /// Fields whose effective access changed as a consequence, sorted by
+    /// field: locked by a script (`open` to `protected`, say) or unlocked.
+    /// Only fields present both before and after are compared; a field that
+    /// appeared is reported with its access by `xfa_controls`.
+    pub access_changes: Vec<AccessChange>,
+    /// Whether an instance of a repeatable section was added, removed or
+    /// moved (XFA 3.3 §9).
+    pub instances_changed: bool,
     pub page_count: u32,
     pub fidelity: Fidelity,
+    /// Why the render is incomplete, and/or why a press did nothing (a
+    /// repeatable section already at its `<occur>` limit), joined by "; ".
     pub warning: Option<String>,
 }
 
@@ -103,16 +138,76 @@ fn packets_of(path: &Path) -> Result<(Vec<u8>, Vec<String>), RenderError> {
     Ok((xfa, names))
 }
 
-/// Every visible, addressable control's field path -- what "a control
-/// appeared" or "disappeared" is measured against.
-fn visible_field_set(form: &mut XfaForm) -> Result<std::collections::HashSet<String>, RenderError> {
-    let controls = controls_of_form(form).map_err(|e| RenderError::backend(ENGINE, e.to_string()))?;
-    Ok(controls
-        .controls
-        .into_iter()
-        .filter(|c| c.visible)
-        .map(|c| c.field)
-        .collect())
+/// The form as an interaction finds or leaves it: every field's value, every
+/// drawn field, and every field's effective access.
+struct Snapshot {
+    values: HashMap<SomPath, String>,
+    drawn: BTreeSet<String>,
+    access: BTreeMap<String, FieldAccess>,
+}
+
+impl Snapshot {
+    fn of(form: &mut XfaForm) -> Snapshot {
+        Snapshot {
+            values: form.canonical_field_values(),
+            drawn: drawn_field_set(form.flattened()),
+            access: access_by_field(form),
+        }
+    }
+}
+
+/// Fields whose access differs between two snapshots, in field order. A
+/// field missing from either side (a new or removed instance) is not a
+/// change of access.
+fn access_diff(before: &Snapshot, after: &Snapshot) -> Vec<AccessChange> {
+    after
+        .access
+        .iter()
+        .filter_map(|(field, to)| {
+            let from = before.access.get(field)?;
+            (from != to).then(|| AccessChange {
+                field: field.clone(),
+                from: *from,
+                to: *to,
+            })
+        })
+        .collect()
+}
+
+/// What changed between two snapshots: values other than `target`'s, and the
+/// fields that started or stopped being drawn. Snapshots hold one entry per
+/// field, under its canonical path, so a change is reported once and one
+/// instance's change never hides behind another's.
+fn diff(
+    before: &Snapshot,
+    after: &Snapshot,
+    target: Option<&str>,
+) -> (Vec<FieldChange>, Vec<String>, Vec<String>) {
+    let mut side_effects: Vec<FieldChange> = after
+        .values
+        .iter()
+        .filter(|(path, _)| Some(path.as_str()) != target)
+        .filter_map(|(path, to)| {
+            let from = before.values.get(path).cloned().unwrap_or_default();
+            (from != *to).then(|| FieldChange {
+                field: path.as_str().to_string(),
+                from,
+                to: to.clone(),
+            })
+        })
+        .collect();
+    side_effects.sort_by(|a, b| a.field.cmp(&b.field));
+    let appeared = after.drawn.difference(&before.drawn).cloned().collect();
+    let disappeared = before.drawn.difference(&after.drawn).cloned().collect();
+    (side_effects, appeared, disappeared)
+}
+
+/// `a` and `b` joined by "; ", whichever are present.
+fn join_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
+        (a, b) => a.or(b),
+    }
 }
 
 impl LiveSession {
@@ -139,42 +234,112 @@ impl LiveSession {
         })
     }
 
+    /// Refuse to address a field the wrong way: a button is pressed, not
+    /// set, and anything else is set, not pressed.
+    fn check_field(&self, field: &str, kind: InteractionKind) -> Result<(), RenderError> {
+        let Some(node) = self.form.resolve(field) else {
+            return Err(RenderError::invalid_argument(
+                "field",
+                format!("no field {field} on this form; call xfa_controls for the available ones"),
+            ));
+        };
+        let is_button = node.is_button();
+        // Refused before anything runs, as an argument error naming why: the
+        // form would refuse the same thing (`XfaForm::interact` and `click`
+        // check it too), but a caller addressing a locked field made a
+        // mistake about the form, not hit a failure of the engine.
+        if let Some(refusal) = self.form.access_refusal(field) {
+            return Err(RenderError::invalid_argument("field", refusal));
+        }
+        match (kind, is_button) {
+            (InteractionKind::Set, true) => Err(RenderError::invalid_argument(
+                "field",
+                format!("{field} is a button; it has no value to set. Press it with xfa_click"),
+            )),
+            (InteractionKind::Click, false) => Err(RenderError::invalid_argument(
+                "field",
+                format!("{field} is not a button; set it to a value with xfa_set"),
+            )),
+            _ => Ok(()),
+        }
+    }
+
     fn set(&mut self, field: &str, value: &str) -> Result<Interaction, RenderError> {
-        let before_values = self.form.current_field_values();
-        let before_visible = visible_field_set(&mut self.form)?;
+        self.check_field(field, InteractionKind::Set)?;
+        self.interaction_around(InteractionKind::Set, field, value, |form| {
+            form.interact(field, value)
+        })
+    }
 
-        let result = self
-            .form
-            .interact(field, value)
-            .map_err(|e| RenderError::backend(ENGINE, e))?;
+    fn click(&mut self, field: &str) -> Result<Interaction, RenderError> {
+        self.check_field(field, InteractionKind::Click)?;
+        self.interaction_around(InteractionKind::Click, field, "", |form| form.click(field))
+    }
 
+    /// Run one interaction `op` on the form, re-lay it out, and report what
+    /// changed.
+    fn interaction_around(
+        &mut self,
+        kind: InteractionKind,
+        field: &str,
+        value: &str,
+        op: impl FnOnce(&mut XfaForm) -> Result<EventResult, String>,
+    ) -> Result<Interaction, RenderError> {
+        let before = Snapshot::of(&mut self.form);
+        let result = op(&mut self.form).map_err(|e| RenderError::backend(ENGINE, e))?;
         let (fidelity, warning) = refresh(&mut self.form, &mut self.layout)?;
+        Ok(self.finish(kind, field, value, before, result, fidelity, warning))
+    }
 
-        let after_values = self.form.current_field_values();
-        let after_visible = visible_field_set(&mut self.form)?;
+    fn reset(&mut self) -> Result<Interaction, RenderError> {
+        let before = Snapshot::of(&mut self.form);
 
-        let target = SomPath::new(field);
-        let side_effects: Vec<FieldChange> = after_values
+        let (mut form, mut layout) = XfaForm::new_with_layout(self.original_nodes.clone())
+            .map_err(|e| RenderError::backend(ENGINE, e))?;
+        let (fidelity, warning) = refresh(&mut form, &mut layout)?;
+        self.form = form;
+        self.layout = layout;
+
+        let result = EventResult {
+            values_changed: true,
+            ..EventResult::default()
+        };
+        let mut interaction = self.finish(
+            InteractionKind::Reset,
+            "",
+            "",
+            before,
+            result,
+            fidelity,
+            warning,
+        );
+        // A reset rebuilds the form from the template, so any instance added
+        // or removed since opening is undone.
+        interaction.instances_changed = interaction
+            .appeared
             .iter()
-            // `current_field_values()` stores each field under more than one
-            // alias (its full SOM path and its bare leaf name at least), all
-            // pointing at the same value -- so excluding only the exact
-            // string the caller passed would let the target's own change
-            // back in under its other alias. Every alias of one field shares
-            // its leaf name, which is what this actually excludes.
-            .filter(|(path, _)| path.name() != target.name())
-            .filter_map(|(path, to)| {
-                let from = before_values.get(path).cloned().unwrap_or_default();
-                (from != *to).then(|| FieldChange {
-                    field: path.as_str().to_string(),
-                    from,
-                    to: to.clone(),
-                })
-            })
-            .collect();
+            .chain(&interaction.disappeared)
+            .any(|p| p.contains('['));
+        Ok(interaction)
+    }
 
-        let appeared: Vec<String> = after_visible.difference(&before_visible).cloned().collect();
-        let disappeared: Vec<String> = before_visible.difference(&after_visible).cloned().collect();
+    /// The common tail of every interaction: diff against `before`, install
+    /// the new view, bump the revision.
+    #[allow(clippy::too_many_arguments)]
+    fn finish(
+        &mut self,
+        kind: InteractionKind,
+        field: &str,
+        value: &str,
+        before: Snapshot,
+        result: EventResult,
+        fidelity: Fidelity,
+        warning: Option<String>,
+    ) -> Interaction {
+        let after = Snapshot::of(&mut self.form);
+        let target = (!field.is_empty()).then_some(field);
+        let (side_effects, appeared, disappeared) = diff(&before, &after, target);
+        let access_changes = access_diff(&before, &after);
 
         let packet_names = self.view.packets.clone();
         let view = view_of(&self.form, &fidelity, &warning, &packet_names);
@@ -184,57 +349,29 @@ impl LiveSession {
         self.view = Arc::new(view);
         self.last_used = Instant::now();
 
-        Ok(Interaction {
+        Interaction {
             revision: self.revision,
+            kind,
             field: field.to_string(),
             value: value.to_string(),
             values_changed: result.values_changed,
             side_effects,
             appeared,
             disappeared,
+            access_changes,
+            instances_changed: result.instances_changed,
             page_count,
             fidelity,
-            warning,
-        })
-    }
-
-    fn reset(&mut self) -> Result<Interaction, RenderError> {
-        let before_visible = visible_field_set(&mut self.form)?;
-
-        let (mut form, mut layout) = XfaForm::new_with_layout(self.original_nodes.clone())
-            .map_err(|e| RenderError::backend(ENGINE, e))?;
-        let (fidelity, warning) = refresh(&mut form, &mut layout)?;
-
-        let after_visible = visible_field_set(&mut form)?;
-        let appeared: Vec<String> = after_visible.difference(&before_visible).cloned().collect();
-        let disappeared: Vec<String> = before_visible.difference(&after_visible).cloned().collect();
-
-        let packet_names = self.view.packets.clone();
-        let view = view_of(&form, &fidelity, &warning, &packet_names);
-        let page_count = crate::bands::bands(&view.flattened).len() as u32;
-
-        self.form = form;
-        self.layout = layout;
-        self.revision += 1;
-        self.view = Arc::new(view);
-        self.last_used = Instant::now();
-
-        Ok(Interaction {
-            revision: self.revision,
-            field: String::new(),
-            value: String::new(),
-            values_changed: true,
-            side_effects: Vec::new(),
-            appeared,
-            disappeared,
-            page_count,
-            fidelity,
-            warning,
-        })
+            warning: join_warnings(warning, result.instance_limit_hit),
+        }
     }
 
     fn controls(&mut self) -> Result<Controls, RenderError> {
         controls_of_form(&mut self.form).map_err(|e| RenderError::backend(ENGINE, e.to_string()))
+    }
+
+    fn field(&mut self, field: &str) -> Result<Option<Control>, RenderError> {
+        field_of_form(&mut self.form, field).map_err(|e| RenderError::backend(ENGINE, e.to_string()))
     }
 }
 
@@ -359,6 +496,17 @@ impl Sessions {
         session.controls()
     }
 
+    pub(crate) fn field(
+        &mut self,
+        handle: &str,
+        revision: u64,
+        field: &str,
+    ) -> Result<Option<Control>, RenderError> {
+        let session = self.get_mut(handle)?;
+        Self::check_revision(session.revision, revision, handle)?;
+        session.field(field)
+    }
+
     pub(crate) fn set(
         &mut self,
         handle: &str,
@@ -369,6 +517,18 @@ impl Sessions {
         let session = self.get_mut(handle)?;
         Self::check_revision(session.revision, expected_revision, handle)?;
         let interaction = session.set(field, value)?;
+        Ok((Arc::clone(&session.view), interaction))
+    }
+
+    pub(crate) fn click(
+        &mut self,
+        handle: &str,
+        expected_revision: u64,
+        field: &str,
+    ) -> Result<(Arc<Prepared>, Interaction), RenderError> {
+        let session = self.get_mut(handle)?;
+        Self::check_revision(session.revision, expected_revision, handle)?;
+        let interaction = session.click(field)?;
         Ok((Arc::clone(&session.view), interaction))
     }
 
@@ -408,4 +568,110 @@ fn uuid_like() -> String {
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0);
     format!("{time:016x}{counter:08x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot(values: &[(&str, &str)], drawn: &[&str]) -> Snapshot {
+        Snapshot {
+            values: values
+                .iter()
+                .map(|(k, v)| (SomPath::new(*k), v.to_string()))
+                .collect(),
+            drawn: drawn.iter().map(|s| s.to_string()).collect(),
+            access: BTreeMap::new(),
+        }
+    }
+
+    fn with_access(mut snapshot: Snapshot, access: &[(&str, FieldAccess)]) -> Snapshot {
+        snapshot.access = access.iter().map(|(f, a)| (f.to_string(), *a)).collect();
+        snapshot
+    }
+
+    #[test]
+    fn access_diff_reports_locks_and_unlocks_of_fields_on_both_sides() {
+        let before = with_access(
+            snapshot(&[], &[]),
+            &[
+                ("f.Sheet", FieldAccess::Open),
+                ("f.Name", FieldAccess::ReadOnly),
+                ("f.Same", FieldAccess::Protected),
+                ("f.Gone", FieldAccess::Open),
+            ],
+        );
+        let after = with_access(
+            snapshot(&[], &[]),
+            &[
+                ("f.Sheet", FieldAccess::Protected),
+                ("f.Name", FieldAccess::Open),
+                ("f.Same", FieldAccess::Protected),
+                ("f.Row[1].New", FieldAccess::Protected),
+            ],
+        );
+        assert_eq!(
+            access_diff(&before, &after),
+            vec![
+                AccessChange {
+                    field: "f.Name".into(),
+                    from: FieldAccess::ReadOnly,
+                    to: FieldAccess::Open,
+                },
+                AccessChange {
+                    field: "f.Sheet".into(),
+                    from: FieldAccess::Open,
+                    to: FieldAccess::Protected,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn diff_excludes_exactly_the_target() {
+        let before = snapshot(
+            &[
+                ("f.Row.Amount", "1"),
+                ("f.Row[1].Amount", "1"),
+                ("f.Total", "2"),
+            ],
+            &["f.Row.Amount"],
+        );
+        let after = snapshot(
+            &[
+                ("f.Row.Amount", "1"),
+                ("f.Row[1].Amount", "5"),
+                ("f.Total", "6"),
+            ],
+            &["f.Row.Amount", "f.Row[1].Amount", "f.Row[1].Remove"],
+        );
+        let (side_effects, appeared, disappeared) = diff(&before, &after, Some("f.Row[1].Amount"));
+        // The target's own change is not a side effect; the other row's
+        // same-named field would still be reported if it had changed.
+        assert_eq!(
+            side_effects,
+            vec![FieldChange {
+                field: "f.Total".into(),
+                from: "2".into(),
+                to: "6".into()
+            }]
+        );
+        assert_eq!(appeared, ["f.Row[1].Amount", "f.Row[1].Remove"]);
+        assert!(disappeared.is_empty());
+
+        let (side_effects, _, disappeared) = diff(&after, &before, None);
+        assert_eq!(side_effects.len(), 2, "{side_effects:?}");
+        assert_eq!(disappeared, ["f.Row[1].Amount", "f.Row[1].Remove"]);
+    }
+
+    #[test]
+    fn warnings_join_with_a_semicolon() {
+        assert_eq!(join_warnings(None, None), None);
+        assert_eq!(join_warnings(Some("a".into()), None).as_deref(), Some("a"));
+        assert_eq!(join_warnings(None, Some("b".into())).as_deref(), Some("b"));
+        assert_eq!(
+            join_warnings(Some("a".into()), Some("b".into())).as_deref(),
+            Some("a; b")
+        );
+    }
 }

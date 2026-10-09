@@ -302,15 +302,19 @@ async fn boot(
     profile: &Profile,
     session_id: &str,
 ) -> Result<(Instances, Vec<Finding>), VerifyError> {
-    // The daemon must already hold the AEM image: it is private, and this
-    // process has no registry credentials (compose pulls it with the host's
-    // login). `ensure_image` finds it locally and never reaches a registry.
+    // The AEM image is private: a daemon that does not have it yet pulls it
+    // with the profile's registry login (none configured: the pull fails
+    // unless an operator pulled it beforehand).
     docker
-        .ensure_image(&profile.aem_image, &profile.platform)
+        .ensure_image(
+            &profile.aem_image,
+            &profile.platform,
+            profile.registry_credentials.as_ref(),
+        )
         .await
         .map_err(|err| VerifyError::new(ErrorKind::ImageMissing, err.to_string()))?;
     docker
-        .ensure_image(&profile.chromium_image, "")
+        .ensure_image(&profile.chromium_image, "", None)
         .await
         .map_err(|err| VerifyError::new(ErrorKind::ImageMissing, err.to_string()))?;
     let aem_image = profile.aem_image.clone();

@@ -67,9 +67,22 @@ pub struct ConvertArgs {
     api_key: Option<String>,
 
     /// Model id at the selected provider. Defaults to the model configured in
-    /// the desktop app.
+    /// the desktop app. The Author runs on it, and so do the Reviewer and the
+    /// judges unless they are given their own.
     #[arg(long, value_name = "ID")]
     model: Option<String>,
+
+    /// The Reviewer's own model id at the selected provider. Defaults to the
+    /// one configured in the desktop app; an empty value means --model.
+    #[arg(long, value_name = "ID")]
+    reviewer_model: Option<String>,
+
+    /// The judges' own model id at the selected provider (the agents
+    /// rule_check dispatches, one per judged rule). Defaults to the one
+    /// configured in the desktop app; an empty value means the model of the
+    /// stage that dispatches them.
+    #[arg(long, value_name = "ID")]
+    judge_model: Option<String>,
 
     /// Reviewer → Author-fix rounds to allow before finalizing.
     #[arg(long, value_name = "N")]
@@ -82,16 +95,6 @@ pub struct ConvertArgs {
     /// Read the extra operator instructions from a file.
     #[arg(long, value_name = "PATH", conflicts_with = "instructions")]
     instructions_file: Option<PathBuf>,
-
-    /// The AEM Forms image the verifier boots, overriding the desktop app's
-    /// setting. See docker/aem/README.md.
-    #[arg(long, value_name = "IMAGE")]
-    aem_image: Option<String>,
-
-    /// The Docker volume holding the deployed UBS platform, overriding the
-    /// desktop app's setting.
-    #[arg(long, value_name = "VOLUME")]
-    aem_volume: Option<String>,
 
     /// Refine an earlier run instead of converting afresh: applies this feedback
     /// to the result held in --session.
@@ -185,11 +188,11 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
 
     println!("Profile: {}", profile.as_deref().unwrap_or("(none)"));
     println!("Target: {}", args.target.label());
-    println!("{}", plan.describe());
+    println!("{}{}", plan.describe(), runner::turns::describe_role_models(&settings));
     match args.target {
         OutputTarget::Aem => println!(
-            "Verification: AEM image {}, data volume {} (checked before the run starts)",
-            settings.aem_verify.image, settings.aem_verify.data_volume
+            "Verification: AEM image {} (pulled from GitHub when missing, checked before the run starts)",
+            agent::u2s::AEM_IMAGE
         ),
         OutputTarget::Redacto => println!(
             "Verification: Redacto core image {}, rendering image {} (checked before the run starts)",
@@ -462,6 +465,12 @@ fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
         )
         .into());
     }
+    if let Some(model) = &args.reviewer_model {
+        settings.reviewer_model = model.trim().to_string();
+    }
+    if let Some(model) = &args.judge_model {
+        settings.judge_model = model.trim().to_string();
+    }
     if settings.active_model().is_empty() {
         return Err(format!(
             "No model for the {} provider. Pass --model, \
@@ -488,13 +497,6 @@ fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
     if let Some(path) = &args.instructions_file {
         settings.agent_instructions = std::fs::read_to_string(path)
             .map_err(|e| format!("Could not read {}: {e}", path.display()))?;
-    }
-
-    if let Some(image) = &args.aem_image {
-        settings.aem_verify.image = image.clone();
-    }
-    if let Some(volume) = &args.aem_volume {
-        settings.aem_verify.data_volume = volume.clone();
     }
 
     Ok(settings)

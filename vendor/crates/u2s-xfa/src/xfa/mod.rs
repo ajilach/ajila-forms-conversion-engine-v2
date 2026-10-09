@@ -1,5 +1,6 @@
 pub mod font_manager;
 pub mod hyphenation;
+pub mod instances;
 pub mod script_executor;
 pub mod scripting;
 pub mod text_metrics;
@@ -1593,6 +1594,31 @@ impl XfaNode {
         self.presence = presence;
     }
 
+    /// Whether this node carries the `access` property at all: a field, an
+    /// exclusion group or a subform (XFA 3.3 §17).
+    pub fn holds_access(&self) -> bool {
+        self.kind.is_field() || self.kind.is_exclgroup() || self.kind.is_subform()
+    }
+
+    /// This node's own `access` (XFA 3.3 §17), `open` when it declares
+    /// none. Only `field`, `exclGroup` and `subform` carry the property; for
+    /// what a field actually allows, its enclosing containers count too --
+    /// see `XfaForm::effective_access`.
+    pub fn get_access(&self) -> crate::flattened::FieldAccess {
+        self.attributes
+            .get("access")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_default()
+    }
+
+    /// Set this node's own `access`, as a script assigning `access` does.
+    /// Written as the attribute the template would carry, so layout reads
+    /// it the same way whichever set it.
+    pub fn set_access(&mut self, access: crate::flattened::FieldAccess) {
+        self.attributes
+            .insert("access".to_string(), access.as_str().to_string());
+    }
+
     /// Find a mutable reference to a descendant node by name
     pub fn find_node_by_name_mut(&mut self, name: &str) -> Option<&mut XfaNode> {
         if self.name.as_deref() == Some(name) {
@@ -1870,7 +1896,10 @@ fn collect_variable_script_owners_recursive(
     owner_path: &str,
     scripts: &mut Vec<(String, String, String)>,
 ) {
-    for node in nodes {
+    for (node, index) in nodes
+        .iter()
+        .zip(crate::xfa::scripting::som::sibling_indices(nodes))
+    {
         if let XfaNodeKind::Element { tag_name, .. } = &node.kind
             && tag_name == "variables"
         {
@@ -1917,7 +1946,7 @@ fn collect_variable_script_owners_recursive(
         let name = node.name.clone().unwrap_or_default();
         let next_path = if !name.is_empty() && (node.kind.is_subform() || node.kind.is_exclgroup())
         {
-            format!("{owner_path}.{name}")
+            crate::xfa::scripting::som::child_som_path(owner_path, &name, index)
         } else {
             owner_path.to_string()
         };

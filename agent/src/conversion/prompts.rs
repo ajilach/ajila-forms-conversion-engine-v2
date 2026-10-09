@@ -19,21 +19,25 @@ your own stage on the current build, or your stage's terminal call (an approving
 Reviewer) is refused with the list of what is missing. \
 (a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
 handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
-name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \
-description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
+name `rule_ids` to re-check only some. The report names the rules that hold and spells out the \
+rest (rule_get gives a rule's description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
 finding (its judge failed or the document changed meanwhile): run rule_check again for that rule. \
 (b) COVERAGE: a judge reads the source too, but finding what is missing is still the review's work. \
 coverage_check lists per language every source text the document does not carry (a lead to look \
 up on the rendered page, not a verdict: a text a referenced fragment renders, or one only scripts \
-use, is an expected miss); count the fillable controls in xfa_controls against the document; and \
+use, is an expected miss); count the fillable fields in xfa_controls against the document (it lists \
+them a window at a time: follow `next_offset` until it is null); and \
 walk the source section by section with xfa_page_text and xfa_search, in every language, from each \
 language's own PDF (get_source_info gives each `doc_path`). \
 (c) SOURCE BEHAVIOUR (gated): what the form does is decided by the source, so start from it, not \
-from the AEM form. Open each language's PDF with xfa_open and list its controls with xfa_controls: \
-every control with `affects_layout` is read by the form's scripts. Set each one with xfa_set (every \
+from the AEM form. Open each language's PDF with xfa_open and list its choices and buttons with \
+xfa_controls (`kinds` radio, checkbox, dropdown and button), following `next_offset` until it is \
+null: every radio, checkbox or dropdown with `affects_layout` is read by the form's scripts. Set \
+each one whose `access` is open with xfa_set (every \
 option of it that changes something; xfa_reset between explorations) and note what the reply's \
 `appeared`, `disappeared` and `side_effects` say; a control another one reveals counts once a \
-listing shows it, so list the controls again after revealing a section. Make the same choice in the \
+listing shows it, so list the controls again after revealing a section. Press the add button of a \
+repeatable section with xfa_click to see the rows it adds. Make the same choice in the \
 AEM form (aem_verify_set, below) and check that the same sections appear and disappear and the \
 same values change: a source choice that changes nothing in AEM is a dropped condition. Read the \
 source's own logic as well: find its `<validate>` (nullTest, picture), `<calculate>` and event \
@@ -78,8 +82,8 @@ your stage's terminal call (an approving one, for the Reviewer) is refused with 
 missing. \
 (a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
 handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
-name `rule_ids` to re-check only some. Read the whole report (rule_list has each rule's \
-description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
+name `rule_ids` to re-check only some. The report names the rules that hold and spells out the \
+rest (rule_get gives a rule's description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
 finding: run rule_check again for that rule. \
 (b) COVERAGE: a judge reads the source too, but finding what is missing is still the review's work: \
 walk each language's PDF with xfa_page_text against the document (json_outline, json_get, \
@@ -133,8 +137,9 @@ Read the XFA, the authoritative text, fields and options in every language: xfa_
 then xfa_outline / xfa_node to browse the template, xfa_search to find a label or field, xfa_read to \
 quote exact text. Look at the pages with xfa_info and xfa_render_pages, and xfa_render_region for \
 fine print. Nobody has enumerated the form's variants for you: open the form with xfa_open, list its \
-controls with xfa_controls (it says which ones drive visibility), change each configurator choice \
-with xfa_set, re-render to see which sections appear, and xfa_reset between explorations. Hidden \
+controls with xfa_controls (it says which ones drive visibility; `kinds` narrows it to the choices), \
+change each configurator choice with xfa_set, press a repeatable section's add button with \
+xfa_click, re-render to see which sections appear, and xfa_reset between explorations. Hidden \
 sections exist in your output only if you reveal them here. A form is multilingual whenever \
 get_source_info lists more than one language: each language is its own PDF.\n\
 2. Find precedents (before building): BEFORE authoring any node, consult the reference DOCUMENTATION \
@@ -154,8 +159,8 @@ get_source_info on a reference's input via source={\"reference\":\"<ref_id>\"} t
 structure and patterns rather than inventing your own, including noticing where they reference a \
 reusable fragment (a `fragRef` to a `_fragmentlib` path) instead of building a section's fields inline. \
 Do not begin building until you understand how the reference forms handle each issue.\n\
-3. Author the form DIRECTLY at `/form`. BEFORE authoring, call rule_list and read every rule: they \
-are what the finished document is held to, and each description says what is required and how to \
+3. Author the form DIRECTLY at `/form`. BEFORE authoring, call rule_list and read every rule with \
+rule_get: they are what the finished document is held to, and each description says what is required and how to \
 fix a break. The document is one multilingual AEM node tree in which every user-visible text field \
 (title/label/content and option labels) is a per-language map like {\"de\":\"…\",\"en\":\"…\"}, \
 keyed by the languages `/languages` lists. The pinned schema gives the exact shape of every node. \
@@ -372,8 +377,8 @@ variables and the `doc_path` every xfa_* tool takes). Read the text with xfa_pag
 xfa_search to find a passage and xfa_read to quote the XFA exactly; look at the layout with \
 xfa_render_pages, and xfa_render_region for fine print. A document is multilingual whenever \
 get_source_info lists more than one language: each language is its own PDF.\n\
-2. Before authoring, call rule_list and read every rule: they are what the finished document is \
-held to, and each description says what is required and how to fix a break. Then author the \
+2. Before authoring, call rule_list and read every rule with rule_get: they are what the finished \
+document is held to, and each description says what is required and how to fix a break. Then author the \
 document with json_patch, section by section in source order: `add` each asset to \
 `/assets/-` and its place in the layout to `/body/-`. Its content is the block's HTML in EVERY \
 language at once ({\"de\":\"<h2>…</h2>\",\"en\":\"<h2>…</h2>\"}); pair the languages by meaning and \

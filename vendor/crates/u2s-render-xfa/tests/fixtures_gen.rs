@@ -15,7 +15,14 @@ fn require_fonts() {
 
 #[test]
 fn synthetic_fixtures_travel_the_real_extraction_path() {
-    for p in [support::minimal(), support::overflow(), support::choices()] {
+    for p in [
+        support::minimal(),
+        support::overflow(),
+        support::choices(),
+        support::repeat(),
+        support::repeat_open(),
+        support::access(),
+    ] {
         let bytes = std::fs::read(&p).expect("read");
         let packets = u2s_render_xfa::extract_xfa_from_pdf_bytes(&bytes)
             .expect("extract")

@@ -39,12 +39,10 @@ fn is_checked(nodes: &Flattened, field_name: &str) -> Option<bool> {
 fn selecting_a_radio_button_is_reflected_in_its_checked_state() {
     let nodes = choices_nodes();
 
-    let spec = StateSpec {
-        selections: vec![SelectionSpec {
-            field: "form1.Body.RB_Anrede.RB_1".to_string(),
-            value: "1".to_string(),
-        }],
-    };
+    let spec = StateSpec::selections(vec![SelectionSpec {
+        field: "form1.Body.RB_Anrede.RB_1".to_string(),
+        value: "1".to_string(),
+    }]);
     let state = materialize(&nodes, &spec).expect("materialize");
 
     assert_eq!(
@@ -65,12 +63,10 @@ fn selecting_a_radio_button_is_reflected_in_its_checked_state() {
 fn selecting_the_other_radio_button_deselects_the_first() {
     let nodes = choices_nodes();
 
-    let spec = StateSpec {
-        selections: vec![SelectionSpec {
-            field: "form1.Body.RB_Anrede.RB_2".to_string(),
-            value: "2".to_string(),
-        }],
-    };
+    let spec = StateSpec::selections(vec![SelectionSpec {
+        field: "form1.Body.RB_Anrede.RB_2".to_string(),
+        value: "2".to_string(),
+    }]);
     let state = materialize(&nodes, &spec).expect("materialize");
 
     assert_eq!(is_checked(&state.flattened, "RB_2"), Some(true));
@@ -85,12 +81,10 @@ fn selecting_the_other_radio_button_deselects_the_first() {
 fn a_radio_button_refuses_a_value_that_is_not_its_own() {
     let nodes = choices_nodes();
 
-    let spec = StateSpec {
-        selections: vec![SelectionSpec {
-            field: "form1.Body.RB_Anrede.RB_1".to_string(),
-            value: "wrong".to_string(),
-        }],
-    };
+    let spec = StateSpec::selections(vec![SelectionSpec {
+        field: "form1.Body.RB_Anrede.RB_1".to_string(),
+        value: "wrong".to_string(),
+    }]);
     let msg = match materialize(&nodes, &spec) {
         Err(e) => e.to_string(),
         Ok(_) => panic!("a mismatched on-value must be refused"),

@@ -16,7 +16,7 @@ pub mod text;
 pub mod types;
 
 pub use renderer::{Renderer, Target};
-pub use session::{FieldChange, Interaction};
+pub use session::{AccessChange, FieldChange, Interaction, InteractionKind};
 pub use types::{DocumentInfo, DocumentKind, rect_of};
 pub use u2s_xfa::states::ControlPosition;
 

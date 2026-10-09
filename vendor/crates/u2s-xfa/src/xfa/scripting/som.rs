@@ -31,9 +31,48 @@ impl SomPath {
         &self.0
     }
 
-    /// Get the last component (node name) of the path
+    /// The bare name of the last node in the path, without its instance
+    /// index: `Row` for both `A.Row` and `A.Row[2]`.
     pub fn name(&self) -> &str {
+        split_segment(self.leaf()).0
+    }
+
+    /// The last segment as written, instance index included: `Row[2]`.
+    pub fn leaf(&self) -> &str {
         self.0.rsplit('.').next().unwrap_or(&self.0)
+    }
+
+    /// The instance index of the last node: 0 for `A.Row`, 2 for `A.Row[2]`.
+    pub fn index(&self) -> usize {
+        split_segment(self.leaf()).1
+    }
+
+    /// Each segment as `(name, index)`, root first.
+    pub fn segments(&self) -> impl Iterator<Item = (&str, usize)> {
+        self.0.split('.').map(split_segment)
+    }
+
+    /// The child of this path named `name` at instance `index`.
+    pub fn child_indexed(&self, name: &str, index: usize) -> SomPath {
+        SomPath::new(child_som_path(&self.0, name, index))
+    }
+
+    /// True when no segment names an instance after the first: the path
+    /// the node would have if nothing in the form were repeated.
+    pub fn is_first_instance(&self) -> bool {
+        self.segments().all(|(_, index)| index == 0)
+    }
+
+    /// The template path this instance path was made from: every instance
+    /// index dropped, so `A.Row[2].F` and `A.Row.F` share `A.Row.F`.
+    pub fn index_free(&self) -> SomPath {
+        SomPath::new(
+            self.0
+                .split('.')
+                .map(|seg| split_segment(seg).0)
+                .collect::<Vec<_>>()
+                .join("."),
+        )
     }
 
     /// Get the path components
@@ -109,6 +148,88 @@ impl std::ops::Deref for SomPath {
     }
 }
 
+// =============================================================================
+// Instance-indexed path segments (XFA 3.3 §3 "Referencing Objects by Index")
+// =============================================================================
+//
+// A canonical SOM path names every node by `name` plus its index among the
+// same-named siblings under one parent. Index 0 is written without brackets,
+// so a form with no repeated siblings has exactly the paths it always had.
+// Every path builder in this crate goes through `child_som_path` and
+// `sibling_indices`, so no two builders can spell an instance differently.
+
+/// The index part of one SOM *expression* segment: a concrete instance, or
+/// `[*]` for every instance. Canonical paths only ever carry `At`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SegmentIndex {
+    At(usize),
+    All,
+}
+
+/// Parse one expression segment: `Row` is `(Row, At(0))`, `Row[2]` is
+/// `(Row, At(2))`, `Row[*]` is `(Row, All)`. `None` for a malformed index,
+/// such as `Row[x]` or an unclosed bracket.
+pub fn parse_segment(segment: &str) -> Option<(&str, SegmentIndex)> {
+    let Some(open) = segment.find('[') else {
+        return Some((segment, SegmentIndex::At(0)));
+    };
+    let inner = segment[open + 1..].strip_suffix(']')?;
+    let name = &segment[..open];
+    match inner.trim() {
+        "*" => Some((name, SegmentIndex::All)),
+        n => n.parse().ok().map(|i| (name, SegmentIndex::At(i))),
+    }
+}
+
+/// Split one canonical path segment into `(name, index)`.
+///
+/// Canonical paths are built only by [`child_som_path`], so a segment that is
+/// not `name` or `name[n]` is a construction bug, not input to be tolerated.
+pub fn split_segment(segment: &str) -> (&str, usize) {
+    match parse_segment(segment) {
+        Some((name, SegmentIndex::At(i))) => (name, i),
+        _ => panic!("not a canonical SOM path segment: {segment:?}"),
+    }
+}
+
+/// One canonical segment: `name` for index 0, `name[index]` otherwise.
+pub fn segment(name: &str, index: usize) -> String {
+    if index == 0 {
+        name.to_string()
+    } else {
+        format!("{name}[{index}]")
+    }
+}
+
+/// The canonical path of the child `name` at instance `index` under `parent`
+/// (an empty `parent` is the root).
+pub fn child_som_path(parent: &str, name: &str, index: usize) -> String {
+    let seg = segment(name, index);
+    if parent.is_empty() {
+        seg
+    } else {
+        format!("{parent}.{seg}")
+    }
+}
+
+/// Each node's index among the same-named nodes of this one sibling list.
+/// Unnamed nodes get 0; they never appear in a path.
+pub fn sibling_indices(nodes: &[XfaNode]) -> Vec<usize> {
+    let mut seen: HashMap<&str, usize> = HashMap::new();
+    nodes
+        .iter()
+        .map(|n| match n.name.as_deref() {
+            Some(name) => {
+                let count = seen.entry(name).or_insert(0);
+                let index = *count;
+                *count += 1;
+                index
+            }
+            None => 0,
+        })
+        .collect()
+}
+
 /// Node information for SOM resolution
 #[derive(Debug, Clone)]
 pub struct NodeInfo {
@@ -128,6 +249,9 @@ pub struct SomResolver {
     nodes_by_name: HashMap<String, Vec<SomPath>>,
     /// Parent-child relationships
     children: HashMap<SomPath, Vec<SomPath>>,
+    /// Every concrete path, grouped by its index-free template path, in
+    /// registration (document) order.
+    by_template: HashMap<SomPath, Vec<SomPath>>,
 }
 
 impl SomResolver {
@@ -136,6 +260,7 @@ impl SomResolver {
             nodes: HashMap::new(),
             nodes_by_name: HashMap::new(),
             children: HashMap::new(),
+            by_template: HashMap::new(),
         }
     }
 
@@ -148,12 +273,13 @@ impl SomResolver {
             nodes: &[XfaNode],
             parent_path: Option<&SomPath>,
         ) {
-            for node in nodes {
+            for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
                 if let Some(name) = &node.name {
-                    let path = match parent_path {
-                        Some(p) => p.child(name),
-                        None => SomPath::new(name.clone()),
-                    };
+                    let path = SomPath::new(child_som_path(
+                        parent_path.map(SomPath::as_str).unwrap_or(""),
+                        name,
+                        index,
+                    ));
 
                     let class_name = match &node.kind {
                         XfaNodeKind::Field => "field",
@@ -192,7 +318,7 @@ impl SomResolver {
             self.ensure_ancestors(parent);
         }
 
-        let index = self.nodes_by_name.get(name).map(|v| v.len()).unwrap_or(0);
+        let index = path.index();
 
         let info = NodeInfo {
             name: name.to_string(),
@@ -202,17 +328,13 @@ impl SomResolver {
             class_name: class_name.to_string(),
         };
 
-        self.nodes.insert(path.clone(), info);
-        self.nodes_by_name
-            .entry(name.to_string())
-            .or_default()
-            .push(path.clone());
+        self.insert_info(info);
 
         if let Some(parent) = parent_path {
-            self.children
-                .entry(parent.clone())
-                .or_default()
-                .push(path.clone());
+            let siblings = self.children.entry(parent.clone()).or_default();
+            if !siblings.contains(path) {
+                siblings.push(path.clone());
+            }
         }
     }
 
@@ -229,26 +351,15 @@ impl SomResolver {
             self.ensure_ancestors(parent_path);
         }
 
-        let node_name = path.name().to_string();
-        let index = self
-            .nodes_by_name
-            .get(&node_name)
-            .map(|v| v.len())
-            .unwrap_or(0);
-
         let info = NodeInfo {
-            name: node_name.clone(),
+            name: path.name().to_string(),
             path: path.clone(),
             parent_path: parent.clone(),
-            index,
+            index: path.index(),
             class_name: "subform".to_string(),
         };
 
-        self.nodes.insert(path.clone(), info);
-        self.nodes_by_name
-            .entry(node_name)
-            .or_default()
-            .push(path.clone());
+        self.insert_info(info);
 
         if let Some(ref parent_path) = parent {
             self.children
@@ -256,6 +367,34 @@ impl SomResolver {
                 .or_default()
                 .push(path.clone());
         }
+    }
+
+    /// Record one node under its path, its bare name and its template path.
+    /// Re-registering a path replaces its info without listing it twice.
+    fn insert_info(&mut self, info: NodeInfo) {
+        let path = info.path.clone();
+        let name = info.name.clone();
+        if self.nodes.insert(path.clone(), info).is_some() {
+            return;
+        }
+        self.nodes_by_name
+            .entry(name)
+            .or_default()
+            .push(path.clone());
+        self.by_template
+            .entry(path.index_free())
+            .or_default()
+            .push(path);
+    }
+
+    /// Every concrete instance path of a template path, in document order:
+    /// `A.Row.F` expands to `A.Row.F`, `A.Row[1].F`, ... Empty when the
+    /// template has no instance at all (a repeatable at count 0).
+    pub fn expand_template(&self, template: &SomPath) -> Vec<SomPath> {
+        self.by_template
+            .get(&template.index_free())
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Get the child paths registered under a parent path.
@@ -307,15 +446,15 @@ impl SomResolver {
             return self.resolve_descendant(expr);
         }
 
-        // Handle array index notation [n]
-        if expr.contains('[') {
-            return self.resolve_indexed(expr);
-        }
-
-        // Simple path lookup - try direct path first
+        // A canonical path (indices included) names exactly one node.
         let path = SomPath::new(expr);
         if self.nodes.contains_key(&path) {
             return vec![path];
+        }
+
+        // Index notation: `Row[1]`, `Row[*]`, `A.Row[2].F`.
+        if expr.contains('[') {
+            return self.resolve_segmented(expr, context_path);
         }
 
         // Try to match by building path from parts
@@ -357,24 +496,74 @@ impl SomResolver {
         }
     }
 
-    /// Resolve indexed expression (e.g., "Detail[0]" or "Item[*]")
-    fn resolve_indexed(&self, expr: &str) -> Vec<SomPath> {
-        // Parse "Name[index]" pattern
-        if let Some(bracket_pos) = expr.find('[') {
-            let name = &expr[..bracket_pos];
-            let index_part = &expr[bracket_pos + 1..expr.len() - 1];
+    /// Resolve an expression with index notation, per XFA 3.3 §3: `Row[n]`
+    /// is the n-th of the same-named siblings under ONE parent, `Row[*]` is
+    /// all of them, and a segment without brackets is index 0.
+    ///
+    /// The first segment is found the way an unqualified name is (the scope
+    /// walk from `context`, or the first node of that name without one); its
+    /// index then selects among that node's same-named siblings. Every later
+    /// segment selects among the children of the nodes selected so far.
+    fn resolve_segmented(&self, expr: &str, context: Option<&SomPath>) -> Vec<SomPath> {
+        let Some(segments) = expr
+            .split('.')
+            .map(parse_segment)
+            .collect::<Option<Vec<_>>>()
+        else {
+            return Vec::new();
+        };
+        let Some(((first_name, first_index), rest)) = segments.split_first() else {
+            return Vec::new();
+        };
 
-            if let Some(paths) = self.nodes_by_name.get(name) {
-                if index_part == "*" {
-                    // Return all instances
-                    return paths.clone();
-                } else if let Ok(index) = index_part.parse::<usize>() {
-                    // Return specific index
-                    return paths.get(index).cloned().into_iter().collect();
-                }
-            }
+        let anchor = match context {
+            Some(ctx) => self.resolve_unqualified(first_name, ctx),
+            None => self
+                .nodes_by_name
+                .get(*first_name)
+                .and_then(|paths| paths.first().cloned()),
+        };
+        let Some(anchor) = anchor else {
+            return Vec::new();
+        };
+
+        let mut selected = match anchor.parent() {
+            Some(parent) => self.select_children(&parent, first_name, *first_index),
+            None => Self::pick(
+                self.nodes_by_name
+                    .get(*first_name)
+                    .into_iter()
+                    .flatten()
+                    .filter(|p| !p.as_str().contains('.')),
+                *first_index,
+            ),
+        };
+        for (name, index) in rest {
+            selected = selected
+                .iter()
+                .flat_map(|p| self.select_children(p, name, *index))
+                .collect();
         }
-        Vec::new()
+        selected
+    }
+
+    /// The children of `parent` named `name`, narrowed by `index`.
+    fn select_children(&self, parent: &SomPath, name: &str, index: SegmentIndex) -> Vec<SomPath> {
+        Self::pick(
+            self.children
+                .get(parent)
+                .into_iter()
+                .flatten()
+                .filter(|c| c.name() == name),
+            index,
+        )
+    }
+
+    fn pick<'a>(paths: impl Iterator<Item = &'a SomPath>, index: SegmentIndex) -> Vec<SomPath> {
+        match index {
+            SegmentIndex::All => paths.cloned().collect(),
+            SegmentIndex::At(i) => paths.filter(|p| p.index() == i).cloned().collect(),
+        }
     }
 
     /// Resolve path parts
@@ -444,6 +633,14 @@ impl SomResolver {
                 return self.resolve_unqualified(remainder, &first_resolved);
             }
             return None;
+        }
+
+        // An indexed single segment (`Row[1]`) is resolved per parent.
+        if name.contains('[') {
+            return self
+                .resolve_segmented(name, Some(context_path))
+                .into_iter()
+                .next();
         }
 
         // Single-part name resolution with scope walk
@@ -533,39 +730,54 @@ impl Default for SomResolver {
 /// # Returns
 /// A reference to the node if found, or None if the path doesn't match.
 pub fn walk_som_path<'a>(nodes: &'a [XfaNode], som_path: &str) -> Option<&'a XfaNode> {
-    let parts: Vec<&str> = som_path.split('.').collect();
-    if parts.is_empty() {
-        return None;
-    }
+    walk_som_route(nodes, som_path).and_then(|route| route.last().copied())
+}
 
-    fn walk<'a>(nodes: &'a [XfaNode], parts: &[&str], idx: usize) -> Option<&'a XfaNode> {
-        if idx >= parts.len() {
-            return None;
-        }
+/// As [`walk_som_path`], but returning every node passed through on the way,
+/// outermost first and the target last -- unnamed containers included, since
+/// they are real containers in the Form DOM even though a SOM path skips
+/// them. What a property inherited from enclosing containers (XFA 3.3 §2
+/// "Access Restrictions") has to be read from.
+pub fn walk_som_route<'a>(nodes: &'a [XfaNode], som_path: &str) -> Option<Vec<&'a XfaNode>> {
+    let parts = concrete_segments(som_path)?;
 
-        let target_name = parts[idx];
+    fn walk<'a>(
+        nodes: &'a [XfaNode],
+        parts: &[(&str, usize)],
+        idx: usize,
+        route: &mut Vec<&'a XfaNode>,
+    ) -> bool {
+        let Some(&(target_name, target_index)) = parts.get(idx) else {
+            return false;
+        };
 
-        for node in nodes {
-            if node.name.as_deref() == Some(target_name) {
-                // Found a named node matching current path component
-                if idx == parts.len() - 1 {
-                    // This is the final target node
-                    return Some(node);
+        for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
+            match node.name.as_deref() {
+                Some(name) if name == target_name && index == target_index => {
+                    route.push(node);
+                    if idx == parts.len() - 1 || walk(&node.children, parts, idx + 1, route) {
+                        return true;
+                    }
+                    route.pop();
+                    return false;
                 }
-                // Continue to next path component in children
-                return walk(&node.children, parts, idx + 1);
-            } else if node.name.is_none() {
                 // Unnamed container - search inside at SAME path index
-                if let Some(result) = walk(&node.children, parts, idx) {
-                    return Some(result);
+                None => {
+                    route.push(node);
+                    if walk(&node.children, parts, idx, route) {
+                        return true;
+                    }
+                    route.pop();
                 }
+                Some(_) => {}
             }
         }
 
-        None
+        false
     }
 
-    walk(nodes, &parts, 0)
+    let mut route = Vec::new();
+    walk(nodes, &parts, 0, &mut route).then_some(route)
 }
 
 /// Walk an XFA tree following a SOM path with mutable access.
@@ -573,20 +785,21 @@ pub fn walk_som_path<'a>(nodes: &'a [XfaNode], som_path: &str) -> Option<&'a Xfa
 /// # Returns
 /// A mutable reference to the node if found, or None if the path doesn't match.
 pub fn walk_som_path_mut<'a>(nodes: &'a mut [XfaNode], som_path: &str) -> Option<&'a mut XfaNode> {
-    let parts: Vec<&str> = som_path.split('.').collect();
-    if parts.is_empty() {
-        return None;
-    }
+    let parts = concrete_segments(som_path)?;
 
-    fn walk<'a>(nodes: &'a mut [XfaNode], parts: &[&str], idx: usize) -> Option<&'a mut XfaNode> {
-        if idx >= parts.len() {
-            return None;
-        }
+    fn walk<'a>(
+        nodes: &'a mut [XfaNode],
+        parts: &[(&str, usize)],
+        idx: usize,
+    ) -> Option<&'a mut XfaNode> {
+        let (target_name, target_index) = *parts.get(idx)?;
+        let indices = sibling_indices(nodes);
 
-        let target_name = parts[idx];
-
-        for node in nodes.iter_mut() {
+        for (node, index) in nodes.iter_mut().zip(indices) {
             if node.name.as_deref() == Some(target_name) {
+                if index != target_index {
+                    continue;
+                }
                 if idx == parts.len() - 1 {
                     return Some(node);
                 }
@@ -604,6 +817,21 @@ pub fn walk_som_path_mut<'a>(nodes: &'a mut [XfaNode], som_path: &str) -> Option
     walk(nodes, &parts, 0)
 }
 
+/// A path's segments as `(name, index)`, or `None` when it is empty or uses
+/// `[*]` or a malformed index -- a walk follows exactly one node.
+pub(crate) fn concrete_segments(som_path: &str) -> Option<Vec<(&str, usize)>> {
+    if som_path.is_empty() {
+        return None;
+    }
+    som_path
+        .split('.')
+        .map(|seg| match parse_segment(seg)? {
+            (name, SegmentIndex::At(i)) => Some((name, i)),
+            (_, SegmentIndex::All) => None,
+        })
+        .collect()
+}
+
 /// Walk an XFA tree, tracking the current path and calling a visitor for each named node.
 ///
 /// # Arguments
@@ -617,12 +845,9 @@ where
     where
         F: FnMut(&XfaNode, &str, Option<&str>),
     {
-        for node in nodes {
+        for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
             if let Some(name) = &node.name {
-                let current_path = match parent_path {
-                    Some(p) => format!("{}.{}", p, name),
-                    None => name.clone(),
-                };
+                let current_path = child_som_path(parent_path.unwrap_or(""), name, index);
                 visitor(node, &current_path, parent_path);
                 traverse(&node.children, Some(&current_path), visitor);
             } else {

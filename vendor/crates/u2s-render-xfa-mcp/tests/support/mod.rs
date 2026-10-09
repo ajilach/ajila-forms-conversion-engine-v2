@@ -15,15 +15,15 @@ pub fn require_fonts() {
         .expect("register the test fonts");
 }
 
-/// Every checkbox/radio/dropdown SOM path the *template* declares, walked
-/// directly over the parsed `XfaNode` tree rather than through
-/// `u2s_xfa::exhaustive`'s field collector — the whole point of an oracle is
-/// that it not share the logic it is checking. Deliberately ignores `access`
-/// (protected/readOnly/nonInteractive): that only ever *shrinks* the set the
-/// render server must report, so comparing against this unfiltered oracle as
-/// a lower bound would be unsound; comparing against it as an upper bound
-/// (`xfa_controls` must not report anything this oracle does not know at
-/// all) is still exactly right, and is what these tests use it for.
+/// Every checkbox/radio/dropdown/button SOM path the *template* declares that
+/// a person can reach, walked directly over the parsed `XfaNode` tree rather
+/// than through `u2s_xfa::exhaustive`'s field collector — the whole point of
+/// an oracle is that it not share the logic it is checking. A field whose own
+/// `access` is protected, readOnly or nonInteractive is left out (XFA 3.3
+/// §17: a person cannot touch it), since the tests use this set as a lower
+/// bound on what `xfa_controls` must report. A field reachable only because
+/// of its parent exclGroup's access is not modelled here; such a field would
+/// be reported here and missing there, which the test would flag.
 ///
 /// Path convention (dot-joined names of every *named* ancestor, skipping
 /// anonymous ones) matches `u2s_xfa::exhaustive`'s own — verified against the
@@ -50,7 +50,11 @@ fn walk(node: &XfaNode, parent_path: &str, out: &mut BTreeSet<String>) {
         None => parent_path.to_string(),
     };
 
-    if matches!(node.kind, XfaNodeKind::Field) && classify(node).is_some() {
+    let blocked = matches!(
+        node.attributes.get("access").map(String::as_str),
+        Some("protected" | "readOnly" | "nonInteractive")
+    );
+    if matches!(node.kind, XfaNodeKind::Field) && classify(node).is_some() && !blocked {
         out.insert(path.clone());
     }
 
@@ -64,11 +68,12 @@ pub enum OracleKind {
     Radio,
     Checkbox,
     Dropdown,
+    Button,
 }
 
 /// A field's control kind from its own `<ui>` child, or `None` for a field
-/// that is not one of the three interactive kinds this suite cares about
-/// (a plain text field, for instance).
+/// that is not one of the interactive kinds this suite cares about (a plain
+/// text field, for instance).
 pub fn classify(field: &XfaNode) -> Option<OracleKind> {
     let ui = field.children.iter().find(|c| is_element(c, "ui"))?;
     let widget = ui.children.first()?;
@@ -86,6 +91,7 @@ pub fn classify(field: &XfaNode) -> Option<OracleKind> {
             })
         }
         "choiceList" => Some(OracleKind::Dropdown),
+        "button" => Some(OracleKind::Button),
         _ => None,
     }
 }
@@ -99,4 +105,37 @@ fn tag_name(node: &XfaNode) -> Option<&str> {
 
 fn is_element(node: &XfaNode, tag: &str) -> bool {
     tag_name(node) == Some(tag)
+}
+
+/// Every control `xfa_controls` lists for `args`, walking its `next_offset`
+/// cursor to the end: a corpus form can have more fields than one window
+/// holds.
+pub async fn all_controls(
+    c: &u2s_render_test_harness::Client,
+    args: serde_json::Value,
+) -> Vec<serde_json::Value> {
+    let mut out = Vec::new();
+    let mut offset = 0u64;
+    loop {
+        let mut window_args = args.clone();
+        window_args["offset"] = offset.into();
+        window_args["limit"] = 500.into();
+        let result = u2s_render_test_harness::call(c, "xfa_controls", window_args).await;
+        let window = u2s_render_test_harness::structured(&result);
+        out.extend(window["controls"].as_array().expect("controls").iter().cloned());
+        match window["next_offset"].as_u64() {
+            Some(next) => {
+                assert!(next > offset, "next_offset must advance: {next} after {offset}");
+                offset = next;
+            }
+            None => {
+                assert_eq!(
+                    out.len() as u64,
+                    window["total"].as_u64().expect("total"),
+                    "the windows must add up to the total"
+                );
+                return out;
+            }
+        }
+    }
 }

@@ -334,6 +334,8 @@ fn live_test_server(label: &str) -> ServerUnderTest {
     let mut server = test_server(label);
     for key in [
         "U2S_AEM_VERIFY_IMAGE",
+        "U2S_AEM_VERIFY_REGISTRY_USERNAME",
+        "U2S_AEM_VERIFY_REGISTRY_PASSWORD",
         "U2S_AEM_VERIFY_USER",
         "U2S_AEM_VERIFY_PASSWORD",
         "U2S_AEM_VERIFY_PLATFORM",

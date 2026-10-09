@@ -32,21 +32,11 @@ A registry login is read from Podman's `auth.json` as well as Docker's
 
 ## Images and the data volume
 
-The commands in `docker/aem/README.md` and `docker/redacto/README.md` work with
-`podman` in place of `docker` (`podman login`, `podman pull`, `podman volume ls`).
-
-`docker/aem/bake-ubs-platform.sh` calls `docker` by name. Run it through a shim
-so it reaches Podman, without changing the script:
-
-```sh
-mkdir -p ~/.local/podman-shim
-ln -sf "$(command -v podman)" ~/.local/podman-shim/docker
-PATH="$HOME/.local/podman-shim:$PATH" ./docker/aem/bake-ubs-platform.sh
-```
-
-(Homebrew's `podman-docker`-style shims, or Podman Desktop's "Docker
-compatibility" option, do the same thing system-wide.)
+The AEM image (`AEM_IMAGE` in `agent/src/u2s.rs`) is pulled by the run itself
+with the GitHub CLI's login, through whichever engine is selected, and seeds
+its own data volume on first boot (`docker/aem/README.md`); nothing has to be
+baked. The commands in `docker/redacto/README.md` work with `podman` in place
+of `docker` (`podman login`, `podman pull`, `podman volume ls`).
 
 Images and volumes are per engine: an image pulled into Docker is not in Podman
-and the other way round, so pull the images and bake the volume in the engine
-you run with.
+and the other way round, so pull the images in the engine you run with.

@@ -45,7 +45,7 @@ pub struct Prepared {
 /// upstream and involve no JavaScript, so they are always safe to apply.
 fn apply_form_dom_merges(
     nodes: &mut [XfaNode],
-    presence: &[(String, Option<String>, crate::xfa::Presence)],
+    presence: &[crate::xfa::script_executor::PresenceChange],
 ) {
     Flattened::merge_form_items_into_template(nodes);
     Flattened::merge_form_presence_into_template(nodes, presence);
@@ -66,17 +66,29 @@ fn apply_form_dom_merges(
 /// invisible. It must never be silent, though, so the fallback is reported.
 pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
     let mut working = nodes.to_vec();
+    // The Form DOM of an empty merge: each repeatable subform as its
+    // `initial` instances (XFA 3.3 §9), before any script sees the form.
+    let prototypes = crate::xfa::instances::materialize_initial_instances(&mut working);
 
     // Scripts run arbitrary JavaScript from an untrusted document. A panic here
     // must not take the process down, so it is contained and treated as "this
-    // form's scripts did not run" rather than as a fatal error.
+    // form's scripts did not run" rather than as a fatal error. The pass runs
+    // on a copy, since its scripts may add or remove instances: a panic
+    // part-way leaves `working` as it was.
     let executed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        ScriptExecutor::execute_with_layout(nodes)
+        let mut form_dom = working.clone();
+        let mut prototypes = prototypes.clone();
+        let outcome = ScriptExecutor::execute_with_layout(&mut form_dom, &mut prototypes);
+        (outcome, form_dom)
     }));
 
     match executed {
-        Ok((result, layout)) => {
+        Ok(((result, layout), form_dom)) => {
+            working = form_dom;
             ScriptExecutor::apply_presence_changes(&mut working, &result.presence_changes);
+            // As `XfaForm::new_with_layout` does, so a stateless render draws
+            // a script-locked field the way a session does.
+            ScriptExecutor::apply_access_changes(&mut working, &result.access_changes);
             apply_form_dom_merges(&mut working, &result.presence_changes);
 
             // Master-page scripts that depend on the page ("Pagina 2 di 3", a

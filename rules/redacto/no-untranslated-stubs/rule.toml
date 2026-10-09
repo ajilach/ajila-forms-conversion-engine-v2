@@ -20,3 +20,6 @@ wording in that language differs.
 
 Fix: write the source's wording for that language in the asset's `content`.
 """
+
+[judge]
+pointers = ["/sources", "/assets"]

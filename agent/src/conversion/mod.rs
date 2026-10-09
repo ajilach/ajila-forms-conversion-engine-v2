@@ -13,6 +13,7 @@
 //! calls [`ConversionAgent::execute`], and surfaces the results.
 
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 
 use serde_json::{Value, json};
 use u2s_doc_tools::native::{NativeJsonTool, RuleForCheck};
@@ -199,6 +200,77 @@ fn new_rule_board(scripted: &[RuleForCheck], judged: &[crate::rules::JudgedRule]
     RuleBoard::new(scripted.iter().map(|r| (r.id.to_string(), r.title.clone())), judged)
 }
 
+/// What a judge's verdict is kept for: the rule's id, a hash of the rule as
+/// its judge reads it (its `rule.toml` id, title and description), and the
+/// hash of the document's content it judged. Not the revision: a revision
+/// counts edits, and an edit that is undone, or a stage that edits nothing,
+/// leaves the content a judge already saw.
+type VerdictKey = (String, u64, u64);
+
+fn verdict_key(rule: &crate::rules::JudgedRule, content: u64) -> VerdictKey {
+    let mut hasher = DefaultHasher::new();
+    (&rule.id, &rule.name, &rule.title, &rule.description, &rule.scope).hash(&mut hasher);
+    (rule.id.clone(), hasher.finish(), content)
+}
+
+/// What a judge of one rule reads of the document, and the key its verdict is
+/// kept for (see [`ConversionAgent::judge_view`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct JudgeView {
+    /// The hash a verdict on this view is kept for: of the part of the
+    /// document the rule's scope names, or of the whole document when it
+    /// names none.
+    pub key: u64,
+    /// That part, when the scope names one: `{"at": {pointer: value}, "nodes":
+    /// [{"pointer", "node"}]}`. A pointer the document does not have reads
+    /// `null`, which is itself something a judge can rule on.
+    pub part: Option<Value>,
+}
+
+/// Every node of `value` whose `type` is one of `types`, with its JSON
+/// Pointer, in document order.
+fn nodes_of_types<'a>(value: &'a Value, types: &[String], at: &mut String, found: &mut Vec<(String, &'a Value)>) {
+    match value {
+        Value::Object(object) => {
+            if object.get("type").and_then(Value::as_str).is_some_and(|t| types.iter().any(|w| w == t)) {
+                found.push((at.clone(), value));
+            }
+            for (key, child) in object {
+                let len = at.len();
+                at.push('/');
+                at.push_str(&key.replace('~', "~0").replace('/', "~1"));
+                nodes_of_types(child, types, at, found);
+                at.truncate(len);
+            }
+        }
+        Value::Array(items) => {
+            for (index, child) in items.iter().enumerate() {
+                let len = at.len();
+                at.push('/');
+                at.push_str(&index.to_string());
+                nodes_of_types(child, types, at, found);
+                at.truncate(len);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Feeds what is written to it into a hasher, so a document is hashed as it
+/// serializes, without a copy of its text.
+struct HashWriter(DefaultHasher);
+
+impl std::io::Write for HashWriter {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.write(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
 /// One source PDF: its file name and what it says about itself (`None` for a
 /// PDF without XFA).
 type SourceDocument = (String, Option<SourceContext>);
@@ -254,6 +326,12 @@ pub struct ConversionAgent {
     judgements: HashMap<String, Option<crate::rules::RuleVerdict>>,
     /// How many judgements this agent has opened, which numbers the next.
     judgements_opened: u64,
+    /// Every verdict a judge gave in this run, by what it was given on: the
+    /// rule (its id and the text the judge reads) and the document's content
+    /// (see [`Self::cached_verdict`]). It lives as long as the agent, so the
+    /// Reviewer reuses the Author's verdicts and a fix round the last round's,
+    /// wherever the content is the same.
+    verdicts: HashMap<VerdictKey, crate::rules::RuleVerdict>,
 
     /// The vendored u2s tool servers, created on the first u2s call or
     /// `get_source_info` (see [`Self::u2s_tools`]).
@@ -321,6 +399,7 @@ impl ConversionAgent {
             evidence_waived: false,
             judgements: HashMap::new(),
             judgements_opened: 0,
+            verdicts: HashMap::new(),
             u2s: None,
         })
     }
@@ -475,6 +554,62 @@ impl ConversionAgent {
     /// its judge recorded one.
     pub fn take_judgement(&mut self, id: &str) -> Option<crate::rules::RuleVerdict> {
         self.judgements.remove(id).flatten()
+    }
+
+    /// A hash of the document's content, which a judge's verdict is kept for
+    /// (see [`Self::cached_verdict`]). Two revisions with the same content
+    /// hash alike: an edit undone gives back the content it undid, and a
+    /// stage that edits nothing leaves it as the last stage left it. Stable
+    /// for the life of the process, which is all the verdicts it keys live.
+    pub fn content_hash(&self) -> u64 {
+        let mut writer = HashWriter(DefaultHasher::new());
+        serde_json::to_writer(&mut writer, self.document.value()).expect("a JSON value serializes");
+        writer.0.finish()
+    }
+
+    /// What `rule`'s judge reads of the document as it is now: the part its
+    /// scope names, and the key a verdict on it is kept for. A rule whose
+    /// scope names no part reads the whole document, so its key is the
+    /// document's [`Self::content_hash`]; one that names a part keeps its
+    /// verdict through edits elsewhere.
+    pub fn judge_view(&self, rule: &crate::rules::JudgedRule) -> JudgeView {
+        if !rule.scope.is_partial() {
+            return JudgeView { key: self.content_hash(), part: None };
+        }
+        let document = self.document.value();
+        let at: serde_json::Map<String, Value> = rule
+            .scope
+            .pointers
+            .iter()
+            .map(|pointer| (pointer.clone(), document.pointer(pointer).cloned().unwrap_or(Value::Null)))
+            .collect();
+        let mut found = Vec::new();
+        if !rule.scope.node_types.is_empty() {
+            nodes_of_types(document, &rule.scope.node_types, &mut String::new(), &mut found);
+        }
+        let nodes: Vec<Value> =
+            found.into_iter().map(|(pointer, node)| json!({ "pointer": pointer, "node": node })).collect();
+        let part = json!({ "at": at, "nodes": nodes });
+        let mut writer = HashWriter(DefaultHasher::new());
+        serde_json::to_writer(&mut writer, &part).expect("a JSON value serializes");
+        JudgeView { key: writer.0.finish(), part: Some(part) }
+    }
+
+    /// The verdict a judge already gave `rule` on a document whose content
+    /// hashed to `content`, if one did in this run. A judge reads only the
+    /// rule, the document, the run's sources (which a run never changes) and
+    /// the package built from that document, so its verdict on the same rule
+    /// and content stands: judging it again costs a judge and says nothing
+    /// new.
+    pub fn cached_verdict(&self, rule: &crate::rules::JudgedRule, content: u64) -> Option<crate::rules::RuleVerdict> {
+        self.verdicts.get(&verdict_key(rule, content)).cloned()
+    }
+
+    /// Keeps the verdict a judge gave `rule` on the content that hashed to
+    /// `content`, for [`Self::cached_verdict`]. Only a verdict goes in: a
+    /// judge that failed or gave none is tried again next time.
+    pub fn cache_verdict(&mut self, rule: &crate::rules::JudgedRule, content: u64, verdict: crate::rules::RuleVerdict) {
+        self.verdicts.insert(verdict_key(rule, content), verdict);
     }
 
     /// The document's revision, which a check reports against.
@@ -909,17 +1044,23 @@ mod tests {
             name: "ubs-aem-test".into(),
             title: "A judged rule".into(),
             description: "Judge me.".into(),
+            ..Default::default()
         };
         agent.set_judged_rules(vec![judged.clone()]);
 
         let listed: Value = serde_json::from_str(&reply_text(agent.execute("rule_list", &json!({})).await)).unwrap();
-        let rules = listed["rules"].as_array().unwrap();
-        assert!(rules.iter().any(|r| r["check"] == "script"));
-        assert!(rules.iter().any(|r| r["id"] == "judged-id" && r["check"] == "agent"));
+        assert!(!listed["scripted"].as_array().unwrap().is_empty());
+        assert!(listed["judged"].as_array().unwrap().iter().any(|r| r["id"] == "judged-id"));
+
+        let got: Value =
+            serde_json::from_str(&reply_text(agent.execute("rule_get", &json!({"ids": ["judged-id"]})).await)).unwrap();
+        assert_eq!(got["rules"][0]["description"], "Judge me.");
+        assert!(matches!(agent.execute("rule_get", &json!({"ids": ["nope"]})).await, ToolReply::Error(_)));
 
         let checked: Value = serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({})).await)).unwrap();
         let verdicts = checked["verdicts"].as_array().unwrap();
-        assert!(verdicts.iter().any(|v| v["check"] == "script"));
+        let scripted = checked["summary"].as_object().unwrap().values().filter_map(Value::as_u64).sum::<u64>();
+        assert!(scripted > 1, "the scripts' verdicts are counted: {checked}");
         let unjudged = verdicts.iter().find(|v| v["rule_id"] == "judged-id").expect("the judged rule is reported");
         assert_eq!(unjudged["verdict"], "unchecked");
 
@@ -987,7 +1128,7 @@ mod tests {
     fn verify_everything(agent: &mut ConversionAgent) {
         let text = |v: Value| ToolReply::Text(v.to_string());
         let e = &mut agent.evidence;
-        e.observe_reply("xfa_controls", &json!({}), &text(json!({ "controls": [] })));
+        e.observe_reply("xfa_controls", &json!({}), &text(json!({ "controls": [], "total": 0, "offset": 0, "next_offset": null, "space_size": 1, "saturated": false })));
         e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
         e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
         e.observe_reply(
@@ -1188,6 +1329,76 @@ mod tests {
         assert!(outputs.package.is_some() && outputs.warnings.is_empty(), "{:?}", outputs.warnings);
     }
 
+    /// The content hash follows what the document says, not how many edits
+    /// it took: an edit changes it, undoing the edit gives it back.
+    #[tokio::test]
+    async fn the_content_hash_follows_the_content_not_the_revision() {
+        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")]);
+        let start = agent.content_hash();
+        assert_eq!(agent.content_hash(), start, "the hash is stable");
+        let intro = json!({ "key": "intro", "kind": "text", "content": { "en": "<p>Hi</p>" } });
+        patch(&mut agent, json!([{ "op": "add", "path": "/assets/-", "value": intro }])).await;
+        assert_ne!(agent.content_hash(), start);
+        patch(&mut agent, json!([{ "op": "remove", "path": "/assets/0" }])).await;
+        assert_eq!(agent.content_hash(), start, "the undone edit hashes like the start");
+        assert_eq!(agent.revision(), 2);
+    }
+
+    /// A scoped rule's view is the part of the document it names: an edit
+    /// elsewhere leaves its key alone, an edit to that part changes it, and a
+    /// rule with no scope keys on the whole document.
+    #[tokio::test]
+    async fn a_scoped_judge_view_follows_only_its_part() {
+        let mut agent = agent_for(OutputTarget::Redacto, vec![fixture("AAEV_019_EN.pdf")]);
+        let scoped = crate::rules::JudgedRule {
+            id: "r".into(),
+            scope: crate::rules::JudgeScope {
+                pointers: vec!["/header".into()],
+                node_types: vec!["assetContainer".into()],
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let whole = crate::rules::JudgedRule { id: "w".into(), ..Default::default() };
+        let before = agent.judge_view(&scoped);
+        assert_eq!(before.part.as_ref().unwrap()["at"]["/header"], Value::Null);
+        assert_eq!(agent.judge_view(&whole), JudgeView { key: agent.content_hash(), part: None });
+
+        let intro = json!({ "key": "intro", "kind": "text", "content": { "en": "<p>Hi</p>" } });
+        patch(&mut agent, json!([{ "op": "add", "path": "/assets/-", "value": intro }])).await;
+        assert_eq!(agent.judge_view(&scoped).key, before.key, "an edit outside the scope keeps the key");
+
+        patch(&mut agent, json!([{ "op": "add", "path": "/body/-", "value": { "type": "assetContainer", "assets": ["intro"] } }]))
+            .await;
+        let after = agent.judge_view(&scoped);
+        assert_ne!(after.key, before.key, "a node of a scoped type changes the key");
+        assert_eq!(after.part.unwrap()["nodes"][0]["pointer"], "/body/0");
+    }
+
+    /// A verdict is kept for its rule and content: another content, or the
+    /// same rule with other text, has none.
+    #[test]
+    fn a_cached_verdict_is_kept_for_its_rule_and_content() {
+        let mut agent = agent_for(OutputTarget::Redacto, Vec::new());
+        let rule =
+            crate::rules::JudgedRule { id: "r".into(), name: "n".into(), title: "t".into(), description: "d".into(), ..Default::default() };
+        let verdict = crate::rules::RuleVerdict { pass: true, violations: vec![] };
+        assert_eq!(agent.cached_verdict(&rule, 1), None);
+        agent.cache_verdict(&rule, 1, verdict.clone());
+        assert_eq!(agent.cached_verdict(&rule, 1), Some(verdict));
+        assert_eq!(agent.cached_verdict(&rule, 2), None);
+        let reworded = crate::rules::JudgedRule { description: "d2".into(), ..rule.clone() };
+        assert_eq!(agent.cached_verdict(&reworded, 1), None);
+        let other = crate::rules::JudgedRule { id: "r2".into(), ..rule.clone() };
+        assert_eq!(agent.cached_verdict(&other, 1), None);
+        let rescoped = crate::rules::JudgedRule {
+            scope: crate::rules::JudgeScope { pointers: vec!["/header".into()], ..Default::default() },
+            ..rule
+        };
+        assert_eq!(agent.cached_verdict(&rescoped, 1), None, "a new scope is another rule");
+        assert_eq!(agent.cached_verdict(&other, 1), None);
+    }
+
     /// A patch against an outdated revision is refused rather than applied over
     /// an edit the agent has not seen.
     #[tokio::test]
@@ -1342,10 +1553,7 @@ mod tests {
     /// passes, and says what to build when there is nothing yet.
     #[tokio::test]
     async fn aem_verify_package_check_checks_the_runs_own_build() {
-        let settings = crate::u2s::AemVerifySettings {
-            image: "blueprint-test/aem:unused".into(),
-            ..Default::default()
-        };
+        let settings = crate::u2s::AemVerifySettings::default();
         let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")])
             .with_aem_verify(&settings)
             .expect("complete settings attach the verifier");

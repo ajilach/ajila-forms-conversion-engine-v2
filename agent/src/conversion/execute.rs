@@ -328,6 +328,10 @@ impl ConversionAgent {
                     Err(e) => ToolReply::Error(e),
                 }
             }
+            "rule_get" => match crate::rules::rule_get(&self.rules, &self.judged, input) {
+                Ok(rules) => ToolReply::Text(rules.to_string()),
+                Err(e) => ToolReply::Error(e),
+            },
             "rule_autofix" => self.autofix(input).await,
             name if DOCUMENT_TOOLS.iter().any(|t| t.name() == name) => {
                 let tool = *DOCUMENT_TOOLS.iter().find(|t| t.name() == name).expect("matched");
@@ -833,7 +837,7 @@ mod tests {
     }
 
     fn judged(id: &str) -> JudgedRule {
-        JudgedRule { id: id.into(), name: id.into(), title: format!("judged {id}"), description: String::new() }
+        JudgedRule { id: id.into(), name: id.into(), title: format!("judged {id}"), ..Default::default() }
     }
 
     fn verdict(pass: bool) -> Result<RuleVerdict, String> {
@@ -863,7 +867,11 @@ mod tests {
         assert!(matches!(built, ToolReply::Text(_)), "{built:?}");
         let text = |v: Value| ToolReply::Text(v.to_string());
         let e = &mut agent.evidence;
-        e.observe_reply("xfa_controls", &json!({}), &text(json!({ "controls": [] })));
+        e.observe_reply(
+            "xfa_controls",
+            &json!({}),
+            &text(json!({ "controls": [], "total": 0, "offset": 0, "next_offset": null, "space_size": 1, "saturated": false })),
+        );
         e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
         e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
         e.observe_reply(

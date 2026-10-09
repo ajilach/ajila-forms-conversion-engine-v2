@@ -298,7 +298,11 @@ fn announce(
     let plan = TurnPlan::for_settings(&opts.settings);
     let mut observer = DioxusObserver { progress, retry };
     observer.send(UiUpdate::ContextWindow(plan.context_window));
-    observer.emit(RunEvent::Thought(plan.describe()));
+    observer.emit(RunEvent::Thought(format!(
+        "{}{}",
+        plan.describe(),
+        runner::turns::describe_role_models(&opts.settings)
+    )));
     observer
 }
 

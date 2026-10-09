@@ -57,6 +57,17 @@ pub struct AppSettings {
     /// serves, so an unset model fails the run rather than guessing.
     #[serde(default)]
     pub openai_model: String,
+    /// The Reviewer's model at the selected provider, when it is not the
+    /// model above (which the Author runs on). Empty = the same model. One
+    /// field for both providers: an id is only meaningful at the endpoint it
+    /// was picked for, so switching the provider means picking again.
+    #[serde(default)]
+    pub reviewer_model: String,
+    /// The judges' model at the selected provider (the agents `rule_check`
+    /// dispatches, one per judged rule), when it is not the model of the stage
+    /// that dispatches them. Empty = the same model.
+    #[serde(default)]
+    pub judge_model: String,
     /// Maximum Reviewer → Author-fix rounds in the conversion pipeline before
     /// finalizing with whatever is built. Missing/0 is normalized to
     /// [`DEFAULT_MAX_REVIEW_ROUNDS`] in [`AppSettings::load`].
@@ -122,6 +133,8 @@ impl Default for AppSettings {
             openai_base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
             openai_api_key: String::new(),
             openai_model: String::new(),
+            reviewer_model: String::new(),
+            judge_model: String::new(),
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
             aem_verify: agent::u2s::AemVerifySettings::default(),
             redacto_verify: agent::u2s::RedactoVerifySettings::default(),
@@ -149,6 +162,17 @@ impl AppSettings {
                 self.openai_model.trim(),
             ),
         }
+    }
+
+    /// The endpoint a role with its own model id talks to: the selected
+    /// provider's, with `model` instead of the main one. `None` when `model`
+    /// is empty or the main model, so the role runs on the run's own.
+    pub fn role_endpoint(&self, model: &str) -> Option<LlmEndpoint> {
+        let model = model.trim();
+        if model.is_empty() || model == self.active_model() {
+            return None;
+        }
+        Some(LlmEndpoint { model: model.to_string(), ..self.llm_endpoint() })
     }
 
     /// The API key of the selected provider.
@@ -263,6 +287,25 @@ mod tests {
         }
     }
 
+    /// A role's own model reuses the selected provider's endpoint and key; an
+    /// empty one, or the main model again, means the run's own.
+    #[test]
+    fn a_role_model_is_the_main_endpoint_with_another_model() {
+        let mut settings = AppSettings {
+            anthropic_api_key: "k".into(),
+            anthropic_model: "claude-opus-5-5".into(),
+            ..AppSettings::default()
+        };
+        assert_eq!(settings.role_endpoint(""), None);
+        assert_eq!(settings.role_endpoint(" claude-opus-5-5 "), None);
+        let judge = settings.role_endpoint("claude-haiku-5-5").unwrap();
+        assert_eq!((judge.model.as_str(), judge.api_key.as_str()), ("claude-haiku-5-5", "k"));
+        assert_eq!(judge.base_url, settings.llm_endpoint().base_url);
+        settings.llm_provider = Provider::OpenAi;
+        settings.openai_model = "anthropic/claude-opus-5.5".into();
+        assert_eq!(settings.role_endpoint("anthropic/claude-haiku-5.5").unwrap().provider, Provider::OpenAi);
+    }
+
     /// The switch has to reroute the key *and* the model together. Pairing an
     /// Anthropic key with an OpenRouter model id (or the reverse) is the failure
     /// this one accessor exists to make impossible.
@@ -290,16 +333,16 @@ mod tests {
     }
 
     /// Settings written while the app still uploaded to a configured AEM and
-    /// drove a Playwright browser carry fields that no longer exist; they must
-    /// load all the same, with the verifier defaults filled in.
+    /// drove a Playwright browser, or still took the AEM image and its data
+    /// volume as settings, carry fields that no longer exist; they must load
+    /// all the same, with the verifier defaults filled in.
     #[test]
     fn settings_saved_with_the_retired_aem_connection_still_load() {
-        let json = r#"{"anthropic_api_key":"k","aem_host":"http://localhost:4502","aem_username":"admin","aem_password":"admin","browser_enabled":true,"browser_npx_path":""}"#;
+        let json = r#"{"anthropic_api_key":"k","aem_host":"http://localhost:4502","aem_username":"admin","aem_password":"admin","browser_enabled":true,"browser_npx_path":"","aem_verify_image":"ajila.azurecr.io/aemforms-arm:6.5.17.0","aem_verify_data_volume":"u2s-aem-ubs-data","aem_verify_user":"admin"}"#;
         let settings: AppSettings = serde_json::from_str(json).expect("old settings load");
         assert_eq!(settings.anthropic_api_key, "k");
         assert_eq!(settings.aem_verify.container_port, 8080);
-        assert_eq!(settings.aem_verify.data_volume, "u2s-aem-ubs-data");
-        assert!(settings.aem_verify.image.is_empty());
+        assert_eq!(settings.aem_verify.user, "admin");
     }
 
     /// Settings written before the switch existed carry neither field, and must

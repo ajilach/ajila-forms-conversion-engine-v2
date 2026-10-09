@@ -41,7 +41,10 @@ impl ScriptType {
 pub struct RegisteredScript {
     /// The script source and configuration
     pub script: XfaScript,
-    /// The field/subform this script is attached to
+    /// The template path of the field/subform this script is attached to:
+    /// index-free, since every instance of a repeated section carries the
+    /// same declaration (XFA 3.3 §9). Expand it to concrete instances with
+    /// `SomResolver::expand_template`.
     pub owner_path: SomPath,
     /// The field/subform name (last part of path)
     pub owner_name: String,
@@ -52,6 +55,11 @@ pub struct RegisteredScript {
 }
 
 /// Registry holding all scripts in the form, categorized by type.
+///
+/// Keyed by index-free template path on both insert and lookup, so a query
+/// with any instance's path (`A.Row[2].F`) finds the declaration all
+/// instances share, and N instances of a repeated section register each
+/// script once rather than N times.
 /// This enables selective execution: only initialize scripts at load,
 /// only change events on user interaction, etc.
 #[derive(Debug, Default, Clone)]
@@ -74,34 +82,44 @@ impl ScriptRegistry {
     }
 
     /// Register a script
-    pub fn register(&mut self, script: RegisteredScript) {
-        let owner_path = script.owner_path.clone();
+    pub fn register(&mut self, mut script: RegisteredScript) {
+        let owner_path = script.owner_path.index_free();
+        script.owner_path = owner_path.clone();
         let script_type = script.script_type;
         let activity = script.script.activity.clone();
 
-        // Add to by-owner index
-        self.scripts_by_owner
-            .entry(owner_path.clone())
-            .or_default()
-            .push(script);
+        // Add to by-owner index, once per declaration: every instance of a
+        // repeated section is walked, but declares the same scripts.
+        let owned = self.scripts_by_owner.entry(owner_path.clone()).or_default();
+        if owned.iter().any(|s| {
+            s.script.activity == script.script.activity
+                && s.script.name == script.script.name
+                && s.script.source == script.script.source
+        }) {
+            return;
+        }
+        owned.push(script);
 
-        // Add to by-type index
-        self.scripts_by_type
-            .entry(script_type)
-            .or_default()
-            .push(owner_path.clone());
+        Self::push_unique(
+            self.scripts_by_type.entry(script_type).or_default(),
+            &owner_path,
+        );
+        Self::push_unique(
+            self.scripts_by_activity.entry(activity).or_default(),
+            &owner_path,
+        );
+    }
 
-        // Add to by-activity index
-        self.scripts_by_activity
-            .entry(activity)
-            .or_default()
-            .push(owner_path);
+    fn push_unique(owners: &mut Vec<SomPath>, owner: &SomPath) {
+        if !owners.contains(owner) {
+            owners.push(owner.clone());
+        }
     }
 
     /// Get all scripts for a specific owner
     pub fn get_scripts_for_owner(&self, owner_path: &SomPath) -> Vec<&RegisteredScript> {
         self.scripts_by_owner
-            .get(owner_path)
+            .get(&owner_path.index_free())
             .map(|v| v.iter().collect())
             .unwrap_or_default()
     }
@@ -128,7 +146,7 @@ impl ScriptRegistry {
         activity: &EventActivity,
     ) -> Vec<&RegisteredScript> {
         self.scripts_by_owner
-            .get(owner_path)
+            .get(&owner_path.index_free())
             .map(|scripts| {
                 scripts
                     .iter()
@@ -138,7 +156,7 @@ impl ScriptRegistry {
             .unwrap_or_default()
     }
 
-    /// Get all owners that have scripts for a specific activity
+    /// Get the template path of every owner with scripts for an activity.
     pub fn get_owners_with_activity(&self, activity: &EventActivity) -> Vec<&SomPath> {
         self.scripts_by_activity
             .get(activity)
@@ -159,7 +177,7 @@ impl ScriptRegistry {
     /// Scripts whose source is entirely comments are ignored.
     pub fn has_interactive_scripts(&self, owner_path: &SomPath) -> bool {
         self.scripts_by_owner
-            .get(owner_path)
+            .get(&owner_path.index_free())
             .is_some_and(|scripts| {
                 scripts.iter().any(|s| {
                     matches!(

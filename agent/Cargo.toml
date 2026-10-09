@@ -13,8 +13,6 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 chrono = { workspace = true }
 regex-lite = { workspace = true }
 tokio = { version = "1", features = ["process", "io-util", "rt", "time"] }
-# Checks the AEM verifier's data volume exists; u2s-verify-core has no call for it.
-bollard = { workspace = true }
 # The u2s tool servers, linked in-process (see u2s/VENDORED.md).
 # rmcp3 names their result types; it is not a transport here.
 rmcp3 = { package = "rmcp", version = "3.1", default-features = false }
