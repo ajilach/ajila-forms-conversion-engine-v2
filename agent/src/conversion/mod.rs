@@ -1331,10 +1331,7 @@ mod tests {
     /// passes, and says what to build when there is nothing yet.
     #[tokio::test]
     async fn aem_verify_package_check_checks_the_runs_own_build() {
-        let settings = crate::u2s::AemVerifySettings {
-            image: "blueprint-test/aem:unused".into(),
-            ..Default::default()
-        };
+        let settings = crate::u2s::AemVerifySettings::default();
         let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")])
             .with_aem_verify(&settings)
             .expect("complete settings attach the verifier");

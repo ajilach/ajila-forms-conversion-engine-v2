@@ -27,7 +27,7 @@ use u2s_redacto_verify_core::profile::RenderProfile;
 use u2s_render_core::{BlobStore, Limits};
 use u2s_render_pdf_mcp::PdfRenderServer;
 use u2s_render_xfa_mcp::XfaRenderServer;
-use u2s_verify_core::docker::DockerLifecycle;
+use u2s_verify_core::docker::{DockerLifecycle, RegistryCredentials};
 use u2s_xfa_mcp::XfaDataServer;
 
 use crate::OutputTarget;
@@ -192,31 +192,40 @@ fn to_entry(spec: &Value, family: Family, siblings: &[String]) -> Entry {
     }
 }
 
+/// The prebaked AEM Forms image with the UBS platform, a private package of
+/// the `ajilach` GitHub organization (`docker/aem/README.md`). It seeds its
+/// own data volume, which the verifier names after the image. Pinned here
+/// like pdfium in `agent/build.rs`: move it to the tag upstream's
+/// `.env.example` names whenever the vendored u2s crates are re-synced.
+pub const AEM_IMAGE: &str = "ghcr.io/ajilach/u2s-aem-ubs:2026-10-09.2";
+
+/// What signs the GitHub CLI in with the scope pulling [`AEM_IMAGE`] needs.
+const GH_LOGIN: &str = "gh auth login -s read:packages";
+
+/// The Docker platform matching this host, for which [`AEM_IMAGE`] is
+/// published (arm64 and amd64).
+fn host_platform() -> &'static str {
+    if cfg!(target_arch = "aarch64") { "linux/arm64" } else { "linux/amd64" }
+}
+
 /// How to reach the Docker-hosted AEM the UBS verifier boots and drives. See
-/// `docker/aem/README.md` for what each value is and how the image and data
-/// volume are prepared.
+/// `docker/aem/README.md` for what each value is. The image is
+/// [`AEM_IMAGE`], pulled with the GitHub CLI's login ([`ensure_aem_image`]).
 ///
 /// Stored flat in the app settings blob under the serde names below: the
 /// desktop app's settings embed this struct. An empty optional string means unset.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct AemVerifySettings {
-    /// The AEM Forms image (ajila's private registry, pulled ahead of time
-    /// after `az acr login`). Empty means not configured.
-    #[serde(rename = "aem_verify_image")]
-    pub image: String,
     #[serde(rename = "aem_verify_user")]
     pub user: String,
     #[serde(rename = "aem_verify_password")]
     pub password: String,
-    /// The Docker volume holding the deployed UBS platform.
-    #[serde(rename = "aem_verify_data_volume")]
-    pub data_volume: String,
     /// The port AEM listens on inside the image (8080 for ajila's images).
     #[serde(rename = "aem_verify_container_port")]
     pub container_port: u16,
-    /// The Docker platform to run the AEM image and Chromium as. Empty means
-    /// the verifier's own default (`linux/amd64`).
+    /// The Docker platform to run the AEM image and Chromium as. Empty lets
+    /// Docker decide; the default is this host's.
     #[serde(rename = "aem_verify_platform")]
     pub platform: String,
     /// A separately running Redacto renderer to check before submitting.
@@ -231,13 +240,10 @@ pub struct AemVerifySettings {
 impl Default for AemVerifySettings {
     fn default() -> Self {
         Self {
-            image: String::new(),
             user: "admin".into(),
             password: "admin".into(),
-            data_volume: "u2s-aem-ubs-data".into(),
             container_port: 8080,
-            // The only AEM Forms image ajila publishes is an ARM build.
-            platform: "linux/arm64".into(),
+            platform: host_platform().into(),
             redacto_url: String::new(),
             mandator: String::new(),
         }
@@ -254,10 +260,8 @@ impl AemVerifySettings {
     /// What the operator still has to set, by the settings' own names.
     fn missing(&self) -> Vec<String> {
         let mut missing: Vec<String> = [
-            (&self.image, "the AEM image"),
             (&self.user, "the AEM user"),
             (&self.password, "the AEM password"),
-            (&self.data_volume, "the AEM data volume"),
         ]
         .into_iter()
         .filter(|(value, _)| value.trim().is_empty())
@@ -276,11 +280,10 @@ impl AemVerifySettings {
         Profile::from_reader(|key| {
             let value = match key {
                 "U2S_AEM_VERIFY_FORMAT" => Some("aem-ubs"),
-                "U2S_AEM_VERIFY_IMAGE" => Some(self.image.trim()),
+                "U2S_AEM_VERIFY_IMAGE" => Some(AEM_IMAGE),
                 "U2S_AEM_VERIFY_USER" => Some(self.user.trim()),
                 "U2S_AEM_VERIFY_PASSWORD" => Some(self.password.as_str()),
                 "U2S_AEM_VERIFY_SUBMIT" => Some("download"),
-                "U2S_AEM_VERIFY_DATA_VOLUME" => Some(self.data_volume.trim()),
                 "U2S_AEM_VERIFY_CONTAINER_PORT" => Some(port.as_str()),
                 "U2S_AEM_VERIFY_PLATFORM" => platform.as_deref(),
                 "U2S_AEM_VERIFY_REDACTO_URL" => redacto_url.as_deref(),
@@ -416,10 +419,11 @@ pub async fn readiness(
     }
 }
 
-/// Checks everything the AEM verifier needs: complete settings, a host that
-/// can run the AEM image, a reachable Docker, the AEM and Chromium images
-/// present locally, the data volume, and pdfium for reading the submitted
-/// PDF. Returns a short report, or every problem found.
+/// Checks everything the AEM verifier needs: complete settings, a reachable
+/// Docker, the Chromium image present locally, [`AEM_IMAGE`] present or the
+/// GitHub CLI signed in to pull it when the run starts ([`ensure_aem_image`]),
+/// and pdfium for reading the submitted PDF. Returns a short report, or every
+/// problem found.
 async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, NotReady> {
     let mut problems = settings.missing();
     let profile = if problems.is_empty() {
@@ -432,44 +436,136 @@ async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, No
     {
         problems.push(e.clone());
     }
-    if !cfg!(target_arch = "aarch64") {
-        problems.push(
-            "the AEM verifier image exists only for ARM, so AEM conversions need an ARM host \
-             (Apple Silicon)"
-                .into(),
-        );
-    }
     let docker = docker_problems(&mut problems).await;
+    let mut image_state = "";
     if let (Some(docker), Ok(profile)) = (&docker, &profile) {
-        for image in [&profile.aem_image, &profile.chromium_image] {
-            image_problem(docker, image, &mut problems).await;
-        }
-        match bollard::Docker::connect_with_local_defaults() {
-            Ok(client) => match client.inspect_volume(&settings.data_volume).await {
-                Ok(_) => {}
-                Err(bollard::errors::Error::DockerResponseServerError { status_code: 404, .. }) => {
-                    problems.push(format!(
-                        "the Docker volume {:?} does not exist; bake it with \
-                         docker/aem/bake-ubs-platform.sh (see docker/aem/README.md)",
-                        settings.data_volume
-                    ));
-                }
+        image_problem(docker, &profile.chromium_image, &mut problems).await;
+        match docker.image_id(AEM_IMAGE).await {
+            Ok(Some(_)) => image_state = "present",
+            // The same login the pull asks for: `gh auth token` alone can
+            // still return a stored token while gh is signed out.
+            Ok(None) => match github_login().await {
+                Ok(_) => image_state = "pulled from GitHub when the run starts",
                 Err(e) => problems.push(format!(
-                    "could not inspect the Docker volume {:?}: {e}",
-                    settings.data_volume
+                    "the AEM image {AEM_IMAGE} is not present locally and is pulled with the \
+                     GitHub CLI's login, but {e}"
                 )),
             },
-            Err(e) => problems.push(format!("could not inspect Docker volumes: {e}")),
+            Err(e) => problems.push(format!("could not look up the image {AEM_IMAGE}: {e}")),
         }
     }
     pdf_problem(&mut problems);
     if !problems.is_empty() {
         return Err(NotReady(problems));
     }
-    Ok(format!(
-        "AEM image {}, data volume {}, Docker reachable, pdfium loaded.",
-        settings.image, settings.data_volume
-    ))
+    Ok(format!("AEM image {AEM_IMAGE} ({image_state}), Docker reachable, pdfium loaded."))
+}
+
+/// Puts [`AEM_IMAGE`] on the Docker daemon, pulling it from GitHub's registry
+/// with the GitHub CLI's login when the daemon does not have it yet. A run
+/// calls this before it starts and does not start when it fails. Returns a
+/// short report.
+pub async fn ensure_aem_image(settings: &AemVerifySettings) -> Result<String, String> {
+    let docker = DockerLifecycle::connect()
+        .await
+        .map_err(|e| format!("Docker is not reachable: {e}"))?;
+    if docker
+        .image_id(AEM_IMAGE)
+        .await
+        .map_err(|e| format!("could not look up the image {AEM_IMAGE}: {e}"))?
+        .is_some()
+    {
+        return Ok(format!("The AEM image {AEM_IMAGE} is present."));
+    }
+    let credentials = github_login().await?;
+    let platform = optional(&settings.platform).unwrap_or_else(|| host_platform().into());
+    docker
+        .ensure_image(AEM_IMAGE, &platform, Some(&credentials))
+        .await
+        .map_err(|e| pull_problem(AEM_IMAGE, &e.to_string()))?;
+    Ok(format!("Pulled the AEM image {AEM_IMAGE} for {platform}."))
+}
+
+/// What to do about a failed pull of [`AEM_IMAGE`]: a refused login most
+/// likely lacks the package scope or the package's read access.
+fn pull_problem(image: &str, error: &str) -> String {
+    let lower = error.to_lowercase();
+    if ["denied", "unauthorized", "forbidden"].iter().any(|word| lower.contains(word)) {
+        format!(
+            "GitHub refused to pull {image} ({error}): give the GitHub CLI the package scope with \
+             `gh auth refresh -s read:packages`, and ask for read access to the package in the \
+             ajilach organization if that is not enough"
+        )
+    } else {
+        format!("could not pull {image}: {error}")
+    }
+}
+
+/// The GitHub CLI's signed-in account and its token, the login GitHub's
+/// registry takes. Nothing of it is stored.
+async fn github_login() -> Result<RegistryCredentials, String> {
+    let token = gh(&["auth", "token"]).await?;
+    let user = gh(&["api", "user", "--jq", ".login"]).await?;
+    credentials_from_gh(&user, &token)
+}
+
+fn credentials_from_gh(user: &str, token: &str) -> Result<RegistryCredentials, String> {
+    RegistryCredentials::new(user.trim().to_string(), token.trim().to_string())
+        .ok_or_else(|| format!("the GitHub CLI reported no signed-in account; run `{GH_LOGIN}`"))
+}
+
+/// How long one GitHub CLI call may take; `gh api` reaches the network.
+const GH_DEADLINE: Duration = Duration::from_secs(30);
+
+/// Runs the GitHub CLI and returns its output, or what to do when it is not
+/// installed, not signed in, or does not answer in time.
+async fn gh(args: &[&str]) -> Result<String, String> {
+    let command = format!("gh {}", args.join(" "));
+    let output = tokio::time::timeout(
+        GH_DEADLINE,
+        tokio::process::Command::new(gh_program()).args(args).kill_on_drop(true).output(),
+    )
+    .await
+    .map_err(|_| format!("`{command}` did not answer within {}s; check the network", GH_DEADLINE.as_secs()))?
+    .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => {
+                format!("the GitHub CLI (gh) is not installed: install it (`brew install gh`), then run `{GH_LOGIN}`")
+            }
+            _ => format!("could not run the GitHub CLI: {e}"),
+        })?;
+    if !output.status.success() {
+        return Err(gh_failure(&command, &String::from_utf8_lossy(&output.stderr)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// What a failed GitHub CLI call means: a missing login says how to sign in,
+/// anything else (the network, GitHub itself) is passed on as gh reported it.
+fn gh_failure(command: &str, stderr: &str) -> String {
+    let stderr = stderr.trim();
+    let lower = stderr.to_lowercase();
+    if ["gh auth login", "not logged in", "authentication", "bad credentials"]
+        .iter()
+        .any(|hint| lower.contains(hint))
+    {
+        format!("the GitHub CLI is not signed in (`{command}`: {stderr}); run `{GH_LOGIN}`")
+    } else {
+        format!("the GitHub CLI failed (`{command}`: {stderr})")
+    }
+}
+
+/// Where the GitHub CLI is: on `PATH`, or where Homebrew or MacPorts install
+/// it, since an app started from the Finder gets a `PATH` without them.
+fn gh_program() -> PathBuf {
+    let on_path = std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|path| std::env::split_paths(&path).collect::<Vec<_>>());
+    let homebrew = ["/opt/homebrew/bin", "/usr/local/bin", "/opt/local/bin"].into_iter().map(PathBuf::from);
+    on_path
+        .chain(homebrew)
+        .map(|dir| dir.join("gh"))
+        .find(|candidate| candidate.is_file())
+        .unwrap_or_else(|| PathBuf::from("gh"))
 }
 
 /// The Redacto counterpart of [`aem_verify_readiness`]: complete settings, a
@@ -494,10 +590,11 @@ async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Result<St
     Ok(format!("Redacto platform images {images}, Docker reachable, pdfium loaded."))
 }
 
-/// Pulls the public images the verifiers run: the AEM verifier's Chromium and
-/// the Redacto platform's Postgres. The AEM image and the other Redacto
-/// platform images live in private registries and have to be pulled by hand
-/// after `az acr login` (see docker/aem/README.md and docker/redacto/README.md).
+/// Pulls the images the verifiers run where they are missing: the AEM
+/// verifier's Chromium, the Redacto platform's Postgres, and [`AEM_IMAGE`]
+/// with the GitHub CLI's login. The other Redacto platform images live in a
+/// private Azure registry and have to be pulled by hand after `az acr login`
+/// (see docker/redacto/README.md).
 pub async fn pull_verifier_images(
     aem: &AemVerifySettings,
     redacto: &RedactoVerifySettings,
@@ -513,7 +610,7 @@ pub async fn pull_verifier_images(
     })
     .map_err(|e| format!("could not read the verifier's defaults: {e}"))?
     .chromium_image;
-    let platform = optional(&aem.platform).unwrap_or_else(|| "linux/amd64".into());
+    let platform = optional(&aem.platform).unwrap_or_else(|| host_platform().into());
     let docker = DockerLifecycle::connect()
         .await
         .map_err(|e| format!("Docker is not reachable: {e}"))?;
@@ -524,7 +621,11 @@ pub async fn pull_verifier_images(
             .await
             .map_err(|e| format!("could not pull {image}: {e}"))?;
     }
-    Ok(format!("Pulled {} for {platform}.", images.join(" and ")))
+    let pulled = format!("Pulled {} for {platform}.", images.join(" and "));
+    match ensure_aem_image(aem).await {
+        Ok(aem_image) => Ok(format!("{pulled} {aem_image}")),
+        Err(e) => Err(format!("{pulled} The AEM image was not pulled: {e}")),
+    }
 }
 
 async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> {
@@ -557,8 +658,9 @@ fn docker_config_path() -> Option<PathBuf> {
     }
 }
 
-/// What to do about an image that is not present locally. A run never pulls,
-/// so whether the registry is logged in matters only here; `docker_config` is
+/// What to do about an image other than [`AEM_IMAGE`] that is not present
+/// locally. A run does not pull these, so whether the registry is logged in
+/// matters only here; `docker_config` is
 /// the Docker CLI's config file, if there is one.
 fn missing_image_problem(image: &str, docker_config: Option<&str>) -> String {
     let Some(registry) = registry_of(image) else {
@@ -1303,14 +1405,75 @@ mod tests {
     #[tokio::test]
     async fn incomplete_aem_settings_name_every_missing_setting() {
         let settings = AemVerifySettings {
-            image: String::new(),
-            data_volume: " ".into(),
+            user: String::new(),
+            password: " ".into(),
             ..Default::default()
         };
         let err = aem_verify_readiness(&settings).await.unwrap_err().to_string();
-        assert!(err.contains("the AEM image is not set"), "{err}");
-        assert!(err.contains("the AEM data volume is not set"), "{err}");
+        assert!(err.contains("the AEM user is not set"), "{err}");
+        assert!(err.contains("the AEM password is not set"), "{err}");
         assert!(!err.contains("U2S_AEM_VERIFY"), "{err}");
+    }
+
+    /// The pinned image, not a setting, is what the verifier boots, and the
+    /// data volume is the one upstream derives from it, so a new tag never
+    /// boots on another tag's seeded volume.
+    #[test]
+    fn the_aem_profile_boots_the_pinned_image_on_its_own_volume() {
+        let profile = AemVerifySettings::default().profile().expect("the defaults are complete");
+        assert_eq!(profile.aem_image, AEM_IMAGE);
+        assert_eq!(
+            profile.aem_data_volume,
+            u2s_aem_verify_core::profile::default_data_volume("aem-ubs", AEM_IMAGE)
+        );
+        assert_eq!(profile.registry_credentials, None, "the login is never kept in the profile");
+    }
+
+    #[test]
+    fn a_gh_login_needs_both_an_account_and_a_token() {
+        let credentials = credentials_from_gh("octocat\n", "gho_token\n").expect("a login");
+        assert_eq!(credentials, RegistryCredentials::new("octocat".into(), "gho_token".into()).unwrap());
+        for (user, token) in [("", "gho_token"), ("octocat", " \n")] {
+            let err = credentials_from_gh(user, token).unwrap_err();
+            assert!(err.contains(GH_LOGIN), "{err}");
+        }
+    }
+
+    #[test]
+    fn only_a_missing_gh_login_asks_to_sign_in() {
+        let signed_out = gh_failure("gh api user", "To get started with GitHub CLI, please run:  gh auth login");
+        assert!(signed_out.contains(GH_LOGIN), "{signed_out}");
+        let offline = gh_failure("gh api user", "error connecting to api.github.com");
+        assert!(!offline.contains(GH_LOGIN), "{offline}");
+        assert!(offline.contains("api.github.com"), "{offline}");
+    }
+
+    #[test]
+    fn a_refused_pull_names_the_package_scope() {
+        let refused = pull_problem(AEM_IMAGE, "Docker responded with status code 500: denied: denied");
+        assert!(refused.contains("gh auth refresh -s read:packages"), "{refused}");
+        let offline = pull_problem(AEM_IMAGE, "error trying to connect: dns error");
+        assert!(!offline.contains("read:packages"), "{offline}");
+        assert!(offline.contains("dns error"), "{offline}");
+    }
+
+    /// Run with the GitHub CLI signed in and Docker running: removes a local
+    /// copy of the AEM image and pulls it the way a run does.
+    #[tokio::test]
+    #[ignore = "needs Docker, a GitHub CLI login with read:packages, and downloads the AEM image"]
+    async fn the_aem_image_is_pulled_with_the_gh_login() {
+        let _ = std::process::Command::new("docker").args(["rmi", AEM_IMAGE]).status();
+        let still_there = std::process::Command::new("docker")
+            .args(["image", "inspect", AEM_IMAGE])
+            .output()
+            .expect("docker runs")
+            .status
+            .success();
+        assert!(!still_there, "{AEM_IMAGE} is still on Docker (in use by a container?)");
+        let report = ensure_aem_image(&AemVerifySettings::default()).await.expect("pulled");
+        assert!(report.starts_with("Pulled"), "{report}");
+        let again = ensure_aem_image(&AemVerifySettings::default()).await.expect("present");
+        assert!(again.contains("is present"), "{again}");
     }
 
     #[test]

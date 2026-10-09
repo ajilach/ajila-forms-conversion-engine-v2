@@ -257,29 +257,6 @@ pub fn SettingsPage(
                     SettingsTab::Aem => rsx! {
                         div { class: "settings-section",
                             h3 { class: "settings-section-title", "AEM verification" }
-                            TextRow {
-                                label: "AEM image",
-                                desc: "The AEM Forms image the verifier boots, from ajila's private registry. Pull it after `az acr login` (see docker/aem/README.md).",
-                                value: s.aem_verify.image.clone(),
-                                placeholder: "",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update.call(Box::new(move |s| s.aem_verify.image = v.trim().to_string()))
-                                },
-                            }
-                            TextRow {
-                                label: "Data volume",
-                                desc: "The Docker volume holding the deployed UBS platform.",
-                                value: s.aem_verify.data_volume.clone(),
-                                placeholder: "",
-                                secret: false,
-                                on_change: move |v: String| {
-                                    update
-                                        .call(
-                                            Box::new(move |s| s.aem_verify.data_volume = v.trim().to_string()),
-                                        )
-                                },
-                            }
                             div { class: "row",
                                 RowInfo {
                                     label: "Container port",
@@ -319,9 +296,9 @@ pub fn SettingsPage(
                             }
                             TextRow {
                                 label: "Platform",
-                                desc: "The Docker platform the AEM image and Chromium run as. The AEM image is an ARM build. Empty uses the verifier's default, linux/amd64.",
+                                desc: "The Docker platform the AEM image and Chromium run as. Empty lets Docker choose this machine's own.",
                                 value: s.aem_verify.platform.clone(),
-                                placeholder: "linux/arm64",
+                                placeholder: "",
                                 secret: false,
                                 on_change: move |v: String| {
                                     update.call(Box::new(move |s| s.aem_verify.platform = v.trim().to_string()))
@@ -455,7 +432,7 @@ pub fn SettingsPage(
                             div { class: "row",
                                 RowInfo {
                                     label: "Pull images",
-                                    desc: "Download the public verifier images (headless Chrome, Postgres) so a run never waits on the network. The AEM image is private and has to be pulled by hand after `az acr login`.".to_string(),
+                                    desc: "Download the verifier images now rather than when a run starts: headless Chrome, Postgres, and the AEM image from GitHub, which needs the GitHub CLI signed in (`gh auth login -s read:packages`). The private Redacto images are pulled by hand after `az acr login --name ajilaclouddev`.".to_string(),
                                 }
                                 button {
                                     class: "btn btn-secondary btn-sm",

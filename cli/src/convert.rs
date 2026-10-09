@@ -83,16 +83,6 @@ pub struct ConvertArgs {
     #[arg(long, value_name = "PATH", conflicts_with = "instructions")]
     instructions_file: Option<PathBuf>,
 
-    /// The AEM Forms image the verifier boots, overriding the desktop app's
-    /// setting. See docker/aem/README.md.
-    #[arg(long, value_name = "IMAGE")]
-    aem_image: Option<String>,
-
-    /// The Docker volume holding the deployed UBS platform, overriding the
-    /// desktop app's setting.
-    #[arg(long, value_name = "VOLUME")]
-    aem_volume: Option<String>,
-
     /// Refine an earlier run instead of converting afresh: applies this feedback
     /// to the result held in --session.
     #[arg(long, value_name = "TEXT", requires = "session")]
@@ -177,8 +167,8 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     println!("{}", plan.describe());
     match args.target {
         OutputTarget::Aem => println!(
-            "Verification: AEM image {}, data volume {} (checked before the run starts)",
-            settings.aem_verify.image, settings.aem_verify.data_volume
+            "Verification: AEM image {} (pulled from GitHub when missing, checked before the run starts)",
+            agent::u2s::AEM_IMAGE
         ),
         OutputTarget::Redacto => println!(
             "Verification: Redacto core image {}, rendering image {} (checked before the run starts)",
@@ -468,13 +458,6 @@ fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
     if let Some(path) = &args.instructions_file {
         settings.agent_instructions = std::fs::read_to_string(path)
             .map_err(|e| format!("Could not read {}: {e}", path.display()))?;
-    }
-
-    if let Some(image) = &args.aem_image {
-        settings.aem_verify.image = image.clone();
-    }
-    if let Some(volume) = &args.aem_volume {
-        settings.aem_verify.data_volume = volume.clone();
     }
 
     Ok(settings)

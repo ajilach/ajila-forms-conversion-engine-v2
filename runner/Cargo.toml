@@ -19,7 +19,7 @@ rig-memory = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 # `spawn_blocking` for request preparation; the runtime itself is the caller's.
-tokio = { version = "1", features = ["rt", "sync"] }
+tokio = { version = "1", features = ["rt", "sync", "time", "macros"] }
 
 [dev-dependencies]
 # The transport is async and is tested end to end against a local socket.

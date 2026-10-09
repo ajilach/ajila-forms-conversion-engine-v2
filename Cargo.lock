@@ -39,7 +39,6 @@ dependencies = [
 name = "agent"
 version = "0.1.0"
 dependencies = [
- "bollard",
  "chrono",
  "dirs 5.0.1",
  "flate2",

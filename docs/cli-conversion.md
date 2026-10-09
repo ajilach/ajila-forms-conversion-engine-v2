@@ -81,9 +81,7 @@ PDF is read with `pdf_*` tools. The source PDF is read with `xfa_*` tools.
 
 You need:
 - Docker running
-- The AEM Forms image from ajila's private Azure registry pulled locally: `az login`, `az acr login --subscription BC_AZ_Ajila_10128 --name ajila`, then `docker pull ajila.azurecr.io/aemforms-arm:6.5.17.0`
-- The Docker data volume with the UBS platform baked in (one-time setup: run `docker/aem/bake-ubs-platform.sh`; see `docker/aem/README.md` for details)
-- Apple Silicon host (only an ARM image exists today)
+- The GitHub CLI signed in with access to ajila's packages: `gh auth login -s read:packages` (or `gh auth refresh -s read:packages` for an existing login). The AEM image (`ghcr.io/ajilach/u2s-aem-ubs`, pinned as `AEM_IMAGE` in `agent/src/u2s.rs`, published for arm64 and amd64) is a private package of the `ajilach` organization; a run pulls it with that login when Docker does not have it yet, and does not start when the pull fails. The image seeds its own data volume on first boot (see `docker/aem/README.md`); a `u2s-aem-ubs-data` volume from the earlier setup is no longer used and can be removed with `docker volume rm u2s-aem-ubs-data`.
 
 **For a Redacto target:** The `redacto_verify_*` tools boot a Redacto platform of the
 run's own (Postgres, migration, core, rendering), import the built dump there and render
@@ -97,10 +95,9 @@ You need:
 **For both targets:**
 - Check rules: every rule runs in a sandboxed worker process, which is `blueprint` itself started with `--u2s-rules-worker`; nothing extra needs building or shipping.
 - `pdfium`: downloaded and embedded by the build on first compilation; nothing to do beyond network access on the first build.
-- Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM image (default none, must be pulled manually), data volume (default `u2s-aem-ubs-data`), AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: the migration, core and rendering images (default: the ones `ajila-redacto-platform`'s CI publishes to `ajilaclouddev.azurecr.io`), Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin).
-- CLI overrides: `--aem-image <IMAGE>` and `--aem-volume <VOLUME>` apply to the current run.
-- Prepare: Run `blueprint verify prepare` to pull the public verifier images (headless Chromium `chromedp/headless-shell:stable` and Postgres). The AEM image must be pulled by hand (see above).
-- Check: Run `blueprint verify check [--target aem|redacto]` to run the readiness check a conversion performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry), the AEM data volume exists, and pdfium loads.
+- Settings: Verifier settings are stored in the desktop app's settings tab ("Verification"). The CLI reads the same settings. Defaults: AEM port (default 8080), AEM user/password (default admin/admin); for Redacto: the migration, core and rendering images (default: the ones `ajila-redacto-platform`'s CI publishes to `ajilaclouddev.azurecr.io`), Postgres image (default `postgres:16-alpine`), platform, rendering user/password (default admin/admin).
+- Prepare: Run `blueprint verify prepare` to pull the missing verifier images: headless Chromium `chromedp/headless-shell:stable`, Postgres, and the AEM image with the GitHub CLI's login. The private Redacto images are pulled by hand (see above).
+- Check: Run `blueprint verify check [--target aem|redacto]` to run the readiness check a conversion performs: the rule sandbox, settings complete, Docker reachable, images present locally (with a hint to run `az acr login` if logged out of a private registry; a missing AEM image needs the GitHub CLI signed in instead), and pdfium loads.
 
 ```sh
 cargo run --release -p blueprint-cli -- verify prepare    # Pull public verifier images
@@ -147,10 +144,11 @@ by file extension, so the `.pdf` suffix matters.
 
 ### 2.2 What the run does
 
-1. **Preflight.** Resolve the profile and settings, then run the verification
-   readiness check: settings complete, Docker reachable, images present locally,
-   the AEM data volume exists (for AEM targets), pdfium loads. A refused preflight
-   leaves no session behind and spends no tokens.
+1. **Preflight.** Resolve the profile and settings, run the verification
+   readiness check (settings complete, Docker reachable, images present locally,
+   pdfium loads), then, for AEM targets, pull the AEM image from GitHub when
+   Docker does not have it yet. A refused preflight or a failed pull leaves no
+   session behind and spends no tokens.
 2. **Open the session.** Sources are hashed and stored content-addressed, a
    session row is created and an empty initial edit is recorded.
 3. **Author → (Reviewer → Author fix)\*.** The review rounds are capped
@@ -264,8 +262,6 @@ nothing.
 | `--instructions <TEXT>` | the app's setting | Appended to every role's system prompt |
 | `--instructions-file <PATH>` | — | Conflicts with `--instructions` |
 | `--retries <N>` | 2 | Operator-level retries after the controller's own |
-| `--aem-image <IMAGE>` | the app's setting | AEM Forms image (e.g. `ajila.azurecr.io/aemforms-arm:6.5.17.0`); AEM target only |
-| `--aem-volume <VOLUME>` | the app's setting (default `u2s-aem-ubs-data`) | Docker data volume with the UBS platform; AEM target only |
 | `--session <ID>` | — | Resume an earlier session |
 | `--feedback <TEXT>` | — | Requires `--session` |
 
@@ -294,10 +290,6 @@ OPENAI_API_KEY=sk-or-… cargo run --release -p blueprint-cli -- convert form.pd
 # Steer the agent and allow more review rounds
 cargo run --release -p blueprint-cli -- convert form.pdf \
   --instructions "Keep every footnote." --max-review-rounds 5
-
-# Override the AEM image and data volume for this run
-cargo run --release -p blueprint-cli -- convert form.pdf \
-  --aem-image ajila.azurecr.io/aemforms-arm:6.5.17.0 --aem-volume my-data-volume
 ```
 
 ---

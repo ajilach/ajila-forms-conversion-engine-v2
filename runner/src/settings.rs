@@ -224,16 +224,16 @@ mod tests {
     }
 
     /// Settings written while the app still uploaded to a configured AEM and
-    /// drove a Playwright browser carry fields that no longer exist; they must
-    /// load all the same, with the verifier defaults filled in.
+    /// drove a Playwright browser, or still took the AEM image and its data
+    /// volume as settings, carry fields that no longer exist; they must load
+    /// all the same, with the verifier defaults filled in.
     #[test]
     fn settings_saved_with_the_retired_aem_connection_still_load() {
-        let json = r#"{"anthropic_api_key":"k","aem_host":"http://localhost:4502","aem_username":"admin","aem_password":"admin","browser_enabled":true,"browser_npx_path":""}"#;
+        let json = r#"{"anthropic_api_key":"k","aem_host":"http://localhost:4502","aem_username":"admin","aem_password":"admin","browser_enabled":true,"browser_npx_path":"","aem_verify_image":"ajila.azurecr.io/aemforms-arm:6.5.17.0","aem_verify_data_volume":"u2s-aem-ubs-data","aem_verify_user":"admin"}"#;
         let settings: AppSettings = serde_json::from_str(json).expect("old settings load");
         assert_eq!(settings.anthropic_api_key, "k");
         assert_eq!(settings.aem_verify.container_port, 8080);
-        assert_eq!(settings.aem_verify.data_volume, "u2s-aem-ubs-data");
-        assert!(settings.aem_verify.image.is_empty());
+        assert_eq!(settings.aem_verify.user, "admin");
     }
 
     /// Settings written before the switch existed carry neither field, and must

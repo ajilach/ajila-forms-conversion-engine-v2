@@ -182,21 +182,41 @@ impl Verification {
 }
 
 /// Check that the target's rules and verifier can run: the rule sandbox,
-/// Docker, the images, the AEM data volume and pdfium. There is no way to run
-/// without them, so a target that is not ready refuses the run, before it
+/// Docker, the images and pdfium, then pull the AEM image from GitHub when
+/// Docker does not have it yet. There is no way to run without them, so a
+/// target that is not ready, or whose pull fails, refuses the run before it
 /// spends a token.
 async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<Verification, String> {
+    let refused = |e: String| {
+        format!(
+            "Verification is not possible, so the run cannot start:\n{e}\n\
+             See \"Verification setup\" in README.md."
+        )
+    };
     obs.emit(RunEvent::Thought("Checking the verification setup…".into()));
     let settings = &opts.settings;
     let report = agent::u2s::readiness(opts.target, &settings.aem_verify, &settings.redacto_verify)
         .await
-        .map_err(|e| {
-            format!(
-                "Verification is not possible, so the run cannot start:\n{e}\n\
-                 See docker/aem/README.md for the setup."
-            )
-        })?;
+        .map_err(|e| refused(e.to_string()))?;
     obs.emit(RunEvent::Thought(format!("Verification ready. {report}")));
+    if opts.target == OutputTarget::Aem {
+        obs.emit(RunEvent::Thought(format!(
+            "Making sure the AEM image {} is on Docker. When it is missing it is pulled from \
+             GitHub, several GB the first time, which can take minutes…",
+            agent::u2s::AEM_IMAGE
+        )));
+        let pull = agent::u2s::ensure_aem_image(&settings.aem_verify);
+        let stopped = async {
+            while !opts.abort.is_aborted() {
+                tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            }
+        };
+        let pulled = tokio::select! {
+            pulled = pull => pulled.map_err(refused)?,
+            () = stopped => return Err("The run was stopped while the AEM image was being pulled.".into()),
+        };
+        obs.emit(RunEvent::Thought(pulled));
+    }
     Ok(match opts.target {
         OutputTarget::Aem => Verification::Aem(settings.aem_verify.clone()),
         OutputTarget::Redacto => Verification::Redacto(settings.redacto_verify.clone()),
@@ -302,24 +322,29 @@ mod tests {
     use pipeline::{NullObserver, SharedObserver};
 
     /// An AEM run whose verifier is not set up must not start: no session is
-    /// opened, no token is spent, and the error says what to fix. Missing
-    /// settings are refused before Docker is even asked.
+    /// opened, no token is spent, no image is pulled, and the error says what
+    /// to fix. Missing settings are refused before Docker is even asked.
     #[tokio::test]
     async fn an_aem_run_without_its_verifier_refuses_to_start() {
         let opts = RunOptions {
             profile: None,
             target: OutputTarget::Aem,
-            settings: AppSettings::default(),
+            settings: AppSettings {
+                aem_verify: agent::u2s::AemVerifySettings {
+                    user: String::new(),
+                    ..Default::default()
+                },
+                ..AppSettings::default()
+            },
             abort: AbortFlag::default(),
         };
-        assert!(opts.settings.aem_verify.image.is_empty(), "no image by default");
         let err = run_fresh(Vec::new(), &opts, "preflight-test", &SharedObserver::new(NullObserver))
             .await
             .err()
             .expect("the run must be refused");
         assert!(err.contains("Verification is not possible"), "{err}");
-        assert!(err.contains("the AEM image is not set"), "{err}");
-        assert!(err.contains("docker/aem/README.md"), "{err}");
+        assert!(err.contains("the AEM user is not set"), "{err}");
+        assert!(err.contains("README.md"), "{err}");
     }
 
     /// The resume path runs the same preflight before restoring anything, and

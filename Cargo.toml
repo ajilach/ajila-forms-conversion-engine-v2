@@ -48,7 +48,6 @@ uuid = { version = "1", features = ["v4", "v5", "serde"] }
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
 # Pinned exactly upstream: its query_parameters/model split is not stable across minors.
-bollard = "0.21.1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 
 # The u2s crates, from ajila-forms-conversion-engine-v3 at one revision, vendored
