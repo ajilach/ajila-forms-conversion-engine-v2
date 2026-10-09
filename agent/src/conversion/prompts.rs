@@ -30,9 +30,10 @@ them a window at a time: follow `next_offset` until it is null); and \
 walk the source section by section with xfa_page_text and xfa_search, in every language, from each \
 language's own PDF (get_source_info gives each `doc_path`). \
 (c) SOURCE BEHAVIOUR (gated): what the form does is decided by the source, so start from it, not \
-from the AEM form. Open each language's PDF with xfa_open and list its choices with xfa_controls \
-(`kinds` radio, checkbox, dropdown and button): every choice with `affects_layout` and `access` open \
-is read by the form's scripts. Set each one with xfa_set (every \
+from the AEM form. Open each language's PDF with xfa_open and list its choices and buttons with \
+xfa_controls (`kinds` radio, checkbox, dropdown and button), following `next_offset` until it is \
+null: every radio, checkbox or dropdown with `affects_layout` is read by the form's scripts. Set \
+each one whose `access` is open with xfa_set (every \
 option of it that changes something; xfa_reset between explorations) and note what the reply's \
 `appeared`, `disappeared` and `side_effects` say; a control another one reveals counts once a \
 listing shows it, so list the controls again after revealing a section. Press the add button of a \

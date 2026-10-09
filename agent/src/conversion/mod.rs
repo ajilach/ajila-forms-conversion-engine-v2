@@ -985,7 +985,7 @@ mod tests {
     fn verify_everything(agent: &mut ConversionAgent) {
         let text = |v: Value| ToolReply::Text(v.to_string());
         let e = &mut agent.evidence;
-        e.observe_reply("xfa_controls", &json!({}), &text(json!({ "controls": [] })));
+        e.observe_reply("xfa_controls", &json!({}), &text(json!({ "controls": [], "total": 0, "offset": 0, "next_offset": null, "space_size": 1, "saturated": false })));
         e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
         e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
         e.observe_reply(

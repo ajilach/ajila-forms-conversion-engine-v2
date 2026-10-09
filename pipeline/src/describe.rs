@@ -25,7 +25,8 @@ First ANALYSE THE INPUTS using the tools. Call `get_source_info` for the source 
 `doc_path`. Read the form's structure with `xfa_outline`, `xfa_node` and `xfa_search` (the XFA is \
 the authoritative field/label/option source), and look at its pages with `xfa_render_pages`. \
 Pass `dpi: 72`: you only have to read the pages, and a lower resolution costs far fewer tokens. \
-Use `xfa_controls` to find the controls that show or hide sections. Inspect the resulting AEM \
+Use `xfa_controls` to find the controls that show or hide sections (`kinds` narrows it to the \
+choices; follow `next_offset` until it is null). Inspect the resulting AEM \
 package via `get_package_info` and `read_package_file`. Call as many as you need before \
 answering.\n\n\
 Then write a detailed description covering: the overall purpose; each section and its heading; \
