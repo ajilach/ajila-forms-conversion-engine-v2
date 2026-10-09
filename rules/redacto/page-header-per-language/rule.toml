@@ -18,3 +18,7 @@ joined or reordered).
 Fix: set `/sources/<language>/header` to the source's lines in that language, one per drawn line, or
 remove it.
 """
+
+[judge]
+pointers = ["/sources"]
+source = "first_page"

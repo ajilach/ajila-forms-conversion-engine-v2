@@ -17,8 +17,8 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 
-use agent::rules::{JudgedRule, RuleVerdict, merge_rule_report};
-use agent::{Caller, ToolReply};
+use agent::rules::{JudgedRule, RuleVerdict, SourceNeed, merge_rule_report};
+use agent::{Caller, JudgeView, ToolReply};
 use futures_util::StreamExt;
 
 use crate::observer::{RunEvent, SharedObserver, Spend};
@@ -32,6 +32,10 @@ const JUDGES_AT_ONCE: usize = 4;
 /// Why a judged rule has no verdict when the document was edited while it was
 /// judged.
 const CHANGED_WHILE_JUDGED: &str = "the document changed while it was judged: check this rule again";
+
+/// How much of the document a judge is handed in its prompt: a rule's part
+/// larger than this is named instead, for the judge to read with its tools.
+const PART_IN_PROMPT: usize = 40_000;
 
 /// Numbers every `rule_check` of the process, so a judge's trace line names
 /// the check it belongs to even when two checks overlap.
@@ -51,7 +55,7 @@ pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
 /// judges the check sent: a reused verdict costs nothing and traces nothing.
 pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input: &serde_json::Value) -> ToolReply {
     let started = Instant::now();
-    let (plan, scripted, revision, content, cached) = {
+    let (plan, scripted, revision, views, cached, first_pages) = {
         let mut guard = agent.lock().await;
         let plan = match guard.rule_check_plan(input) {
             Ok(plan) => plan,
@@ -61,9 +65,10 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
             Ok(scripted) => scripted,
             Err(e) => return ToolReply::Error(e),
         };
-        let (revision, content) = (guard.revision(), guard.content_hash());
+        let revision = guard.revision();
+        let views: Vec<JudgeView> = plan.judged.iter().map(|rule| guard.judge_view(rule)).collect();
         let cached: Vec<Option<RuleVerdict>> =
-            plan.judged.iter().map(|rule| guard.cached_verdict(rule, content)).collect();
+            plan.judged.iter().zip(&views).map(|(rule, view)| guard.cached_verdict(rule, view.key)).collect();
         let reused: Vec<(JudgedRule, Result<RuleVerdict, String>)> = plan
             .judged
             .iter()
@@ -71,15 +76,23 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
             .filter_map(|(rule, verdict)| Some((rule.clone(), Ok(verdict.clone()?))))
             .collect();
         guard.record_judged(&reused, revision);
-        (plan, scripted, revision, content, cached)
+        // The source's first pages, read once for every judge that is handed them.
+        let wants_first_pages = plan
+            .judged
+            .iter()
+            .zip(&cached)
+            .any(|(rule, verdict)| verdict.is_none() && rule.scope.source == SourceNeed::FirstPage);
+        let first_pages = if wants_first_pages { source_first_pages(&mut guard).await } else { None };
+        (plan, scripted, revision, views, cached, first_pages.map(std::sync::Arc::new))
     };
     report_rules(agent, &ctx.obs).await;
-    let to_judge: Vec<JudgedRule> = plan
+    let to_judge: Vec<(JudgedRule, JudgeView)> = plan
         .judged
         .iter()
+        .zip(views)
         .zip(&cached)
         .filter(|(_, verdict)| verdict.is_none())
-        .map(|(rule, _)| rule.clone())
+        .map(|((rule, view), _)| (rule.clone(), view))
         .collect();
     let check = CHECKS.fetch_add(1, Ordering::Relaxed) + 1;
     let stage = judge_stage(ctx);
@@ -93,7 +106,7 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
     });
     // `buffered`, not `buffer_unordered`: the report keeps the rules' order.
     let judged: Vec<Judged> = futures_util::stream::iter(to_judge)
-        .map(|rule| judge(agent, ctx, rule, revision, content, check))
+        .map(|(rule, view)| judge(agent, ctx, rule, view, first_pages.clone(), revision, check))
         .buffered(JUDGES_AT_ONCE)
         .collect()
         .await;
@@ -178,30 +191,33 @@ struct Judged {
     spend: Spend,
 }
 
-/// Runs one judge on `rule`, dispatched on `revision` (whose content hashed to
-/// `content`), and puts its outcome on the board as soon as it ends, before
-/// the rule stops showing as judged: a check's judges end one by one, and a
-/// check cut short keeps what its ended judges found. A verdict on a document
-/// nobody edited meanwhile is kept for the next check of the same content.
+/// Runs one judge on `rule`, dispatched on `revision`, handed `view` (what
+/// the rule reads of the document) and, when its rule asks for them, the
+/// source's `first_pages`. Puts its outcome on the board as soon as it ends,
+/// before the rule stops showing as judged: a check's judges end one by one,
+/// and a check cut short keeps what its ended judges found. A verdict is kept
+/// for the next check whose view is the same.
 async fn judge(
     agent: &SharedAgent,
     ctx: &SubStageContext,
     rule: JudgedRule,
+    view: JudgeView,
+    first_pages: Option<std::sync::Arc<String>>,
     revision: u64,
-    content: u64,
     check: u64,
 ) -> Judged {
     ctx.obs.emit(RunEvent::Judging { rule_id: rule.id.clone(), running: true });
     let _ended = JudgingEnds { obs: &ctx.obs, rule_id: rule.id.clone() };
     let started = Instant::now();
-    let (outcome, turns, spend) = judge_rule(agent, ctx, &rule).await;
+    let handed = handed_sections(&rule, &view, first_pages.as_deref().map(String::as_str));
+    let (outcome, turns, spend) = judge_rule(agent, ctx, &rule, &handed).await;
     let duration_ms = trace::elapsed_ms(started);
     let mut guard = agent.lock().await;
     // The judge read the live document. An edit made while it did means its
     // verdict may describe neither revision.
     let outcome = if guard.revision() == revision { outcome } else { Err(CHANGED_WHILE_JUDGED.into()) };
     if let Ok(verdict) = &outcome {
-        guard.cache_verdict(&rule, content, verdict.clone());
+        guard.cache_verdict(&rule, view.key, verdict.clone());
     }
     let judged = (rule, outcome);
     guard.record_judged(std::slice::from_ref(&judged), revision);
@@ -212,6 +228,98 @@ async fn judge(
     ctx.obs.trace(judge_finished(ctx, check, &judged, turns, duration_ms, revision));
     ctx.obs.emit(RunEvent::Rules(board));
     judged
+}
+
+/// What a judge is handed beside its rule, as sections of its system prompt:
+/// the part of the document its rule reads (or where to find it, when it is
+/// too large to quote) and what it needs of the source. Empty for a rule with
+/// no scope, whose judge reads everything itself as before.
+fn handed_sections(rule: &JudgedRule, view: &JudgeView, first_pages: Option<&str>) -> String {
+    let mut handed = String::new();
+    if let Some(part) = &view.part {
+        let quoted = serde_json::to_string_pretty(part).expect("a JSON value serializes");
+        if quoted.len() <= PART_IN_PROMPT {
+            handed.push_str(
+                "\n\n## WHAT THE RULE READS\nThe rule is about these parts of the document only, as they \
+                 stand now (`at`: each JSON Pointer the rule names and its value, null where the document \
+                 has none; `nodes`: every node of the types it names, with its pointer). Judge them from \
+                 here: do not read them again with the json_* tools. Report violations with these \
+                 pointers.\n```json\n",
+            );
+            handed.push_str(&quoted);
+            handed.push_str("\n```");
+        } else {
+            let names: Vec<String> = rule
+                .scope
+                .pointers
+                .iter()
+                .map(|p| format!("`{p}`"))
+                .chain(rule.scope.node_types.iter().map(|t| format!("every node of type `{t}` (json_search for `\"type\":\"{t}\"`)")))
+                .collect();
+            handed.push_str(&format!(
+                "\n\n## WHAT THE RULE READS\nThe rule is about these parts of the document only: {}. They \
+                 are too large to quote here: read them with json_get and json_search, and nothing else of \
+                 the document.",
+                names.join(", ")
+            ));
+        }
+    }
+    match rule.scope.source {
+        SourceNeed::Tools => {}
+        SourceNeed::None => handed.push_str(
+            "\n\n## THE SOURCE\nThis rule is about the document alone: do not read the source.",
+        ),
+        SourceNeed::FirstPage => match first_pages {
+            Some(text) => {
+                handed.push_str(
+                    "\n\n## THE SOURCE'S FIRST PAGES\nThe text of the first page of every source PDF, as \
+                     xfa_page_text reads it. Read more of the source with the xfa_* tools only if this \
+                     does not settle the rule.\n",
+                );
+                handed.push_str(text);
+            }
+            None => handed.push_str(
+                "\n\n## THE SOURCE\nThe first pages could not be read for you: read them with \
+                 get_source_info and xfa_page_text.",
+            ),
+        },
+    }
+    handed
+}
+
+/// The text of the first page of every source PDF with an XFA template, each
+/// under its file name and language, read through the agent as a judge (so
+/// nothing counts as the stage's evidence). `None` when there is none to read.
+async fn source_first_pages(agent: &mut agent::ConversionAgent) -> Option<String> {
+    let ToolReply::Text(info) = agent.execute_as("get_source_info", &serde_json::json!({}), &Caller::Judge).await else {
+        return None;
+    };
+    let info: serde_json::Value = serde_json::from_str(&info).ok()?;
+    let mut pages = String::new();
+    for document in info["documents"].as_array()? {
+        let Some(doc_path) = document["doc_path"].as_str().filter(|_| document["xfa"] != false) else {
+            continue;
+        };
+        let reply = agent
+            .execute_as("xfa_page_text", &serde_json::json!({ "doc_path": doc_path, "page": 1 }), &Caller::Judge)
+            .await;
+        if let ToolReply::Text(reply) = reply {
+            let name = document["name"].as_str().unwrap_or("source");
+            let language = document["language"].as_str().unwrap_or("?");
+            // The tool answers with a window of the page's text; a page longer
+            // than the window says so, for the judge to read on.
+            let page: serde_json::Value = serde_json::from_str(&reply).unwrap_or(serde_json::Value::Null);
+            let text = page["text"].as_str().unwrap_or(&reply);
+            let cut = match page["total_chars"].as_u64() {
+                Some(total) if total as usize > text.chars().count() => {
+                    format!("\n(The page goes on: {total} characters in all; xfa_page_text with an offset reads the rest.)")
+                }
+                _ => String::new(),
+            };
+            pages.push_str(&format!("\n### {name} ({language}), page 1\n{text}{cut}\n"));
+        }
+    }
+    (!pages.is_empty()).then_some(pages)
 }
 
 /// The trace line of one ended judge.
@@ -264,14 +372,15 @@ async fn judge_rule(
     agent: &SharedAgent,
     ctx: &SubStageContext,
     rule: &JudgedRule,
+    handed: &str,
 ) -> (Result<RuleVerdict, String>, usize, Spend) {
-    let role = crate::roles::roles_for(ctx.target).judge;
+    let role = crate::roles::judge_role(ctx.target, rule.scope.max_turns);
     let judgement = agent.lock().await.open_judgement();
     let end = run_sub_stage(
         agent,
         ctx,
         role,
-        &crate::roles::sys_judge(ctx.target, rule, &judgement),
+        &crate::roles::sys_judge(ctx.target, rule, &judgement, handed),
         &format!("Judge the rule \"{}\", then call submit_rule_verdict with judgement {judgement}.", rule.title),
         &Caller::Judge,
         format!("judge: {}", rule.title),
@@ -692,6 +801,72 @@ mod tests {
             panic!("{traced:?}");
         };
         assert_eq!(*judges_spend, Spend::default());
+    }
+
+    /// A rule whose scope names a part of the document hands its judge that
+    /// part in the prompt, and keeps its verdict through an edit elsewhere:
+    /// the next check sends no judge.
+    #[tokio::test]
+    async fn a_scoped_rule_is_handed_its_part_and_survives_an_edit_elsewhere() {
+        let model = MockCompletionModel::from_stream_turns([verdict_turn("judgement-1", true)]);
+        let ctx = context(model.clone(), AbortFlag::default());
+        let mut scoped = rule("a");
+        scoped.scope = agent::rules::JudgeScope {
+            pointers: vec!["/body".into()],
+            source: SourceNeed::None,
+            ..Default::default()
+        };
+        let agent = agent_with(vec![scoped]);
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        let system = match model.requests()[0].chat_history.first() {
+            Some(rig_core::message::Message::System { content }) => content.clone(),
+            _ => String::new(),
+        };
+        assert!(system.contains("## WHAT THE RULE READS") && system.contains("\"/body\": []"), "{system}");
+        assert!(system.contains("do not read the source"), "{system}");
+
+        edit(&agent, serde_json::from_str(ADD_ASSET).unwrap()).await;
+        let after = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 1, "an edit outside the rule's part sent a judge");
+        assert_eq!(after["cached"], serde_json::json!(["id-a"]));
+    }
+
+    /// The first pages are read from the run's own sources, one per PDF,
+    /// under its name and language.
+    #[tokio::test]
+    async fn the_first_pages_come_from_the_runs_sources() {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../forms/AAEV_019_EN.pdf");
+        let bytes = std::fs::read(&path).unwrap();
+        let mut agent = agent::ConversionAgent::new(
+            None,
+            vec![("AAEV_019_EN.pdf".into(), bytes)],
+            String::new(),
+            agent::OutputTarget::Redacto,
+        )
+        .unwrap();
+        let pages = source_first_pages(&mut agent).await.expect("the source has a first page");
+        assert!(pages.contains("### AAEV_019_EN.pdf (en), page 1\nUBS Europe SE"), "{pages}");
+        assert!(pages.len() > 200, "{pages}");
+    }
+
+    /// A rule that asks for the source's first pages is told so, and told to
+    /// read them itself when the run has none to hand it.
+    #[test]
+    fn a_rule_is_handed_what_it_asks_of_the_source() {
+        let mut first_page = rule("a");
+        first_page.scope.source = SourceNeed::FirstPage;
+        let whole = JudgeView { key: 1, part: None };
+        let handed = handed_sections(&first_page, &whole, Some("\n### AAGS_019_DE.pdf (de)\nGültig ab 01.01.2026\n"));
+        assert!(handed.contains("## THE SOURCE'S FIRST PAGES") && handed.contains("Gültig ab"), "{handed}");
+        assert!(handed_sections(&first_page, &whole, None).contains("xfa_page_text"));
+        assert_eq!(handed_sections(&rule("b"), &whole, None), "", "a rule with no scope is handed nothing");
+
+        // A part too large to quote is named instead.
+        let mut big = rule("c");
+        big.scope.node_types = vec!["Panel".into()];
+        let part = serde_json::json!({ "at": {}, "nodes": [{ "pointer": "/form", "node": "x".repeat(PART_IN_PROMPT) }] });
+        let handed = handed_sections(&big, &JudgeView { key: 2, part: Some(part) }, None);
+        assert!(handed.contains("too large to quote") && handed.contains("`Panel`"), "{handed}");
     }
 
     /// The cache follows the content, not the revision: an edit sends the

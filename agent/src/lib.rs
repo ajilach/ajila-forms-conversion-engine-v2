@@ -32,7 +32,7 @@ pub mod source;
 pub mod u2s;
 
 pub use conversion::{
-    AUTHOR_ADDENDUM, Access, Caller, ConversionAgent, JUDGE_PREAMBLE, REDACTO_AUTHOR_ADDENDUM,
+    AUTHOR_ADDENDUM, Access, Caller, ConversionAgent, JUDGE_PREAMBLE, JudgeView, REDACTO_AUTHOR_ADDENDUM,
     REDACTO_REVIEWER_ADDENDUM,
     REDACTO_SHARED_PREAMBLE, REDACTO_SYSTEM_PROMPT, REVIEWER_ADDENDUM, ReplyBlock, ReviewResult,
     SHARED_PREAMBLE, SYSTEM_PROMPT, ToolReply, ToolSpec, access_of, all_tools, catalog, scope,

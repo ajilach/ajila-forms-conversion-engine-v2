@@ -32,3 +32,7 @@ Precedence:
   each language, including a party Repeatable's title on that page, whatever
   ubs-aem-repeatable-add-label would ask in English.
 """
+
+[judge]
+# Walks every page of the source in every language.
+max_turns = 16

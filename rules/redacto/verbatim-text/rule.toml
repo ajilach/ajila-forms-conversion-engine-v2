@@ -18,3 +18,7 @@ shortened.
 
 Fix: replace it with the source's wording, or delete the asset if the source has no such text.
 """
+
+[judge]
+# Walks every page of the source in every language.
+max_turns = 16

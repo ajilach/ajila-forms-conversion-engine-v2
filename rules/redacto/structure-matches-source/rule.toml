@@ -20,3 +20,7 @@ ubs-redacto-heading-levels-and-inline, columns and footnotes by ubs-redacto-layo
 
 Fix: json_patch the assets and the body to match the page.
 """
+
+[judge]
+# Walks every page of the source in every language.
+max_turns = 16
