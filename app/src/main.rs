@@ -65,6 +65,10 @@ fn main() {
     // This executable is also the rule worker; see `agent::rules::runner`.
     agent::rules::serve_worker_if_invoked();
     let saved = AppSettings::load();
+    // Before the window and its runtime start: Podman means setting
+    // DOCKER_HOST, which must happen while this is the only thread.
+    let engine = agent::container_engine::select(saved.container_engine);
+    eprintln!("container engine: {engine}");
     let mut config = dioxus::desktop::Config::new().with_window(
         dioxus::desktop::WindowBuilder::new()
             .with_always_on_top(saved.always_on_top)
@@ -344,7 +348,17 @@ fn App() -> Element {
             }
         }
 
-        EnvironmentBanner { readiness }
+        EnvironmentBanner {
+            readiness,
+            enabled_targets: app_settings.read().enabled_targets(),
+            on_switch_off: move |target: agent::OutputTarget| {
+                let mut next = app_settings.read().clone();
+                if next.set_target_enabled(target, false) {
+                    next.save();
+                    app_settings.set(next);
+                }
+            },
+        }
 
         // Settings, the references manager, or the workspace — full-page views
         // under the persistent header.
@@ -385,6 +399,7 @@ fn App() -> Element {
                 ai_available: !app_settings.read().active_api_key().is_empty(),
                 // Unknown again while a re-check runs, so Start waits for it.
                 readiness: if readiness.pending() { None } else { readiness.value().read().clone() },
+                enabled_targets: app_settings.read().enabled_targets(),
                 on_ai_process: move |files: Vec<(String, Vec<u8>)>| {
                     on_ai_process(active, files);
                 },

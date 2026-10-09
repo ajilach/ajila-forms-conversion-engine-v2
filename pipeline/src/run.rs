@@ -35,6 +35,7 @@ use crate::roles::{
     RETRY_BACKOFF_SECS,
 };
 use crate::tools::{self, SharedAgent};
+use crate::trace::{self, ControlKind, StageEnd, TraceEvent};
 
 /// The choices that shape a run, independent of who is driving it.
 pub struct RunConfig {
@@ -212,6 +213,9 @@ async fn run_stages(
 
     // ── Stage 2: Reviewer → (Author fix)* ───────────────────────────────────
     let mut approved = false;
+    // Set when the Reviewer left nothing for the Author but rule conflicts:
+    // the run stops for a person rather than spend a round undoing the last.
+    let mut needs_operator: Option<Vec<agent::review::RuleConflict>> = None;
     for round in 0..config.max_review_rounds {
         // The Reviewer builds nothing: it judges the build of the Author's
         // last document, made here. A document that does not build goes back
@@ -229,6 +233,7 @@ async fn run_stages(
                         "The document does not build, so it could not be reviewed. Fix this, rebuild \
                          and verify before finishing:\n{e}"
                     ),
+                    rule_conflicts: Vec::new(),
                 })
             }
             Ok(()) => {
@@ -251,10 +256,25 @@ async fn run_stages(
                 shared_agent.lock().await.take_review()
             }
         };
+        obs.trace(TraceEvent::ReviewVerdict {
+            stage: stages.reviewer.name.to_string(),
+            round: round + 1,
+            approved: review.as_ref().map(|r| r.approved),
+            report: review.as_ref().map(|r| r.trace_report()).unwrap_or_default(),
+        });
         match review {
             Some(r) if r.approved => {
                 approved = true;
                 obs.emit(RunEvent::Thought("Reviewer approved the form.".into()));
+                break;
+            }
+            Some(r) if r.needs_operator() => {
+                obs.emit(RunEvent::Thought(format!(
+                    "Only rule conflicts remain (round {}): stopping for a person instead of another \
+                     round.",
+                    round + 1
+                )));
+                needs_operator = Some(r.rule_conflicts);
                 break;
             }
             Some(r) => {
@@ -262,7 +282,7 @@ async fn run_stages(
                     "Reviewer requested changes (round {}). Returning to the author.",
                     round + 1
                 )));
-                reviews.push(r.report);
+                reviews.push(fix_round_review(&r));
                 begin_stage(
                     shared_agent,
                     obs,
@@ -298,7 +318,9 @@ async fn run_stages(
         }
     }
 
-    if !approved {
+    if let Some(conflicts) = &needs_operator {
+        warn(obs, &mut warnings, needs_operator_warning(conflicts));
+    } else if !approved {
         warn(
             obs,
             &mut warnings,
@@ -324,6 +346,32 @@ async fn run_stages(
         outcome.review = capture_review(shared_agent, &config.abort, obs, &mut outcome.warnings).await;
     }
     Some(outcome)
+}
+
+/// What the Author's fix round is pinned: the Reviewer's report and, when it
+/// found any, the rule conflicts the Author must leave alone — a change there
+/// breaks the other rule, and the next review would ask for it back.
+fn fix_round_review(review: &agent::ReviewResult) -> String {
+    if review.rule_conflicts.is_empty() {
+        return review.report.clone();
+    }
+    format!(
+        "{}\n\nRULE CONFLICTS — do NOT change these points. The rules named ask for opposite things \
+         there and a person will decide which one wins; leave each node as it is:\n{}",
+        review.report.trim_end(),
+        agent::review::conflict_list(&review.rule_conflicts)
+    )
+}
+
+/// The run's result when only rule conflicts kept the form from approval.
+fn needs_operator_warning(conflicts: &[agent::review::RuleConflict]) -> String {
+    format!(
+        "Needs a person: the reviewer found nothing left for the author but {} rule conflict(s), \
+         where the rules ask for opposite things. Decide which rule wins at each and fix the form or \
+         the rules:\n{}",
+        conflicts.len(),
+        agent::review::conflict_list(conflicts)
+    )
 }
 
 /// A note the run accumulates without stopping: shown now, and kept with the
@@ -587,6 +635,11 @@ async fn await_user_retry(
     err: &str,
 ) -> RetryAction {
     obs.retry_prompt(role, err);
+    obs.trace(TraceEvent::Control {
+        stage: role.to_string(),
+        kind: ControlKind::OperatorPrompt,
+        detail: err.to_string(),
+    });
     // Surface-neutral: the app answers this with a button, a CLI with a retry
     // budget, and the sentence has to read correctly in both.
     obs.emit(RunEvent::Thought(format!(
@@ -605,6 +658,14 @@ async fn await_user_retry(
     };
 
     obs.retry_resolved(action);
+    obs.trace(TraceEvent::Control {
+        stage: role.to_string(),
+        kind: match action {
+            RetryAction::Retry => ControlKind::OperatorRetried,
+            RetryAction::Cancel => ControlKind::OperatorCancelled,
+        },
+        detail: String::new(),
+    });
     if action == RetryAction::Retry {
         obs.emit(RunEvent::Thought("Retrying the failed request…".into()));
     }
@@ -682,6 +743,9 @@ pub(crate) async fn run_stage_as(
     total_spend: &mut Spend,
     caller: &agent::Caller,
 ) -> Option<String> {
+    let started = std::time::Instant::now();
+    let spend_before = *total_spend;
+    let mut stats = StageTally::default();
 
     let (specs, session_id, target) = {
         let agent = shared_agent.lock().await;
@@ -697,6 +761,16 @@ pub(crate) async fn run_stage_as(
         abort.clone(),
         obs.clone(),
     );
+    obs.trace(TraceEvent::StageStarted {
+        stage: role.name.to_string(),
+        system_prompt: system.to_string(),
+        seed_message: seed_user_msg.to_string(),
+        max_turns: role.max_iterations,
+        tools_offered: specs
+            .iter()
+            .filter_map(|spec| spec.get("name").and_then(|n| n.as_str()).map(str::to_string))
+            .collect(),
+    });
     let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &sub_stages, caller);
 
     let memory = if role.remember {
@@ -737,13 +811,41 @@ pub(crate) async fn run_stage_as(
         total_spend,
         &loaded,
         &mut history,
+        &mut stats,
     )
     .await;
     let history = answer_unanswered_tool_calls(history);
     store_stage(memory.as_ref(), &loaded, &history, role, obs).await;
     // The judges this stage's `rule_check` dispatched spent on its behalf.
     sub_stages.fold_spend(total_spend);
+    obs.trace(TraceEvent::StageFinished {
+        stage: role.name.to_string(),
+        ended: stats.ended.unwrap_or(if outcome.is_some() {
+            StageEnd::Finished
+        } else {
+            StageEnd::Aborted
+        }),
+        turns: stats.turns,
+        attempts: stats.attempts,
+        duration_ms: trace::elapsed_ms(started),
+        spend: trace::spend_between(&spend_before, total_spend),
+    });
     outcome
+}
+
+/// What [`run_stage_attempts`] reports back for the stage's trace summary.
+#[derive(Default)]
+struct StageTally {
+    /// How the stage ended; `None` for an ordinary finish.
+    ended: Option<StageEnd>,
+    attempts: usize,
+    turns: usize,
+}
+
+impl StageTally {
+    fn end(&mut self, ended: StageEnd) {
+        self.ended = Some(ended);
+    }
 }
 
 /// [`run_stage`]'s attempts: the first from the loaded conversation, and each
@@ -762,6 +864,7 @@ async fn run_stage_attempts(
     total_spend: &mut Spend,
     loaded: &[Message],
     history: &mut Vec<Message>,
+    stats: &mut StageTally,
 ) -> Option<String> {
     use futures_util::StreamExt;
 
@@ -773,6 +876,7 @@ async fn run_stage_attempts(
     loop {
         if abort.is_aborted() {
             obs.emit(RunEvent::Aborted);
+            trace_aborted(obs, role, stats);
             return None;
         }
         let remaining = role.max_iterations.saturating_sub(total_completed_turns).max(1);
@@ -784,14 +888,24 @@ async fn run_stage_attempts(
         // rather than losing progress, which is the direction to err in for
         // state that only ever *tightens* a budget, never grows the actual
         // turn/spend totals a restart must not lose.
-        let hook = SharedHook::new(StageHook::new(
-            role,
-            abort.clone(),
-            obs.clone(),
-            price.clone(),
-            *total_spend,
-            context_budget.clone(),
-        ));
+        stats.attempts += 1;
+        let history_messages = restart_from.as_ref().map_or(loaded.len(), Vec::len);
+        obs.trace(TraceEvent::AttemptStarted {
+            stage: role.name.to_string(),
+            attempt: stats.attempts,
+            history_messages,
+        });
+        let hook = SharedHook::new(
+            StageHook::new(
+                role,
+                abort.clone(),
+                obs.clone(),
+                price.clone(),
+                *total_spend,
+                context_budget.clone(),
+            )
+            .with_trace_position(stats.attempts, total_completed_turns),
+        );
 
         // The history this attempt starts from, which its own messages
         // follow; explicit either way, so rig neither loads nor saves.
@@ -844,6 +958,7 @@ async fn run_stage_attempts(
         };
 
         total_completed_turns += hook.completed_turns();
+        stats.turns = total_completed_turns;
         *total_spend = hook.spend();
         if !hook.final_text().is_empty() {
             final_text = hook.final_text();
@@ -859,6 +974,7 @@ async fn run_stage_attempts(
                     *history = chat_history.to_vec();
                     if abort.is_aborted() {
                         obs.emit(RunEvent::Aborted);
+                        trace_aborted(obs, role, stats);
                         return None;
                     }
                     let text = last_assistant_text(&chat_history);
@@ -870,6 +986,17 @@ async fn run_stage_attempts(
                             "{}: {} produced the same result {} times in a row — moving on.",
                             role.name, role.stuck_activity, MAX_VALIDATE_REPEATS
                         )));
+                        obs.trace(TraceEvent::Control {
+                            stage: role.name.to_string(),
+                            kind: ControlKind::StuckStop,
+                            detail: format!(
+                                "{} returned the same result {MAX_VALIDATE_REPEATS} times in a row",
+                                role.stuck_tool.unwrap_or("the watched tool")
+                            ),
+                        });
+                        stats.end(StageEnd::Stuck);
+                    } else if reason == crate::hooks::VERDICT_SENTINEL {
+                        stats.end(StageEnd::ReviewSubmitted);
                     }
                     return Some(final_text);
                 }
@@ -889,17 +1016,37 @@ async fn run_stage_attempts(
                          finalizing with whatever it produced.",
                         role.name
                     )));
+                    obs.trace(TraceEvent::Control {
+                        stage: role.name.to_string(),
+                        kind: ControlKind::TurnBudgetExhausted,
+                        detail: format!("{max_turns} turns"),
+                    });
+                    stats.end(StageEnd::TurnBudgetExhausted);
                     return Some(final_text);
                 }
                 other => {
                     obs.emit(RunEvent::Warning(format!("{}: {other}", role.name)));
+                    obs.trace(TraceEvent::Control {
+                        stage: role.name.to_string(),
+                        kind: ControlKind::StageError,
+                        detail: other.to_string(),
+                    });
+                    stats.end(StageEnd::Error(other.to_string()));
                     return Some(final_text);
                 }
             },
             StreamingError::Completion(completion_error) => {
                 let text = describe_completion_error(&completion_error);
+                obs.trace(TraceEvent::RequestFailed {
+                    stage: role.name.to_string(),
+                    attempt: stats.attempts,
+                    turn: hook.current_turn(),
+                    latency_ms: hook.take_pending_request_ms().unwrap_or(0),
+                    error: text.clone(),
+                });
                 if abort.is_aborted() {
                     obs.emit(RunEvent::Aborted);
+                    trace_aborted(obs, role, stats);
                     return None;
                 }
                 if is_transient_error(&text) && auto_retries < MAX_AUTO_RETRIES {
@@ -913,8 +1060,16 @@ async fn run_stage_attempts(
                         "Request failed ({text}) — retrying in {wait}s \
                          (attempt {auto_retries} of {MAX_AUTO_RETRIES})."
                     )));
+                    obs.trace(TraceEvent::Control {
+                        stage: role.name.to_string(),
+                        kind: ControlKind::TransientRetry,
+                        detail: format!(
+                            "waiting {wait}s before retry {auto_retries} of {MAX_AUTO_RETRIES}: {text}"
+                        ),
+                    });
                     if sleep_unless_aborted(std::time::Duration::from_secs(wait), abort).await {
                         obs.emit(RunEvent::Aborted);
+                        trace_aborted(obs, role, stats);
                         return None;
                     }
                     restart_from = Some(hook.last_attempt());
@@ -928,7 +1083,14 @@ async fn run_stage_attempts(
                         restart_from = Some(hook.last_attempt());
                         continue;
                     }
-                    RetryAction::Cancel => return None,
+                    RetryAction::Cancel => {
+                        stats.end(if abort.is_aborted() {
+                            StageEnd::Aborted
+                        } else {
+                            StageEnd::GaveUp
+                        });
+                        return None;
+                    }
                 }
             }
         }
@@ -940,6 +1102,17 @@ async fn run_stage_attempts(
 /// stage's evidence, and every other stage is a stage.
 pub(crate) fn stage_caller(role: &Role) -> agent::Caller {
     if role.scope & agent::scope::JUDGES != 0 { agent::Caller::Judge } else { agent::Caller::Stage }
+}
+
+/// The trace side of an abort checkpoint: one control event, and the stage
+/// marked as aborted. Paired with every `RunEvent::Aborted` in a stage.
+fn trace_aborted(obs: &SharedObserver, role: &Role, stats: &mut StageTally) {
+    obs.trace(TraceEvent::Control {
+        stage: role.name.to_string(),
+        kind: ControlKind::Aborted,
+        detail: String::new(),
+    });
+    stats.end(StageEnd::Aborted);
 }
 
 /// Build one stage's `Agent`: the model it runs against, plus the tool
@@ -1530,6 +1703,7 @@ mod controller {
     #[derive(Default)]
     struct Recorder {
         events: Vec<RunEvent>,
+        traces: Vec<TraceEvent>,
         /// What to answer when the controller pauses on a failed turn.
         answer: Option<RetryAction>,
         prompts: usize,
@@ -1572,6 +1746,45 @@ mod controller {
             self.answer
         }
         fn retry_resolved(&mut self, _action: RetryAction) {}
+        fn trace(&mut self, event: TraceEvent) {
+            self.traces.push(event);
+        }
+    }
+
+    impl Recorder {
+        /// How each stage ended, in order.
+        fn stage_ends(&self) -> Vec<(String, StageEnd)> {
+            self.traces
+                .iter()
+                .filter_map(|t| match t {
+                    TraceEvent::StageFinished { stage, ended, .. } => Some((stage.clone(), ended.clone())),
+                    _ => None,
+                })
+                .collect()
+        }
+
+        /// Every review verdict: round, approval, report.
+        fn verdicts(&self) -> Vec<(usize, Option<bool>, String)> {
+            self.traces
+                .iter()
+                .filter_map(|t| match t {
+                    TraceEvent::ReviewVerdict { round, approved, report, .. } => {
+                        Some((*round, *approved, report.clone()))
+                    }
+                    _ => None,
+                })
+                .collect()
+        }
+
+        fn controls(&self) -> Vec<(ControlKind, String)> {
+            self.traces
+                .iter()
+                .filter_map(|t| match t {
+                    TraceEvent::Control { kind, detail, .. } => Some((*kind, detail.clone())),
+                    _ => None,
+                })
+                .collect()
+        }
     }
 
     /// A recorder plus the `Arc` a test reads it back through — `SharedObserver`
@@ -2033,6 +2246,125 @@ mod controller {
             warnings.iter().any(|w| w.contains("without a clean review")),
             "an unapproved run must say so: {warnings:?}"
         );
+    }
+
+    /// One scripted `submit_review` call that also reports rule conflicts.
+    fn conflict_review_turn(report: &str, conflicts: serde_json::Value) -> Vec<MockStreamEvent> {
+        vec![
+            MockStreamEvent::tool_call(
+                "call-review",
+                "submit_review",
+                serde_json::json!({"approved": false, "report": report, "rule_conflicts": conflicts}),
+            ),
+            MockStreamEvent::final_response(Usage::new()),
+        ]
+    }
+
+    fn one_conflict() -> serde_json::Value {
+        serde_json::json!([{
+            "rules": ["sub-headings-are-title-draws", "2943a027"],
+            "path": "/body/0",
+            "why": "one asks for a title draw, the other forbids it"
+        }])
+    }
+
+    /// A Reviewer that reports only rule conflicts ends the review loop: the
+    /// controller starts no fix round, though rounds remain, and the run
+    /// says it needs a person, naming each conflict.
+    #[tokio::test]
+    async fn only_rule_conflicts_stop_the_run_for_a_person() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            conflict_review_turn("", one_conflict()),
+        ]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 3, model.clone()), RunSeed::Fresh, obs)
+            .await
+            .expect("a run stopped for a person still produces its result");
+
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"], "no fix round for a conflict");
+        assert_eq!(model.requests().len(), 2);
+        let needs = outcome.warnings.iter().find(|w| w.starts_with("Needs a person")).unwrap_or_else(|| panic!("{:?}", outcome.warnings));
+        assert!(needs.contains("sub-headings-are-title-draws vs 2943a027 at /body/0"), "{needs}");
+        assert!(
+            !outcome.warnings.iter().any(|w| w.contains("without a clean review")),
+            "the needs-a-person result replaces the generic one: {:?}",
+            outcome.warnings
+        );
+        let verdicts = rec.lock().unwrap().verdicts();
+        assert_eq!(verdicts.len(), 1);
+        assert_eq!(verdicts[0].1, Some(false));
+        assert!(verdicts[0].2.contains("RULE CONFLICTS (for a person)"), "{verdicts:?}");
+    }
+
+    /// A report that only lists engine defects asks the Author for nothing,
+    /// so with conflicts it too stops the run for a person.
+    #[tokio::test]
+    async fn conflicts_and_engine_defects_alone_also_stop_the_run() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            conflict_review_turn("ENGINE DEFECTS\n- /body/0: fixed writer output", one_conflict()),
+        ]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 3, model), RunSeed::Fresh, obs).await.unwrap();
+
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert!(outcome.warnings.iter().any(|w| w.starts_with("Needs a person")), "{:?}", outcome.warnings);
+    }
+
+    /// Issues and conflicts together go back to the Author, with the issues
+    /// to fix and the conflicting points to leave alone.
+    #[tokio::test]
+    async fn a_review_mixing_issues_and_conflicts_tells_the_author_to_leave_the_conflicts() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            conflict_review_turn("The footer is missing.", one_conflict()),
+            text_turn("FIXED"),
+        ]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await.unwrap();
+
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer", "Author"]);
+        let fix_system = turn_system(&model.requests()[2]);
+        assert!(fix_system.contains("The footer is missing."), "{fix_system}");
+        assert!(fix_system.contains("RULE CONFLICTS — do NOT change these points"), "{fix_system}");
+        assert!(fix_system.contains("sub-headings-are-title-draws vs 2943a027 at /body/0"), "{fix_system}");
+        assert!(!outcome.warnings.iter().any(|w| w.starts_with("Needs a person")), "{:?}", outcome.warnings);
+    }
+
+    /// Without conflicts the fix round is pinned the report unchanged.
+    #[test]
+    fn the_fix_round_review_is_the_report_alone_without_conflicts() {
+        let review = agent::ReviewResult { approved: false, report: "fix x".into(), rule_conflicts: Vec::new() };
+        assert_eq!(fix_round_review(&review), "fix x");
+    }
+
+    /// `submit_review` records the conflicts it is given, refuses a malformed
+    /// one (rather than drop it silently) and refuses an approval that
+    /// carries any.
+    #[tokio::test]
+    async fn submit_review_records_rule_conflicts() {
+        let mut agent = buildable_agent(String::new());
+        let refused = agent
+            .execute("submit_review", &serde_json::json!({"approved": true, "report": "", "rule_conflicts": one_conflict()}))
+            .await;
+        assert!(matches!(&refused, ToolReply::Error(e) if e.contains("approved=false")), "{refused:?}");
+        let malformed = agent
+            .execute("submit_review", &serde_json::json!({"approved": false, "rule_conflicts": [{"rules": ["a"], "path": "/x", "why": "w"}]}))
+            .await;
+        assert!(matches!(&malformed, ToolReply::Error(e) if e.contains("rule_conflicts[0]")), "{malformed:?}");
+        assert!(agent.take_review().is_none(), "a refused call records nothing");
+
+        let recorded = agent
+            .execute("submit_review", &serde_json::json!({"approved": false, "report": "", "rule_conflicts": one_conflict()}))
+            .await;
+        assert!(matches!(&recorded, ToolReply::Text(t) if t.contains("handing the form to a person")), "{recorded:?}");
+        let review = agent.take_review().expect("recorded");
+        assert!(review.needs_operator());
+        assert_eq!(review.rule_conflicts[0].rules, ["sub-headings-are-title-draws", "2943a027"]);
     }
 
     /// The run's final spend has to be every stage's usage summed — the
@@ -2543,6 +2875,346 @@ mod controller {
         assert_eq!(repaired.len(), 3, "{repaired:?}");
         let Message::User { content } = &repaired[2] else { panic!("{repaired:?}") };
         assert_eq!(content.len(), 2, "one result per call, none duplicated: {content:?}");
+    }
+
+    /// A run's trace has everything the analysis needs: every stage opened
+    /// and closed with how it ended, every turn with its tool calls' full
+    /// arguments, every tool call paired start to finish, and the Reviewer's
+    /// verdict with its report.
+    #[tokio::test]
+    async fn a_run_traces_every_stage_turn_and_tool_call() {
+        let model = MockCompletionModel::from_stream_turns([
+            vec![
+                MockStreamEvent::tool_call("call-1", "get_source_info", serde_json::json!({"page": 2})),
+                MockStreamEvent::final_response(Usage::new()),
+            ],
+            text_turn("BUILT"),
+            review_turn(false, "The footer is missing."),
+            text_turn("FIXED"),
+        ]);
+        let (obs, rec) = recorder();
+
+        run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
+
+        let rec = rec.lock().unwrap();
+        let started: Vec<&str> = rec
+            .traces
+            .iter()
+            .filter_map(|t| match t {
+                TraceEvent::StageStarted { stage, system_prompt, seed_message, .. } => {
+                    assert!(!system_prompt.is_empty(), "the stage's prompt is traced in full");
+                    assert!(!seed_message.is_empty());
+                    Some(stage.as_str())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(started, ["Author", "Reviewer", "Author"]);
+        assert_eq!(
+            rec.stage_ends(),
+            [
+                ("Author".to_string(), StageEnd::Finished),
+                ("Reviewer".to_string(), StageEnd::ReviewSubmitted),
+                ("Author".to_string(), StageEnd::Finished),
+            ]
+        );
+
+        let author_turns: Vec<(usize, Vec<String>)> = rec
+            .traces
+            .iter()
+            .filter_map(|t| match t {
+                TraceEvent::TurnFinished { stage, turn, tool_calls, .. } if stage == "Author" => {
+                    Some((*turn, tool_calls.iter().map(|c| c.args.to_string()).collect()))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            author_turns[..2],
+            [(1, vec![r#"{"page":2}"#.to_string()]), (2, vec![])],
+            "turns are numbered within the stage and carry their calls' full arguments"
+        );
+
+        let tool_started = rec.traces.iter().find_map(|t| match t {
+            TraceEvent::ToolStarted { name, args, turn, call_id, .. } if name == "get_source_info" => {
+                Some((args.clone(), *turn, call_id.clone()))
+            }
+            _ => None,
+        });
+        let (args, turn, call_id) = tool_started.expect("the tool call is traced when it starts");
+        assert_eq!(args, serde_json::json!({"page": 2}));
+        assert_eq!(turn, 1, "a call belongs to the turn that asked for it");
+        let finished = rec.traces.iter().any(|t| {
+            matches!(t, TraceEvent::ToolFinished { call_id: id, name, result_hash, .. }
+                if *id == call_id && name == "get_source_info" && result_hash.len() == 16)
+        });
+        assert!(finished, "the call's finish pairs with its start by id");
+
+        assert_eq!(
+            rec.verdicts(),
+            [(1, Some(false), "The footer is missing.".to_string())],
+            "the verdict is traced with its round and report"
+        );
+    }
+
+    /// A Reviewer that ends without `submit_review` gave no verdict — traced
+    /// as such, not as a rejection, so an analysis never counts a Reviewer
+    /// that ran out of budget as one that found problems.
+    #[tokio::test]
+    async fn a_review_round_without_a_verdict_is_traced_as_none() {
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            text_turn("I looked at it."),
+        ]);
+        let (obs, rec) = recorder();
+
+        run(bare_agent(), config(AbortFlag::default(), 1, model), RunSeed::Fresh, obs).await;
+
+        assert_eq!(rec.lock().unwrap().verdicts(), [(1, None, String::new())]);
+    }
+
+    /// A role scoped like the Author whose stuck watch is on `get_source_info`,
+    /// which answers identically on an unchanged agent.
+    const STUCK_ON_SOURCE_INFO: Role = Role {
+        name: "Test",
+        scope: agent::scope::AEM_AUTHOR,
+        max_iterations: 10,
+        stuck_tool: Some("get_source_info"),
+        stuck_activity: "testing",
+        max_tokens_nudge: "nudge incrementally",
+        remember: true,
+        resume: true,
+    };
+
+    async fn traced_stage(
+        role: &'static Role,
+        turns: Vec<Vec<MockStreamEvent>>,
+        abort: AbortFlag,
+    ) -> Arc<Mutex<Recorder>> {
+        let (obs, rec) = recorder_with_answer(RetryAction::Cancel);
+        run_stage(
+            &bare_agent(),
+            role,
+            "system prompt",
+            "seed",
+            &abort,
+            ModelHandle::new(MockCompletionModel::from_stream_turns(turns)),
+            no_price(),
+            4096,
+            no_budget(),
+            &obs,
+            &mut Spend::default(),
+        )
+        .await;
+        rec
+    }
+
+    fn last_end(rec: &Arc<Mutex<Recorder>>) -> StageEnd {
+        rec.lock().unwrap().stage_ends().last().expect("the stage was closed").1.clone()
+    }
+
+    fn control_kinds(rec: &Arc<Mutex<Recorder>>) -> Vec<ControlKind> {
+        rec.lock().unwrap().controls().into_iter().map(|(k, _)| k).collect()
+    }
+
+    #[tokio::test]
+    async fn the_stuck_watch_is_traced_as_a_stuck_stage() {
+        let repeat = || {
+            vec![
+                MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::final_response(Usage::new()),
+            ]
+        };
+        let rec = traced_stage(
+            &STUCK_ON_SOURCE_INFO,
+            std::iter::repeat_with(repeat).take(10).collect(),
+            AbortFlag::default(),
+        )
+        .await;
+        assert_eq!(control_kinds(&rec), [ControlKind::StuckStop]);
+        assert_eq!(last_end(&rec), StageEnd::Stuck);
+    }
+
+    /// A transient failure is traced twice: the failed request with how long
+    /// it took, then the automatic retry — and the retry is a second attempt.
+    #[tokio::test]
+    async fn a_transient_failure_is_traced_as_a_failed_request_and_a_retry() {
+        let rec = traced_stage(
+            &TINY_BUDGET,
+            vec![
+                // `retry-after: 0` so the test does not sleep through a backoff.
+                error_turn("overloaded [retry-after: 0]"),
+                text_turn("DONE"),
+            ],
+            AbortFlag::default(),
+        )
+        .await;
+        let rec_guard = rec.lock().unwrap();
+        let failed: Vec<(usize, usize, String)> = rec_guard
+            .traces
+            .iter()
+            .filter_map(|t| match t {
+                TraceEvent::RequestFailed { attempt, turn, error, .. } => Some((*attempt, *turn, error.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert_eq!((failed[0].0, failed[0].1), (1, 1));
+        assert!(failed[0].2.contains("overloaded"), "{failed:?}");
+        let attempts = rec_guard
+            .traces
+            .iter()
+            .filter(|t| matches!(t, TraceEvent::AttemptStarted { .. }))
+            .count();
+        assert_eq!(attempts, 2);
+        drop(rec_guard);
+        assert_eq!(control_kinds(&rec), [ControlKind::TransientRetry]);
+        assert_eq!(last_end(&rec), StageEnd::Finished);
+    }
+
+    #[tokio::test]
+    async fn a_call_to_a_tool_the_stage_does_not_have_is_traced() {
+        let rec = traced_stage(
+            &TINY_BUDGET,
+            vec![
+                vec![
+                    MockStreamEvent::tool_call("call", "no_such_tool", serde_json::json!({"x": 1})),
+                    MockStreamEvent::final_response(Usage::new()),
+                ],
+                text_turn("DONE"),
+            ],
+            AbortFlag::default(),
+        )
+        .await;
+        let controls = rec.lock().unwrap().controls();
+        assert_eq!(controls.len(), 1, "{controls:?}");
+        assert_eq!(controls[0].0, ControlKind::InvalidToolCall);
+        assert!(controls[0].1.contains("no_such_tool"), "{controls:?}");
+    }
+
+    #[tokio::test]
+    async fn a_truncated_turn_is_traced_as_a_nudge() {
+        use rig_core::completion::FinishReason;
+        use rig_core::streaming::StreamFinal;
+        let truncated = vec![
+            MockStreamEvent::text("partial…"),
+            MockStreamEvent::FinalResponse(
+                StreamFinal::new(rig_core::test_utils::MOCK_PROVIDER, Usage::new())
+                    .with_finish_reason(FinishReason::Length),
+            ),
+        ];
+        let rec = traced_stage(&TINY_BUDGET, vec![truncated, text_turn("DONE")], AbortFlag::default()).await;
+        assert_eq!(control_kinds(&rec), [ControlKind::OutputCapNudge]);
+        let reasons: Vec<Option<String>> = rec
+            .lock()
+            .unwrap()
+            .traces
+            .iter()
+            .filter_map(|t| match t {
+                TraceEvent::TurnFinished { finish_reason, .. } => Some(finish_reason.clone()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(reasons.first(), Some(&Some("length".to_string())));
+    }
+
+    #[tokio::test]
+    async fn an_aborted_stage_is_traced_as_aborted() {
+        let abort = AbortFlag::default();
+        abort.abort();
+        let rec = traced_stage(&TINY_BUDGET, vec![], abort).await;
+        assert_eq!(control_kinds(&rec), [ControlKind::Aborted]);
+        assert_eq!(last_end(&rec), StageEnd::Aborted);
+    }
+
+    /// A restart is the second attempt of the same stage, numbered on from the
+    /// turn the failed attempt reached — and the operator's decision and the
+    /// exhausted budget that follow are traced as the control events they are.
+    #[tokio::test]
+    async fn a_restart_is_traced_as_a_second_attempt_continuing_the_turn_count() {
+        let tool_call_turn = || {
+            vec![
+                MockStreamEvent::tool_call("call", "get_source_info", serde_json::json!({})),
+                MockStreamEvent::final_response(Usage::new()),
+            ]
+        };
+        let model = MockCompletionModel::from_stream_turns([
+            tool_call_turn(),
+            vec![MockStreamEvent::error("Anthropic API error (400 Bad Request)")],
+            tool_call_turn(),
+        ]);
+        let (obs, rec) = recorder_with_answer(RetryAction::Retry);
+
+        run_stage(
+            &bare_agent(),
+            &TINY_BUDGET,
+            "system prompt",
+            "seed",
+            &AbortFlag::default(),
+            ModelHandle::new(model.clone()),
+            no_price(),
+            4096,
+            no_budget(),
+            &obs,
+            &mut Spend::default(),
+        )
+        .await;
+
+        let rec = rec.lock().unwrap();
+        let attempts: Vec<(usize, usize)> = rec
+            .traces
+            .iter()
+            .filter_map(|t| match t {
+                TraceEvent::AttemptStarted { attempt, history_messages, .. } => Some((*attempt, *history_messages)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(attempts.len(), 2, "{attempts:?}");
+        assert_eq!(attempts[0], (1, 0));
+        assert!(attempts[1].1 > 0, "the restart resumes from the failed attempt's history");
+
+        let turns: Vec<(usize, usize)> = rec
+            .traces
+            .iter()
+            .filter_map(|t| match t {
+                TraceEvent::TurnFinished { attempt, turn, .. } => Some((*attempt, *turn)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(turns, [(1, 1), (2, 2)], "turn numbers continue across the restart");
+
+        let kinds: Vec<ControlKind> = rec.controls().into_iter().map(|(k, _)| k).collect();
+        assert_eq!(
+            kinds,
+            [
+                ControlKind::OperatorPrompt,
+                ControlKind::OperatorRetried,
+                ControlKind::TurnBudgetExhausted
+            ]
+        );
+        match rec.traces.last() {
+            Some(TraceEvent::StageFinished { ended, turns, attempts, .. }) => {
+                assert_eq!(*ended, StageEnd::TurnBudgetExhausted);
+                assert_eq!((*turns, *attempts), (2, 2));
+            }
+            other => panic!("the stage's last trace event closes it: {other:?}"),
+        }
+    }
+
+    /// Giving up at the retry prompt ends the stage as given up, not as an
+    /// abort: the difference between "the operator stopped it" and "the API
+    /// kept failing" is what an analysis of a failed run needs first.
+    #[tokio::test]
+    async fn giving_up_is_traced_as_giving_up() {
+        let model = MockCompletionModel::from_stream_turns([error_turn("Anthropic API error (400 Bad Request)")]);
+        let (obs, rec) = recorder_with_answer(RetryAction::Cancel);
+
+        run(bare_agent(), config(AbortFlag::default(), 1, model), RunSeed::Fresh, obs).await;
+
+        assert_eq!(
+            rec.lock().unwrap().stage_ends(),
+            [("Author".to_string(), StageEnd::GaveUp)]
+        );
     }
 
     /// The whole point of wiring `SqliteConversationMemory` in

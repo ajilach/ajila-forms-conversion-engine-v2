@@ -5,13 +5,17 @@
 //! at the end of a run, from one last verification of the build that ships,
 //! before the controller tears the verifier down. The source side can be
 //! rendered at any time from the source bytes ([`render_sources`]).
+//!
+//! It also holds what the Reviewer hands a person rather than the Author: a
+//! [`RuleConflict`], a place where two rules ask for opposite things, which
+//! no fix round can settle.
 
 use std::path::{Path, PathBuf};
 
 use serde_json::{Value, json};
 use u2s_render_core::{ImageFormat, Limits, RenderError, RenderedPage, RenderedPages};
 
-use crate::{ConversionAgent, OutputTarget, ToolReply};
+use crate::{ConversionAgent, OutputTarget, ReviewResult, ToolReply};
 
 /// The resolution pages are rendered at: sharp enough to read a form's small
 /// print side by side, small enough that a long form stays a few megabytes.
@@ -250,11 +254,175 @@ fn labelled(label: &str, pages: Vec<RenderedPage>) -> Vec<ReviewImage> {
         .collect()
 }
 
+/// A place where rules contradict each other: whatever the Author does
+/// there, one of them breaks. Only a person (whoever owns the rules) can
+/// settle it, so the Reviewer reports it with `submit_review`'s
+/// `rule_conflicts` instead of sending it back as an issue.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuleConflict {
+    /// The ids of the rules involved, at least two.
+    pub rules: Vec<String>,
+    /// The JSON Pointer of the node they disagree about.
+    pub path: String,
+    /// What each rule asks for there.
+    pub why: String,
+}
+
+impl std::fmt::Display for RuleConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} at {}: {}", self.rules.join(" vs "), self.path, self.why)
+    }
+}
+
+/// The `rule_conflicts` of a `submit_review` call: none when the argument is
+/// absent or null, an error naming the bad entry when one is malformed, so the
+/// Reviewer can correct the call rather than have a conflict silently dropped.
+pub fn rule_conflicts_of(input: &Value) -> Result<Vec<RuleConflict>, String> {
+    let entries = match &input["rule_conflicts"] {
+        Value::Null => return Ok(Vec::new()),
+        Value::Array(entries) => entries,
+        _ => return Err("rule_conflicts must be an array of {rules, path, why}".into()),
+    };
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let text = |field: &str| entry[field].as_str().map(str::trim).filter(|t| !t.is_empty());
+            let rules: Vec<String> = entry["rules"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|rule| rule.as_str().map(str::trim).filter(|r| !r.is_empty()))
+                .map(String::from)
+                .collect();
+            match (rules.len() >= 2, text("path"), text("why")) {
+                (true, Some(path), Some(why)) => Ok(RuleConflict {
+                    rules,
+                    path: path.to_string(),
+                    why: why.to_string(),
+                }),
+                _ => Err(format!(
+                    "rule_conflicts[{index}] needs `rules` (the ids of at least two rules), `path` (the \
+                     node's JSON Pointer) and `why` (what each rule asks for there)"
+                )),
+            }
+        })
+        .collect()
+}
+
+/// A bullet per conflict.
+pub fn conflict_list(conflicts: &[RuleConflict]) -> String {
+    conflicts.iter().map(|c| format!("- {c}")).collect::<Vec<_>>().join("\n")
+}
+
+/// The heading [`crate::REVIEWER_ADDENDUM`] has engine defects reported under.
+const ENGINE_DEFECTS: &str = "ENGINE DEFECTS";
+
+impl ReviewResult {
+    /// Whether the report asks the Author for anything. A blank report asks
+    /// for nothing, and so does one that only lists engine defects: those are
+    /// for the people who maintain the engine, not for a fix round.
+    pub fn has_authorable_issues(&self) -> bool {
+        let report = self.report.trim_start_matches(|c: char| c.is_whitespace() || matches!(c, '#' | '*' | '_' | '-'));
+        !report.is_empty() && !report.to_ascii_uppercase().starts_with(ENGINE_DEFECTS)
+    }
+
+    /// Whether only rule conflicts stand between the form and approval: a fix
+    /// round could not change that, so the run stops for a person instead.
+    pub fn needs_operator(&self) -> bool {
+        !self.approved && !self.rule_conflicts.is_empty() && !self.has_authorable_issues()
+    }
+
+    /// The verdict as the run's trace records it: the report, then the
+    /// conflicts for a person.
+    pub fn trace_report(&self) -> String {
+        if self.rule_conflicts.is_empty() {
+            return self.report.clone();
+        }
+        let conflicts = format!("RULE CONFLICTS (for a person):\n{}", conflict_list(&self.rule_conflicts));
+        if self.report.trim().is_empty() {
+            conflicts
+        } else {
+            format!("{}\n\n{conflicts}", self.report.trim_end())
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+    fn review(approved: bool, report: &str, conflicts: usize) -> ReviewResult {
+        ReviewResult {
+            approved,
+            report: report.into(),
+            rule_conflicts: (0..conflicts)
+                .map(|i| RuleConflict {
+                    rules: vec![format!("rule-{i}"), "other".into()],
+                    path: format!("/form/children/{i}"),
+                    why: "they disagree".into(),
+                })
+                .collect(),
+        }
+    }
+
+    /// `rule_conflicts` is optional, and each entry needs two rules, a path
+    /// and a reason; a malformed one is an error naming it.
+    #[test]
+    fn rule_conflicts_are_read_from_submit_review() {
+        assert_eq!(rule_conflicts_of(&json!({ "approved": false })), Ok(Vec::new()));
+        assert_eq!(rule_conflicts_of(&json!({ "rule_conflicts": null })), Ok(Vec::new()));
+        let read = rule_conflicts_of(&json!({ "rule_conflicts": [
+            { "rules": ["sub-headings-are-title-draws", " 2943a027 "], "path": "/form/children/5/children/3", "why": "one asks for a title draw, the other forbids it" },
+        ] }))
+        .unwrap();
+        assert_eq!(
+            read,
+            [RuleConflict {
+                rules: vec!["sub-headings-are-title-draws".into(), "2943a027".into()],
+                path: "/form/children/5/children/3".into(),
+                why: "one asks for a title draw, the other forbids it".into(),
+            }]
+        );
+        assert_eq!(
+            read[0].to_string(),
+            "sub-headings-are-title-draws vs 2943a027 at /form/children/5/children/3: one asks for a title draw, the other forbids it"
+        );
+        let one_rule = json!({ "rule_conflicts": [
+            { "rules": ["a", "b"], "path": "/x", "why": "w" },
+            { "rules": ["a"], "path": "/x", "why": "w" },
+        ] });
+        assert!(rule_conflicts_of(&one_rule).unwrap_err().contains("rule_conflicts[1]"));
+        assert!(rule_conflicts_of(&json!({ "rule_conflicts": [{ "rules": ["a", "b"], "path": " ", "why": "w" }] })).is_err());
+        assert!(rule_conflicts_of(&json!({ "rule_conflicts": "a vs b" })).is_err());
+    }
+
+    /// Only conflicts, with nothing for the Author, need a person; a report
+    /// listing only engine defects asks the Author for nothing either.
+    #[test]
+    fn a_review_needs_an_operator_only_when_conflicts_are_all_that_is_left() {
+        assert!(review(false, "", 1).needs_operator());
+        assert!(review(false, "  \n", 2).needs_operator());
+        assert!(review(false, "## ENGINE DEFECTS\n- /form: fixed writer output", 1).needs_operator());
+        assert!(review(false, "**Engine defects**: none the author can fix", 1).needs_operator());
+        assert!(!review(false, "1. /form/children/2: label missing", 1).needs_operator(), "a mix goes back to the author");
+        assert!(!review(false, "", 0).needs_operator(), "no conflicts: an ordinary rejection");
+        assert!(!review(true, "", 1).needs_operator(), "an approval is never held for a person");
+    }
+
+    /// The trace keeps the report and adds the conflicts after it.
+    #[test]
+    fn the_traced_report_carries_the_conflicts() {
+        assert_eq!(review(false, "fix x", 0).trace_report(), "fix x");
+        assert_eq!(
+            review(false, "", 1).trace_report(),
+            "RULE CONFLICTS (for a person):\n- rule-0 vs other at /form/children/0: they disagree"
+        );
+        let mixed = review(false, "fix x\n", 1).trace_report();
+        assert!(mixed.starts_with("fix x\n\nRULE CONFLICTS"), "{mixed}");
+    }
 
     fn png_of(pixels: image::GrayImage) -> Vec<u8> {
         let mut png = std::io::Cursor::new(Vec::new());

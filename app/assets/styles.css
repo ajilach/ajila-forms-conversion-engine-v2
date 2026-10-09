@@ -634,9 +634,16 @@ body > div, #main {
 }
 
 .environment-banner-target ul {
+    flex: 1;
     margin: 0;
     padding-left: var(--space-4);
     overflow-wrap: anywhere;
+}
+
+/* "I don't use …": switches the target off, beside its problems. */
+.environment-banner-off {
+    align-self: flex-start;
+    white-space: nowrap;
 }
 
 /* ── Settings button in header ── */

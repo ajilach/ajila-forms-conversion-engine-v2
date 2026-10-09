@@ -31,6 +31,7 @@ use u2s_verify_core::docker::{DockerLifecycle, RegistryCredentials};
 use u2s_xfa_mcp::XfaDataServer;
 
 use crate::OutputTarget;
+use crate::container_engine::ContainerEngine;
 use crate::conversion::ToolReply;
 
 /// The server a u2s tool belongs to.
@@ -458,7 +459,10 @@ async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, No
     if !problems.is_empty() {
         return Err(NotReady(problems));
     }
-    Ok(format!("AEM image {AEM_IMAGE} ({image_state}), Docker reachable, pdfium loaded."))
+    Ok(format!(
+        "AEM image {AEM_IMAGE} ({image_state}), {} reachable, pdfium loaded.",
+        crate::container_engine::selected().label()
+    ))
 }
 
 /// Puts [`AEM_IMAGE`] on the Docker daemon, pulling it from GitHub's registry
@@ -468,7 +472,7 @@ async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, No
 pub async fn ensure_aem_image(settings: &AemVerifySettings) -> Result<String, String> {
     let docker = DockerLifecycle::connect()
         .await
-        .map_err(|e| format!("Docker is not reachable: {e}"))?;
+        .map_err(|e| format!("{}: {e}", crate::container_engine::unreachable_hint()))?;
     if docker
         .image_id(AEM_IMAGE)
         .await
@@ -587,7 +591,10 @@ async fn redacto_verify_readiness(settings: &RedactoVerifySettings) -> Result<St
         return Err(NotReady(problems));
     }
     let images = profile.map(|p| p.images.all().join(", ")).unwrap_or_default();
-    Ok(format!("Redacto platform images {images}, Docker reachable, pdfium loaded."))
+    Ok(format!(
+        "Redacto platform images {images}, {} reachable, pdfium loaded.",
+        crate::container_engine::selected().label()
+    ))
 }
 
 /// Pulls the images the verifiers run where they are missing: the AEM
@@ -613,7 +620,7 @@ pub async fn pull_verifier_images(
     let platform = optional(&aem.platform).unwrap_or_else(|| host_platform().into());
     let docker = DockerLifecycle::connect()
         .await
-        .map_err(|e| format!("Docker is not reachable: {e}"))?;
+        .map_err(|e| format!("{}: {e}", crate::container_engine::unreachable_hint()))?;
     let images = [chromium, redacto.postgres_image.trim().to_string()];
     for image in &images {
         docker
@@ -630,9 +637,15 @@ pub async fn pull_verifier_images(
 
 async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> {
     match DockerLifecycle::connect().await {
-        Ok(docker) if docker.is_reachable().await => Some(docker),
+        Ok(docker) if docker.is_reachable().await => {
+            problems.extend(crate::container_engine::problems());
+            Some(docker)
+        }
         Ok(_) | Err(_) => {
-            problems.push("Docker is not reachable; start Docker Desktop or the Docker daemon".into());
+            problems.extend(crate::container_engine::problems());
+            if problems.is_empty() {
+                problems.push(crate::container_engine::unreachable_hint());
+            }
             None
         }
     }
@@ -642,47 +655,75 @@ async fn image_problem(docker: &DockerLifecycle, image: &str, problems: &mut Vec
     match docker.image_id(image).await {
         Ok(Some(_)) => {}
         Ok(None) => {
-            let config = docker_config_path().and_then(|path| std::fs::read_to_string(path).ok());
-            problems.push(missing_image_problem(image, config.as_deref()));
+            let engine = crate::container_engine::selected();
+            let configs: Vec<String> = registry_config_paths(engine)
+                .into_iter()
+                .filter_map(|path| std::fs::read_to_string(path).ok())
+                .collect();
+            let configs: Vec<&str> = configs.iter().map(String::as_str).collect();
+            problems.push(missing_image_problem(engine, image, &configs));
         }
         Err(e) => problems.push(format!("could not look up the image {image}: {e}")),
     }
 }
 
-/// The Docker CLI's config file, where `docker login` and `az acr login`
-/// record a registry.
-fn docker_config_path() -> Option<PathBuf> {
-    match std::env::var_os("DOCKER_CONFIG") {
+/// The files the selected engine's CLI records registry logins in, most
+/// specific first. Docker's is its `config.json` (`docker login`, `az acr
+/// login`). Podman writes its own `auth.json` (`$REGISTRY_AUTH_FILE`, else
+/// `$XDG_RUNTIME_DIR/containers/auth.json` on Linux, else
+/// `~/.config/containers/auth.json`) and also reads Docker's, so both count.
+fn registry_config_paths(engine: ContainerEngine) -> Vec<PathBuf> {
+    let docker = match std::env::var_os("DOCKER_CONFIG") {
         Some(dir) => Some(PathBuf::from(dir).join("config.json")),
         None => dirs::home_dir().map(|home| home.join(".docker/config.json")),
-    }
+    };
+    let podman = match engine {
+        ContainerEngine::Docker => Vec::new(),
+        ContainerEngine::Podman => {
+            let explicit = std::env::var_os("REGISTRY_AUTH_FILE").map(PathBuf::from);
+            let runtime = std::env::var_os("XDG_RUNTIME_DIR")
+                .map(|dir| PathBuf::from(dir).join("containers/auth.json"));
+            let home = dirs::home_dir().map(|home| home.join(".config/containers/auth.json"));
+            [explicit, runtime, home].into_iter().flatten().collect()
+        }
+    };
+    podman.into_iter().chain(docker).collect()
 }
 
 /// What to do about an image other than [`AEM_IMAGE`] that is not present
-/// locally. A run does not pull these, so whether the registry is logged in
-/// matters only here; `docker_config` is
-/// the Docker CLI's config file, if there is one.
-fn missing_image_problem(image: &str, docker_config: Option<&str>) -> String {
+/// locally, in the words of the selected `engine`'s CLI. A run does not pull
+/// these, so whether the registry is logged in matters only here;
+/// `registry_configs` are the contents of the files that CLI records logins
+/// in ([`registry_config_paths`]).
+fn missing_image_problem(engine: ContainerEngine, image: &str, registry_configs: &[&str]) -> String {
+    let cli = engine.as_str();
     let Some(registry) = registry_of(image) else {
         return format!(
             "the image {image} is not present locally and names no registry: pull it from Docker \
-             Hub with `docker pull {image}` (Settings > Pull images pulls the public ones), or \
+             Hub with `{cli} pull {image}` (Settings > Pull images pulls the public ones), or \
              tag a locally built image with this name"
         );
     };
-    let login = match registry.strip_suffix(".azurecr.io") {
-        Some(name) => format!("az acr login --name {name}"),
-        None => format!("docker login {registry}"),
+    let login = match (registry.strip_suffix(".azurecr.io"), engine) {
+        (Some(name), ContainerEngine::Docker) => format!("az acr login --name {name}"),
+        // `az acr login` logs in through the Docker CLI; Podman takes the
+        // registry's token on stdin instead.
+        (Some(name), ContainerEngine::Podman) => format!(
+            "az acr login --name {name} --expose-token --query accessToken -o tsv | podman login \
+             {registry} -u 00000000-0000-0000-0000-000000000000 --password-stdin"
+        ),
+        (None, _) => format!("{cli} login {registry}"),
     };
-    if docker_config.is_some_and(|config| logged_in(config, registry)) {
+    if registry_configs.iter().any(|config| logged_in(config, registry)) {
         format!(
-            "the image {image} is not present locally; pull it with `docker pull {image}` (if \
+            "the image {image} is not present locally; pull it with `{cli} pull {image}` (if \
              {registry} refuses, the login expired: run `{login}` again)"
         )
     } else {
         format!(
-            "the image {image} is not present locally, and Docker is not logged in to \
-             {registry}: run `{login}`, then `docker pull {image}`"
+            "the image {image} is not present locally, and {} is not logged in to \
+             {registry}: run `{login}`, then `{cli} pull {image}`",
+            engine.label()
         )
     }
 }
@@ -1504,18 +1545,40 @@ mod tests {
     #[test]
     fn a_missing_private_image_says_how_to_log_in_and_pull() {
         let image = "ajilaclouddev.azurecr.io/redacto/core:1.2";
-        let logged_out = missing_image_problem(image, None);
-        assert!(logged_out.contains("not logged in to ajilaclouddev.azurecr.io"), "{logged_out}");
-        assert!(logged_out.contains("az acr login --name ajilaclouddev"), "{logged_out}");
+        let logged_out = missing_image_problem(ContainerEngine::Docker, image, &[]);
+        assert!(logged_out.contains("Docker is not logged in to ajilaclouddev.azurecr.io"), "{logged_out}");
+        assert!(logged_out.contains("az acr login --name ajilaclouddev`"), "{logged_out}");
         assert!(logged_out.contains(&format!("docker pull {image}")), "{logged_out}");
 
         let config = r#"{"auths": {"ajilaclouddev.azurecr.io": {}}}"#;
-        let logged_in = missing_image_problem(image, Some(config));
+        let logged_in = missing_image_problem(ContainerEngine::Docker, image, &["not json", config]);
         assert!(!logged_in.contains("not logged in"), "{logged_in}");
         assert!(logged_in.contains(&format!("docker pull {image}")), "{logged_in}");
 
-        let public = missing_image_problem("postgres:16", None);
+        let public = missing_image_problem(ContainerEngine::Docker, "postgres:16", &[]);
         assert!(!public.contains("login"), "{public}");
+    }
+
+    /// Under Podman the hint names Podman and its commands, never Docker's:
+    /// `az acr login` alone would log the Docker CLI in, not Podman.
+    #[test]
+    fn a_missing_image_under_podman_says_podman() {
+        let image = "ajilaclouddev.azurecr.io/redacto/core:1.2";
+        let logged_out = missing_image_problem(ContainerEngine::Podman, image, &[]);
+        assert!(logged_out.contains("Podman is not logged in to ajilaclouddev.azurecr.io"), "{logged_out}");
+        assert!(logged_out.contains("--expose-token"), "{logged_out}");
+        assert!(logged_out.contains("podman login ajilaclouddev.azurecr.io"), "{logged_out}");
+        assert!(logged_out.contains(&format!("podman pull {image}")), "{logged_out}");
+        assert!(!logged_out.contains("docker"), "{logged_out}");
+        assert!(!logged_out.contains("Docker"), "{logged_out}");
+
+        let auth = r#"{"auths": {"ajilaclouddev.azurecr.io": {"auth": "eDp5"}}}"#;
+        let logged_in = missing_image_problem(ContainerEngine::Podman, image, &[auth]);
+        assert!(!logged_in.contains("not logged in"), "{logged_in}");
+        assert!(logged_in.contains(&format!("podman pull {image}")), "{logged_in}");
+
+        let public = missing_image_problem(ContainerEngine::Podman, "postgres:16", &[]);
+        assert!(public.contains("podman pull postgres:16"), "{public}");
     }
 
     /// The two verifiers share tool names upstream; here each family carries

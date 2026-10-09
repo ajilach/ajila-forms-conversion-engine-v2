@@ -32,8 +32,13 @@ person block, IBAN) and each Fragment against the source.
 
 A break is a standard section built from loose fields where a fragment exists, a Fragment (or a
 Fragment's children) for a block the source does not have, a fragment whose path does not exist in
-the library, or a person block that is not a partner generic.
+the library, or a person block that is not a partner generic in a form with a configurator.
 
 Fix: replace the hand-built section with a Fragment of the matching path; delete a Fragment for a
 block the source does not have; delete the children a Fragment was given.
+
+Precedence: ubs-aem-account-holder-cluster wins over this rule. In a form with NO configurator
+there is no partner generic: a person block (a representative, a person being legitimised) is
+plain fields read from the source, and that is not a break here. The other standard sections
+(signature, a loose address, IBAN, internal bank use) are still fragments.
 """

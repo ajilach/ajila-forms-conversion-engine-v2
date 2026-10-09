@@ -81,7 +81,30 @@ pub struct AppSettings {
     /// system prompt. Empty = none.
     #[serde(default)]
     pub agent_instructions: String,
+    /// Whether every run is recorded for analysis: a folder per run with a
+    /// report, a timeline, per-stage transcripts and the full trace (see
+    /// [`crate::analysis`]). Off unless switched on.
+    #[serde(default)]
+    pub run_analysis: bool,
+    /// Where those folders go. Empty = `run-analysis/` in the engine's checkout
+    /// (see [`crate::analysis::default_root`]).
+    #[serde(default)]
+    pub run_analysis_dir: String,
+    /// The container engine the verifiers run on: Docker unless switched to
+    /// Podman. Read once at start (see [`agent::container_engine::select`]), so
+    /// a change takes effect on the next start.
+    #[serde(default)]
+    pub container_engine: agent::container_engine::ContainerEngine,
+    /// Output targets the operator does not use. A switched-off target is not
+    /// offered in the app's Output picker and is left out of the readiness
+    /// check and its banner, so a machine without, say, the Redacto images is
+    /// not reported as unfinished. It is never a way to run a target
+    /// unverified: a target that is offered is checked before every run.
+    /// Empty (every target on) unless switched; never holds every target.
+    #[serde(default)]
+    pub disabled_targets: Vec<agent::OutputTarget>,
 }
+
 
 /// Requests in flight per endpoint. Three keeps several conversions moving
 /// without making a shared rate limit the bottleneck.
@@ -104,6 +127,10 @@ impl Default for AppSettings {
             redacto_verify: agent::u2s::RedactoVerifySettings::default(),
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
+            run_analysis: false,
+            run_analysis_dir: String::new(),
+            container_engine: agent::container_engine::ContainerEngine::default(),
+            disabled_targets: Vec::new(),
         }
     }
 }
@@ -140,6 +167,37 @@ impl AppSettings {
         }
     }
 
+    /// Whether `target` is offered: not switched off in the settings.
+    pub fn target_enabled(&self, target: agent::OutputTarget) -> bool {
+        !self.disabled_targets.contains(&target)
+    }
+
+    /// The targets that are offered, in [`agent::OutputTarget::ALL`] order.
+    pub fn enabled_targets(&self) -> Vec<agent::OutputTarget> {
+        agent::OutputTarget::ALL
+            .into_iter()
+            .filter(|&target| self.target_enabled(target))
+            .collect()
+    }
+
+    /// Switch `target` on or off. Switching off the last target that is on is
+    /// refused, since a machine that offers no output cannot convert anything;
+    /// returns whether the settings changed.
+    pub fn set_target_enabled(&mut self, target: agent::OutputTarget, enabled: bool) -> bool {
+        if enabled == self.target_enabled(target) {
+            return false;
+        }
+        if enabled {
+            self.disabled_targets.retain(|&t| t != target);
+        } else {
+            if self.enabled_targets().len() <= 1 {
+                return false;
+            }
+            self.disabled_targets.push(target);
+        }
+        true
+    }
+
     /// Coerce missing/zero values to their real defaults. Guards against configs
     /// saved before these fields had sensible defaults (where a `0` would
     /// otherwise show in the UI and read as "off").
@@ -159,6 +217,14 @@ impl AppSettings {
         // Settings saved before the provider switch existed carry no base URL.
         if self.openai_base_url.trim().is_empty() {
             self.openai_base_url = d.openai_base_url;
+        }
+
+        // Every target switched off (a hand-edited file) would leave nothing to
+        // convert to: offer them all again rather than a dead app.
+        self.disabled_targets.sort_by_key(|t| t.as_str());
+        self.disabled_targets.dedup();
+        if self.enabled_targets().is_empty() {
+            self.disabled_targets.clear();
         }
     }
 
@@ -248,5 +314,43 @@ mod tests {
         assert_eq!(settings.llm_provider, Provider::Anthropic);
         assert_eq!(settings.openai_base_url, DEFAULT_OPENAI_BASE_URL);
         assert_eq!(settings.llm_endpoint().api_key, "k");
+    }
+
+    /// Switching a target off and on round-trips through the saved JSON, and
+    /// the last target that is on cannot be switched off.
+    #[test]
+    fn a_target_can_be_switched_off_but_never_the_last_one() {
+        use agent::OutputTarget::{Aem, Redacto};
+        let mut settings = AppSettings::default();
+        assert_eq!(settings.enabled_targets(), vec![Aem, Redacto]);
+
+        assert!(settings.set_target_enabled(Redacto, false));
+        assert!(!settings.target_enabled(Redacto));
+        assert_eq!(settings.enabled_targets(), vec![Aem]);
+        assert!(!settings.set_target_enabled(Aem, false), "the last target stays on");
+        assert!(settings.target_enabled(Aem));
+
+        let json = serde_json::to_string(&settings).unwrap();
+        assert!(json.contains(r#""disabled_targets":["redacto"]"#), "{json}");
+        let loaded: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(loaded.enabled_targets(), vec![Aem]);
+
+        assert!(settings.set_target_enabled(Redacto, true));
+        assert_eq!(settings.enabled_targets(), vec![Aem, Redacto]);
+        assert!(!settings.set_target_enabled(Redacto, true), "already on");
+    }
+
+    /// Settings saved before the switch existed offer every target, and a file
+    /// that switches every target off is read as switching none off.
+    #[test]
+    fn old_or_inconsistent_settings_offer_every_target() {
+        let old: AppSettings = serde_json::from_str(r#"{"anthropic_api_key":"k"}"#).unwrap();
+        assert_eq!(old.enabled_targets(), agent::OutputTarget::ALL.to_vec());
+
+        let mut all_off: AppSettings =
+            serde_json::from_str(r#"{"disabled_targets":["aem","redacto","redacto"]}"#).unwrap();
+        all_off.normalize();
+        assert!(all_off.disabled_targets.is_empty());
+        assert_eq!(all_off.enabled_targets(), agent::OutputTarget::ALL.to_vec());
     }
 }

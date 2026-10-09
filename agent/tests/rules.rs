@@ -104,6 +104,14 @@ fn violations(rule: &str, doc: &Value) -> Vec<String> {
         .collect()
 }
 
+fn messages(rule: &str, doc: &Value) -> Vec<String> {
+    check(rule, doc)
+        .violations
+        .into_iter()
+        .map(|v| v.message)
+        .collect()
+}
+
 #[test]
 fn a_panel_without_its_prefix_is_named_wrong() {
     let base = golden("AAEV_019_EN");
@@ -328,6 +336,31 @@ fn angle_brackets_that_are_not_tags_are_not_markup() {
 
 /// A checkbox may leave its label to its option, but only in a language the
 /// option is written in.
+/// The precedence over verbatim-source-text: an input the source gives no caption still has a
+/// label, the nearest source text without its brackets, and the check says where to find it.
+#[test]
+fn an_input_without_a_source_caption_takes_the_nearest_source_text() {
+    let base = golden("AAEV_019_EN");
+    let page = first_panel(&base);
+    let doc = aaev_with(&format!("{page}/children"), json!([text_field("TXTM_Statement", "", None)]));
+    let said = messages("input-labels", &doc);
+    assert_eq!(said.len(), 1);
+    assert!(said[0].contains("nearest source text"), "{}", said[0]);
+
+    // The option's text with its brackets dropped is a label; the bracketed text is not.
+    let doc = aaev_with(
+        &format!("{page}/children"),
+        json!([text_field("TXTM_Statement", "s. unten stehende Erklärung", None)]),
+    );
+    assert!(violations("input-labels", &doc).is_empty());
+    let doc = aaev_with(
+        &format!("{page}/children"),
+        json!([text_field("TXTM_Statement", "(s. unten stehende Erklärung)", None)]),
+    );
+    assert_eq!(violations("input-labels", &doc), vec![format!("{page}/children/0/label/en")]);
+    assert!(!messages("input-labels", &doc)[0].contains("nearest source text"));
+}
+
 #[test]
 fn a_checkbox_option_speaks_only_for_its_own_language() {
     let checkbox = json!({
@@ -1019,6 +1052,36 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
             "/form/children/0/children/1/content/en".to_string()
         ]
     );
+}
+
+/// The precedence over sub-headings-are-title-draws: "UBS Europe SE" heading the bank's
+/// signature block is that signature Repeatable's title, never a draw, and the check says so.
+#[test]
+fn the_banks_signature_heading_is_its_repeatables_title_not_a_draw() {
+    let signature = || fragment("PN_SGN_UBS", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1");
+    let titled = doc_with(vec![
+        page("PN_A", "A", vec![preface()]),
+        page("PN_SIG", "Signature(s)", vec![repeatable("RCP_SGN_UBS", "UBS Europe SE", vec![signature()])]),
+    ]);
+    assert!(violations("banking-relationship-present", &titled).is_empty());
+
+    let drawn = doc_with(vec![
+        page("PN_A", "A", vec![preface()]),
+        page(
+            "PN_SIG",
+            "Signature(s)",
+            vec![
+                draw("TitleDraw", "TTL_UBSEuropeSE", "UBS Europe SE"),
+                repeatable("RCP_SGN_UBS", "", vec![signature()]),
+            ],
+        ),
+    ]);
+    assert_eq!(
+        violations("banking-relationship-present", &drawn),
+        vec!["/form/children/1/children/0/content/en".to_string()]
+    );
+    let said = messages("banking-relationship-present", &drawn);
+    assert!(said[0].contains("signature Repeatable's `title`"), "{}", said[0]);
 }
 
 #[test]

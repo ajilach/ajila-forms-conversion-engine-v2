@@ -256,6 +256,35 @@ pub fn SettingsPage(
 
                     SettingsTab::Aem => rsx! {
                         div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Output formats" }
+                            ToggleRow {
+                                label: "AEM Adaptive Form",
+                                desc: "Offer AEM as an output and check this machine for its verifier (the AEM image and data volume). At least one format stays on.",
+                                checked: s.target_enabled(agent::OutputTarget::Aem),
+                                on_toggle: move |v: bool| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.set_target_enabled(agent::OutputTarget::Aem, v);
+                                            }),
+                                        )
+                                },
+                            }
+                            ToggleRow {
+                                label: "Redacto Document",
+                                desc: "Offer Redacto as an output and check this machine for its verifier (the Redacto platform images). Switch it off when you do not convert to Redacto, and the readiness banner stops asking for its images.",
+                                checked: s.target_enabled(agent::OutputTarget::Redacto),
+                                on_toggle: move |v: bool| {
+                                    update
+                                        .call(
+                                            Box::new(move |s| {
+                                                s.set_target_enabled(agent::OutputTarget::Redacto, v);
+                                            }),
+                                        )
+                                },
+                            }
+                        }
+                        div { class: "settings-section",
                             h3 { class: "settings-section-title", "AEM verification" }
                             div { class: "row",
                                 RowInfo {
@@ -429,6 +458,18 @@ pub fn SettingsPage(
                         }
                         div { class: "settings-section",
                             h3 { class: "settings-section-title", "Verifier tooling" }
+                            SelectRow {
+                                label: "Container engine",
+                                desc: "What runs the verifier containers. Docker by default; Podman (5.3 or newer, its machine started) is found through its API socket unless DOCKER_HOST is set. Takes effect when the app is restarted.",
+                                value: s.container_engine.as_str().to_string(),
+                                options: vec!["docker".to_string(), "podman".to_string()],
+                                labels: vec!["Docker".to_string(), "Podman".to_string()],
+                                on_change: move |v: String| {
+                                    if let Ok(engine) = agent::container_engine::ContainerEngine::parse(&v) {
+                                        update.call(Box::new(move |s| s.container_engine = engine));
+                                    }
+                                },
+                            }
                             div { class: "row",
                                 RowInfo {
                                     label: "Pull images",
@@ -475,6 +516,25 @@ pub fn SettingsPage(
                                 Some(Ok(text)) if !text.is_empty() => rsx! { div { class: "browser-status", "{text}" } },
                                 Some(Err(err)) => rsx! { div { class: "verify-error", "{err}" } },
                                 _ => rsx! {},
+                            }
+                        }
+                        div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Run analysis" }
+                            ToggleRow {
+                                label: "Record every run for analysis",
+                                desc: "Writes a folder per conversion: a report of where the time went, a timeline, the full prompt, messages and tool calls of every stage, and the complete trace. Plain Markdown and JSON Lines, readable by people and AI assistants. Off by default.",
+                                checked: s.run_analysis,
+                                on_toggle: move |v: bool| update.call(Box::new(move |s| s.run_analysis = v)),
+                            }
+                            TextRow {
+                                label: "Folder",
+                                desc: "Where the run folders go. Leave empty for the run-analysis folder at the root of the engine's repository.",
+                                value: s.run_analysis_dir.clone(),
+                                placeholder: "default",
+                                secret: false,
+                                on_change: move |v: String| {
+                                    update.call(Box::new(move |s| s.run_analysis_dir = v.trim().to_string()))
+                                },
                             }
                         }
                     },

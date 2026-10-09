@@ -108,7 +108,7 @@ also lists the template's own: remove those the source does not have, with their
         ""
     };
 
-    Ok(drive(agent, opts, RunSeed::Fresh, template_note, session_id, obs).await)
+    Ok(drive(agent, opts, RunSeed::Fresh, template_note, session_id, session_label, obs).await)
 }
 
 /// Reported when a continuation names a session that holds no document. There
@@ -153,6 +153,12 @@ pub async fn resume(
 
     let verification = verification_for(opts, obs).await?;
 
+    // Named from the sources before they move into the agent.
+    let label = if pdfs.is_empty() {
+        "resumed session".to_string()
+    } else {
+        pdfs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", ")
+    };
     let mut agent = verification.attach(ConversionAgent::new(
         opts.profile.clone(),
         pdfs,
@@ -163,7 +169,7 @@ pub async fn resume(
         agent.seed_document(document)?;
     }
 
-    Ok(drive(agent, opts, seed, "", session_id, obs).await)
+    Ok(drive(agent, opts, seed, "", session_id, &label, obs).await)
 }
 
 /// The verifier a run's target needs, checked and ready to attach.
@@ -230,6 +236,8 @@ async fn drive(
     seed: RunSeed,
     template_note: &'static str,
     session_id: String,
+    // What the run converts, for naming its analysis folder.
+    label: &str,
     obs: &SharedObserver,
 ) -> Completed {
     let started_at = Instant::now();
@@ -237,7 +245,8 @@ async fn drive(
     // An endpoint that cannot produce a model ends the run here, with the
     // message that says what to configure — not on the first turn, after a
     // session has been opened and the browser started.
-    let resolved = match TurnPlan::for_settings(&opts.settings).resolve() {
+    let plan = TurnPlan::for_settings(&opts.settings);
+    let resolved = match plan.resolve() {
         Ok(resolved) => resolved,
         Err(e) => {
             obs.emit(RunEvent::Warning(e));
@@ -276,8 +285,29 @@ async fn drive(
         ));
     }
 
+    // Recording starts once the run is certain to start, so a run refused
+    // for its settings leaves no empty folder behind.
+    let analysis = crate::analysis::root_dir(&opts.settings).and_then(|root| {
+        let meta = run_meta(opts, &seed, &session_id, label, plan.describe());
+        crate::analysis::RunAnalysis::start(&root, meta, obs)
+    });
+    let run_obs = match &analysis {
+        Some(analysis) => analysis.observer(obs.clone()),
+        None => obs.clone(),
+    };
+
     let shared_agent: pipeline::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
-    let outcome = pipeline::run(shared_agent, run_config, seed, obs.clone()).await;
+    let outcome = pipeline::run(shared_agent, run_config, seed, run_obs).await;
+
+    if let Some(analysis) = analysis {
+        let end = crate::analysis::RunEnd {
+            produced: outcome.is_some(),
+            form_code: outcome.as_ref().and_then(|o| o.form_code.clone()),
+            outputs: outcome.as_ref().map(produced_outputs).unwrap_or_default(),
+            warnings: outcome.as_ref().map(|o| o.warnings.clone()).unwrap_or_default(),
+        };
+        analysis.finish(end, obs);
+    }
 
     // Record the final document in the history, so the run can be reopened
     // from the session browser. The agent records every edit already; this is
@@ -314,6 +344,56 @@ async fn drive(
         outcome,
         elapsed_secs: started_at.elapsed().as_secs(),
     }
+}
+
+/// What the analysis folder records about the run at its start.
+fn run_meta(
+    opts: &RunOptions,
+    seed: &RunSeed,
+    session_id: &str,
+    label: &str,
+    model: String,
+) -> crate::analysis::RunMeta {
+    crate::analysis::RunMeta {
+        label: label.to_string(),
+        session_id: session_id.to_string(),
+        kind: match seed {
+            RunSeed::Fresh => "fresh conversion".into(),
+            RunSeed::Feedback(text) => format!(
+                "feedback round: {}",
+                crate::analysis::format::excerpt(&crate::analysis::format::one_line(text), 300)
+            ),
+            RunSeed::Continue => "continuation".into(),
+        },
+        started: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
+        profile: opts.profile.clone().unwrap_or_else(|| "(none)".into()),
+        target: opts.target.as_str().to_string(),
+        model,
+        max_review_rounds: opts.settings.max_review_rounds,
+        verification: match opts.target {
+            OutputTarget::Aem => format!("AEM verifier (image {})", agent::u2s::AEM_IMAGE),
+            OutputTarget::Redacto => "Redacto verifier".to_string(),
+        },
+        engine_version: env!("CARGO_PKG_VERSION").to_string(),
+    }
+}
+
+/// The artefacts a finished run produced, named for the analysis report.
+fn produced_outputs(outcome: &pipeline::RunOutcome) -> Vec<String> {
+    let mut outputs = Vec::new();
+    if outcome.aem_package.is_some() {
+        outputs.push("AEM package".to_string());
+    }
+    if outcome.aem_package_bound.is_some() {
+        outputs.push("AEM package with bindRefs".to_string());
+    }
+    if outcome.xsd_schema.is_some() {
+        outputs.push("XSD schema".to_string());
+    }
+    if outcome.redacto_sql.is_some() {
+        outputs.push("Redacto SQL".to_string());
+    }
+    outputs
 }
 
 #[cfg(test)]

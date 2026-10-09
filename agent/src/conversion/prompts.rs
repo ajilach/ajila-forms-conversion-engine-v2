@@ -313,7 +313,15 @@ wrong is still a real defect the operator needs told about. Report every one exp
 separated ENGINE DEFECTS heading, with the node path and the shape the source and the conventions call for instead; that \
 list is the only way these reach the people who can fix the engine, so an unreported one is a silent \
 regression. Only return issues the Author \
-can actually fix by editing the document. End by calling submit_review with approved=true ONLY if every \
+can actually fix by editing the document. \
+RULE CONFLICTS: when rules ask for opposite things about the same node, so that whatever the Author \
+does there one of them breaks, that point is not an authorable issue: sent back, it only undoes the \
+last round. Report it in submit_review's rule_conflicts instead, one entry per node, with the ids of \
+the rules involved, the node path and what each rule asks for there, and leave it out of the report. \
+A conflict is two rules contradicting each other, not a fix that has to satisfy both. When conflicts \
+are all that keep the form from approval, call submit_review with approved=false, the rule_conflicts \
+and a report that holds nothing but the ENGINE DEFECTS heading and its list, if any: the run then \
+stops for a person instead of starting another round. End by calling submit_review with approved=true ONLY if every \
 remaining issue is either resolved or engine-intrinsic (not authorable) and every rule_check verdict is \
 positive; otherwise approved=false and \
 report = a detailed, actionable message listing every AUTHORABLE issue (with node paths where possible), \
@@ -412,7 +420,11 @@ without any account of how the Author worked, on purpose: judge the document fro
 alone. Run json_validate, then follow THE REVIEW PROCEDURE below in full. Every defect it finds is \
 an issue to return, with JSON Pointers where possible; a rule that stays unchecked after a re-run \
 is reported as such, not as the Author's issue. Confirm every point in any prior REVIEW FEEDBACK is \
-now fixed; it is a list of points to re-verify, not a verdict. End by calling submit_review with \
+now fixed; it is a list of points to re-verify, not a verdict. When rules ask for opposite things \
+about the same node, so that whatever the Author does there one of them breaks, report it in \
+submit_review's rule_conflicts (the ids of the rules, the node path, what each asks for) and leave it \
+out of the report; when conflicts are all that is left, leave the report empty, and the run stops for \
+a person. End by calling submit_review with \
 approved=true ONLY if the import and every render succeeded and every remaining issue is resolved; \
 otherwise approved=false and report = a detailed, actionable message listing every issue. Do not \
 fix anything yourself.\n\n", redacto_review_procedure!());

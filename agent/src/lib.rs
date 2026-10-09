@@ -13,6 +13,7 @@
 //! streams turns and drives these tools lives in the consumer, as does any UI
 //! state.
 
+pub mod container_engine;
 pub mod conversion;
 pub mod coverage;
 pub mod db;
