@@ -653,7 +653,8 @@ const VERIFY_TEARDOWN_DEADLINE: Duration = Duration::from_secs(2 * 60);
 /// deadline while it holds the agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum VerifyCall {
-    /// Touches neither Docker nor the platform: no lock, no deadline.
+    /// Needs no lock and boots nothing; bounded by its own Docker and HTTP
+    /// timeouts, so it gets no deadline here.
     Offline,
     /// May boot the platform first.
     Boots,
@@ -761,10 +762,29 @@ impl Verifier {
 /// all do.
 async fn tear_down(verifier: &Verifier, activity: &Mutex<Activity>) -> Result<(), String> {
     let result = verifier.shutdown().await;
+    release(activity);
+    result
+}
+
+/// Releases the verifier lock, so another conversion may boot the verifier.
+fn release(activity: &Mutex<Activity>) {
     if let Ok(mut activity) = activity.lock() {
         activity.lock = None;
     }
-    result
+}
+
+/// Removes the containers a crashed run left behind, giving up after
+/// [`VERIFY_TEARDOWN_DEADLINE`]: Docker may be what went away, and the caller
+/// holds the agent.
+async fn remove_leftovers(owner: &str, reach: &u2s_verify_core::session::Reach) -> Result<(), String> {
+    tokio::time::timeout(VERIFY_TEARDOWN_DEADLINE, u2s_verify_core::session::remove_leftovers(owner, reach))
+        .await
+        .map_err(|_| {
+            format!(
+                "removing a previous run's verifier containers did not finish within \
+                 {VERIFY_TEARDOWN_DEADLINE:?}; check that Docker is running, then try again"
+            )
+        })
 }
 
 /// The u2s servers of one conversion agent, plus the documents its calls may
@@ -844,7 +864,7 @@ impl U2sTools {
         match self.verifier.take() {
             Some(verifier) => tear_down(&verifier, &self.activity).await,
             None => {
-                self.release_lock();
+                release(&self.activity);
                 Ok(())
             }
         }
@@ -873,21 +893,17 @@ impl U2sTools {
                         return Err(format!("could not take the AEM verifier lock: {e}"));
                     }
                 }
-                u2s_verify_core::session::remove_leftovers(
-                    &profile.format,
-                    &u2s_aem_verify_core::session::reach_of(profile),
-                )
-                .await;
+                remove_leftovers(&profile.format, &u2s_aem_verify_core::session::reach_of(profile)).await?;
                 file
             }
             Some(Verifier::Redacto(..)) => {
                 let file = open_lock(REDACTO_VERIFIER_LOCK)?;
                 if file.try_lock().is_ok() {
-                    u2s_verify_core::session::remove_leftovers(
+                    remove_leftovers(
                         REDACTO_PROFILE_NAME,
                         &u2s_verify_core::session::Reach::from_self_container(None),
                     )
-                    .await;
+                    .await?;
                     file.unlock()
                         .map_err(|e| format!("could not release the Redacto verifier lock: {e}"))?;
                 }
@@ -901,11 +917,6 @@ impl U2sTools {
         Ok(())
     }
 
-    fn release_lock(&mut self) {
-        if let Ok(mut activity) = self.activity.lock() {
-            activity.lock = None;
-        }
-    }
 
     /// Marks the verifier used now, and starts the idle watcher on first use.
     fn touch(&mut self) {
@@ -1103,7 +1114,7 @@ impl Drop for U2sTools {
         if let Some(watcher) = self.watcher.take() {
             watcher.abort();
         }
-        self.release_lock();
+        release(&self.activity);
     }
 }
 
@@ -1126,11 +1137,23 @@ async fn blocking(
         .unwrap_or_else(|join| Err(format!("the tool server failed: {join}")))
 }
 
+/// A spawned tool call, aborted when its handle is dropped: a caller that
+/// stops waiting (a stopped run, say) must not leave the call running, still
+/// holding the verifier session.
+struct CallTask<T>(tokio::task::JoinHandle<T>);
+
+impl<T> Drop for CallTask<T> {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 /// Runs async tool work as its own task; a panic becomes an error.
 async fn spawned<T: Send + 'static>(
     work: impl std::future::Future<Output = Result<T, String>> + Send + 'static,
 ) -> Result<T, String> {
-    joined(tokio::spawn(work).await)
+    let mut task = CallTask(tokio::spawn(work));
+    joined((&mut task.0).await)
 }
 
 /// A spawned task's outcome, a panic as an error.
@@ -1154,11 +1177,11 @@ where
     Stop: FnOnce() -> Stopped,
     Stopped: std::future::Future<Output = Result<(), String>>,
 {
-    let mut task = tokio::spawn(work);
-    match tokio::time::timeout(deadline, &mut task).await {
+    let mut task = CallTask(tokio::spawn(work));
+    match tokio::time::timeout(deadline, &mut task.0).await {
         Ok(outcome) => joined(outcome),
         Err(_) => {
-            task.abort();
+            drop(task);
             let stopped = match stop().await {
                 Ok(()) => "its containers are removed".to_string(),
                 Err(e) => format!("removing its containers failed: {e}"),
@@ -1404,6 +1427,35 @@ mod tests {
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
         panic!("the hung call was left running instead of aborted");
+    }
+
+    /// A caller that stops waiting (a stopped run) takes its call down with
+    /// it, rather than leaving it running on the verifier session.
+    #[tokio::test]
+    async fn a_verifier_call_whose_caller_stops_waiting_is_aborted() {
+        let dropped = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = DropFlag(Arc::clone(&dropped));
+        let hung = async move {
+            let _flag = flag;
+            std::future::pending::<()>().await;
+            Ok(())
+        };
+        let call = within_deadline(
+            "aem_verify_set".into(),
+            Duration::from_secs(600),
+            hung,
+            || async { Ok(()) },
+            "aem_verify_open",
+        );
+        let gave_up = tokio::time::timeout(Duration::from_millis(50), call).await;
+        assert!(gave_up.is_err(), "the call should still be running when its caller gives up");
+        for _ in 0..100 {
+            if dropped.load(std::sync::atomic::Ordering::SeqCst) {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+        panic!("the call was left running after its caller stopped waiting");
     }
 
     /// A call that answers in time keeps its result and leaves the verifier up.
