@@ -68,11 +68,13 @@ pub enum ReplyBlock {
 
 /// The outcome of the Reviewer role's `submit_review` call: whether the form is
 /// approved, and (if not) a detailed report the controller pins into the Author's
-/// next system prompt.
+/// next system prompt, with the rule conflicts no fix round can settle.
 #[derive(Debug, Clone)]
 pub struct ReviewResult {
     pub approved: bool,
     pub report: String,
+    /// Where rules ask for opposite things: for a person, not the Author.
+    pub rule_conflicts: Vec<crate::review::RuleConflict>,
 }
 
 /// The form's own content XML in an unzipped package: the `cq:Page` under

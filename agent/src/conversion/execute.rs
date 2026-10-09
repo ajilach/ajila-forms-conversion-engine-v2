@@ -402,15 +402,36 @@ impl ConversionAgent {
             "submit_review" => {
                 let approved = input["approved"].as_bool().unwrap_or(false);
                 let report = input["report"].as_str().unwrap_or_default().to_string();
+                let rule_conflicts = match crate::review::rule_conflicts_of(input) {
+                    Ok(conflicts) => conflicts,
+                    Err(e) => return ToolReply::Error(e),
+                };
+                if approved && !rule_conflicts.is_empty() {
+                    return ToolReply::Error(
+                        "approved=true cannot carry rule_conflicts: a conflict leaves a rule broken. Call \
+                         again with approved=false."
+                            .into(),
+                    );
+                }
                 if approved && let Some(refusal) = self.unverified("submit_review(approved=true)") {
                     return refusal;
                 }
-                self.review = Some(ReviewResult { approved, report });
-                ToolReply::Text(if approved {
-                    "Review recorded: approved.".into()
+                let review = ReviewResult { approved, report, rule_conflicts };
+                let reply = if approved {
+                    "Review recorded: approved.".to_string()
+                } else if review.needs_operator() {
+                    "Review recorded: only rule conflicts remain, handing the form to a person.".to_string()
+                } else if review.rule_conflicts.is_empty() {
+                    "Review recorded: changes requested, returning to the author.".to_string()
                 } else {
-                    "Review recorded: changes requested, returning to the author.".into()
-                })
+                    format!(
+                        "Review recorded: changes requested, returning to the author; {} rule conflict(s) \
+                         held back for a person.",
+                        review.rule_conflicts.len()
+                    )
+                };
+                self.review = Some(review);
+                ToolReply::Text(reply)
             }
 
             "finish_authoring" => {

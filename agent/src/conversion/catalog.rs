@@ -387,10 +387,23 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "submit_review",
-                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused.",
+                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and (AEM) set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
                 serde_json::json!({
                     "approved": {"type": "boolean"},
-                    "report": {"type": "string", "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible."}
+                    "report": {"type": "string", "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible."},
+                    "rule_conflicts": {
+                        "type": "array",
+                        "description": "Places where the rules contradict each other, so that whatever the author does there one of them breaks. Not issues for the author; only with approved=false.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "rules": {"type": "array", "items": {"type": "string"}, "minItems": 2, "description": "The ids of the rules involved."},
+                                "path": {"type": "string", "description": "The JSON Pointer of the node they disagree about."},
+                                "why": {"type": "string", "description": "What each rule asks for there."}
+                            },
+                            "required": ["rules", "path", "why"]
+                        }
+                    }
                 }),
                 serde_json::json!(["approved"]),
             ),
@@ -418,6 +431,7 @@ mod catalog_guards {
         // Argument and result names in the u2s document tools' own descriptions.
         "autofix_available",
         "rule_ids",
+        "rule_conflicts",
         // AEM / XFA / profile vocabulary appearing verbatim in prose.
         "affrg",
         "affrg_germany",
