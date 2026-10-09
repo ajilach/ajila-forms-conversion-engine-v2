@@ -24,7 +24,11 @@ same images, the same data volume, the same settings.
 At start the engine finds Podman's API socket (`podman machine inspect` on
 macOS, the rootless or system socket on Linux) and points `DOCKER_HOST` at it.
 A `DOCKER_HOST` you have set yourself is kept. The readiness check (the app's
-banner, `blueprint verify check`) reports a missing socket or a too-old Podman.
+banner, `blueprint verify check`) reports a missing socket or a too-old Podman,
+and words its hints for Podman: a missing private image names the `podman
+login` that takes the `az acr login --expose-token` token, and `podman pull`.
+A registry login is read from Podman's `auth.json` as well as Docker's
+`config.json`.
 
 ## Images and the data volume
 
