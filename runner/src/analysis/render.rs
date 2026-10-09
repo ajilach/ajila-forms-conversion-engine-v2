@@ -10,7 +10,7 @@
 
 use std::fmt::Write as _;
 
-use pipeline::{StageEnd, TraceEvent};
+use pipeline::TraceEvent;
 
 use super::RunMeta;
 use super::format::{self, cell, duration, excerpt, number, percent, usd};
@@ -74,7 +74,10 @@ started), `stage_index` (1-based position of the stage in the run) and an\n\
 - `tool_started` / `tool_finished` — `name`, `args`, `ok`, `duration_ms`, the full `result` text (images replaced by a placeholder), `result_hash`.\n\
 - `review_verdict` — one review round: `round`, `approved` (`null` when the Reviewer ended without a verdict), `report`.\n\
 - `control` — the controller steering the run: `kind` is one of `output_cap_nudge`, `stuck_stop`, `turn_budget_exhausted`, `transient_retry`, `operator_prompt`, `operator_retried`, `operator_cancelled`, `invalid_tool_call`, `context_budget_failed`, `aborted`, `stage_error`.\n\
-- `stage_finished` — `ended`, `turns`, `attempts`, `duration_ms`, and the stage's own `spend`.\n\
+- `rule_check_started` — a `rule_check` handing its judged rules to judges: `check` (an id that the judges' lines repeat), `partial` (chosen `rule_ids` rather than every rule), `scripted`, `judged`, `revision`.\n\
+- `judge_finished` — one judge: `rule_id`, `rule_name`, `rule_title`, `verdict` (`positive`, `negative`, `unchecked`), `violations`, `unchecked_reason`, `turns`, `duration_ms`, `revision`, and its own `spend`. A judge's own turns and tool calls are not traced.\n\
+- `rule_check_finished` — `duration_ms`, `judges_spend` (all its judges together), `outdated` (the document changed while they judged).\n\
+- `stage_finished` — `ended`, `turns`, `attempts`, `duration_ms`, and the stage's own `spend`, which includes what its judges spent. `ended` is `review_submitted` whenever a terminal tool ended the stage — `finish_authoring` as well as `submit_review`; the report says which.\n\
 - `progress`, `warning` — the recorder's own notes and the warnings the app and console showed.\n\
 \n\
 `stage_index` is the stage most recently started, so lines between two stages\n\
@@ -230,19 +233,83 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
             kind.label(),
             excerpt(&format::one_line(detail), 600)
         ),
+        TraceEvent::RuleCheckStarted {
+            check,
+            partial,
+            scripted,
+            judged,
+            revision,
+            ..
+        } => {
+            let number = stats.check_number(*check);
+            format!(
+                "\n{at} **rule_check {number}** ({}) on revision {revision}: {scripted} scripted rule(s) checked, {judged} judged rule(s) handed to judges.\n",
+                if *partial { "chosen rules" } else { "every rule" },
+            )
+        }
+        TraceEvent::JudgeFinished {
+            check,
+            rule_name,
+            verdict,
+            violations,
+            unchecked_reason,
+            turns,
+            duration_ms,
+            spend,
+            ..
+        } => {
+            let number = stats.check_number(*check);
+            let outcome = match (verdict, unchecked_reason) {
+                (pipeline::trace::JudgeVerdict::Negative, _) => format!("negative ({violations} violation(s))"),
+                (_, Some(reason)) => format!("unchecked: {}", excerpt(&format::one_line(reason), 200)),
+                (v, None) => v.label().to_string(),
+            };
+            format!(
+                "- {at} judge `{rule_name}` (rule_check {number}) → {outcome}; {turns} turn(s), {}, {}\n",
+                duration(*duration_ms),
+                usd(spend.cost_usd),
+            )
+        }
+        TraceEvent::RuleCheckFinished {
+            check,
+            duration_ms,
+            judges_spend,
+            outdated,
+            ..
+        } => {
+            let number = stats.check_number(*check);
+            let check = stats.rule_checks.iter().find(|c| c.check == number);
+            let tally = check.map_or(String::new(), |c| {
+                format!(" — {} positive, {} negative, {} unchecked", c.positive, c.negative, c.unchecked)
+            });
+            format!(
+                "\n{at} **rule_check {number} ended** after {}: judges {}{tally}.{}\n",
+                duration(*duration_ms),
+                usd(judges_spend.cost_usd),
+                if *outdated { " The document changed while it was judged: every judged rule is unchecked." } else { "" },
+            )
+        }
         TraceEvent::StageFinished {
             stage,
-            ended,
             turns,
             attempts,
             duration_ms,
             spend,
-        } => format!(
-            "\n{at} **{stage} ended** ({}) after {}: {turns} turns, {attempts} attempt(s), {}.\n",
-            ended.describe(),
-            duration(*duration_ms),
-            usd(spend.cost_usd),
-        ),
+            ..
+        } => {
+            // The stats fold the end in before this entry is written.
+            let current = stats.current_stage();
+            let judges = current
+                .filter(|s| s.judge_runs > 0)
+                .map(|s| format!(" ({} on {} judge run(s))", usd(s.judges_spend.cost_usd), s.judge_runs))
+                .unwrap_or_default();
+            format!(
+                "\n{at} **{stage} ended** ({}) after {}: {turns} turns, {attempts} attempt(s), {}{judges}.\n",
+                current.map_or("-".into(), |s| s.ended_label()),
+                duration(*duration_ms),
+                usd(spend.cost_usd),
+            )
+        }
     })
 }
 
@@ -270,7 +337,9 @@ pub fn transcript_header(index: usize, stage: &str, part: usize) -> String {
 
 /// One transcript block for a trace event: everything in full, up to
 /// [`TRANSCRIPT_BLOCK`] characters per block.
-pub fn transcript_entry(seq: u64, clock: &str, time: &str, event: &TraceEvent) -> Option<String> {
+/// `stats` has the event folded in already: a stage's end is told by the
+/// call that ended it.
+pub fn transcript_entry(seq: u64, clock: &str, time: &str, stats: &Stats, event: &TraceEvent) -> Option<String> {
     let at = format!("`{clock}` {time} #{seq}");
     Some(match event {
         TraceEvent::StageStarted {
@@ -411,8 +480,12 @@ pub fn transcript_entry(seq: u64, clock: &str, time: &str, event: &TraceEvent) -
             kind.label(),
             format::quote(&cut_block(detail, seq))
         ),
+        // The check's report is the `rule_check` call's result, in full
+        // already; the judges' figures are in the timeline and the report.
+        TraceEvent::RuleCheckStarted { .. } | TraceEvent::JudgeFinished { .. } | TraceEvent::RuleCheckFinished { .. } => {
+            return None;
+        }
         TraceEvent::StageFinished {
-            ended,
             turns,
             attempts,
             duration_ms,
@@ -420,7 +493,7 @@ pub fn transcript_entry(seq: u64, clock: &str, time: &str, event: &TraceEvent) -
             ..
         } => format!(
             "\n---\n\n{at} **Stage ended** ({}) after {}: {turns} turns, {attempts} attempt(s). {}\n",
-            ended.describe(),
+            stats.current_stage().map_or("-".into(), |s| s.ended_label()),
             duration(*duration_ms),
             spend.describe()
         ),
@@ -527,6 +600,22 @@ pub fn report(ctx: &ReportContext<'_>) -> String {
         stats.calls.iter().filter(|c| !c.ok).count()
     );
     let _ = writeln!(out, "- {}", stats.spend.describe());
+    if !stats.judges.is_empty() {
+        let judges = stats.judges_spend();
+        let share = match (judges.cost_usd, stats.spend.cost_usd) {
+            (Some(j), Some(t)) if t > 0.0 => format!(" ({:.0}% of the spend)", j * 100.0 / t),
+            _ => String::new(),
+        };
+        let _ = writeln!(
+            out,
+            "- Judges: {} run(s) over {} rule_check(s), {}{share}; agents' own turns {}; judge time summed {}",
+            stats.judges.len(),
+            stats.rule_checks.len(),
+            usd(judges.cost_usd),
+            usd(stats.agent_spend().cost_usd),
+            duration(stats.judge_ms()),
+        );
+    }
     let _ = writeln!(out, "- Model: {}", meta.model);
     let _ = writeln!(out, "- Profile: {}; target: {}", meta.profile, meta.target);
     if let Some(last) = stats.verdicts.last() {
@@ -546,6 +635,7 @@ pub fn report(ctx: &ReportContext<'_>) -> String {
 
     stage_table(&mut out, stats);
     tool_table(&mut out, stats);
+    judges(&mut out, stats);
     failed_requests(&mut out, stats);
     slow_turns(&mut out, stats);
     slow_calls(&mut out, stats);
@@ -572,13 +662,19 @@ fn stage_table(out: &mut String, stats: &Stats) {
     }
     out.push_str("## Stages\n\n");
     out.push_str(
-        "| Stage | Doing | Duration | Model | Tools | Turns (budget) | Attempts | Failed requests | Tool calls (failed) | Max prompt | Shaped turns | Cost | Ended |\n\
-         |---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
+        "| Stage | Doing | Duration | Model | Tools | Turns (budget) | Attempts | Failed requests | Tool calls (failed) | Max prompt | Shaped turns | Cost | Agent | Judges (runs) | Ended |\n\
+         |---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|\n",
     );
-    for s in &stats.stages {
+    for s in stats.stages.iter().chain(&stats.final_check) {
+        let judges = if s.judge_runs > 0 {
+            format!("{} ({})", usd(s.judges_spend.cost_usd), s.judge_runs)
+        } else {
+            "-".into()
+        };
+        let agent = if s.ended.is_some() { usd(s.agent_spend.cost_usd) } else { "-".into() };
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} ({}) | {} | {} | {} ({}) | {} tok | {} | {} | {} |",
+            "| {} | {} | {} | {} | {} | {} ({}) | {} | {} | {} ({}) | {} tok | {} | {} | {} | {} | {} |",
             stage_label(s.index, &s.name),
             cell(&s.doing, 60),
             if s.ended.is_some() {
@@ -597,7 +693,9 @@ fn stage_table(out: &mut String, stats: &Stats) {
             number(s.max_prompt_tokens),
             s.shaped_turns,
             usd(s.spend.cost_usd),
-            s.ended.as_ref().map_or("-".into(), StageEnd::describe),
+            agent,
+            judges,
+            s.ended_label(),
         );
     }
     out.push('\n');
@@ -626,6 +724,69 @@ fn tool_table(out: &mut String, stats: &Stats) {
             duration(t.max_ms),
             number(t.result_chars),
             number(t.max_result_chars as u64),
+        );
+    }
+    out.push('\n');
+}
+
+fn judges(out: &mut String, stats: &Stats) {
+    if stats.judges.is_empty() {
+        return;
+    }
+    out.push_str(
+        "## Judges\n\n\
+         Each judged rule (a rule without a `check.js`) is decided by a judge agent that `rule_check` \
+         dispatches, several at once. Their spend is part of the stage that called `rule_check` (the \
+         Stages table splits it out; the final rule check after the last stage has a row of its own); \
+         their time overlaps, so it is summed here, not wall time. \"By rule\" counts each judge's own \
+         verdict; a check whose document changed while it judged reports every rule unchecked, which \
+         \"By rule_check\" shows.\n\n\
+         ### By rule\n\n\
+         | Rule | Runs | Positive | Negative | Unchecked | Turns (avg / max) | Time (total / avg / longest) | Tokens in / out | Cost |\n\
+         |---|---|---|---|---|---|---|---|---|\n",
+    );
+    for r in stats.judged_rules() {
+        let runs = r.runs.max(1);
+        let _ = writeln!(
+            out,
+            "| `{}` | {} | {} | {} | {} | {:.1} / {} | {} / {} / {} | {} / {} | {} |",
+            r.rule_name,
+            r.runs,
+            r.positive,
+            r.negative,
+            r.unchecked,
+            r.turns as f64 / runs as f64,
+            r.max_turns,
+            duration(r.total_ms),
+            duration(r.total_ms / runs as u64),
+            duration(r.max_ms),
+            number(r.spend.input_tokens + r.spend.cached_input_tokens + r.spend.cache_write_tokens),
+            number(r.spend.output_tokens),
+            usd(r.spend.cost_usd),
+        );
+    }
+    out.push_str(
+        "\n### By rule_check\n\n\
+         | Check | Stage | Rules | Scripted | Judged | Revision | Duration | Positive | Negative | Unchecked | Judges' cost | Line |\n\
+         |---|---|---|---|---|---|---|---|---|---|---|---|\n",
+    );
+    for c in &stats.rule_checks {
+        let _ = writeln!(
+            out,
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {}{} | {} | #{} |",
+            c.check,
+            stage_label(c.stage_index, &c.stage),
+            if c.partial { "chosen" } else { "all" },
+            c.scripted,
+            c.judged,
+            c.revision,
+            c.duration_ms.map_or("running".into(), duration),
+            c.positive,
+            c.negative,
+            c.unchecked,
+            if c.outdated { " (document changed)" } else { "" },
+            usd(c.judges_spend.cost_usd),
+            c.seq,
         );
     }
     out.push('\n');

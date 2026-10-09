@@ -47,8 +47,11 @@ const TRANSCRIPT_PART_BYTES: u64 = 1_500_000;
 /// The human evaluation of the run's result, filled in by hand afterwards and
 /// collected across runs by `scripts/collect_evaluations.py`.
 pub const EVALUATION_FILE: &str = "evaluation.md";
-/// Version of the `trace.jsonl` / `summary.json` layout.
-pub const SCHEMA_VERSION: u32 = 1;
+/// Version of the `trace.jsonl` / `summary.json` layout. 2 added the judges:
+/// the `rule_check_started`, `judge_finished` and `rule_check_finished`
+/// events, and `judge_runs`, `judge_cost_usd`, `agent_cost_usd` and `judges`
+/// in the summary (a version-1 run recorded none, which is not zero).
+pub const SCHEMA_VERSION: u32 = 2;
 
 /// Where runs are recorded, resolved from the settings: `None` when recording
 /// is switched off.
@@ -407,7 +410,7 @@ impl RunRecorder {
         if let Some(entry) = render::timeline_entry(seq, &clock, &self.stats, event) {
             self.append_timeline(&entry);
         }
-        if let Some(entry) = render::transcript_entry(seq, &clock, &time, event) {
+        if let Some(entry) = render::transcript_entry(seq, &clock, &time, &self.stats, event) {
             self.append_transcript(&entry);
         }
         // A verdict arrives after its Reviewer stage has closed, and is the
@@ -438,8 +441,9 @@ impl RunRecorder {
             // Model text arrives as `Thought`s, and in full in `TurnFinished`
             // already; tool calls, retries and aborts have their own trace
             // events. Recording these too would only duplicate them.
-            // A rule judge's start and end place it on the timeline; its
-            // own turns and tools arrive as trace events of its sub-stage.
+            // A rule judge's start and end place it on the timeline; what it
+            // decided and took arrives as its `judge_finished` trace event
+            // (its own turns and tools are not traced).
             RunEvent::Judging { rule_id, running } => {
                 let text = if *running {
                     format!("judging rule {rule_id}")
@@ -501,6 +505,8 @@ impl RunRecorder {
 
     fn summary(&self, elapsed_ms: u64, outcome: Option<&RunEnd>) -> serde_json::Value {
         let s = &self.stats;
+        let judges_spend = s.judges_spend();
+        let agent_spend = s.agent_spend();
         serde_json::json!({
             "schema_version": SCHEMA_VERSION,
             "run": self.meta,
@@ -516,12 +522,26 @@ impl RunRecorder {
                 "other_ms": s.other_ms(elapsed_ms),
             },
             "spend": s.spend,
+            "judge_runs": s.judges.len(),
+            "judge_cost_usd": judges_spend.cost_usd,
+            "agent_cost_usd": agent_spend.cost_usd,
             "counts": {
                 "stages": s.stages.len(),
                 "turns": s.turns.len(),
                 "tool_calls": s.calls.len(),
                 "failed_tool_calls": s.calls.iter().filter(|c| !c.ok).count(),
                 "failed_requests": s.failed_requests.len(),
+                "rule_checks": s.rule_checks.len(),
+                "judge_runs": s.judges.len(),
+            },
+            "judges": {
+                "spend": judges_spend,
+                "agent_spend": agent_spend,
+                "final_check": s.final_check,
+                "summed_ms": s.judge_ms(),
+                "by_rule": s.judged_rules(),
+                "rule_checks": s.rule_checks,
+                "runs": s.judges,
             },
             "stages": s.stages,
             "tools": s.tools_by_time(),
