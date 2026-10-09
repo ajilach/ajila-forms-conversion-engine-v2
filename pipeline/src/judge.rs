@@ -31,26 +31,57 @@ pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
 }
 
 /// One `rule_check`: the scripts while holding the agent, then the judges
-/// without it (each judge's tools take the agent call by call).
+/// without it (each judge's tools take the agent call by call). A judged rule
+/// that already has a verdict on the document's content, from any earlier
+/// check of the run, keeps it and sends no judge (see
+/// [`agent::ConversionAgent::cached_verdict`]).
 pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input: &serde_json::Value) -> ToolReply {
-    let (plan, scripted, revision) = {
+    let (plan, scripted, revision, content, cached) = {
         let mut guard = agent.lock().await;
         let plan = match guard.rule_check_plan(input) {
             Ok(plan) => plan,
             Err(e) => return ToolReply::Error(e),
         };
-        match guard.check_scripted(&plan).await {
-            Ok(scripted) => (plan, scripted, guard.revision()),
+        let scripted = match guard.check_scripted(&plan).await {
+            Ok(scripted) => scripted,
             Err(e) => return ToolReply::Error(e),
-        }
+        };
+        let (revision, content) = (guard.revision(), guard.content_hash());
+        let cached: Vec<Option<RuleVerdict>> =
+            plan.judged.iter().map(|rule| guard.cached_verdict(rule, content)).collect();
+        let reused: Vec<(JudgedRule, Result<RuleVerdict, String>)> = plan
+            .judged
+            .iter()
+            .zip(&cached)
+            .filter_map(|(rule, verdict)| Some((rule.clone(), Ok(verdict.clone()?))))
+            .collect();
+        guard.record_judged(&reused, revision);
+        (plan, scripted, revision, content, cached)
     };
     report_rules(agent, &ctx.obs).await;
+    let to_judge: Vec<JudgedRule> = plan
+        .judged
+        .iter()
+        .zip(&cached)
+        .filter(|(_, verdict)| verdict.is_none())
+        .map(|(rule, _)| rule.clone())
+        .collect();
     // `buffered`, not `buffer_unordered`: the report keeps the rules' order.
-    let mut verdicts: Vec<(JudgedRule, Result<RuleVerdict, String>)> = futures_util::stream::iter(plan.judged)
-        .map(|rule| judge(agent, ctx, rule, revision))
+    let mut judged = futures_util::stream::iter(to_judge)
+        .map(|rule| judge(agent, ctx, rule, revision, content))
         .buffered(JUDGES_AT_ONCE)
-        .collect()
-        .await;
+        .collect::<Vec<_>>()
+        .await
+        .into_iter();
+    let mut verdicts: Vec<(JudgedRule, Result<RuleVerdict, String>)> = plan
+        .judged
+        .into_iter()
+        .zip(&cached)
+        .map(|(rule, verdict)| match verdict {
+            Some(verdict) => (rule, Ok(verdict.clone())),
+            None => judged.next().expect("a judge ran for every rule without a cached verdict"),
+        })
+        .collect();
     // Each judge put its outcome on the board for `revision`, which an edit
     // made since (another call of the same turn) shows as outdated. The model
     // is told to check again instead: a verdict on an older document is not
@@ -60,18 +91,46 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
             *outcome = Err(CHANGED_WHILE_JUDGED.into());
         }
     }
-    ToolReply::Text(merge_rule_report(scripted, &verdicts).to_string())
+    let mut report = merge_rule_report(scripted, &verdicts);
+    mark_reused(&mut report, &verdicts, &cached);
+    ToolReply::Text(report.to_string())
 }
 
-/// Runs one judge on `rule`, dispatched on `revision`, and puts its outcome on
-/// the board as soon as it ends, before the rule stops showing as judged: a
-/// check's judges end one by one, and a check cut short keeps what its ended
-/// judges found.
+/// Marks each judged verdict of `report` that came from the cache rather than
+/// a judge of this check with `"cached": true`, so whoever reads the report
+/// (the model, the run's analysis) sees which verdicts cost a judge.
+fn mark_reused(
+    report: &mut serde_json::Value,
+    verdicts: &[(JudgedRule, Result<RuleVerdict, String>)],
+    cached: &[Option<RuleVerdict>],
+) {
+    let reused: Vec<&str> = verdicts
+        .iter()
+        .zip(cached)
+        .filter(|((_, outcome), verdict)| outcome.is_ok() && verdict.is_some())
+        .map(|((rule, _), _)| rule.id.as_str())
+        .collect();
+    let Some(entries) = report.get_mut("verdicts").and_then(serde_json::Value::as_array_mut) else {
+        return;
+    };
+    for entry in entries.iter_mut().filter(|e| e["check"] == "agent") {
+        if entry["rule_id"].as_str().is_some_and(|id| reused.contains(&id)) {
+            entry["cached"] = serde_json::Value::Bool(true);
+        }
+    }
+}
+
+/// Runs one judge on `rule`, dispatched on `revision` (whose content hashed to
+/// `content`), and puts its outcome on the board as soon as it ends, before
+/// the rule stops showing as judged: a check's judges end one by one, and a
+/// check cut short keeps what its ended judges found. A verdict on a document
+/// nobody edited meanwhile is kept for the next check of the same content.
 async fn judge(
     agent: &SharedAgent,
     ctx: &SubStageContext,
     rule: JudgedRule,
     revision: u64,
+    content: u64,
 ) -> (JudgedRule, Result<RuleVerdict, String>) {
     ctx.obs.emit(RunEvent::Judging { rule_id: rule.id.clone(), running: true });
     let _ended = JudgingEnds { obs: &ctx.obs, rule_id: rule.id.clone() };
@@ -80,6 +139,9 @@ async fn judge(
     // The judge read the live document. An edit made while it did means its
     // verdict may describe neither revision.
     let judged = (rule, if guard.revision() == revision { outcome } else { Err(CHANGED_WHILE_JUDGED.into()) });
+    if let (rule, Ok(verdict)) = &judged {
+        guard.cache_verdict(rule, content, verdict.clone());
+    }
     guard.record_judged(std::slice::from_ref(&judged), revision);
     let board = guard.rule_board();
     drop(guard);
@@ -310,6 +372,175 @@ mod tests {
         let verdict = judged(&report)[0];
         assert_eq!(verdict["verdict"], "unchecked");
         assert_eq!(verdict["unchecked_reason"], "the judge ended without a verdict");
+    }
+
+    /// A judge's turn that gives `rule`'s judgement the verdict `pass`.
+    fn verdict_turn(judgement: &str, pass: bool) -> Vec<MockStreamEvent> {
+        let violations = if pass {
+            serde_json::json!([])
+        } else {
+            serde_json::json!([{"pointer": "/body", "message": "split the table"}])
+        };
+        vec![
+            MockStreamEvent::tool_call(
+                "verdict",
+                "submit_rule_verdict",
+                serde_json::json!({"judgement": judgement, "pass": pass, "violations": violations}),
+            ),
+            MockStreamEvent::final_response(Usage::new()),
+        ]
+    }
+
+    /// Edits the agent's document with `ops`, as a stage's `json_patch` does.
+    async fn edit(agent: &SharedAgent, ops: serde_json::Value) {
+        let mut guard = agent.lock().await;
+        let revision = guard.revision();
+        let reply = guard.execute("json_patch", &serde_json::json!({"ops": ops, "expected_revision": revision})).await;
+        assert!(!matches!(reply, ToolReply::Error(_)), "{reply:?}");
+    }
+
+    const ADD_ASSET: &str =
+        r#"[{"op": "add", "path": "/assets/-", "value": {"key": "intro", "kind": "text", "content": {"en": "<p>Hi</p>"}}}]"#;
+    const REMOVE_ASSET: &str = r#"[{"op": "remove", "path": "/assets/0"}]"#;
+
+    /// A second check of the same document sends no judge: each judged rule
+    /// keeps the verdict its judge gave on that content, negative ones too,
+    /// and the report says the verdict was reused. (Each rule is first
+    /// judged on its own: judges of one check run at once, and the scripted
+    /// model answers in order, not by judgement.)
+    #[tokio::test]
+    async fn a_second_check_of_the_same_content_sends_no_judge() {
+        let model = MockCompletionModel::from_stream_turns([
+            verdict_turn("judgement-1", true),
+            verdict_turn("judgement-2", false),
+        ]);
+        let ctx = context(model.clone(), AbortFlag::default());
+        let agent = agent_with(vec![rule("a"), rule("b")]);
+        for id in ["id-a", "id-b"] {
+            let first = report(rule_check(&agent, &ctx, &serde_json::json!({"rule_ids": [id]})).await);
+            assert!(judged(&first).iter().all(|v| v.get("cached").is_none()), "{first}");
+        }
+        assert_eq!(model.request_count(), 2);
+
+        let second = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 2, "the second check sent a judge");
+        let verdicts: Vec<_> = judged(&second)
+            .iter()
+            .map(|v| (v["rule_id"].clone(), v["verdict"].clone(), v["cached"].clone()))
+            .collect();
+        assert_eq!(
+            verdicts,
+            [
+                (serde_json::json!("id-a"), serde_json::json!("positive"), serde_json::json!(true)),
+                (serde_json::json!("id-b"), serde_json::json!("negative"), serde_json::json!(true)),
+            ]
+        );
+        assert_eq!(judged(&second)[1]["violations"][0]["message"], "split the table");
+        // The board shows the reused verdicts as current.
+        let board = agent.lock().await.rule_board();
+        let a = board.iter().find(|r| r.rule_id == "id-a").unwrap();
+        assert_eq!((a.state.clone(), a.outdated), (agent::RuleState::Pass, false));
+    }
+
+    /// The Reviewer, after a clean check of the Author's on the same content,
+    /// sends no judge either: the verdicts belong to the run, not the stage
+    /// that paid for them.
+    #[tokio::test]
+    async fn the_reviewer_reuses_the_authors_verdicts() {
+        let agent = agent_with(vec![rule("a")]);
+        let author_model = MockCompletionModel::from_stream_turns([verdict_turn("judgement-1", true)]);
+        let author = context(author_model.clone(), AbortFlag::default());
+        report(rule_check(&agent, &author, &serde_json::json!({})).await);
+        assert_eq!(author_model.request_count(), 1);
+
+        // A Reviewer of its own model, which would fail any judge sent to it.
+        let reviewer_model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
+        let reviewer = context(reviewer_model.clone(), AbortFlag::default());
+        let review = report(rule_check(&agent, &reviewer, &serde_json::json!({})).await);
+        assert_eq!(reviewer_model.request_count(), 0, "the Reviewer sent a judge");
+        assert!(judged(&review).iter().all(|v| v["verdict"] == "positive" && v["cached"] == true), "{review}");
+        assert_eq!(reviewer.spend.lock().unwrap().input_tokens, 0);
+    }
+
+    /// The cache follows the content, not the revision: an edit sends the
+    /// judge again, and undoing it gives back the verdict the first content
+    /// had, though the revision moved on twice.
+    #[tokio::test]
+    async fn an_edit_is_judged_again_and_an_undone_one_is_not() {
+        let model = MockCompletionModel::from_stream_turns([
+            verdict_turn("judgement-1", true),
+            verdict_turn("judgement-2", false),
+        ]);
+        let ctx = context(model.clone(), AbortFlag::default());
+        let agent = agent_with(vec![rule("a")]);
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+
+        edit(&agent, serde_json::from_str(ADD_ASSET).unwrap()).await;
+        let edited = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 2, "the edited document was not judged again");
+        assert_eq!(judged(&edited)[0]["verdict"], "negative");
+        assert!(judged(&edited)[0].get("cached").is_none());
+
+        edit(&agent, serde_json::from_str(REMOVE_ASSET).unwrap()).await;
+        let undone = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 2, "the undone edit was judged again");
+        assert_eq!(judged(&undone)[0]["verdict"], "positive");
+        assert_eq!(judged(&undone)[0]["cached"], true);
+    }
+
+    /// A rule whose text changed is a rule its old verdicts were not given
+    /// for: its judge runs again on the same content.
+    #[tokio::test]
+    async fn a_changed_rule_is_judged_again() {
+        let model = MockCompletionModel::from_stream_turns([
+            verdict_turn("judgement-1", true),
+            verdict_turn("judgement-2", true),
+        ]);
+        let ctx = context(model.clone(), AbortFlag::default());
+        let agent = agent_with(vec![rule("a")]);
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        let mut changed = rule("a");
+        changed.description = "Judge me harder.".into();
+        agent.lock().await.set_judged_rules(vec![changed]);
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 2);
+    }
+
+    /// Only a verdict is kept: a judge that failed is sent again next check.
+    #[tokio::test]
+    async fn a_failed_judge_is_not_cached() {
+        let model = MockCompletionModel::from_stream_turns([
+            vec![MockStreamEvent::error("Anthropic API error (400 Bad Request)")],
+            verdict_turn("judgement-2", true),
+        ]);
+        let ctx = context(model.clone(), AbortFlag::default());
+        let agent = agent_with(vec![rule("a")]);
+        let failed = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(judged(&failed)[0]["verdict"], "unchecked");
+        let retried = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 2);
+        assert_eq!(judged(&retried)[0]["verdict"], "positive");
+    }
+
+    /// A check of only some rules reuses what it can and judges the rest; a
+    /// later full check then judges only what no check judged yet.
+    #[tokio::test]
+    async fn a_partial_check_fills_the_cache_for_a_full_one() {
+        let model = MockCompletionModel::from_stream_turns([
+            verdict_turn("judgement-1", true),
+            verdict_turn("judgement-2", true),
+        ]);
+        let ctx = context(model.clone(), AbortFlag::default());
+        let agent = agent_with(vec![rule("a"), rule("b")]);
+        report(rule_check(&agent, &ctx, &serde_json::json!({"rule_ids": ["id-a"]})).await);
+        assert_eq!(model.request_count(), 1);
+        let full = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 2, "the full check judged rule a again");
+        let cached: Vec<_> = judged(&full).iter().map(|v| (v["rule_id"].clone(), v.get("cached").cloned())).collect();
+        assert_eq!(
+            cached,
+            [(serde_json::json!("id-a"), Some(serde_json::json!(true))), (serde_json::json!("id-b"), None)]
+        );
     }
 
     /// An aborted run sends no judge to the model.
