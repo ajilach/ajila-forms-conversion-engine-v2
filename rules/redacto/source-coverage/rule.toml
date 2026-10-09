@@ -16,3 +16,7 @@ only although the source has it in several.
 Fix: add the missing text as an asset, in every language, at the place the page shows it (`add` the
 asset to `/assets/-` and its place to `/body`).
 """
+
+[judge]
+# Walks every page of the source in every language.
+max_turns = 16

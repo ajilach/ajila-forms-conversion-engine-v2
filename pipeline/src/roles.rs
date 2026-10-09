@@ -64,6 +64,7 @@ individual call small. Proceed now.";
 /// per-stage turn budget. The system prompt and seed message are supplied per
 /// invocation by [`Run::execute`] (so the Reviewer reports can be pinned into
 /// `system`).
+#[derive(Clone, Copy)]
 pub(crate) struct Role {
     pub(crate) name: &'static str,
     /// Which catalog scope this stage is. The tools themselves are scoped in
@@ -154,7 +155,12 @@ pub(crate) const REDACTO_REVIEWER: Role = Role {
 
 /// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
 /// ends with `submit_rule_verdict`. Same role for both targets but its scope.
-const JUDGE_TURNS: usize = 20;
+///
+/// Eight turns: a judge gets the part of the document its rule reads in its
+/// prompt when the rule names one (see `agent::rules::JudgeScope`), and reads
+/// several things per turn otherwise. A rule that walks every page of the
+/// source asks for more in its `[judge] max_turns`.
+const JUDGE_TURNS: usize = 8;
 const JUDGE_NUDGE: &str = "Your previous turn was cut off at the output-token limit. Keep each \
 call small: read one part of the document at a time, then call submit_rule_verdict.";
 
@@ -179,6 +185,24 @@ pub(crate) const REDACTO_JUDGE: Role = Role {
     remember: false,
     resume: false,
 };
+
+/// The judge role of `target`, with `max_turns` instead of the default turn
+/// budget when a rule asks for one. A stage runs on a `&'static Role`, so each
+/// budget a rule asks for is made once and kept for the process.
+pub(crate) fn judge_role(target: OutputTarget, max_turns: Option<usize>) -> &'static Role {
+    let base = roles_for(target).judge;
+    let Some(turns) = max_turns.filter(|t| *t != base.max_iterations) else {
+        return base;
+    };
+    static MADE: std::sync::OnceLock<std::sync::Mutex<Vec<&'static Role>>> = std::sync::OnceLock::new();
+    let mut made = MADE.get_or_init(Default::default).lock().unwrap_or_else(|p| p.into_inner());
+    if let Some(role) = made.iter().find(|r| r.scope == base.scope && r.max_iterations == turns) {
+        return role;
+    }
+    let role: &'static Role = Box::leak(Box::new(Role { max_iterations: turns, ..*base }));
+    made.push(role);
+    role
+}
 
 /// The stages for one output target.
 pub(crate) struct TargetRoles {
@@ -285,11 +309,12 @@ pub(crate) fn sys_reviewer(target: OutputTarget, extra: &str, reviews: &[String]
     s
 }
 
-/// A judge's system prompt: its preamble, the document format, and the one
-/// rule it judges.
-pub(crate) fn sys_judge(target: OutputTarget, rule: &agent::rules::JudgedRule, judgement: &str) -> String {
+/// A judge's system prompt: its preamble, the document format, the one rule
+/// it judges and, after it, what it was handed to read (`handed`, already
+/// written as prompt sections, or empty).
+pub(crate) fn sys_judge(target: OutputTarget, rule: &agent::rules::JudgedRule, judgement: &str, handed: &str) -> String {
     format!(
-        "{JUDGE_PREAMBLE}{}\n\n## THE RULE\njudgement: {judgement}\n{}\n\n{}",
+        "{JUDGE_PREAMBLE}{}\n\n## THE RULE\njudgement: {judgement}\n{}\n\n{}{handed}",
         format_note(target),
         rule.title,
         rule.description
@@ -313,6 +338,21 @@ pub(crate) fn append_reviews(s: &mut String, heading: &str, reviews: &[String]) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A rule's own turn budget makes a judge role of its own, once; the
+    /// default budget is the target's judge role itself.
+    #[test]
+    fn a_rule_can_ask_for_its_own_judge_turns() {
+        for target in OutputTarget::ALL {
+            let base = roles_for(target).judge;
+            assert_eq!(base.max_iterations, JUDGE_TURNS);
+            assert!(std::ptr::eq(judge_role(target, None), base));
+            assert!(std::ptr::eq(judge_role(target, Some(JUDGE_TURNS)), base));
+            let wide = judge_role(target, Some(14));
+            assert_eq!((wide.max_iterations, wide.scope), (14, base.scope));
+            assert!(std::ptr::eq(judge_role(target, Some(14)), wide), "made once");
+        }
+    }
 
     /// Only the judges' calls leave the dispatching stage's evidence alone.
     #[test]

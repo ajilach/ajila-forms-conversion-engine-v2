@@ -16,3 +16,6 @@ A break is an asset that holds more than one block of the source.
 Fix: split the asset into one asset per block, in every language, and reference them in order from
 the same `assetContainer`.
 """
+
+[judge]
+pointers = ["/assets"]

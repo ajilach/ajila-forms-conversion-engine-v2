@@ -19,6 +19,23 @@
     "name": "get_source_info"
   },
   {
+    "description": "The full text of the rules you name: id, title, `check` and the description, which says what is required, how it is judged and how to fix a break. Name the ids from rule_list or from a rule_check verdict; omit ids for every rule.",
+    "input_schema": {
+      "properties": {
+        "ids": {
+          "description": "Rule ids from rule_list; omit for every rule.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "required": [],
+      "type": "object"
+    },
+    "name": "rule_get"
+  },
+  {
     "description": "Encode the document into the Redacto PostgreSQL dump, adding the UBS metadata, page header and footer from each language's source, and report what it holds: the document id, languages, asset count and dump size. A document the Redacto model refuses (an empty body, an asset missing a language, a reference to an asset that does not exist) is reported with every violation and builds nothing. Build after every substantive change; the redacto_verify_* tools check the latest build.",
     "input_schema": {
       "properties": {},
@@ -441,7 +458,7 @@
     "name": "json_validate"
   },
   {
-    "description": "List every rule the document is held to, by id, title and description. Read them all before you author: the description says what is required and how to fix a break. `check` says how a rule is checked: `script` (its script decides it, on every edit too) or `agent` (a judge agent reads the document against the description).",
+    "description": "Index of every rule the document is held to, by id and title, in two lists by how a rule is checked: `scripted` (its script decides it, on every edit too) and `judged` (a judge agent reads the document against the description). rule_get gives the descriptions, which say what is required, how it is judged and how to fix a break.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
@@ -450,7 +467,7 @@
     "name": "rule_list"
   },
   {
-    "description": "Check the document against its rules and return each rule's verdict and violations (a JSON Pointer and what to fix). A scripted rule runs its script; a judged rule is handed to a judge agent, several in parallel, which takes longer and costs a model run per rule, so name the rules you need with rule_ids when you do not need them all. Where no judge runs, a judged rule comes back `unchecked`. When the document has a current build, `package_findings` lists what its package breaks. Read-only.",
+    "description": "Check the document against its rules. `summary` counts the verdicts by kind and `positive` names the rules that hold; `verdicts` spells out every other one: `negative` with its violations (a JSON Pointer and what to fix), `unchecked` or `broken` with the reason. A scripted rule runs its script; a judged rule is handed to a judge agent, several in parallel, which takes longer and costs a model run per rule, so name the rules you need with rule_ids when you do not need them all. A judged rule whose part of the document has not changed since a judge last checked it keeps that verdict without a new judge (`cached`). Where no judge runs, a judged rule comes back `unchecked`. When the document has a current build, `package_findings` lists what its package breaks. Read-only.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {

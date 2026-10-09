@@ -62,6 +62,13 @@ environment variable it looked for.
 The model resolves the same way minus the environment step: `--model`, else the
 app's setting, else the built-in default `claude-opus-5`.
 
+The Author runs on that model. The Reviewer and the judges (one agent per judged rule in every
+`rule_check`) run on it too unless they have one of their own: `--reviewer-model` and
+`--judge-model`, else the app's settings (AI Model → Models per role). An empty value, or the
+main model again, means no model of their own. A judge without one runs on the model of the
+stage that dispatched it. The model banner names the roles that have their own, e.g.
+`… · model: claude-opus-5-5 · judges: claude-haiku-5-5`, and so does the run analysis.
+
 ### 1.4 A profile
 
 A profile supplies the parser fonts and (in `history.db`) the reference library. `ubs` is currently the only one installed, so `--profile` can be omitted — the CLI picks it automatically when exactly one profile exists. It errors rather than guessing if several are installed, and a resumed session inherits the profile it was created with.
@@ -258,7 +265,9 @@ nothing.
 | `--provider <anthropic\|openai>` | the app's setting | `openai` means any OpenAI-compatible endpoint |
 | `--base-url <URL>` | `https://openrouter.ai/api/v1` | Implies `--provider openai` |
 | `--api-key <KEY>` | `$ANTHROPIC_API_KEY` / `$OPENAI_API_KEY`, then the app | |
-| `--model <ID>` | the app's setting, then `claude-opus-5` | |
+| `--model <ID>` | the app's setting, then `claude-opus-5` | The Author's, and the other roles' unless they have their own |
+| `--reviewer-model <ID>` | the app's setting, else `--model` | Same provider and key as `--model` |
+| `--judge-model <ID>` | the app's setting, else the dispatching stage's | Same provider and key as `--model` |
 | `--max-review-rounds <N>` | 3 | Reviewer → Author-fix rounds before finalizing |
 | `--instructions <TEXT>` | the app's setting | Appended to every role's system prompt |
 | `--instructions-file <PATH>` | — | Conflicts with `--instructions` |

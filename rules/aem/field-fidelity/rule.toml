@@ -38,3 +38,7 @@ page. Nothing the configurator exception above leaves to the UBS convention is a
 
 Fix: change the node's type (replace the node), `mandatory`, `options`, `visible` or `colspan`.
 """
+
+[judge]
+# Walks every page of the source in every language.
+max_turns = 16

@@ -294,6 +294,10 @@ impl ConversionAgent {
                     Err(e) => ToolReply::Error(e),
                 }
             }
+            "rule_get" => match crate::rules::rule_get(&self.rules, &self.judged, input) {
+                Ok(rules) => ToolReply::Text(rules.to_string()),
+                Err(e) => ToolReply::Error(e),
+            },
             "rule_autofix" => self.autofix(input).await,
             name if DOCUMENT_TOOLS.iter().any(|t| t.name() == name) => {
                 let tool = *DOCUMENT_TOOLS.iter().find(|t| t.name() == name).expect("matched");

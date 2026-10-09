@@ -16,3 +16,6 @@ into its own block.
 
 Fix: replace the tag with the level the page shows, and put the emphasis or marker back inline.
 """
+
+[judge]
+pointers = ["/assets"]

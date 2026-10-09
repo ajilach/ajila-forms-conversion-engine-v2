@@ -17,6 +17,18 @@ use crate::run::run_stage_as;
 use crate::tools::SharedAgent;
 use crate::trace::TraceEvent;
 
+/// A model a stage runs on, with what goes with it: its price, its output cap
+/// and the context budget sized from its window. The run's own model is one;
+/// a role can be given another (see [`crate::RunConfig::reviewer_model`] and
+/// [`crate::RunConfig::judge_model`]).
+#[derive(Clone)]
+pub struct StageModel {
+    pub model: ModelHandle,
+    pub price: PriceFn,
+    pub max_tokens: u32,
+    pub context_budget: Arc<dyn ContextBudget>,
+}
+
 /// What a sub-stage needs from the stage that dispatches it.
 #[derive(Clone)]
 pub(crate) struct SubStageContext {
@@ -46,6 +58,25 @@ impl SubStageContext {
     ) -> Self {
         let spend = Arc::new(Mutex::new(Spend::default()));
         Self { target, model, price, max_tokens, context_budget, abort, obs, spend }
+    }
+
+    /// A context whose sub-stages run on `judge` rather than the stage's own
+    /// model when the run gives judges a model of their own.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn for_stage(
+        target: OutputTarget,
+        model: ModelHandle,
+        price: PriceFn,
+        max_tokens: u32,
+        context_budget: Arc<dyn ContextBudget>,
+        judge: Option<&StageModel>,
+        abort: AbortFlag,
+        obs: SharedObserver,
+    ) -> Self {
+        match judge {
+            Some(j) => Self::new(target, j.model.clone(), j.price.clone(), j.max_tokens, j.context_budget.clone(), abort, obs),
+            None => Self::new(target, model, price, max_tokens, context_budget, abort, obs),
+        }
     }
 
     /// Folds what the sub-stages spent into the run's `total`, and reports the
@@ -117,6 +148,8 @@ pub(crate) async fn run_sub_stage(
         &obs,
         &mut spend,
         caller,
+        // A judge dispatches no judges of its own.
+        None,
     )
     .await;
     ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
@@ -198,6 +231,16 @@ pub(crate) mod test_support {
             .expect("an agent without sources starts");
         agent.set_judged_rules(rules);
         Arc::new(tokio::sync::Mutex::new(agent))
+    }
+
+    /// `model` as a stage model of its own, priced at `per_input_token`.
+    pub(crate) fn stage_model(model: MockCompletionModel, per_input_token: f64) -> crate::StageModel {
+        crate::StageModel {
+            model: ModelHandle::new(model),
+            price: Arc::new(move |usage| Some(usage.input_tokens as f64 * per_input_token)),
+            max_tokens: 1000,
+            context_budget: Arc::new(NoBudget),
+        }
     }
 
     /// A Redacto context on `model` whose sub-stages report to nobody.

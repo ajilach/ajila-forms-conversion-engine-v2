@@ -21,6 +21,27 @@ fn anthropic_fallback_models() -> Vec<String> {
         .collect()
 }
 
+/// What the picker shows for each model id: the id and, when its rates are
+/// known, what it costs, so a model can be chosen on price too.
+fn priced_labels(ids: &[String]) -> Vec<String> {
+    ids.iter()
+        .map(|id| match runner::pricing::price_label(id) {
+            Some(price) => format!("{id} — {price}"),
+            None => id.clone(),
+        })
+        .collect()
+}
+
+/// A role's picker: `same` (the role keeps the model it would run on
+/// anyway) first, then every model with its price.
+fn role_options(models: &[String], same: &str) -> (Vec<String>, Vec<String>) {
+    let mut options = vec![String::new()];
+    options.extend(models.iter().cloned());
+    let mut labels = vec![same.to_string()];
+    labels.extend(priced_labels(models));
+    (options, labels)
+}
+
 /// The settings tabs, in the order they are shown.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 enum SettingsTab {
@@ -151,10 +172,10 @@ pub fn SettingsPage(
                                 }
                                 SelectRow {
                                     label: "Model",
-                                    desc: "Claude model used for AI features (the conversion agent and reference descriptions).",
+                                    desc: "Claude model used for AI features: the conversion's Author, and its Reviewer and judges unless they have their own below, and reference descriptions. Prices are USD per million tokens.",
                                     value: s.anthropic_model.clone(),
                                     options: model_list(),
-                                    labels: Vec::new(),
+                                    labels: priced_labels(&model_list()),
                                     on_change: move |v: String| update.call(Box::new(move |s| s.anthropic_model = v)),
                                 }
                             }
@@ -195,15 +216,57 @@ pub fn SettingsPage(
                                 } else {
                                     SelectRow {
                                         label: "Model",
-                                        desc: "Model id at this endpoint. Only models that support tool calling and images can drive a conversion.",
+                                        desc: "Model id at this endpoint. Only models that support tool calling and images can drive a conversion. The Author runs on it, and so do the Reviewer and the judges unless they have their own below.",
                                         value: s.openai_model.clone(),
                                         options: model_list(),
-                                        labels: Vec::new(),
+                                        labels: priced_labels(&model_list()),
                                         unset_label: "Select a model…",
                                         on_change: move |v: String| {
                                             update.call(Box::new(move |s| s.openai_model = v.trim().to_string()))
                                         },
                                     }
+                                }
+                            }
+                        }
+                        div { class: "settings-section",
+                            h3 { class: "settings-section-title", "Models per role" }
+                            if model_list().is_empty() {
+                                TextRow {
+                                    label: "Reviewer model",
+                                    desc: "Model id for the Reviewer at this endpoint. Empty = the main model.",
+                                    value: s.reviewer_model.clone(),
+                                    placeholder: "",
+                                    secret: false,
+                                    on_change: move |v: String| {
+                                        update.call(Box::new(move |s| s.reviewer_model = v.trim().to_string()))
+                                    },
+                                }
+                                TextRow {
+                                    label: "Judge model",
+                                    desc: "Model id for the judges (one per judged rule in every rule_check) at this endpoint. Empty = the model of the stage that calls them.",
+                                    value: s.judge_model.clone(),
+                                    placeholder: "",
+                                    secret: false,
+                                    on_change: move |v: String| {
+                                        update.call(Box::new(move |s| s.judge_model = v.trim().to_string()))
+                                    },
+                                }
+                            } else {
+                                SelectRow {
+                                    label: "Reviewer model",
+                                    desc: "The model the Reviewer runs on. It reviews the built form against the source in the browser, so it needs tool calling and images.",
+                                    value: s.reviewer_model.clone(),
+                                    options: role_options(&model_list(), "Same as the main model").0,
+                                    labels: role_options(&model_list(), "Same as the main model").1,
+                                    on_change: move |v: String| update.call(Box::new(move |s| s.reviewer_model = v)),
+                                }
+                                SelectRow {
+                                    label: "Judge model",
+                                    desc: "The model the judges run on: one per judged rule in every rule_check, each reading a part of the document and the source. They are most of a run's model calls, so a cheaper model here saves the most.",
+                                    value: s.judge_model.clone(),
+                                    options: role_options(&model_list(), "Same as the stage that calls them").0,
+                                    labels: role_options(&model_list(), "Same as the stage that calls them").1,
+                                    on_change: move |v: String| update.call(Box::new(move |s| s.judge_model = v)),
                                 }
                             }
                         }
