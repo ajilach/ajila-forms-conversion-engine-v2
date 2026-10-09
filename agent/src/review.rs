@@ -130,14 +130,20 @@ fn locate(report: &Value) -> Located {
 }
 
 /// Reads the screenshots and renders the PDFs [`locate`] found.
-fn read_located(located: Located) -> Result<Captured, String> {
+fn read_located(mut located: Located) -> Result<Captured, String> {
     let mut images = ReviewImages::default();
     for (label, path) in located.screenshots {
         let png = std::fs::read(&path).map_err(|e| format!("reading screenshot {label}: {e}"))?;
         images.form.push(ReviewImage { label, png });
     }
     for (label, path) in &located.pdfs {
-        images.output.extend(render_pdf(path, label)?);
+        let pages = render_pdf(path, label)?;
+        for page in &pages {
+            if renders_blank(&page.png)? {
+                located.problems.push(format!("{} renders blank", page.label));
+            }
+        }
+        images.output.extend(pages);
     }
     if images.is_empty() {
         let why = if located.problems.is_empty() {
@@ -188,6 +194,20 @@ pub fn render_sources(files: &[(String, Vec<u8>)]) -> Result<Vec<ReviewImage>, S
     Ok(images)
 }
 
+/// Lighter than this, a pixel counts as paper: anti-aliasing leaves text
+/// edges well below it, and a page carrying only that is one nobody can
+/// read either.
+const PAPER_LUMA: u8 = 250;
+
+/// Whether a rendered page shows nothing: every pixel is paper-white. The
+/// verifier's own `download_blank` finding judges the PDF's content stream;
+/// this judges what a person would see, which also catches text drawn with
+/// a font the renderer could not load. Pure.
+fn renders_blank(png: &[u8]) -> Result<bool, String> {
+    let image = image::load_from_memory(png).map_err(|e| format!("reading a rendered page: {e}"))?;
+    Ok(image.to_luma8().pixels().all(|pixel| pixel.0[0] >= PAPER_LUMA))
+}
+
 /// Renders every page of a plain PDF with pdfium.
 fn render_pdf(path: &Path, label: &str) -> Result<Vec<ReviewImage>, String> {
     let pdfium = crate::pdfium::renderer(limits())?;
@@ -235,6 +255,28 @@ mod tests {
     use super::*;
 
     const PNG_MAGIC: &[u8] = b"\x89PNG\r\n\x1a\n";
+
+    fn png_of(pixels: image::GrayImage) -> Vec<u8> {
+        let mut png = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageLuma8(pixels)
+            .write_to(&mut png, image::ImageFormat::Png)
+            .unwrap();
+        png.into_inner()
+    }
+
+    /// A page of paper only is blank; one with a single dark mark is not.
+    #[test]
+    fn a_rendered_page_is_blank_only_when_every_pixel_is_paper() {
+        let white = image::GrayImage::from_pixel(40, 60, image::Luma([255]));
+        assert_eq!(renders_blank(&png_of(white.clone())), Ok(true));
+        let mut off_white = white.clone();
+        off_white.put_pixel(3, 3, image::Luma([PAPER_LUMA]));
+        assert_eq!(renders_blank(&png_of(off_white)), Ok(true), "a near-white speck is still paper");
+        let mut marked = white;
+        marked.put_pixel(20, 30, image::Luma([40]));
+        assert_eq!(renders_blank(&png_of(marked)), Ok(false));
+        assert!(renders_blank(b"not a png").is_err());
+    }
 
     fn form(name: &str) -> (String, Vec<u8>) {
         let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("../forms").join(name);

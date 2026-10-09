@@ -43,6 +43,7 @@ dependencies = [
  "chrono",
  "dirs 5.0.1",
  "flate2",
+ "image",
  "include_dir",
  "references-mcp",
  "regex-lite",

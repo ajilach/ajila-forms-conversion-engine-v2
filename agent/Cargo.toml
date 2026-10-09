@@ -29,6 +29,8 @@ u2s-redacto-verify-core = { workspace = true }
 u2s-render-core = { workspace = true }
 u2s-verify-core = { workspace = true }
 u2s-render-pdf = { workspace = true }
+# `review::renders_blank`: reading a rendered page back to judge it.
+image = { workspace = true }
 u2s-render-pdf-mcp = { workspace = true }
 u2s-render-xfa = { workspace = true }
 u2s-render-xfa-mcp = { workspace = true }
