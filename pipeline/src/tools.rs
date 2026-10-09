@@ -65,16 +65,15 @@ pub fn dynamic_tools_for(agent: &SharedAgent, specs: &[serde_json::Value]) -> Ve
 }
 
 /// [`dynamic_tools_for`], with `rule_check` dispatching judges for the judged
-/// rules (see [`crate::judge`]) instead of reporting them unchecked, and
-/// `inspect` dispatching inspectors (see [`crate::inspect`]), the calls made as
-/// `caller` (see `agent::Caller`).
+/// rules (see [`crate::judge`]) instead of reporting them unchecked, the calls
+/// made as `caller` (see `agent::Caller`).
 pub(crate) fn dynamic_tools_with_sub_stages(
     agent: &SharedAgent,
     specs: &[serde_json::Value],
     sub_stages: &SubStageContext,
     caller: &Caller,
 ) -> Vec<DynamicTool> {
-    // A stage's edits move the rules; a judge's or an inspector's calls edit
+    // A stage's edits move the rules; a judge's calls edit
     // nothing, so they report nothing.
     let rules = (*caller == Caller::Stage).then(|| sub_stages.obs.clone());
     specs
@@ -82,9 +81,6 @@ pub(crate) fn dynamic_tools_with_sub_stages(
         .filter_map(|spec| match spec["name"].as_str() {
             Some("rule_check") => Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
                 Box::pin(async move { crate::judge::rule_check(&agent, &ctx, &args).await })
-            })),
-            Some("inspect") => Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
-                Box::pin(async move { crate::inspect::inspect(&agent, &ctx, &args).await })
             })),
             _ => dynamic_tool_from(agent, spec, caller.clone(), rules.clone()),
         })

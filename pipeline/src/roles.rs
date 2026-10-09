@@ -6,7 +6,7 @@
 //! and a stage here names a scope rather than carrying its own list.
 
 use agent::{
-    AEM_WALKER_ADDENDUM, AUTHOR_ADDENDUM, INSPECTOR_PREAMBLE, JUDGE_PREAMBLE, REDACTO_WALKER_ADDENDUM, REDACTO_AUTHOR_ADDENDUM, REDACTO_REVIEWER_ADDENDUM, REDACTO_SHARED_PREAMBLE,
+    AUTHOR_ADDENDUM, JUDGE_PREAMBLE, REDACTO_AUTHOR_ADDENDUM, REDACTO_REVIEWER_ADDENDUM, REDACTO_SHARED_PREAMBLE,
     REDACTO_SYSTEM_PROMPT, REVIEWER_ADDENDUM, SHARED_PREAMBLE, SYSTEM_PROMPT,
 };
 
@@ -177,68 +177,12 @@ pub(crate) const REDACTO_JUDGE: Role = Role {
     resume: false,
 };
 
-/// An inspector: does one brief `inspect` handed it, reads, edits nothing,
-/// and ends with `submit_findings`. The walker is the one inspector of an
-/// `inspect` that also drives the verifier, so it gets the Reviewer's budget
-/// for the click-through.
-const INSPECTOR_TURNS: usize = 40;
-const INSPECTOR_NUDGE: &str = "Your previous turn was cut off at the output-token limit. Keep each \
-call small: read one part of the source or the document at a time, then call submit_findings.";
-
-pub(crate) const INSPECTOR: Role = Role {
-    name: "Inspector",
-    scope: agent::scope::AEM_INSPECTOR,
-    max_iterations: INSPECTOR_TURNS,
-    stuck_tool: None,
-    stuck_activity: "inspecting",
-    max_tokens_nudge: INSPECTOR_NUDGE,
-    remember: false,
-    resume: false,
-};
-
-pub(crate) const REDACTO_INSPECTOR: Role = Role {
-    name: "Inspector",
-    scope: agent::scope::REDACTO_INSPECTOR,
-    max_iterations: INSPECTOR_TURNS,
-    stuck_tool: None,
-    stuck_activity: "inspecting",
-    max_tokens_nudge: INSPECTOR_NUDGE,
-    remember: false,
-    resume: false,
-};
-
-pub(crate) const WALKER: Role = Role {
-    name: "Walker",
-    scope: agent::scope::AEM_WALKER,
-    max_iterations: REVIEWER.max_iterations,
-    stuck_tool: None,
-    stuck_activity: "walking the verifier",
-    max_tokens_nudge: INSPECTOR_NUDGE,
-    remember: false,
-    resume: false,
-};
-
-pub(crate) const REDACTO_WALKER: Role = Role {
-    name: "Walker",
-    scope: agent::scope::REDACTO_WALKER,
-    max_iterations: REDACTO_REVIEWER.max_iterations,
-    stuck_tool: None,
-    stuck_activity: "walking the verifier",
-    max_tokens_nudge: INSPECTOR_NUDGE,
-    remember: false,
-    resume: false,
-};
-
 /// The stages for one output target.
 pub(crate) struct TargetRoles {
     pub(crate) author: &'static Role,
     pub(crate) reviewer: &'static Role,
     /// The judge `rule_check` dispatches for each judged rule.
     pub(crate) judge: &'static Role,
-    /// The inspector `inspect` dispatches for each brief.
-    pub(crate) inspector: &'static Role,
-    /// The inspector of the one brief that walks the verifier.
-    pub(crate) walker: &'static Role,
     /// What the Author stage header says it is doing.
     pub(crate) author_doing: &'static str,
     /// Seed message that starts a fresh Author stage.
@@ -259,8 +203,6 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
             author: &AUTHOR,
             reviewer: &REVIEWER,
             judge: &JUDGE,
-            inspector: &INSPECTOR,
-            walker: &WALKER,
             author_doing: "building the AEM form",
             author_seed: "Inspect the source form, then author the full form in the document, \
                           then rule_check and build_aem_package.",
@@ -275,8 +217,6 @@ pub(crate) fn roles_for(target: OutputTarget) -> TargetRoles {
             author: &REDACTO_AUTHOR,
             reviewer: &REDACTO_REVIEWER,
             judge: &REDACTO_JUDGE,
-            inspector: &REDACTO_INSPECTOR,
-            walker: &REDACTO_WALKER,
             author_doing: "building the Redacto document",
             author_seed: "Inspect the source document, then author the full document, then \
                           build_redacto_dump.",
@@ -353,20 +293,6 @@ pub(crate) fn sys_judge(target: OutputTarget, rule: &agent::rules::JudgedRule, j
     )
 }
 
-/// An inspector's system prompt: its preamble (and the walker's addendum
-/// when it walks the verifier), the document format, and its brief.
-pub(crate) fn sys_inspector(target: OutputTarget, brief: &str, walk: bool, inspection: &str) -> String {
-    let walker = match (walk, target) {
-        (false, _) => String::new(),
-        (true, OutputTarget::Aem) => format!("\n\n{AEM_WALKER_ADDENDUM}"),
-        (true, OutputTarget::Redacto) => format!("\n\n{REDACTO_WALKER_ADDENDUM}"),
-    };
-    format!(
-        "{INSPECTOR_PREAMBLE}{walker}{}\n\n## THE BRIEF\ninspection: {inspection}\n{brief}",
-        format_note(target)
-    )
-}
-
 pub(crate) fn append_reviews(s: &mut String, heading: &str, reviews: &[String]) {
     use std::fmt::Write;
 
@@ -385,8 +311,7 @@ pub(crate) fn append_reviews(s: &mut String, heading: &str, reviews: &[String]) 
 mod tests {
     use super::*;
 
-    /// Only the judges' calls leave the dispatching stage's evidence alone:
-    /// the main stages are stages, and an inspector is run with its own caller.
+    /// Only the judges' calls leave the dispatching stage's evidence alone.
     #[test]
     fn only_judges_record_no_evidence() {
         use crate::run::stage_caller;
@@ -397,17 +322,6 @@ mod tests {
             assert_eq!(stage_caller(roles.reviewer), Caller::Stage);
             assert_eq!(stage_caller(roles.judge), Caller::Judge);
         }
-    }
-
-    /// An inspector's prompt carries its brief and its inspection id, and only
-    /// the walker's names the verifier.
-    #[test]
-    fn an_inspectors_prompt_carries_its_brief() {
-        let inspector = sys_inspector(OutputTarget::Aem, "Read pages 1-3.", false, "inspection-2");
-        assert!(inspector.contains("Read pages 1-3.") && inspector.contains("inspection-2"));
-        assert!(!inspector.contains("aem_verify_open"));
-        assert!(sys_inspector(OutputTarget::Aem, "Walk it.", true, "inspection-3").contains("aem_verify_open"));
-        assert!(sys_inspector(OutputTarget::Redacto, "Walk it.", true, "inspection-3").contains("redacto_verify_run"));
     }
 
         /// Which tools a stage may call is decided once, in the engine's catalog;
@@ -421,7 +335,7 @@ mod tests {
                 OutputTarget::Redacto,
             ] {
                 let roles = roles_for(target);
-                for role in [roles.author, roles.reviewer, roles.judge, roles.inspector, roles.walker] {
+                for role in [roles.author, roles.reviewer, roles.judge] {
                     let tools = agent::tools_for(target, role.scope);
                     assert!(
                         !tools.is_empty(),
@@ -442,7 +356,7 @@ mod tests {
                 OutputTarget::Redacto,
             ] {
                 let roles = roles_for(target);
-                for role in [roles.author, roles.reviewer, roles.judge, roles.inspector, roles.walker] {
+                for role in [roles.author, roles.reviewer, roles.judge] {
                     let Some(stuck) = role.stuck_tool else {
                         continue;
                     };
@@ -471,10 +385,6 @@ mod tests {
                 REDACTO_JUDGE.scope,
                 REDACTO_AUTHOR.scope,
                 REDACTO_REVIEWER.scope,
-                INSPECTOR.scope,
-                REDACTO_INSPECTOR.scope,
-                WALKER.scope,
-                REDACTO_WALKER.scope,
             ];
             for (i, a) in scopes.iter().enumerate() {
                 for b in &scopes[i + 1..] {

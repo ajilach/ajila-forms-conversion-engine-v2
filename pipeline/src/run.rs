@@ -665,8 +665,8 @@ pub(crate) async fn run_stage(
     .await
 }
 
-/// [`run_stage`], its calls made as `caller` (see `agent::Caller`): an
-/// inspector's carry its inspection.
+/// [`run_stage`], its calls made as `caller` (see `agent::Caller`): a judge's
+/// sub-stage runs through here (`crate::substage`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn run_stage_as(
     shared_agent: &SharedAgent,
@@ -687,8 +687,7 @@ pub(crate) async fn run_stage_as(
         let agent = shared_agent.lock().await;
         (agent.tools_for_stage(role.scope), agent.session_id().to_string(), agent.target())
     };
-    // What a `rule_check` or an `inspect` of this stage needs to dispatch its
-    // judges or inspectors.
+    // What a `rule_check` of this stage needs to dispatch its judges.
     let sub_stages = crate::substage::SubStageContext::new(
         target,
         model.clone(),
@@ -742,7 +741,7 @@ pub(crate) async fn run_stage_as(
     .await;
     let history = answer_unanswered_tool_calls(history);
     store_stage(memory.as_ref(), &loaded, &history, role, obs).await;
-    // The judges and inspectors this stage dispatched spent on its behalf.
+    // The judges this stage's `rule_check` dispatched spent on its behalf.
     sub_stages.fold_spend(total_spend);
     outcome
 }
@@ -938,13 +937,8 @@ async fn run_stage_attempts(
 
 /// Who a stage's calls are made by when nothing more is known (see
 /// `agent::Caller`): a judge is a judge, whose calls are not the dispatching
-/// stage's evidence, and every other stage is a stage. An inspector is run
-/// with [`run_stage_as`] instead, since its caller carries its inspection.
+/// stage's evidence, and every other stage is a stage.
 pub(crate) fn stage_caller(role: &Role) -> agent::Caller {
-    assert!(
-        role.scope & agent::scope::INSPECTORS == 0,
-        "an inspector runs as its inspection's caller, through run_stage_as"
-    );
     if role.scope & agent::scope::JUDGES != 0 { agent::Caller::Judge } else { agent::Caller::Stage }
 }
 

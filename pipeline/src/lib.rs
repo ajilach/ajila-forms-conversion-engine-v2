@@ -18,7 +18,6 @@
 
 pub mod describe;
 pub mod hooks;
-mod inspect;
 mod judge;
 pub mod memory;
 pub mod observer;

@@ -252,18 +252,6 @@ pub struct ConversionAgent {
     judgements: HashMap<String, Option<crate::rules::RuleVerdict>>,
     /// How many judgements this agent has opened, which numbers the next.
     judgements_opened: u64,
-    /// The inspections `inspect` has dispatched and not yet taken back, each
-    /// with the findings its inspector recorded, if it has; keyed like
-    /// [`Self::judgements`].
-    inspections: HashMap<String, Option<crate::findings::Findings>>,
-    /// How many inspections this agent has opened, which numbers the next.
-    inspections_opened: u64,
-    /// The inspection whose inspector is walking the verifier, while one is:
-    /// every other caller's verifier calls are refused until it ends. Set and
-    /// cleared by the dispatching `inspect` around that one inspector's run,
-    /// state the agent holds because the verifier session it guards is the
-    /// agent's.
-    walker: Option<String>,
 
     /// The vendored u2s tool servers, created on the first u2s call or
     /// `get_source_info` (see [`Self::u2s_tools`]).
@@ -331,9 +319,6 @@ impl ConversionAgent {
             evidence_waived: false,
             judgements: HashMap::new(),
             judgements_opened: 0,
-            inspections: HashMap::new(),
-            inspections_opened: 0,
-            walker: None,
             u2s: None,
         })
     }
@@ -488,38 +473,6 @@ impl ConversionAgent {
     /// its judge recorded one.
     pub fn take_judgement(&mut self, id: &str) -> Option<crate::rules::RuleVerdict> {
         self.judgements.remove(id).flatten()
-    }
-
-    /// Opens an inspection for one inspector to record its findings under,
-    /// and returns its id.
-    pub fn open_inspection(&mut self) -> String {
-        self.inspections_opened += 1;
-        let id = format!("inspection-{}", self.inspections_opened);
-        self.inspections.insert(id.clone(), None);
-        id
-    }
-
-    /// Closes the inspection `id` and returns the findings recorded under it,
-    /// if its inspector recorded any.
-    pub fn take_inspection(&mut self, id: &str) -> Option<crate::findings::Findings> {
-        self.inspections.remove(id).flatten()
-    }
-
-    /// Hands the verifier to the inspector of `inspection` alone, until
-    /// [`Self::end_walk`]. Refused while another inspector walks it.
-    pub fn begin_walk(&mut self, inspection: &str) -> Result<(), String> {
-        match &self.walker {
-            Some(walker) => Err(format!("{walker} is walking the verifier already")),
-            None => {
-                self.walker = Some(inspection.to_string());
-                Ok(())
-            }
-        }
-    }
-
-    /// Gives the verifier back to every caller.
-    pub fn end_walk(&mut self) {
-        self.walker = None;
     }
 
     /// The document's revision, which a check reports against.
@@ -1093,53 +1046,6 @@ mod tests {
         assert!(names_render(&agent), "a judge's render counted for the stage");
         agent.execute("xfa_render_pages", &render).await;
         assert!(!names_render(&agent), "the stage's own render did not count");
-    }
-
-    /// An inspector works on the stage's behalf: its calls are the stage's
-    /// verification.
-    #[tokio::test]
-    async fn an_inspectors_call_is_the_stages_evidence() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
-        let render = json!({ "doc_path": "/nowhere/source.pdf", "page": 1 });
-        let inspector = Caller::Inspector(agent.open_inspection());
-        agent.execute_as("xfa_render_pages", &render, &inspector).await;
-        assert!(!agent.missing_evidence().join("\n").contains("xfa_render_pages"));
-    }
-
-    /// An inspector's findings go under the inspection it was given, once.
-    #[tokio::test]
-    async fn findings_are_recorded_under_their_inspection_once() {
-        let mut agent = agent_for(OutputTarget::Redacto, Vec::new());
-        let id = agent.open_inspection();
-        let report = |inspection: &str| json!({ "inspection": inspection, "checked": ["page 1"], "findings": [] });
-
-        assert!(matches!(agent.execute("submit_findings", &report("inspection-9")).await, ToolReply::Error(e) if e.contains("no open inspection")));
-        assert!(matches!(agent.execute("submit_findings", &json!({ "inspection": id, "checked": [] })).await, ToolReply::Error(_)));
-        reply_text(agent.execute("submit_findings", &report(&id)).await);
-        assert!(matches!(agent.execute("submit_findings", &report(&id)).await, ToolReply::Error(e) if e.contains("already")));
-        assert_eq!(agent.take_inspection(&id).map(|f| f.checked), Some(vec!["page 1".to_string()]));
-        assert!(agent.take_inspection(&id).is_none(), "taking an inspection closes it");
-    }
-
-    /// While an inspector walks the verifier, it alone drives it; everything
-    /// else stays open to every caller.
-    #[tokio::test]
-    async fn only_the_walker_drives_the_verifier_during_a_walk() {
-        let mut agent = agent_for(OutputTarget::Aem, vec![fixture("AAEV_019_EN.pdf")]);
-        let walker = agent.open_inspection();
-        let other = Caller::Inspector(agent.open_inspection());
-        agent.begin_walk(&walker).unwrap();
-        assert!(agent.begin_walk("inspection-7").is_err(), "one walk at a time");
-
-        let refused = |reply: &ToolReply| matches!(reply, ToolReply::Error(e) if e.contains("an inspector is walking"));
-        for caller in [Caller::Stage, other.clone()] {
-            assert!(refused(&agent.execute_as("aem_verify_status", &json!({}), &caller).await), "{caller:?}");
-        }
-        assert!(!refused(&agent.execute_as("aem_verify_status", &json!({}), &Caller::Inspector(walker.clone())).await));
-        assert!(!refused(&agent.execute_as("json_outline", &json!({ "pointer": "" }), &other).await));
-
-        agent.end_walk();
-        assert!(!refused(&agent.execute("aem_verify_status", &json!({})).await));
     }
 
     /// The authored header is what the banking-relationship preface prints in

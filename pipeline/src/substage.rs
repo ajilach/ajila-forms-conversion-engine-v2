@@ -1,7 +1,6 @@
-//! What the sub-stages a stage dispatches have in common: the judges of its
-//! `rule_check` ([`crate::judge`]) and the inspectors of its `inspect`
-//! ([`crate::inspect`]). A sub-stage is a stage of its own on the run's model
-//! and the run's one agent. It is one-shot (no stored conversation), it never
+//! How a stage runs the sub-stages it dispatches: the judges of its
+//! `rule_check` ([`crate::judge`]). A sub-stage is a stage of its own on the
+//! run's model and the run's one agent. It is one-shot (no stored conversation), it never
 //! prompts the operator (one that fails gives up, and the dispatching tool
 //! says so), and its spend is folded into the stage that dispatched it.
 

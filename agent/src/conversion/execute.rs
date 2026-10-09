@@ -103,16 +103,11 @@ pub struct RuleCheckPlan {
     pub judged: Vec<crate::rules::JudgedRule>,
 }
 
-/// Why `inspect` cannot run where no inspector agent runs: the agent on its
-/// own. A pipeline stage's `inspect` dispatches inspectors (`pipeline::inspect`).
-const NO_INSPECTOR: &str = "no inspector agent runs here: do the work of each brief yourself";
-
 /// A read's remaining work, which owns everything it touches.
 pub type ReadWork = std::pin::Pin<Box<dyn std::future::Future<Output = ToolReply> + Send>>;
 
 /// Who makes a call on the agent, which decides whether it counts as the
-/// current stage's evidence (see [`super::evidence`]) and whether it may drive
-/// the verifier while an inspector walks it.
+/// current stage's evidence (see [`super::evidence`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Caller {
     /// A pipeline stage, or the MCP client: its calls are its evidence.
@@ -120,16 +115,13 @@ pub enum Caller {
     /// A judge: it runs on the same agent while the stage that dispatched it
     /// waits, and its calls are not that stage's evidence.
     Judge,
-    /// An inspector, by its inspection id: it works on the dispatching stage's
-    /// behalf, so its calls are that stage's evidence.
-    Inspector(String),
     /// The host outside any stage (a review capture): records nothing.
     Host,
 }
 
 impl Caller {
     fn records(&self) -> bool {
-        matches!(self, Self::Stage | Self::Inspector(_))
+        matches!(self, Self::Stage)
     }
 }
 
@@ -252,9 +244,6 @@ impl ConversionAgent {
     /// [`Self::execute`], made by `caller`.
     pub async fn execute_as(&mut self, name: &str, input: &Value, caller: &Caller) -> ToolReply {
         if let Some(refusal) = self.target_refusal(name) {
-            return ToolReply::Error(refusal);
-        }
-        if let Some(refusal) = self.walk_refusal(name, caller) {
             return ToolReply::Error(refusal);
         }
 
@@ -410,26 +399,6 @@ impl ConversionAgent {
                     )),
                 }
             }
-            "submit_findings" => {
-                let Some(inspection) = input["inspection"].as_str() else {
-                    return ToolReply::Error("submit_findings needs the inspection id you were given".into());
-                };
-                let findings = match crate::findings::Findings::from_input(input) {
-                    Ok(findings) => findings,
-                    Err(e) => return ToolReply::Error(format!("submit_findings: {e}")),
-                };
-                match self.inspections.get_mut(inspection) {
-                    Some(slot @ None) => {
-                        *slot = Some(findings);
-                        ToolReply::Text("Findings recorded.".into())
-                    }
-                    Some(Some(_)) => ToolReply::Error("this inspection already has its findings".into()),
-                    None => ToolReply::Error(format!(
-                        "no open inspection {inspection:?}: use the inspection id you were given"
-                    )),
-                }
-            }
-            "inspect" => ToolReply::Error(NO_INSPECTOR.into()),
             "submit_review" => {
                 let approved = input["approved"].as_bool().unwrap_or(false);
                 let report = input["report"].as_str().unwrap_or_default().to_string();
@@ -472,18 +441,6 @@ impl ConversionAgent {
             }
             other => ToolReply::Error(format!("Unknown tool: {other}")),
         }
-    }
-
-    /// The refusal of a verifier call while an inspector walks the verifier,
-    /// unless that inspector makes it: the verifier holds one form, which one
-    /// caller at a time drives.
-    fn walk_refusal(&self, name: &str, caller: &Caller) -> Option<String> {
-        let walker = self.walker.as_deref()?;
-        let verifier = name.starts_with("aem_verify_") || name.starts_with("redacto_verify_");
-        let walking = matches!(caller, Caller::Inspector(id) if id == walker);
-        (verifier && !walking).then(|| {
-            format!("{name} refused: an inspector is walking the verifier; wait for its inspect call to return")
-        })
     }
 
     /// The refusal of a terminal `call` the stage has not earned yet: what
