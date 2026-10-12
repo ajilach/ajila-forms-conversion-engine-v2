@@ -616,6 +616,18 @@ fn a_step_is_a_page_and_its_heading_is_its_title() {
     )]);
     assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
 
+    // The banking relationship alone is no text before a heading; its DoR header slot line is.
+    let heading = || {
+        let mut heading = draw("TitleDraw", "TTL_A", "Account");
+        heading["heading_level"] = json!(3);
+        heading
+    };
+    let doc = doc_with(vec![page("PN_A", "", vec![preface(), heading()])]);
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
+    let entity = header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>");
+    let doc = doc_with(vec![page("PN_A", "", vec![preface(), entity, heading()])]);
+    assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
+
     // The same heading as the page's title, an untitled page of body text, a heading alone in its
     // own panel and the first page's subtitle are all fine.
     let mut subtitle = draw("TextDraw", "ST_Subtitle", "Subtitle");
@@ -831,9 +843,8 @@ fn footnote_references_and_the_placeholder_go_together() {
     let doc = doc_with(vec![page("PN_A", "A", vec![draw("TextDraw", "ST_A", "<p>Fee</p>"), note()])]);
     assert_eq!(violations("footnotes", &doc), vec!["/form/children/0/children/1".to_string()]);
 
-    // A reference in the header counts as much as one in the form.
-    let mut doc = doc;
-    doc["header"] = json!(reference);
+    // A reference in a DoR header slot line counts as much as one on a page.
+    let doc = doc_with(vec![page("PN_A", "A", vec![header_line("ST_HeaderSlot2", "slot2", reference), note()])]);
     assert!(violations("footnotes", &doc).is_empty(), "{:?}", violations("footnotes", &doc));
 
     // A form still on accordion footnotes is the guard's other branch, left alone.
@@ -1021,6 +1032,8 @@ fn a_heading_is_rendered_once() {
     assert!(violations("headings-rendered-once", &doc).is_empty());
 }
 
+/// A form carries the banking relationship only where its source does, so a
+/// form without one is no break here; that the source has none is judged.
 #[test]
 fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
     let body = || draw("TextDraw", "ST_Body", "Some text");
@@ -1028,7 +1041,7 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
     assert!(violations("banking-relationship-present", &ok).is_empty());
 
     let none = doc_with(vec![page("PN_A", "A", vec![body()])]);
-    assert_eq!(violations("banking-relationship-present", &none), vec!["/form".to_string()]);
+    assert!(violations("banking-relationship-present", &none).is_empty());
 
     let twice = doc_with(vec![page("PN_A", "A", vec![preface(), preface()])]);
     assert_eq!(
@@ -1044,12 +1057,75 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
 
     let mut entity = draw("TextDraw", "ST_Entity", "<p><b>UBS Europe SE</b></p>");
     entity["content"]["de"] = json!("ubs europe se");
-    let line = doc_with(vec![page("PN_A", "A", vec![preface(), entity, draw("TextDraw", "ST_Other", "UBS Europe SE, Milan")])]);
+    let line = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![preface(), entity.clone(), draw("TextDraw", "ST_Other", "UBS Europe SE, Milan"), header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>")],
+    )]);
     assert_eq!(
         violations("banking-relationship-present", &line),
         vec![
             "/form/children/0/children/1/content/de".to_string(),
             "/form/children/0/children/1/content/en".to_string()
+        ]
+    );
+    // Without the fragment there is nothing to duplicate.
+    let alone = doc_with(vec![page("PN_A", "A", vec![entity])]);
+    assert!(violations("banking-relationship-present", &alone).is_empty());
+}
+
+/// A master-page line authored for the DoR header `slot`, with the flags that
+/// keep it off the page and in the header.
+fn header_line(name: &str, slot: &str, text: &str) -> Value {
+    let mut node = draw("TextDraw", name, text);
+    node["visible"] = json!(false);
+    node["always_in_pdf"] = json!(true);
+    node["show_if_hidden"] = json!(true);
+    node["summary_exclude"] = json!(true);
+    node["dor_header_slot"] = json!(slot);
+    node
+}
+
+#[test]
+fn the_master_page_lines_are_hidden_draws_in_their_header_slots() {
+    let entity = || header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>");
+    let validity = || header_line("ST_HeaderSlot3", "slot3", "<p>Valid from 09.10.2025</p>");
+    let ok = doc_with(vec![page("PN_A", "A", vec![preface(), entity(), validity()])]);
+    assert!(violations("dor-header-slots", &ok).is_empty());
+    // Without a banking relationship slot 1 is free, and an input may print its value in a slot.
+    let mut account = text_field("TXT_Account", "Account no.", None);
+    account["dor_header_slot"] = json!("slot1");
+    let free = doc_with(vec![page("PN_A", "A", vec![account, entity()])]);
+    assert!(violations("dor-header-slots", &free).is_empty());
+
+    let taken = doc_with(vec![page("PN_A", "A", vec![preface(), header_line("ST_Entity", "slot1", "<p>UBS Europe SE</p>")])]);
+    assert_eq!(violations("dor-header-slots", &taken), vec!["/form/children/0/children/1/dor_header_slot".to_string()]);
+
+    // Slot 1 is never a master-page line's, and a line is a TextDraw.
+    let line = doc_with(vec![page("PN_A", "A", vec![header_line("ST_Entity", "slot1", "<p>UBS Europe SE</p>")])]);
+    assert_eq!(violations("dor-header-slots", &line), vec!["/form/children/0/children/0/dor_header_slot".to_string()]);
+    let mut title = draw("TitleDraw", "TTL_Entity", "UBS Europe SE");
+    title["dor_header_slot"] = json!("slot2");
+    let heading = doc_with(vec![page("PN_A", "A", vec![title])]);
+    assert_eq!(violations("dor-header-slots", &heading), vec!["/form/children/0/children/0".to_string()]);
+
+    let unknown = doc_with(vec![page("PN_A", "A", vec![header_line("ST_Entity", "slot4", "<p>UBS Europe SE</p>")])]);
+    assert_eq!(violations("dor-header-slots", &unknown), vec!["/form/children/0/children/0/dor_header_slot".to_string()]);
+
+    let twice = doc_with(vec![page("PN_A", "A", vec![entity(), header_line("ST_Other", "slot2", "<p>Milan</p>")])]);
+    assert_eq!(violations("dor-header-slots", &twice), vec!["/form/children/0/children/1/dor_header_slot".to_string()]);
+
+    let mut shown = entity();
+    shown["visible"] = json!(true);
+    shown.as_object_mut().unwrap().remove("show_if_hidden");
+    shown["dor_exclude"] = json!(true);
+    let bare = doc_with(vec![page("PN_A", "A", vec![shown])]);
+    assert_eq!(
+        violations("dor-header-slots", &bare),
+        vec![
+            "/form/children/0/children/0/visible".to_string(),
+            "/form/children/0/children/0".to_string(),
+            "/form/children/0/children/0/dor_exclude".to_string(),
         ]
     );
 }
@@ -1366,7 +1442,7 @@ fn aabf_gated(pointer: &str, content: &str) -> Value {
 /// `PN_Execution_bc1928b0`: a panel no choice shows.
 const UNCONDITIONED: &str = "/form/children/2";
 /// `PN_e58dc1d5`: a panel the configurator shows.
-const CONDITIONED: &str = "/form/children/0/children/3";
+const CONDITIONED: &str = "/form/children/0/children/4";
 
 #[test]
 fn a_canonical_language_script_passes() {

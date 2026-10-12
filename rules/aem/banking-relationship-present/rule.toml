@@ -1,26 +1,31 @@
 id = "ubs-aem-banking-relationship-present"
-title = "Every form carries the banking relationship Preface once, and no separate entity line"
+title = "The banking relationship Preface, once on the first page where the source has one, and no separate entity line"
 output_formats = ["aem-ubs"]
 description = """
-Every form on this profile carries the banking relationship, whatever the source shows, and
-nothing adds it for you: author a single `Preface` node among the first page's children (the
-first `Panel` under `form` that is a wizard step), not a hand-built Fragment or Panel. The
-template renders it as the standard `PN_BR` wrapper (excluded from the Document of Record and the
-summary) around the UBS fragment `affrg_BankingRelationship1`, so you supply neither the fragment
-path nor the exclusion flags, and never a germany, italy or global variant or a dam-path reference
-(the ubs-aem-banking-relationship rule holds the hand-built shapes to the canonical one).
+A form carries the banking relationship exactly when its source does: a "Bankbeziehung" /
+"Banking relationship" / "Relazione bancaria" field (xfa_controls, xfa_render_pages). Then author a
+single
+`Preface` node among the first page's children (the first `Panel` under `form` that is a wizard
+step), not a hand-built Fragment or Panel. The template renders it as the standard `PN_BR` wrapper
+(excluded from the Document of Record and the summary) around the UBS fragment
+`affrg_BankingRelationship1`, so you supply neither the fragment path nor the exclusion flags,
+and never a germany, italy or global variant or a dam-path reference (the
+ubs-aem-banking-relationship rule holds the hand-built shapes to the canonical one). A source with
+no banking relationship (AACU_019, for one) gets no `Preface`: do not add one.
 
-The fragment renders the "UBS Europe SE" line itself, so a standalone TextDraw, TitleDraw or
-MessageBox whose text is exactly "UBS Europe SE" in any language duplicates it. The legal-entity
-line reaches the Document of Record header from `/header`.
+The fragment renders the "UBS Europe SE" line itself, so beside a `Preface` a standalone TextDraw,
+TitleDraw or MessageBox whose text is exactly "UBS Europe SE" in any language duplicates it. The
+legal-entity line reaches the Document of Record header as its own hidden `slot2` draw
+(ubs-aem-dor-header-slots), which is not such a duplicate.
 
-Reported: no `Preface` at all (pointer `/form`), a second `Preface`, a `Preface` outside the first
-page, and a draw that is only "UBS Europe SE".
+Reported: a second `Preface`, a `Preface` outside the first page, and beside a `Preface` a body
+draw that is only "UBS Europe SE". Whether the source has a banking relationship at all is judged
+by ubs-aem-standard-sections-are-fragments.
 
-Add `{"type": "Preface", "name": "PN_BR"}` as the first of the first page's `children` (copy the
-shape from a reference form with get_reference_package), and delete any draw whose text is "UBS
-Europe SE" (where it heads the bank's signature block, it becomes that signature Repeatable's
-`title`).
+Add `{"type": "Preface", "name": "PN_BR"}` as the first of the first page's `children` when the
+source has the block (copy the shape from a reference form with get_reference_package), remove a
+`Preface` the source has no block for, and delete any body draw whose text is "UBS Europe SE"
+(where it heads the bank's signature block, it becomes that signature Repeatable's `title`).
 
 Precedence: this rule wins over ubs-aem-sub-headings-are-title-draws. Where the source heads the
 bank's signature block with "UBS Europe SE", the heading is the `title` of that signature

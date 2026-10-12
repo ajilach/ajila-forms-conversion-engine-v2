@@ -43,6 +43,11 @@ const REAUTHORED: &[&str] = &[
     "PN_SignatureBlock",
     "PN_Signatures_de979668",
     "PN_FirmaE_de979668",
+    // The DoR header slot draws. The retired engine derived the legal entity's
+    // from the master-page header and wrote it inside `PN_BR`; the documents
+    // author it, and the validity line beside it, as their own `TextDraw`s.
+    "ST_HeaderSlot2",
+    "ST_HeaderSlot3",
     // The step titles of the steps those land on: a step whose inputs repeat
     // hands its jump-to-field button to the rows (`panel.xml`), and the
     // templates' contents were opaque to that rule.
@@ -219,7 +224,8 @@ fn encoded_schemas_match_the_golden_schemas() {
 /// reads it (the whitespace between elements aside): decoding a golden package
 /// and encoding it again yields the same files, bar dictionaries, which the
 /// lift rebuilds from the texts it can place. Nothing is filled in from the
-/// source: the package itself records the variables and the header.
+/// source: the package itself records the variables, and its DoR header slot
+/// draws come back as the document's own.
 #[test]
 fn decoded_golden_packages_re_encode_to_the_same_files() {
     let mut failures = Vec::new();
@@ -251,6 +257,41 @@ fn decoded_golden_packages_re_encode_to_the_same_files() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The issued forms keep the legal entity's DoR header slot draw inside the
+/// banking relationship's wrapper. Lifted, it is the document's own `TextDraw`
+/// right after the `Preface`, in its slot and with its text.
+#[test]
+fn a_decoded_header_slot_is_a_draw_after_the_preface() {
+    for (form, text) in [
+        ("AAOS_033_IT", "<b>UBS Europe SE</b> (Succursale Italia)"),
+        ("AAEV_019_EN", "<b>UBS Europe SE</b>"),
+    ] {
+        let package = std::fs::read(golden_dir(form).join("package.zip")).unwrap();
+        let doc = serde_json::to_value(u2s_aem_ubs_mcp::decode(&package).unwrap()).unwrap();
+        let page = &doc["form"]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["is_page"] == true)
+            .unwrap_or_else(|| panic!("{form}: a first page"))["children"];
+        let at = page
+            .as_array()
+            .unwrap()
+            .iter()
+            .position(|c| c["type"] == "Preface")
+            .unwrap_or_else(|| panic!("{form}: the preface"));
+        let draw = &page[at + 1];
+        assert_eq!(draw["type"], "TextDraw", "{form}: {draw}");
+        assert_eq!(draw["dor_header_slot"], "slot2", "{form}: {draw}");
+        assert_eq!(draw["visible"], false, "{form}: {draw}");
+        let content = draw["content"].as_object().unwrap();
+        assert!(
+            content.values().all(|t| t.as_str().unwrap().contains(text)),
+            "{form}: {draw}"
+        );
+    }
 }
 
 /// The re-authored account-holder clusters behave as the custom templates did:

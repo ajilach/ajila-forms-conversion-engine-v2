@@ -10,6 +10,11 @@ a configurator choice are included: a hidden section exists in the output only i
 revealed it with xfa_set. A text that a referenced fragment renders itself, or that only scripts
 use, is an expected miss and is not a break.
 
+The lines the master page draws top of page (the legal entity, the validity line) are source text
+too. They are not on the form's pages but in the Document of Record's header: each is a hidden
+`TextDraw` in its header slot (ubs-aem-dor-header-slots), the legal entity in `slot2` and the
+validity line in `slot3`, in every language the form ships, read from that language's master page.
+
 A party's source fields (name, address, date of birth, nationality, company name) and a
 signature's (place, date, name) are collected by the party's partner generic and by
 `affrg_SignatureGeneric1`, which have no children in the document: such a field's counterpart is
@@ -18,11 +23,14 @@ the fragment's own field. A partner generic ships `PN_IndividualBasic` (last and
 `PN_EntityBasic` (company name), `PN_FormAddress` (title), `PN_DOBNationality` (date of birth,
 nationality) and `PN_DateIncorporation` (date and country of incorporation) hidden; a `Basic`
 variant has no `PN_Address`, and some ship `PN_EntityBasic` shown. `init_hide` hides a shown
-sub-panel and `init_show` shows a hidden one; building the package refuses a name the fragment
-does not have, or an `init_show` of one it already shows. A sub-panel the source does not ask for
-that still shows, or one it asks for that stays hidden, is a break: hiding a field the source asks
-for loses data. A source field the partner generic does not have at all (place of birth, an email,
-a client id) is a break too. The signature generic's own hidden `SIGN_Signature` is intended,
+sub-panel and `init_show` shows a hidden one, through the fragment's Initialize rule:
+`window.forms.ubs.hideAFHideDor(...)` removes the sub-panel from the form and the Document of
+Record alike, `showAFShowDor(...)` shows it in both. Building the package refuses a name the
+fragment does not have, or an `init_show` of one it already shows. A sub-panel the source does not
+ask for that still shows, or one it asks for that stays hidden, is a break: hiding a field the
+source asks for loses it from the form and from the Document of Record. A source field the partner
+generic does not have at all (place of birth, an email, a client id) is a break when the document
+has no node for it; its place is a content `Panel` beside the fragment. The signature generic's own hidden `SIGN_Signature` is intended,
 since the form is signed on paper.
 
 How to judge: run coverage_check, which lists per language the source texts the document does not
@@ -30,15 +38,19 @@ carry. It is a lead, not a verdict: look each entry up on the rendered page. Cou
 xfa_controls against the fillable nodes of the document (json_outline) plus the fields its
 fragments collect, and resolve each difference. Then walk the source with xfa_page_text and xfa_search for every language and every
 configurator variant (xfa_open with xfa_set for each option) and confirm that what each page says
-and asks is in the document.
+and asks is in the document. Compare the master page's lines with the header slot draws
+(json_search for `dor_header_slot`).
 
 A break is a source text (in any language) or a fillable source field with no counterpart in the
-document, a configurator variant that was never revealed and so is missing, or a count of controls
-that differs without an explanation.
+document, a configurator variant that was never revealed and so is missing, a count of controls
+that differs without an explanation, or a master-page line with no header slot draw, in the wrong
+slot, paraphrased, or built as a visible text on a page.
 
 Fix: add the missing node or text in the place the page shows it; where a count differs, find the
-lost control and add it. Never rebuild a fragment's fields as loose nodes: a party sub-panel shown
-against the source goes into `init_hide`, a hidden one the source asks for into `init_show`, and a
+lost control and add it; add a missing master-page line as its header slot draw. Never rebuild a
+fragment's fields as loose nodes: a party sub-panel shown against the source goes into
+`init_hide` (`hideAFHideDor`), a hidden one the source asks for into `init_show` (`showAFShowDor`),
+and a
 field the partner generic does not have goes into a content `Panel` beside the `Fragment` inside the
 party's `Repeatable`, never inside the fragment.
 

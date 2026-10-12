@@ -20,6 +20,7 @@ function check(output, ctx) {
   }
   const firstPointer = first < 0 ? null : "/form/children/" + first;
   let seen = 0;
+  const entityDraws = [];
   function visit(node, pointer) {
     if (node.type === "Preface") {
       seen += 1;
@@ -35,15 +36,17 @@ function check(output, ctx) {
         });
       }
     }
-    if (node.type === "TextDraw" || node.type === "TitleDraw" || node.type === "MessageBox") {
+    // A DoR header slot draw is the master-page line itself, not a body line.
+    const isBody = node.type === "TextDraw" || node.type === "TitleDraw" || node.type === "MessageBox";
+    if (isBody && !node.dor_header_slot) {
       const content = node.content || {};
       for (const lang of Object.keys(content)) {
         if (plain(content[lang]) === "ubs europe se") {
-          violations.push({
+          entityDraws.push({
             pointer: pointer + "/content/" + lang,
             message: "`" + node.name + "` is the line \"UBS Europe SE\", which the banking relationship fragment " +
-              "renders itself: delete the draw (the entity reaches the Document of Record header from `/header`; " +
-              "where it heads the bank's signature block, it is that signature Repeatable's `title`)",
+              "renders itself: delete the draw (the entity reaches the Document of Record header as the " +
+              "`slot2` draw; where it heads the bank's signature block, it is that signature Repeatable's `title`)",
           });
         }
       }
@@ -52,11 +55,10 @@ function check(output, ctx) {
     for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i);
   }
   visit(output.form, "/form");
-  if (seen === 0) {
-    violations.push({
-      pointer: "/form",
-      message: "the form has no banking relationship: add a `Preface` node (name `PN_BR`) as the first child of the first page",
-    });
+  // Without a banking relationship the fragment renders no entity line, so a
+  // body line is no duplicate of it.
+  if (seen > 0) {
+    for (const v of entityDraws) violations.push(v);
   }
   return { pass: violations.length === 0, violations: violations };
 }

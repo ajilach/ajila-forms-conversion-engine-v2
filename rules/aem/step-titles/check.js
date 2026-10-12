@@ -73,7 +73,6 @@ function check(output, ctx) {
     }
   }
   const master = masterLanguage(output);
-  const hasHeader = typeof output.header === "string" && output.header.trim() !== "";
 
   const top = output.form.children || [];
   for (let i = 0; i < top.length; i++) {
@@ -119,9 +118,9 @@ function check(output, ctx) {
       continue;
     }
     if (h2.length === 0) {
-      // The first drawn element with text, in document order.
+      // The first drawn element with text, in document order. A DoR header slot line after the
+      // banking relationship is written inside its wrapper, so it precedes a heading as well.
       const first = inside.find(function (e) {
-        if (e.node.type === "Preface") return hasHeader;
         if (e.node.type !== "TextDraw" && e.node.type !== "TitleDraw") return false;
         return plain(masterText(e.node.content, master)) !== "";
       });

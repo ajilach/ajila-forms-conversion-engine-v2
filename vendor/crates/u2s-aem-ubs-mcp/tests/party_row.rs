@@ -16,7 +16,7 @@ use u2s_aem_ubs_mcp::{UbsAemDocument, decode, encode};
 mod support;
 use support::package::unzip;
 
-const ROW: &str = "/form/children/0/children/6/children/1/children/0";
+const ROW: &str = "/form/children/0/children/7/children/1/children/0";
 
 /// `AABF_019` with a panel of date and place of birth beside the contracting
 /// party's generic.

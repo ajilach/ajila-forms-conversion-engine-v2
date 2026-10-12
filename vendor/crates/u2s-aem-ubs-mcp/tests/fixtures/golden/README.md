@@ -13,10 +13,12 @@ For each form, one run of that engine's pipeline wrote all three:
 
 - `package.zip` and `schema.xsd`, exactly as `blueprint <source pdfs> --aem --xsd --profile ubs`
   builds them;
-- `document.json`, the `UbsAemDocument` of the same AEM tree: the form's XFA variables, header
-  and languages, and the tree lifted with its dictionary (without the old engine's `field_id`,
+- `document.json`, the `UbsAemDocument` of the same AEM tree: the form's XFA variables and
+  languages, and the tree lifted with its dictionary (without the old engine's `field_id`,
   which only its own converter read). An Italian-only form's texts are keyed
-  `it`, not under the profile's fixed master `en`.
+  `it`, not under the profile's fixed master `en`. The master-page header the old engine kept
+  beside the tree is authored since format 0.5.0 as the `ST_HeaderSlot2` / `ST_HeaderSlot3`
+  draws after the `Preface`.
 
 Writing them in one run keeps the old converter's random node uuids consistent between the
 document and the package, so `tests/golden_parity.rs` compares them exactly.

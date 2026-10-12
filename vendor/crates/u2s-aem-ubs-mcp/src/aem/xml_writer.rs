@@ -92,6 +92,11 @@ pub(super) struct RenderIndex {
     /// Configurator choice name → the value of the option that opens selected.
     /// Absent means nothing is preselected.
     pub(super) preselect: HashMap<String, String>,
+    /// The first wizard step: the first page panel directly under the root.
+    /// Its title is the subtitle under the form title when the page opens with
+    /// the banking relationship, and the configurator's own when it is the
+    /// configurator. `None` for a form with no page.
+    pub(super) first_page: Option<Uuid>,
 }
 
 impl RenderIndex {
@@ -106,8 +111,20 @@ impl RenderIndex {
             signature_twins: twins.0,
             twin_data_panels: twins.1,
             jump_to_field_repeatables: collect_jump_to_field_repeatables(root),
+            first_page: first_page(root),
         }
     }
+}
+
+/// The uuid of the first page panel directly under the root.
+fn first_page(root: &AemNode) -> Option<Uuid> {
+    let AemNode::Root { children, .. } = root else {
+        return None;
+    };
+    children.iter().find_map(|child| match child {
+        AemNode::Panel { uuid, is_page: true, .. } => Some(*uuid),
+        _ => None,
+    })
 }
 
 /// The longest a subject may be before it stops being a subject and starts being
@@ -244,8 +261,8 @@ fn sane_subject(text: &str) -> Option<String> {
 /// account-holder rows). Excluding the whole page here suppressed the button on
 /// exactly the repeatables — `PN_CPGRP`, `PN_AHGRP` — a person would most want to
 /// reach. Only the configurator's own title panel is exempt, which is decided
-/// separately where that panel's DoR/summary exclusions are (`is_first_page &&
-/// name.starts_with("PN_FormConfigurator")` in the panel context), not here.
+/// separately where that panel's DoR/summary exclusions are (the first page
+/// named `PN_FormConfigurator...` in `Lower::step_title`), not here.
 fn collect_jump_to_field_repeatables(root: &AemNode) -> HashSet<String> {
     let mut out = HashSet::new();
     let AemNode::Root { children, .. } = root else {

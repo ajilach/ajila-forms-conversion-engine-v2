@@ -1081,31 +1081,33 @@ mod tests {
         assert!(!names_render(&agent), "the stage's own render did not count");
     }
 
-    /// The authored header is what the banking-relationship preface prints in
-    /// the DoR header slot, without its validity line.
+    /// The master-page lines are authored as slot draws and reach the package
+    /// in their DoR header slots, the validity line too.
     #[tokio::test]
-    async fn the_header_reaches_the_packages_dor_slot() {
+    async fn the_master_page_lines_reach_the_packages_dor_slots() {
         let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
+        let slot = |name: &str, slot: &str, text: &str| {
+            json!({
+                "type": "TextDraw", "uuid": uuid::Uuid::new_v4(), "name": name,
+                "content": { "en": text }, "visible": false, "colspan": 12, "dor_colspan": null,
+                "always_in_pdf": true, "show_if_hidden": true, "summary_exclude": true,
+                "dor_header_slot": slot
+            })
+        };
         let mut first = page("PN_Details");
-        first["children"].as_array_mut().unwrap().insert(
-            0,
-            json!({ "type": "Preface", "uuid": "6a9f2f5e-8c8e-4a8e-9b0e-1f2d3c4b5a63", "name": "PN_BR" }),
-        );
-        patch(
-            &mut agent,
-            json!([
-                { "op": "add", "path": "/form/children/-", "value": first },
-                { "op": "add", "path": "/header", "value": "Valid from 02.01.2018\nUBS Europe SE (Succursale Italia)" }
-            ]),
-        )
-        .await;
+        let children = first["children"].as_array_mut().unwrap();
+        children.insert(0, json!({ "type": "Preface", "uuid": "6a9f2f5e-8c8e-4a8e-9b0e-1f2d3c4b5a63", "name": "PN_BR" }));
+        children.insert(1, slot("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b> (Succursale Italia)</p>"));
+        children.insert(2, slot("ST_HeaderSlot3", "slot3", "<p>Valid from 02.01.2018</p>"));
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": first }])).await;
         reply_text(agent.execute("build_aem_package", &json!({})).await);
         let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
-        assert!(
-            files.iter().any(|(_, c)| c.contains("UBS Europe SE") && c.contains("(Succursale Italia)")),
-            "the header is in no file of the package"
-        );
-        assert!(!files.iter().any(|(_, c)| c.contains("Valid from 02.01.2018")));
+        for (slot, text) in [("slot2", "(Succursale Italia)"), ("slot3", "Valid from 02.01.2018")] {
+            assert!(
+                files.iter().any(|(_, c)| c.lines().any(|l| l.contains(&format!("dorHeaderSlot=\"{slot}\"")) && l.contains(text))),
+                "no {slot} draw with {text} in the package"
+            );
+        }
     }
 
     /// A package that fails its own validation is not a build: nothing is
@@ -1190,7 +1192,7 @@ mod tests {
         let mut seeded = agent.document().clone();
         seeded["form"]["children"] = json!([page("Details")]);
         agent.seed_document(seeded).unwrap();
-        let reply = patch(&mut agent, json!([{ "op": "add", "path": "/header", "value": "UBS Europe SE" }])).await;
+        let reply = patch(&mut agent, json!([{ "op": "replace", "path": "/form/children/0/title/en", "value": "Personal details" }])).await;
         assert_eq!(reply["lint"]["introduced"], json!([]), "{reply}");
         assert_eq!(reply["lint"]["resolved"], json!([]), "{reply}");
     }
@@ -1275,7 +1277,7 @@ mod tests {
         let other = crate::rules::JudgedRule { id: "r2".into(), ..rule.clone() };
         assert_eq!(agent.cached_verdict(&other, 1), None);
         let rescoped = crate::rules::JudgedRule {
-            scope: crate::rules::JudgeScope { pointers: vec!["/header".into()], ..Default::default() },
+            scope: crate::rules::JudgeScope { pointers: vec!["/variables".into()], ..Default::default() },
             ..rule
         };
         assert_eq!(agent.cached_verdict(&rescoped, 1), None, "a new scope is another rule");
@@ -1287,9 +1289,9 @@ mod tests {
     #[tokio::test]
     async fn a_patch_against_a_stale_revision_is_refused() {
         let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
-        patch(&mut agent, json!([{ "op": "add", "path": "/header", "value": "UBS Europe SE" }])).await;
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
         let stale = agent
-            .execute("json_patch", &json!({ "ops": [{ "op": "remove", "path": "/header" }], "expected_revision": 0 }))
+            .execute("json_patch", &json!({ "ops": [{ "op": "remove", "path": "/form/children/0" }], "expected_revision": 0 }))
             .await;
         assert!(matches!(stale, ToolReply::Error(_)), "{}", reply_kind(&stale));
     }

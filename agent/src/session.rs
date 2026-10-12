@@ -44,9 +44,16 @@ pub fn restore(session_id: &str) -> Result<Restored, String> {
 }
 
 /// Parse a recorded snapshot as a UBS AEM document.
+///
+/// A document recorded before the master-page header became the document's
+/// own text still carries it as `header`; it is brought up to date here
+/// ([`u2s_aem_ubs_mcp::migrate`]), so the session resumes on the slot draws
+/// the header now is.
 pub fn parse(json: &str) -> Result<Value, String> {
-    let value: Value =
+    let mut value: Value =
         serde_json::from_str(json).map_err(|e| format!("the recorded document is not JSON: {e}"))?;
+    u2s_aem_ubs_mcp::migrate(&mut value)
+        .map_err(|e| format!("the recorded document cannot be brought up to date: {e}"))?;
     crate::conversion::check_document(&value)
         .map(|()| value)
         .map_err(|e| format!("the recorded document is not a UBS AEM document: {e}"))
@@ -86,6 +93,26 @@ mod tests {
             Restored::Document(doc) => assert_eq!(doc, aem_document()),
             other => panic!("expected the document, got {other:?}"),
         }
+    }
+
+    /// A session recorded with the old `header` resumes, its header now the
+    /// slot draws on the first page.
+    #[test]
+    fn a_recorded_header_resumes_as_slot_draws() {
+        let mut doc = aem_document();
+        doc["form"]["children"] = json!([{
+            "type": "Panel", "uuid": "00000000-0000-0000-0000-0000000000a1", "name": "PN_Page",
+            "title": {"en": "Page"}, "children": [], "is_page": true, "visible": true,
+            "is_conditional": false, "dor_num_cols": null, "colspan": 12, "dor_colspan": null,
+            "bind_ref": null
+        }]);
+        doc["header"] = json!("Valid from 09.10.2025\nUBS Europe SE");
+        let restored = parse(&doc.to_string()).unwrap();
+        assert!(restored.get("header").is_none(), "{restored}");
+        let draws = restored["form"]["children"][0]["children"].as_array().unwrap();
+        let slots: Vec<&str> = draws.iter().map(|d| d["dor_header_slot"].as_str().unwrap()).collect();
+        assert_eq!(slots, ["slot2", "slot3"]);
+        assert_eq!(draws[1]["content"]["en"], "<p>Valid from 09.10.2025</p>\n");
     }
 
     /// A Redacto session, recorded while that target existed, is not resumed

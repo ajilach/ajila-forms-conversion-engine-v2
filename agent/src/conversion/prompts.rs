@@ -89,9 +89,8 @@ how to work, not what the result must look like.\n\n\
 YOUR OUTPUT IS ONE JSON DOCUMENT, the UBS AEM document, whose JSON Schema is pinned below these \
 instructions. It holds `variables` (the source's XFA template variables, which name the form, \
 its repository path and its metadata: already filled in from the source, so leave them as they are), \
-`header` (the text the source's master page draws top of page: the validity line and the legal entity, \
-one line each; the entity line is printed in the DoR header), `languages` (the languages the form \
-ships, already filled in from the source) and `form`, the form itself: a Root holding the pages. You \
+`languages` (the languages the form ships, already filled in from the source) and `form`, the form \
+itself: a Root holding the pages. You \
 read the document with json_outline (its structure at a JSON Pointer, e.g. `/form/children/2`), \
 json_get (a subtree) and json_search (where a text or name occurs), and change it with json_patch \
 (RFC 6902 operations, with the `expected_revision` the last read or patch reported). Every json_patch \
@@ -134,7 +133,9 @@ rule_get: they are what the finished document is held to, and each description s
 fix a break. The document is one multilingual AEM node tree in which every user-visible text field \
 (title/label/content and option labels) is a per-language map like {\"de\":\"…\",\"en\":\"…\"}, \
 keyed by the languages `/languages` lists. The pinned schema gives the exact shape of every node. \
-Set `/header` too, from the source's master page (xfa_page_text). There is no automated merge: YOU \
+The lines the source's master page draws top of page (the legal entity, the validity line) are \
+texts of the form too, authored as hidden `TextDraw`s in the Document of Record's header slots \
+(`dor_header_slot`); the rules say which line takes which slot. There is no automated merge: YOU \
 combine the languages and configurator variants, because you can read every language and see the \
 rendered pages. Steps:\n\
   a. Read every variant yourself: every language (each language is its own PDF) and every \
@@ -168,12 +169,15 @@ FRAGMENTS: a `Fragment` node references a reusable fragment by its JCR path (`fr
 fragment and its path in the fragment-library documentation (grep_reference_docs for \"AF \
 Fragments and Common Fields\") and confirm it against the reference packages (grep_references for \
 `fragRef`). A fragment is OPAQUE: AEM supplies its fields at runtime from that path, so it has no \
-children to author. A `Preface` node is the banking relationship block the template renders. A \
+children to author. A `Preface` node is the banking relationship block the template renders, \
+authored only when the source has a banking relationship. A \
 party (account holder, representative, beneficial owner, power of attorney) is a `Repeatable` \
 wrapping one `afforms_ubs_fragmentlib` partner generic `Fragment`, whose `init_hide` lists the \
-sub-panels its one Initialize rule hides and `init_show` the ones it ships hidden that the source \
-asks for (a date of birth: `PN_DOBNationality`); that is the only way to author the rule, and only a \
-partner generic takes it. A field the source asks for that the generic does not have at all (a \
+sub-panels the source does not ask for and `init_show` the ones it ships hidden that the source \
+asks for (a date of birth: `PN_DOBNationality`). Both become the fragment's one Initialize rule: \
+`window.forms.ubs.hideAFHideDor(this.<sub-panel>)` for each hidden one, which removes it from the \
+form AND the Document of Record, and `showAFShowDor` for each shown one, which shows it in both; \
+that is the only way to author the rule, and only a partner generic takes it. A field the source asks for that the generic does not have at all (a \
 place of birth) goes into a content `Panel` beside the `Fragment` inside the party's `Repeatable`, \
 never into the fragment; its signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, and \
 the UBS layer pairs the two by name so the party's Add and Remove drive both. A configurator \
@@ -185,7 +189,9 @@ VISIBILITY: a `ConditionRule` in the `conditions` of a trigger field shows or hi
 `name`, and the target Panel's `is_conditional: true` is what makes the template write the legacy \
 visibility hook for it (a Visibility script and an Initialize script calling \
 `window.forms.ubs.showAFShowDor(this)` / `hideAFHideDor(this)`); a repeatable's initial instances \
-are materialised by the same hook. \
+are materialised by the same hook. These two verbs are how UBS shows or hides something in the form \
+and the Document of Record together; you reach them through `is_conditional` and `conditions`, or \
+through a partner generic's `init_hide` and `init_show`, never by writing a script. \
 WHERE A NODE SHOWS UP is four separate switches, ordinary fields on every node (a json_patch \
 `replace` or `add` on the node), next to `css`, `jump_to_field`, `dor_header_slot` and \
 `show_if_hidden`: the UBS Document of Record is rendered by Redacto from the SUMMARY data, so \

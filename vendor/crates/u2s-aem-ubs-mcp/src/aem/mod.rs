@@ -152,13 +152,6 @@ pub struct AemConfig {
     /// Path to the theme client library (from `variables.theme_ref`).
     pub theme_ref: String,
 
-    /// The legal-entity line printed in the DoR's second header slot, derived
-    /// from the source document's master-page header
-    /// ([`Context::header`](crate::context::Context::header)) by [`header_slot_text`].
-    /// `None` when the source has no header region, or nothing in it but a
-    /// validity date.
-    pub header_slot_text: Option<String>,
-
     // -- Variables -------------------------------------------------------------
     /// Raw XFA variables extracted from the PDF.
     pub xfa_vars: HashMap<String, String>,
@@ -263,7 +256,6 @@ impl AemConfig {
                 .cloned()
                 .unwrap_or_else(|| "generate".into()),
             theme_ref: user_vars.get("theme_ref").cloned().unwrap_or_default(),
-            header_slot_text: ctx.header.as_deref().and_then(header_slot_text),
 
             xfa_vars,
             user_vars,
@@ -457,7 +449,6 @@ impl AemConfig {
             dor_template_ref: String::new(),
             dor_type: "generate".into(),
             theme_ref: String::new(),
-            header_slot_text: None,
 
             xfa_vars: HashMap::new(),
             // The embedded UBS profile's constants, and what a form of this
@@ -655,8 +646,11 @@ pub struct AemAttrs {
     /// `ubs-margin-20` the banking-relationship wrapper.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub css: Option<String>,
-    /// `dorHeaderSlot` — the DoR header slot this text is printed in
-    /// (`"slot2"` for the legal-entity line below the banking relationship).
+    /// `dorHeaderSlot` — the DoR header slot this node is printed in: `"slot1"`,
+    /// `"slot2"` or `"slot3"`. Slot 1 is the banking relationship's own (its
+    /// fragment fills it), slot 2 the legal entity and slot 3 the validity line
+    /// of the source's master-page header, each a hidden `TextDraw` with
+    /// `always_in_pdf`, `show_if_hidden` and `summary_exclude`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dor_header_slot: Option<String>,
 }
@@ -696,69 +690,6 @@ fn default_true() -> bool {
     true
 }
 
-/// The legal-entity line for the DoR's second header slot, from the source
-/// document's master-page header.
-///
-/// UBS forms print `UBS Europe SE (Succursale Italia)` under the banking
-/// relationship in the finished document, and the corpus carries it as a hidden
-/// static text with `dorHeaderSlot="slot2"`. The text is the form's own: the
-/// analysis already recovers the master-page header into
-/// [`Context::header`](crate::context::Context::header), where it arrives as stacked
-/// lines -- typically a validity or edition line and the entity name.
-///
-/// The validity line is dropped (it is the form's version, not the issuer) and
-/// the first line that survives is the entity, which the corpus prints in bold.
-/// Returns `None` when nothing is left, so a form whose header holds only a date
-/// gets no slot-2 text rather than a wrong one.
-pub fn header_slot_text(header: &str) -> Option<String> {
-    /// A line that dates the form rather than naming its issuer.
-    fn is_validity_line(line: &str) -> bool {
-        const PREFIXES: &[&str] = &[
-            "gültig", "gueltig", "valid", "valido", "valida", "valable", "edition", "ausgabe",
-            "version", "stand",
-        ];
-        let lower = line.to_lowercase();
-        if PREFIXES.iter().any(|p| lower.starts_with(p)) {
-            return true;
-        }
-        // A bare date (`02.01.2018`, `1/2018`) is the same thing without a word.
-        let digits = line.chars().filter(|c| c.is_ascii_digit()).count();
-        digits >= 4
-            && line
-                .chars()
-                .all(|c| c.is_ascii_digit() || " ./-".contains(c))
-    }
-
-    let mut lines = header
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.is_empty() && !is_validity_line(l));
-    let first = lines.next()?;
-    let rest = lines.collect::<Vec<_>>().join(" ");
-
-    // The corpus bolds the entity and leaves what qualifies it plain:
-    // `<b>UBS Europe SE</b> (Succursale Italia)`. A parenthesis is where the
-    // one ends and the other begins.
-    let (entity, qualifier) = match first.find(" (") {
-        Some(at) => (&first[..at], first[at..].trim()),
-        None => (first, ""),
-    };
-    let tail = [qualifier, rest.as_str()]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .copied()
-        .collect::<Vec<_>>()
-        .join(" ");
-
-    // The markup is stored the way a JCR rich-text value stores it: the tags
-    // themselves XML-escaped, so the attribute stays well-formed.
-    let mut value = format!("&lt;b>{}&lt;/b>", crate::util::escape_html(entity));
-    if !tail.is_empty() {
-        value.push(' ');
-        value.push_str(&crate::util::escape_html(&tail));
-    }
-    Some(value)
-}
 
 /// The AEM `name` of a component, as a script names it: a letter or `_`, then
 /// letters, digits and `_`. Anything else is refused on the way in, so a name
@@ -1178,6 +1109,12 @@ impl AemNode {
             | AemNode::Preface { uuid, .. }
             | AemNode::FootnotePlaceholder { uuid, .. } => Some(*uuid),
         }
+    }
+
+    /// A static text printed in one of the DoR's header slots: a master-page
+    /// line, hidden on the page.
+    pub fn is_header_slot_draw(&self) -> bool {
+        matches!(self, AemNode::TextDraw { attrs, .. } if attrs.dor_header_slot.is_some())
     }
 
     /// The node's presentation attributes ([`AemAttrs`]), or `None` for the
