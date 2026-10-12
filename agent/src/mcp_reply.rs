@@ -33,17 +33,14 @@ pub fn reply_from_result(result: CallToolResult, blobs: Option<&Path>) -> ToolRe
     let blocks: Vec<ReplyBlock> = result
         .content
         .into_iter()
-        .map(|content| match content {
+        .flat_map(|content| match content {
             ContentBlock::Text(t) if is_repeat(&t.text) => {
-                ReplyBlock::Text(shown.clone().expect("a repeat implies structured content"))
+                vec![ReplyBlock::Text(shown.clone().expect("a repeat implies structured content"))]
             }
-            ContentBlock::Text(t) => ReplyBlock::Text(t.text),
-            ContentBlock::Image(i) => ReplyBlock::Image {
-                media_type: i.mime_type,
-                data: i.data,
-            },
-            ContentBlock::ResourceLink(r) => ReplyBlock::Text(format!("[resource link: {}]", r.uri)),
-            _ => ReplyBlock::Text("[non-text content omitted]".into()),
+            ContentBlock::Text(t) => vec![ReplyBlock::Text(t.text)],
+            ContentBlock::Image(i) => image_blocks(i.mime_type, i.data),
+            ContentBlock::ResourceLink(r) => vec![ReplyBlock::Text(format!("[resource link: {}]", r.uri))],
+            _ => vec![ReplyBlock::Text("[non-text content omitted]".into())],
         })
         .chain(structured.map(ReplyBlock::Text))
         .collect();
@@ -70,6 +67,19 @@ pub fn reply_from_result(result: CallToolResult, blobs: Option<&Path>) -> ToolRe
     } else {
         ToolReply::Blocks(blocks)
     }
+}
+
+/// A tool's image as blocks the model API accepts: untouched when it fits,
+/// otherwise a note and its parts (see [`crate::image_fit::fit`]).
+fn image_blocks(media_type: String, data: String) -> Vec<ReplyBlock> {
+    let Some(fitted) = crate::image_fit::fit(&data, media_type == "image/jpeg") else {
+        return vec![ReplyBlock::Image { media_type, data }];
+    };
+    let parts = fitted.parts.iter().map(|part| ReplyBlock::Image {
+        media_type: fitted.media_type().into(),
+        data: part.clone(),
+    });
+    std::iter::once(ReplyBlock::Text(fitted.note.clone())).chain(parts).collect()
 }
 
 /// Gives every object naming a blob `handle` that exists in `blobs` the
@@ -122,6 +132,36 @@ mod tests {
             reply_from_result(CallToolResult::error(vec![]), None),
             ToolReply::Error(e) if e == "the tool reported an error"
         ));
+    }
+
+    /// An image the model API would refuse reaches it as a note and its
+    /// parts, in place; one it takes passes untouched.
+    #[test]
+    fn a_tool_image_reaches_the_model_in_parts_it_takes() {
+        use crate::image_fit::testing::{dimensions, encoded, too_tall_screenshot};
+        let result = CallToolResult::success(vec![
+            ContentBlock::text("first"),
+            ContentBlock::image(too_tall_screenshot(), "image/jpeg"),
+        ]);
+        let ToolReply::Blocks(blocks) = reply_from_result(result, None) else {
+            panic!("an image result stays blocks");
+        };
+        let [ReplyBlock::Text(first), ReplyBlock::Text(note), ReplyBlock::Image { media_type, data: top }, ReplyBlock::Image { data: bottom, .. }] =
+            &blocks[..]
+        else {
+            panic!("expected the text, a note and two parts: {}", blocks.len());
+        };
+        assert_eq!(first, "first");
+        assert!(note.contains("900x8079"), "{note}");
+        assert_eq!(media_type, "image/jpeg");
+        assert_eq!(dimensions(top).1 + dimensions(bottom).1, 8079);
+
+        let small = encoded(image::DynamicImage::ImageLuma8(image::GrayImage::new(900, 1200)), image::ImageFormat::Png);
+        let result = CallToolResult::success(vec![ContentBlock::image(small.clone(), "image/png")]);
+        let ToolReply::Blocks(blocks) = reply_from_result(result, None) else {
+            panic!("an image result stays blocks");
+        };
+        assert!(matches!(&blocks[..], [ReplyBlock::Image { data, .. }] if *data == small));
     }
 
     /// A verifier puts its whole report (findings, artefacts) in the

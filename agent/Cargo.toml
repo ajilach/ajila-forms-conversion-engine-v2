@@ -17,8 +17,10 @@ tokio = { version = "1", features = ["process", "io-util", "rt", "time"] }
 # rmcp3 names their result types; it is not a transport here.
 rmcp3 = { package = "rmcp", version = "3.1", default-features = false }
 tempfile = "3"
-# `review::renders_blank`: reading a rendered page back to judge it.
+# `review::renders_blank`: reading a rendered page back to judge it, and
+# `mcp_reply`: splitting a tool image the model API would refuse.
 image = { workspace = true }
+base64 = { workspace = true }
 # The reference store, its semantic matcher and the reference tools.
 references-mcp = { path = "../references-mcp" }
 u2s-aem-ubs-verify-mcp = { workspace = true }

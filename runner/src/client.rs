@@ -13,7 +13,7 @@ use rig_core::client::{CompletionClient, ModelLister};
 use rig_core::completion::{
     CompletionError, CompletionModel, CompletionRequest, CompletionResponse, ProviderCapabilities,
 };
-use rig_core::message::{Message, ToolResultContent, UserContent};
+use rig_core::message::{DocumentSourceKind, Image, ImageMediaType, Message, ToolResultContent, UserContent};
 use rig_core::model::Model;
 use rig_core::streaming::StreamingCompletionResponse;
 use rig_core::providers::{anthropic, openai, openrouter};
@@ -98,7 +98,7 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
                 .completion_model(&endpoint.model)
                 .with_automatic_caching()
                 .with_static_prefix_cache_ttl(STATIC_PREFIX_TTL);
-            Ok(ModelHandle::named("anthropic", model))
+            Ok(ModelHandle::named("anthropic", FittedImages(model)))
         }
         // OpenRouter is the default and the one this switch was added for; it
         // reports usage details per response and takes explicit cache
@@ -116,11 +116,11 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
             // migration and is worth several francs on a long run.
             Ok(ModelHandle::named(
                 "openrouter",
-                ImagesAfterToolResults(
+                FittedImages(ImagesAfterToolResults(
                     client
                         .completion_model(&endpoint.model)
                         .with_prompt_caching(),
-                ),
+                )),
             ))
         }
         Provider::OpenAi => {
@@ -137,10 +137,116 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
                 .completions_api();
             Ok(ModelHandle::named(
                 "openai",
-                ImagesAfterToolResults(client.completion_model(&endpoint.model)),
+                FittedImages(ImagesAfterToolResults(client.completion_model(&endpoint.model))),
             ))
         }
     }
+}
+
+/// A model whose requests carry no image the API would refuse.
+///
+/// A tool's image is already fitted where it enters a reply; this fits every
+/// image again on its way out (see [`agent::image_fit`]), so a conversation
+/// recorded with an oversized one, as a resumed session reloads it, still runs
+/// instead of failing every retry. Only an oversized image is decoded.
+struct FittedImages<M>(M);
+
+impl<M: CompletionModel> CompletionModel for FittedImages<M> {
+    async fn completion(
+        &self,
+        mut request: CompletionRequest,
+    ) -> Result<CompletionResponse, CompletionError> {
+        request.chat_history = fitted_images(request.chat_history);
+        self.0.completion(request).await
+    }
+
+    async fn stream(
+        &self,
+        mut request: CompletionRequest,
+    ) -> Result<StreamingCompletionResponse, CompletionError> {
+        request.chat_history = fitted_images(request.chat_history);
+        self.0.stream(request).await
+    }
+
+    fn capabilities(&self) -> ProviderCapabilities {
+        self.0.capabilities()
+    }
+}
+
+/// Every image in `history`'s user messages, in a tool result or not, that
+/// the API would refuse, replaced in place by a note and its parts.
+fn fitted_images(history: Vec<Message>) -> Vec<Message> {
+    history
+        .into_iter()
+        .map(|message| match message {
+            Message::User { content } => Message::User {
+                content: content
+                    .into_iter()
+                    .flat_map(|item| match item {
+                        UserContent::ToolResult(mut result) => {
+                            result.content = result
+                                .content
+                                .into_iter()
+                                .flat_map(|part| match part {
+                                    ToolResultContent::Image(image) => fit_parts(image)
+                                        .into_iter()
+                                        .map(|fitted| fitted.either(ToolResultContent::text, ToolResultContent::Image))
+                                        .collect(),
+                                    other => vec![other],
+                                })
+                                .collect();
+                            vec![UserContent::ToolResult(result)]
+                        }
+                        UserContent::Image(image) => fit_parts(image)
+                            .into_iter()
+                            .map(|fitted| fitted.either(UserContent::text, UserContent::Image))
+                            .collect(),
+                        other => vec![other],
+                    })
+                    .collect(),
+            },
+            other => other,
+        })
+        .collect()
+}
+
+/// What one image becomes: a note, then images.
+enum FittedPart {
+    Note(String),
+    Image(Image),
+}
+
+impl FittedPart {
+    fn either<T>(self, note: impl FnOnce(String) -> T, image: impl FnOnce(Image) -> T) -> T {
+        match self {
+            FittedPart::Note(text) => note(text),
+            FittedPart::Image(i) => image(i),
+        }
+    }
+}
+
+/// `image` alone when it fits (or is not inline base64), otherwise the note
+/// and the parts [`agent::image_fit::fit`] cut it into.
+fn fit_parts(image: Image) -> Vec<FittedPart> {
+    let fitted = match &image.data {
+        DocumentSourceKind::Base64(data) => {
+            agent::image_fit::fit(data, image.media_type == Some(ImageMediaType::JPEG))
+        }
+        _ => None,
+    };
+    let Some(fitted) = fitted else {
+        return vec![FittedPart::Image(image)];
+    };
+    let media_type = if fitted.jpeg { ImageMediaType::JPEG } else { ImageMediaType::PNG };
+    std::iter::once(FittedPart::Note(fitted.note))
+        .chain(fitted.parts.into_iter().map(|part| {
+            FittedPart::Image(Image {
+                data: DocumentSourceKind::Base64(part),
+                media_type: Some(media_type.clone()),
+                ..image.clone()
+            })
+        }))
+        .collect()
 }
 
 /// Tells the model where a tool result's images went, in the result itself.
@@ -365,6 +471,55 @@ mod tests {
         for (got, want) in moved.iter().zip(["one", "two", "three"]) {
             assert!(got.contains(want), "{got} should be {want}");
         }
+    }
+
+    /// A resumed session reloaded a conversation holding a 900x8079 px
+    /// screenshot, and the API refused every request for it. Every request
+    /// must leave with that image cut to fit, in place, and with every image
+    /// that already fits untouched.
+    #[test]
+    fn an_oversized_image_in_the_history_is_cut_to_fit() {
+        use agent::image_fit::MAX_IMAGE_SIDE;
+        use agent::image_fit::testing::{dimensions, too_tall_screenshot};
+        let tall = too_tall_screenshot();
+        let jpeg = |data: &str| ToolResultContent::image_base64(data, Some(ImageMediaType::JPEG), None);
+        let history = vec![Message::User {
+            content: vec![
+                result("a", vec![ToolResultContent::text("shot"), jpeg(&tall), image("small")]),
+                UserContent::image_base64(tall.clone(), Some(ImageMediaType::JPEG), None),
+            ],
+        }];
+
+        let fitted = fitted_images(history);
+        let [Message::User { content }] = fitted.as_slice() else {
+            panic!("one user message stays one user message");
+        };
+        let base64_of = |image: &Image| match &image.data {
+            DocumentSourceKind::Base64(data) => data.clone(),
+            other => panic!("expected base64, got {other:?}"),
+        };
+        let UserContent::ToolResult(shot) = &content[0] else {
+            panic!("the tool result stays first");
+        };
+        let parts: Vec<_> = shot.content.iter().collect();
+        assert!(matches!(parts[0], ToolResultContent::Text(t) if t.text == "shot"));
+        assert!(matches!(parts[1], ToolResultContent::Text(t) if t.text.contains("900x8079")));
+        let heights: Vec<u32> = parts[2..4]
+            .iter()
+            .map(|part| match part {
+                ToolResultContent::Image(image) => dimensions(&base64_of(image)).1,
+                other => panic!("expected a part, got {other:?}"),
+            })
+            .collect();
+        assert!(heights.iter().all(|&h| h <= MAX_IMAGE_SIDE), "{heights:?}");
+        assert_eq!(heights.iter().sum::<u32>(), 8079);
+        assert!(matches!(parts[4], ToolResultContent::Image(image) if base64_of(image) == "small"));
+        assert_eq!(parts.len(), 5);
+
+        assert!(matches!(&content[1], UserContent::Text(t) if t.text.contains("900x8079")));
+        assert!(content[2..].iter().all(|item| matches!(item, UserContent::Image(image)
+            if dimensions(&base64_of(image)).1 <= MAX_IMAGE_SIDE)));
+        assert_eq!(content.len(), 4);
     }
 
     /// Somebody else's gateway must not be built as an OpenRouter client — the
