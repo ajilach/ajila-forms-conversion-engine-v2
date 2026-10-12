@@ -46,7 +46,7 @@ impl FormDriver for UbsDriver {
     }
 
     fn terminal_panel_js(&self) -> String {
-        ubs_js::IS_SUMMARY_PANEL.to_owned()
+        ubs_js::IS_TERMINAL_PANEL.to_owned()
     }
 
     fn has_next_js(&self) -> String {

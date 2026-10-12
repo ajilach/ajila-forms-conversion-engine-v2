@@ -32,6 +32,14 @@ name = "access"
 path = "tests/access.rs"
 
 [[test]]
+name = "corpus_drawing"
+path = "tests/corpus_drawing.rs"
+
+[[test]]
+name = "corpus_scripts"
+path = "tests/corpus_scripts.rs"
+
+[[test]]
 name = "pagination"
 path = "tests/pagination.rs"
 
@@ -83,11 +91,11 @@ version = "0.4"
 version = "1.0"
 features = ["derive"]
 
+[dependencies.serde_json]
+version = "1.0"
+
 [dependencies.thiserror]
 version = "2"
-
-[dev-dependencies.serde_json]
-version = "1.0"
 
 [dev-dependencies.u2s-test-assets]
 path = "../u2s-test-assets"

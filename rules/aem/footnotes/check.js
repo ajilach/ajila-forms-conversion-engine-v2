@@ -6,7 +6,7 @@ function check(output, ctx) {
   const references = []; // pointers of the strings that carry a footnote reference
   const placeholders = []; // pointers of the placeholders
   let accordion = false;
-  // The whole document: a reference in the header counts as much as one in the form.
+  // The whole document: a reference in a DoR header slot line counts as much as one on a page.
   walk(output, function (node, pointer) {
     if (typeof node === "string" && node.indexOf(REFERENCE) >= 0) references.push(pointer);
     if (node !== null && typeof node === "object") {

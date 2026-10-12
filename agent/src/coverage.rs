@@ -257,8 +257,9 @@ fn html_rows(html: &str) -> Vec<String> {
     rows
 }
 
-/// Every text of the AEM JSON document in `language`: titles, labels, contents,
-/// option labels and the header. An `HtmlDisplayer`'s table rows count as rows.
+/// Every text of the AEM JSON document in `language`: titles, labels, contents
+/// (the DoR header slot lines among them) and option labels. An
+/// `HtmlDisplayer`'s table rows count as rows.
 pub fn document_texts(document: &Value, language: &str) -> DocumentTexts {
     let mut texts = DocumentTexts::default();
     let mut add = |text: &str| {
@@ -277,10 +278,6 @@ pub fn document_texts(document: &Value, language: &str) -> DocumentTexts {
             }
         }
     };
-    // The header holds one master-page line per line.
-    if let Some(header) = document.get("header").and_then(Value::as_str) {
-        header.lines().for_each(&mut add);
-    }
     fn walk(value: &Value, language: &str, add: &mut dyn FnMut(&str)) {
         match value {
             Value::Object(map) => {
@@ -537,9 +534,10 @@ Second line</text></value></draw>
     #[test]
     fn the_document_texts_are_the_languages_titles_labels_contents_and_options() {
         let doc = json!({
-            "header": "Valid from 2020\nUBS Europe SE",
             "form": {"type": "Root", "children": [{
                 "type": "Panel", "title": {"en": "Details", "de": "Angaben"}, "children": [
+                    {"type": "TextDraw", "content": {"en": "<p><b>UBS Europe SE</b></p>"}, "dor_header_slot": "slot2"},
+                    {"type": "TextDraw", "content": {"en": "<p>Valid from 2020</p>"}, "dor_header_slot": "slot3"},
                     {"type": "TextField", "label": {"en": "Name:"}},
                     {"type": "RadioButton", "label": {"en": "Kind"}, "options": [{"label": {"en": "<p>Private</p>"}, "value": "1"}]},
                     {"type": "HtmlDisplayer", "content": {"en": "<table><tr><td>A</td><td>B</td></tr></table>"}}

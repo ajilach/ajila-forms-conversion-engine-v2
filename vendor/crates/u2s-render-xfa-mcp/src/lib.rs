@@ -329,8 +329,14 @@ impl XfaRenderServer {
             "xfa_info" => {
                 let target = Self::target_of(args)?;
                 let info = self.renderer.info(&target)?;
-                let value = serde_json::to_value(&info)
+                let mut value = serde_json::to_value(&info)
                     .map_err(|e| RenderError::backend("xfa", format!("serialize info: {e}")))?;
+                // The `info` ingest capability's `applicable` field: this
+                // server is the right handler exactly for an XFA form (an
+                // ordinary PDF is in practice refused with `not_xfa` before
+                // this point). A property of the ingest contract, not of the
+                // document, so merged here rather than added to `DocumentInfo`.
+                value["applicable"] = json!(info.kind == u2s_render_xfa::DocumentKind::Xfa);
                 Ok(CallToolResult::structured(value))
             }
 

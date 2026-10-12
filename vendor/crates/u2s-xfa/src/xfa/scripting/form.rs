@@ -6,10 +6,11 @@
 use super::dependency::DependencyTracker;
 use super::engine::XfaScriptEngine;
 use super::events::{
-    EventActivity, EventRef, ListenScope, RunAt, ScriptContentType, XfaScript,
+    EventActivity, ListenScope, XfaScript,
     parse_events_from_node,
 };
 use super::registry::{RegisteredScript, ScriptRegistry, ScriptType};
+use super::report::ScriptReport;
 use super::som::{SomPath, SomResolver, child_som_path, concrete_segments, sibling_indices};
 use super::state::Presence;
 use crate::xfa::instances::{Prototypes, materialize_initial_instances};
@@ -48,6 +49,11 @@ pub struct EventResult {
     /// left the subform's `<occur>` limits (or named no instance): what was
     /// refused and why. A form does this silently; the host should say so.
     pub instance_limit_hit: Option<String>,
+    /// Why the field an interaction changed fails its own validation (XFA
+    /// 3.3 "The validate element"): left empty though `nullTest="error"`,
+    /// or rejected by its validate script. A form reports this to the
+    /// person and keeps the value; so does the host.
+    pub validation_failures: Vec<String>,
 }
 
 impl EventResult {
@@ -61,6 +67,7 @@ impl EventResult {
         if self.instance_limit_hit.is_none() {
             self.instance_limit_hit = other.instance_limit_hit;
         }
+        self.validation_failures.extend(other.validation_failures);
     }
 }
 
@@ -388,26 +395,7 @@ impl<'a> XfaNodeRef<'a> {
     }
 
     fn extract_value_from_xfa_node(node: &XfaNode) -> Option<String> {
-        for child in &node.children {
-            if matches!(child.kind, XfaNodeKind::Value) {
-                for text_child in &child.children {
-                    if let XfaNodeKind::Text { content } = &text_child.kind
-                        && !content.is_empty()
-                    {
-                        return Some(content.clone());
-                    }
-                    if let XfaNodeKind::Element {
-                        text_content: Some(content),
-                        ..
-                    } = &text_child.kind
-                        && !content.is_empty()
-                    {
-                        return Some(content.clone());
-                    }
-                }
-            }
-        }
-        None
+        node.template_value()
     }
 }
 
@@ -513,6 +501,11 @@ pub struct XfaForm {
     /// that application fires (initialize, indexChange) do not re-enter it;
     /// what they queue is picked up by the next round of the same loop.
     applying_instances: bool,
+    /// What ran outside this form's own engine and has not been handed out
+    /// by [`take_script_report`](Self::take_script_report) yet: the load
+    /// pass (its own engine) and the master-page scripts of each paged
+    /// refresh (the layout engine).
+    pending_report: ScriptReport,
 }
 
 impl XfaForm {
@@ -536,6 +529,9 @@ impl XfaForm {
         // The Form DOM of an empty merge: each repeatable subform as its
         // `initial` instances (XFA 3.3 §9), before any script sees the form.
         let mut prototypes = materialize_initial_instances(&mut nodes);
+        // The template as it is before any script runs: what
+        // `xfa.host.resetData` resets a field to.
+        let pristine = nodes.clone();
 
         let script_registry = Arc::new(Self::build_script_registry(&nodes));
         let dependency_tracker = DependencyTracker::new();
@@ -603,6 +599,13 @@ impl XfaForm {
         // and Footer_Line_txtformid are extracted from XFA <variables><text> elements
         Self::extract_and_register_translations(&nodes, &mut script_engine);
 
+        let defaults = Self::template_defaults(&pristine, &mut script_engine);
+        script_engine.set_template_defaults(&defaults);
+        Self::install_value_formats(&nodes, &mut script_engine);
+
+        let mut pending_report = script_result.script_report;
+        pending_report.absorb(script_engine.take_report());
+
         Ok((
             XfaForm {
                 nodes,
@@ -616,9 +619,65 @@ impl XfaForm {
                 prototypes,
                 instance_report: InstanceReport::default(),
                 applying_instances: false,
+                pending_report,
             },
             layout,
         ))
+    }
+
+    /// Every field's and exclusion group's value in `pristine`, the template
+    /// before any script ran, under each registered path. A path the
+    /// pristine tree does not reach (an instance the load scripts added) is
+    /// looked up as its first instance, since every instance of a repeated
+    /// section has the same template.
+    fn template_defaults(
+        pristine: &[XfaNode],
+        engine: &mut XfaScriptEngine,
+    ) -> HashMap<SomPath, String> {
+        engine
+            .get_field_values_by_canonical_path()
+            .into_keys()
+            .filter_map(|path| {
+                let node = Self::find_xfa_node_by_path(pristine, path.as_str()).or_else(|| {
+                    Self::find_xfa_node_by_path(pristine, path.index_free().as_str())
+                })?;
+                (node.kind.is_field() || node.kind.is_exclgroup()).then(|| {
+                    let value = XfaNodeRef::extract_value_from_xfa_node(node).unwrap_or_default();
+                    (path, value)
+                })
+            })
+            .collect()
+    }
+
+    /// Give every field's script object its `formattedValue` and
+    /// `editValue`, through the pictures its template declares.
+    fn install_value_formats(nodes: &[XfaNode], engine: &mut XfaScriptEngine) {
+        for path in engine.get_field_values_by_canonical_path().into_keys() {
+            let Some(meta) = Self::find_xfa_node_by_path(nodes, path.as_str())
+                .and_then(|node| node.field_meta.as_deref())
+            else {
+                continue;
+            };
+            let source = |p: &Option<crate::xfa::field_meta::PictureSpec>| {
+                p.as_ref().map(|p| p.source.clone())
+            };
+            engine.install_value_format(
+                &path,
+                source(&meta.format).as_deref(),
+                source(&meta.edit).as_deref(),
+                &meta.locale,
+            );
+        }
+    }
+
+    /// The dialogs the form's scripts raised and the scripts that failed
+    /// since the last call: the first call includes the load pass, and a
+    /// call after [`refresh_paged`](Self::refresh_paged) the master-page
+    /// scripts it ran.
+    pub fn take_script_report(&mut self) -> ScriptReport {
+        let mut report = std::mem::take(&mut self.pending_report);
+        report.absorb(self.script_engine.take_report());
+        report
     }
 
     /// Resolve a node by SOM expression (immutable)
@@ -824,6 +883,7 @@ impl XfaForm {
             changed_fields,
             instances_changed: self.instance_report.changed,
             instance_limit_hit: self.instance_report.limit_hit.clone(),
+            validation_failures: Vec::new(),
         })
     }
 
@@ -839,7 +899,116 @@ impl XfaForm {
             return Err(refusal);
         }
         self.instance_report = InstanceReport::default();
-        self.execute_event(som_expression, EventActivity::Click, None)
+        let (is_radio, is_checkbox) = self
+            .resolve(som_expression)
+            .map(|n| (n.is_radio_button(), n.is_checkbox()))
+            .unwrap_or((false, false));
+        if !is_radio && !is_checkbox {
+            // A button: pressed and released, then its click (XFA 3.3 §10).
+            let mut result = self.execute_event(som_expression, EventActivity::MouseDown, None)?;
+            result.absorb(self.execute_event(som_expression, EventActivity::MouseUp, None)?);
+            result.absorb(self.execute_event(som_expression, EventActivity::Click, None)?);
+            return Ok(result);
+        }
+        self.press_check_button(som_expression, is_radio)
+    }
+
+    /// A person pressing a radio button or checkbox: focus in, press,
+    /// the value changes, release, click, focus out, then the field's
+    /// validation. The value changes between `mouseDown` and `mouseUp`, so a
+    /// form can compare the two: the UBS radios store the value on
+    /// `mouseDown` and empty it on `mouseUp` when the press did not change
+    /// it, which is how a second press deselects. A radio that ends the
+    /// press empty leaves its group with no selection.
+    fn press_check_button(&mut self, path: &str, is_radio: bool) -> Result<EventResult, String> {
+        let resolved = self
+            .som_resolver
+            .resolve_node(path, None)
+            .ok_or_else(|| format!("Could not resolve field: {path}"))?;
+        let mut result = self.enter(path)?;
+        result.absorb(self.execute_event(path, EventActivity::MouseDown, None)?);
+        if is_radio {
+            result.absorb(self.select_radio_button(path)?);
+        } else {
+            let (on, off) = Self::find_xfa_node_by_path(&self.nodes, resolved.as_str())
+                .map(|n| n.extract_item_values())
+                .unwrap_or((None, None));
+            let (on, off) = (on.unwrap_or_else(|| "1".to_string()), off.unwrap_or_else(|| "0".to_string()));
+            let current = self.script_engine.get_field_value(&resolved).unwrap_or_default();
+            let next = if current == on { off } else { on };
+            result.absorb(self.set_value_as_user(path, &next)?);
+        }
+        result.absorb(self.execute_event(path, EventActivity::MouseUp, None)?);
+        if is_radio {
+            result.absorb(self.clear_group_if_deselected(&resolved)?);
+        }
+        result.absorb(self.execute_event(path, EventActivity::Click, None)?);
+        result.absorb(self.exit(path)?);
+        result.validation_failures.extend(self.validate_field(&resolved)?);
+        self.apply_pending_instance_ops()?;
+        result.instances_changed = self.instance_report.changed;
+        result.instance_limit_hit = self.instance_report.limit_hit.clone();
+        Ok(result)
+    }
+
+    /// When the radio at `radio` has no value after its press (its own
+    /// script emptied it), its exclusion group has no selection: the
+    /// group's value is cleared and its change event fires.
+    fn clear_group_if_deselected(&mut self, radio: &SomPath) -> Result<EventResult, String> {
+        if self.script_engine.get_field_value(radio).is_some() {
+            return Ok(EventResult::default());
+        }
+        let Some(group) = self.find_parent_excl_group_by_path(radio) else {
+            return Ok(EventResult::default());
+        };
+        let previous = self.script_engine.get_field_value(&group).unwrap_or_default();
+        if previous != self.radio_on_value(radio) {
+            return Ok(EventResult::default());
+        }
+        self.script_engine.update_field_value(&group, "");
+        self.script_engine.update_field_value(radio, "");
+        for path in [&group, radio] {
+            if let Some(node) = Self::find_xfa_node_by_path_mut(&mut self.nodes, path) {
+                node.attributes.insert("rawValue".to_string(), String::new());
+            }
+        }
+        self.dirty = true;
+        let mut result = self.trigger_change_on_excl_group(radio.as_str(), Some(&previous))?;
+        result.values_changed = true;
+        result.changed_fields.push(group);
+        Ok(result)
+    }
+
+    /// The field's own validation after a person changed it (XFA 3.3 "The
+    /// validate element"): its validate scripts, which reject the value by
+    /// evaluating to false, and its `nullTest`, which rejects an empty
+    /// value when it is `error`. Each failure is a sentence naming it.
+    fn validate_field(&mut self, field: &SomPath) -> Result<Vec<String>, String> {
+        let mut failures = Vec::new();
+        let value = self.script_engine.get_field_value(field).unwrap_or_default();
+        let mandatory = Self::find_xfa_node_by_path(&self.nodes, field.as_str())
+            .and_then(|n| n.field_meta.as_deref())
+            .is_some_and(|m| m.mandatory());
+        if mandatory && value.trim().is_empty() {
+            failures.push(format!("{field} requires a value and was left empty", field = field.as_str()));
+        }
+        let scripts = self.find_node_scripts(field.as_str(), &EventActivity::Validate);
+        if !scripts.is_empty() {
+            self.script_engine.set_current_field(field, field.name(), &value);
+            self.script_engine
+                .update_event_context(&EventActivity::Validate, field, None);
+            for script in &scripts {
+                if let Ok(Some(verdict)) = self.script_engine.evaluate_script(script)
+                    && verdict == "false"
+                {
+                    failures.push(format!(
+                        "{field}: its validate script rejects the value {value:?}",
+                        field = field.as_str()
+                    ));
+                }
+            }
+        }
+        Ok(failures)
     }
 
     /// Convenience method to execute a change event
@@ -921,6 +1090,7 @@ impl XfaForm {
                 layout.evaluate(page_area, page_index, page_count)
             },
         )?;
+        self.pending_report.errors.extend(layout.take_failures());
         self.som_resolver = SomResolver::from_nodes(&self.nodes);
         self.field_index_cache = Self::build_field_index_cache(&self.flattened);
         self.dirty = false;
@@ -1228,12 +1398,20 @@ impl XfaForm {
         let write_result = if is_radio {
             self.select_radio_button(field_path)?
         } else {
-            self.set_value_as_user(field_path, value)?
+            // A value typed in the field's own format (`05.01.2024` into a
+            // `date{DD.MM.YYYY}` field) is stored in its canonical form.
+            let value = Self::find_xfa_node_by_path(&self.nodes, resolved_path.as_str())
+                .and_then(|node| node.field_meta.as_deref())
+                .map_or_else(|| value.to_string(), |meta| meta.canonical_input(value));
+            self.set_value_as_user(field_path, &value)?
         };
         result.absorb(write_result);
 
         let exit_result = self.exit(field_path)?;
         result.absorb(exit_result);
+        result
+            .validation_failures
+            .extend(self.validate_field(&resolved_path)?);
 
         // A cascade of calculate scripts can queue instance changes outside
         // any one event; apply those too, then report the whole interaction.
@@ -1793,24 +1971,9 @@ impl XfaForm {
             engine.register_field(name, name, value);
         }
 
-        // Collect and register <script> variables using the shared helper
-        let scripts = crate::xfa::collect_variable_scripts(nodes);
-
-        for (name, content) in &scripts {
-            // Per XFA 3.3 §10 pp. 376-378: named script objects expose all
-            // top-level variables and functions as properties/methods.
-            let script_src = super::script_object::wrap_script_object(name, content, true);
-
-            let _ = engine.execute_script(&XfaScript {
-                source: script_src,
-                content_type: ScriptContentType::JavaScript,
-                activity: EventActivity::Initialize,
-                event_ref: EventRef::Form,
-                name: Some(name.clone()),
-                run_at: RunAt::Client,
-                listen: ListenScope::default(),
-            });
-        }
+        // Named script objects, built on first reference in their owner
+        // subform's scope (XFA 3.3 §10).
+        engine.register_script_objects(nodes);
     }
 
     fn build_som_hierarchy_with_values(
@@ -1887,26 +2050,7 @@ fn get_node_value(
     if let Some(raw) = node.attributes.get("rawValue") {
         return raw.clone();
     }
-    for child in &node.children {
-        if matches!(child.kind, XfaNodeKind::Value) {
-            for text_child in &child.children {
-                if let XfaNodeKind::Text { content } = &text_child.kind
-                    && !content.is_empty()
-                {
-                    return content.clone();
-                }
-                if let XfaNodeKind::Element {
-                    text_content: Some(content),
-                    ..
-                } = &text_child.kind
-                    && !content.is_empty()
-                {
-                    return content.clone();
-                }
-            }
-        }
-    }
-    String::new()
+    node.template_value().unwrap_or_default()
 }
 
 /// First pass: register Template DOM nodes in the SOM hierarchy.
@@ -1963,6 +2107,14 @@ fn register_node_at(
 
     let is_field = node.kind.is_field();
     let is_subform = node.kind.is_subform();
+    // A pageSet or pageArea extends the path of what it holds, so it needs
+    // an object too: master-page content is linked into it (`$.parent` of a
+    // footer field is its pageArea), and the walk up continues to the root.
+    let is_page_container = matches!(node.kind, XfaNodeKind::PageSet | XfaNodeKind::PageArea);
+
+    if is_page_container && let Some(name) = &node.name {
+        engine.register_field_with_presence(&node_path, name, "", "visible", true);
+    }
 
     if (is_field || is_subform || is_excl_group || is_draw)
         && let Some(name) = &node.name

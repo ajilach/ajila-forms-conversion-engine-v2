@@ -11,6 +11,7 @@
 use super::dependency::DependencyTracker;
 use super::events::{EventActivity, ScriptContentType, XfaScript};
 use super::js_helpers;
+use super::report::{HostMessage, ScriptFailure, ScriptReport};
 use super::som::{SomPath, SomResolver};
 use crate::flattened::FieldAccess;
 use super::state::{FormState, Presence, SharedFormState, XfaValue};
@@ -100,7 +101,21 @@ pub struct XfaScriptEngine {
     page_area_objects_by_name: HashMap<String, JsObject>,
     /// Registered `pageSet` objects keyed by name.
     page_set_objects: HashMap<String, JsObject>,
+    /// Every script failure since the last [`Self::take_script_errors`], at
+    /// most [`MAX_RECORDED_SCRIPT_ERRORS`] of them. A failing script aborts
+    /// its own handler only; the caller decides whether to report it, so it
+    /// is recorded here instead of dropped.
+    script_errors: Vec<ScriptFailure>,
+    /// Failures beyond the cap, counted rather than kept.
+    dropped_script_errors: usize,
 }
+
+/// How many script failures [`XfaScriptEngine`] keeps between two
+/// [`XfaScriptEngine::take_script_errors`] calls. The master-page engine
+/// re-runs its scripts for every page and is never drained per page, so the
+/// list must be bounded.
+pub const MAX_RECORDED_SCRIPT_ERRORS: usize = 100;
+
 
 impl XfaScriptEngine {
     pub fn new() -> Self {
@@ -122,6 +137,8 @@ impl XfaScriptEngine {
             page_area_objects_by_name: HashMap::new(),
             page_set_objects: HashMap::new(),
             instance_manager_parents: HashMap::new(),
+            script_errors: Vec::new(),
+            dropped_script_errors: 0,
         };
 
         engine.setup_environment();
@@ -146,6 +163,8 @@ impl XfaScriptEngine {
             page_area_objects_by_name: HashMap::new(),
             page_set_objects: HashMap::new(),
             instance_manager_parents: HashMap::new(),
+            script_errors: Vec::new(),
+            dropped_script_errors: 0,
         };
 
         engine.setup_environment();
@@ -156,12 +175,113 @@ impl XfaScriptEngine {
         self.setup_xfa_object();
         self.setup_shortcuts();
         self.setup_field_registry();
+        self.setup_host_natives();
         self.setup_som_fallback();
         self.setup_console();
     }
 
+    /// The Rust halves of `js_helpers::XFA_HOST_EXTENSIONS`: `util.printd`'s
+    /// formatting and a dialog's default answer, both pure functions in
+    /// [`super::acrobat`].
+    fn setup_host_natives(&mut self) {
+        let printd = NativeFunction::from_fn_ptr(|_this, args, context| {
+            let format_arg = args.get_or_undefined(0);
+            let format = if format_arg.is_number() {
+                let preset = format_arg.to_number(context)? as i64;
+                super::acrobat::printd_preset(preset)
+                    .ok_or_else(|| {
+                        boa_engine::JsNativeError::range()
+                            .with_message(format!("util.printd: no preset format {preset}"))
+                    })?
+                    .to_string()
+            } else {
+                format_arg.to_string(context)?.to_std_string_escaped()
+            };
+            let mut part = |i: usize| -> boa_engine::JsResult<f64> {
+                let n = args.get_or_undefined(i).to_number(context)?;
+                if n.is_finite() {
+                    Ok(n)
+                } else {
+                    Err(boa_engine::JsNativeError::range()
+                        .with_message("util.printd: the date is not a valid date")
+                        .into())
+                }
+            };
+            let date = super::acrobat::DateParts {
+                year: part(1)? as i32,
+                month: part(2)? as u32,
+                day: part(3)? as u32,
+                hour: part(4)? as u32,
+                minute: part(5)? as u32,
+                second: part(6)? as u32,
+                weekday: part(7)? as u32,
+            };
+            Ok(JsValue::from(JsString::from(
+                super::acrobat::printd(&format, &date).as_str(),
+            )))
+        });
+        let dialog_answer = NativeFunction::from_fn_ptr(|_this, args, context| {
+            let dialog_type = args.get_or_undefined(0).to_number(context)?;
+            let dialog_type = if dialog_type.is_finite() { dialog_type as i64 } else { 0 };
+            Ok(JsValue::from(super::acrobat::dialog_answer(dialog_type)))
+        });
+        // `_xfa_picture_native_(mode, picture, text, localeJson)`: `text`
+        // formatted (`mode` "format") or read back ("parse") through the
+        // picture clause, or `null` when it does not fit or the picture is
+        // not supported. An empty locale is `en_US`.
+        let picture = NativeFunction::from_fn_ptr(|_this, args, context| {
+            let arg = |i: usize, context: &mut Context| -> boa_engine::JsResult<String> {
+                Ok(args.get_or_undefined(i).to_string(context)?.to_std_string_escaped())
+            };
+            let (mode, source, text, locale_json) =
+                (arg(0, context)?, arg(1, context)?, arg(2, context)?, arg(3, context)?);
+            let locale = if locale_json.is_empty() {
+                crate::xfa::locale::Locale::en_us()
+            } else {
+                serde_json::from_str(&locale_json).map_err(|e| {
+                    boa_engine::JsNativeError::typ().with_message(format!("locale: {e}"))
+                })?
+            };
+            let Ok(picture) = crate::xfa::picture::Picture::parse(&source) else {
+                return Ok(JsValue::null());
+            };
+            let result = match mode.as_str() {
+                "format" => picture.format(&text, &locale),
+                _ => picture.parse_input(&text, &locale),
+            };
+            Ok(result.map_or(JsValue::null(), |r| JsValue::from(JsString::from(r.as_str()))))
+        });
+        for (name, function) in [
+            ("_xfa_printd_native_", printd),
+            ("_xfa_dialog_answer_native_", dialog_answer),
+            ("_xfa_picture_native_", picture),
+        ] {
+            let function = function.to_js_function(self.context.realm());
+            self.context
+                .register_global_property(JsString::from(name), function, Attribute::all())
+                .unwrap_or_else(|e| panic!("cannot register {name}: {e}"));
+        }
+    }
+
     /// Get the rawValue of a specific field by its SOM path.
     /// Falls back to looking up by the short field name if the exact path isn't found.
+    /// Whether the global `name` holds something other than a form node.
+    fn global_is_taken_by_non_node(&mut self, name: &str) -> bool {
+        let global = self.context.global_object();
+        let key = PropertyKey::from(JsString::from(name));
+        if !global.has_own_property(key.clone(), &mut self.context).unwrap_or(false) {
+            return false;
+        }
+        match global.get(key, &mut self.context) {
+            Ok(value) if value.is_undefined() || value.is_null() => false,
+            Ok(value) => !value.as_object().is_some_and(|obj| {
+                obj.has_own_property(js_string!("somExpression"), &mut self.context)
+                    .unwrap_or(false)
+            }),
+            Err(_) => true,
+        }
+    }
+
     pub fn get_field_value(&mut self, path: &SomPath) -> Option<String> {
         // Try exact path first
         if let Some(obj) = self.field_objects.get(path) {
@@ -267,7 +387,10 @@ impl XfaScriptEngine {
     /// Set up JavaScript helpers for SOM resolution
     fn setup_som_fallback(&mut self) {
         let helpers_js = js_helpers::get_all_helpers();
-        let _ = self.execute_variable_script(&helpers_js);
+        // The helpers are this crate's own code: one that fails to load is a
+        // bug, not a property of the form.
+        self.execute_variable_script(&helpers_js)
+            .unwrap_or_else(|e| panic!("the JS helpers failed to load: {e}"));
     }
 
     /// Create the xfa root object with resolveNode/resolveNodes
@@ -735,13 +858,9 @@ impl XfaScriptEngine {
             .unwrap_or_else(|| all_paths.first().cloned().unwrap_or_default())
     }
 
+    /// `xfa.host`. `messageBox`, `resetData`, `print` and `numPages` are
+    /// added by `js_helpers::XFA_HOST_EXTENSIONS`.
     fn create_host_object(&mut self) -> JsObject {
-        let message_box = NativeFunction::from_fn_ptr(|_this, args, context| {
-            let message = args.get_or_undefined(0).to_string(context)?;
-            log::debug!("[XFA messageBox]: {}", message.to_std_string_escaped());
-            Ok(JsValue::undefined())
-        });
-
         let set_focus =
             NativeFunction::from_fn_ptr(|_this, _args, _context| Ok(JsValue::undefined()));
 
@@ -756,7 +875,6 @@ impl XfaScriptEngine {
                 JsValue::from(js_string!("1.0")),
                 Attribute::READONLY,
             )
-            .function(message_box, js_string!("messageBox"), 1)
             .function(set_focus, js_string!("setFocus"), 1)
             .build()
     }
@@ -909,8 +1027,11 @@ impl XfaScriptEngine {
         // Register globally for naked references (legacy). Only the first
         // instance: a bare name means instance 0 (XFA 3.3 §3), and a later
         // instance must not take the name over from it.
+        // A global that is not a form node (a JavaScript builtin such as
+        // `Date`, the `xfa` object, a script object) keeps its name: a field
+        // called `Date` must not take the constructor away from every script.
         let first_instance = som_path.is_first_instance();
-        if first_instance {
+        if first_instance && !self.global_is_taken_by_non_node(name) {
             self.context
                 .register_global_property(JsString::from(name), field_obj.clone(), Attribute::all())
                 .ok();
@@ -1109,6 +1230,7 @@ impl XfaScriptEngine {
                 &mut self.context,
             )
             .ok();
+        self.set_merged_value(&field, initial_value);
 
         // Define rawValue with getter/setter for exclGroup propagation.
         //
@@ -2264,6 +2386,11 @@ _xfa_tmp_.boundItem = function(value) {
             .collect();
 
         for field_name in &ambiguous_names {
+            // A builtin or script object keeps its name (see
+            // `global_is_taken_by_non_node`).
+            if self.global_is_taken_by_non_node(field_name) {
+                continue;
+            }
             // Use the scope walk to find the best match
             if let Some(resolved) = self
                 .som_resolver
@@ -2296,21 +2423,7 @@ _xfa_tmp_.boundItem = function(value) {
         target_path: &str,
         prev_value: Option<&str>,
     ) {
-        let activity_name = match activity {
-            EventActivity::Ready => "ready",
-            EventActivity::Initialize => "initialize",
-            EventActivity::Enter => "enter",
-            EventActivity::Exit => "exit",
-            EventActivity::Change => "change",
-            EventActivity::Click => "click",
-            EventActivity::Calculate => "calculate",
-            EventActivity::Validate => "validate",
-            EventActivity::PreSubmit => "preSubmit",
-            EventActivity::PostSubmit => "postSubmit",
-            EventActivity::DocReady => "docReady",
-            EventActivity::IndexChange => "indexChange",
-            EventActivity::Other(s) => s.as_str(),
-        };
+        let activity_name = activity.activity_name();
 
         // Get the xfa.event object
         let event_obj = self
@@ -2864,11 +2977,18 @@ _xfa_tmp_.boundItem = function(value) {
         page_area_obj
             .set(
                 PropertyKey::from(JsString::from(child_name)),
-                child_obj,
+                child_obj.clone(),
                 false,
                 &mut self.context,
             )
             .ok();
+        // The pageArea is the child's parent (`$.parent.index` is the page
+        // being laid out), and the root the pageArea's, so the scope walk
+        // still climbs to the root.
+        self.call_helper(
+            "_xfa_reparent_under_page_area_",
+            &[JsValue::from(page_area_obj), JsValue::from(child_obj)],
+        );
     }
 
     /// Set `parent[name] = value`, and also `parent[class_name] = value` when
@@ -2905,31 +3025,38 @@ _xfa_tmp_.boundItem = function(value) {
         }
     }
 
-    /// Expose the global a named `<variables><script>` object created
-    /// (`wrap_script_object`) as a property of its owning subform's JS
-    /// object, per XFA 3.3 §10 "Instantiation of Named Script Objects": "the
-    /// contents of the object are compiled into a script object and that
-    /// object is then registered with the subform". Scripts elsewhere in the
-    /// document keep working through the existing global.
-    pub fn attach_script_object_to_subform(&mut self, subform_path: &str, script_name: &str) {
-        let Some(subform_obj) = self.field_objects.get(&SomPath::new(subform_path)).cloned()
-        else {
-            return;
-        };
-        if let Ok(global) = self
-            .context
-            .global_object()
-            .get(PropertyKey::from(JsString::from(script_name)), &mut self.context)
-            && !global.is_undefined()
-        {
-            subform_obj
-                .set(
-                    PropertyKey::from(JsString::from(script_name)),
-                    global,
-                    false,
-                    &mut self.context,
-                )
-                .ok();
+    /// Declare every named script object of `nodes` (see
+    /// `js_helpers::XFA_SCRIPT_OBJECTS`): each is built on its first
+    /// reference, in its owner subform's scope. Call once the SOM hierarchy
+    /// is registered, so the owners exist.
+    pub fn register_script_objects(&mut self, nodes: &[crate::xfa::XfaNode]) {
+        let declared: Vec<(String, String, Option<String>)> =
+            match crate::xfa::find_root_subform(nodes) {
+                Some(root) => {
+                    let root_name = root.name.clone().unwrap_or_default();
+                    crate::xfa::collect_variable_script_owners(&root_name, &root.children)
+                        .into_iter()
+                        .map(|(name, content, owner)| (name, content, Some(owner)))
+                        .collect()
+                }
+                None => crate::xfa::collect_variable_scripts(nodes)
+                    .into_iter()
+                    .map(|(name, content)| (name, content, None))
+                    .collect(),
+            };
+        for (name, content, owner_path) in declared {
+            let owner = owner_path
+                .and_then(|p| self.field_objects.get(&SomPath::new(p)).cloned())
+                .map_or(JsValue::null(), JsValue::from);
+            let factory = super::script_object::script_object_factory(&content);
+            self.call_helper(
+                "_xfa_define_script_object_",
+                &[
+                    JsValue::from(JsString::from(name.as_str())),
+                    owner,
+                    JsValue::from(JsString::from(factory.as_str())),
+                ],
+            );
         }
     }
 
@@ -3008,6 +3135,9 @@ _xfa_tmp_.boundItem = function(value) {
         )
         .ok();
 
+        // The saved Form DOM is what the form was merged with.
+        self.set_merged_value(&obj, value);
+
         // Update form_state value.
         {
             let mut state = self.form_state.write().unwrap();
@@ -3015,12 +3145,224 @@ _xfa_tmp_.boundItem = function(value) {
         }
     }
 
+    /// Record `value` as the node's merged value, the one `getDeltas()`
+    /// compares its current value with (a hidden `_xfa_mergedValue_`).
+    fn set_merged_value(&mut self, obj: &JsObject, value: &str) {
+        obj.define_property_or_throw(
+            js_string!("_xfa_mergedValue_"),
+            boa_engine::property::PropertyDescriptor::builder()
+                .value(JsValue::from(JsString::from(value)))
+                .writable(true)
+                .enumerable(false)
+                .configurable(true)
+                .build(),
+            &mut self.context,
+        )
+        .expect("a plain object accepts a new property");
+    }
+
+    /// Run one script with the current field as `this`. A failure is
+    /// returned and also recorded for [`Self::take_script_errors`], under the
+    /// script's owner and activity.
     pub fn execute_script(&mut self, script: &XfaScript) -> Result<Option<String>, String> {
-        match script.content_type {
+        let result = match script.content_type {
             ScriptContentType::JavaScript => self.execute_javascript(&script.source),
-            ScriptContentType::FormCalc => {
-                Err("FormCalc scripts require transpilation (not yet implemented).".to_string())
-            }
+            // A FormCalc script that translated is JavaScript by now (see
+            // `events::executable`); this one did not, and says why.
+            ScriptContentType::FormCalc => Err(match super::formcalc::transpile(&script.source) {
+                Err(e) => e.to_string(),
+                Ok(_) => "FormCalc script was not translated before it ran".to_string(),
+            }),
+        };
+        if let Err(e) = &result {
+            let owner = self
+                .current_field_path
+                .as_ref()
+                .map(|p| p.as_str().to_string())
+                .unwrap_or_default();
+            self.record_script_error(ScriptFailure {
+                activity: script.activity.activity_name().to_string(),
+                owner,
+                page: None,
+                error: e.clone(),
+            });
+        }
+        result
+    }
+
+    /// Run `script` for its value: its last expression's, as a validate
+    /// script's verdict is (XFA 3.3 "The validate element": a script test
+    /// fails when it evaluates to false). A direct `eval` inside the usual
+    /// wrapper keeps `this` the script's owner.
+    pub fn evaluate_script(&mut self, script: &XfaScript) -> Result<Option<String>, String> {
+        let literal = serde_json::to_string(&script.source).expect("a string serialises");
+        let mut wrapped = script.clone();
+        wrapped.source = format!("return eval({literal});");
+        self.execute_script(&wrapped)
+    }
+
+    /// Record a script that could not run at all (a FormCalc script this
+    /// engine does not translate), as if it had run and failed.
+    pub fn record_unrunnable(&mut self, script: &XfaScript, owner: &str) {
+        if let Err(error) = match script.content_type {
+            ScriptContentType::FormCalc => super::formcalc::transpile(&script.source).map(|_| ()),
+            ScriptContentType::JavaScript => Ok(()),
+        } {
+            self.record_script_error(ScriptFailure {
+                activity: script.activity.activity_name().to_string(),
+                owner: owner.to_string(),
+                page: None,
+                error: error.to_string(),
+            });
+        }
+    }
+
+    fn record_script_error(&mut self, error: ScriptFailure) {
+        if self.script_errors.len() < MAX_RECORDED_SCRIPT_ERRORS {
+            self.script_errors.push(error);
+        } else {
+            self.dropped_script_errors += 1;
+        }
+    }
+
+    /// Every script failure since the last call, the host's own included (a
+    /// `resetData` naming nothing), in the order they happened, and how many
+    /// more were not kept.
+    pub fn take_script_errors(&mut self) -> (Vec<ScriptFailure>, usize) {
+        let host_errors = self.call_helper("_xfa_drain_host_errors_", &[]);
+        for error in self.js_string_list(&host_errors) {
+            self.record_script_error(ScriptFailure {
+                activity: String::new(),
+                owner: String::new(),
+                page: None,
+                error,
+            });
+        }
+        let dropped = std::mem::take(&mut self.dropped_script_errors);
+        (std::mem::take(&mut self.script_errors), dropped)
+    }
+
+    /// Every script failure and dialog since the last call.
+    pub fn take_report(&mut self) -> ScriptReport {
+        let (errors, dropped_errors) = self.take_script_errors();
+        ScriptReport {
+            errors,
+            dropped_errors,
+            messages: self.drain_host_messages(),
+        }
+    }
+
+    /// Every dialog the scripts raised since the last call, in order.
+    pub fn drain_host_messages(&mut self) -> Vec<HostMessage> {
+        let queued = self.call_helper("_xfa_drain_host_messages_", &[]);
+        let Some(list) = queued.as_object().cloned() else {
+            return Vec::new();
+        };
+        let length = list
+            .get(PropertyKey::from(js_string!("length")), &mut self.context)
+            .ok()
+            .and_then(|v| v.to_number(&mut self.context).ok())
+            .unwrap_or(0.0) as u32;
+        (0..length)
+            .filter_map(|i| {
+                let entry = list.get(PropertyKey::from(i), &mut self.context).ok()?;
+                let entry = entry.as_object()?.clone();
+                let answer = entry
+                    .get(PropertyKey::from(js_string!("answer")), &mut self.context)
+                    .ok()?
+                    .to_number(&mut self.context)
+                    .ok()? as i32;
+                Some(HostMessage {
+                    source: read_js_string_prop(&entry, "source", &mut self.context)?,
+                    text: read_js_string_prop(&entry, "text", &mut self.context)?,
+                    title: read_js_string_prop(&entry, "title", &mut self.context)
+                        .unwrap_or_default(),
+                    answer,
+                })
+            })
+            .collect()
+    }
+
+    /// The strings of a JS array, in order.
+    fn js_string_list(&mut self, value: &JsValue) -> Vec<String> {
+        let Some(list) = value.as_object().cloned() else {
+            return Vec::new();
+        };
+        let length = list
+            .get(PropertyKey::from(js_string!("length")), &mut self.context)
+            .ok()
+            .and_then(|v| v.to_number(&mut self.context).ok())
+            .unwrap_or(0.0) as u32;
+        (0..length)
+            .filter_map(|i| {
+                let v = list.get(PropertyKey::from(i), &mut self.context).ok()?;
+                v.to_string(&mut self.context)
+                    .ok()
+                    .map(|s| s.to_std_string_escaped())
+            })
+            .collect()
+    }
+
+    /// Give the field at `path` its `formattedValue` and `editValue`, through
+    /// its format and edit pictures (either may be absent) in `locale`.
+    pub fn install_value_format(
+        &mut self,
+        path: &SomPath,
+        format: Option<&str>,
+        edit: Option<&str>,
+        locale: &crate::xfa::locale::Locale,
+    ) {
+        let Some(obj) = self.field_objects.get(path).cloned() else {
+            return;
+        };
+        let locales = self
+            .context
+            .global_object()
+            .get(PropertyKey::from(js_string!("_xfa_locales_")), &mut self.context)
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .expect("_xfa_locales_ is defined by the value-format helpers");
+        let key = PropertyKey::from(JsString::from(locale.name.as_str()));
+        if !locales.has_own_property(key.clone(), &mut self.context).unwrap_or(false) {
+            let json = serde_json::to_string(locale).expect("a locale serialises");
+            locales
+                .set(key, JsValue::from(JsString::from(json.as_str())), false, &mut self.context)
+                .expect("a plain object accepts any property");
+        }
+        let text = |s: Option<&str>| JsValue::from(JsString::from(s.unwrap_or("")));
+        self.call_helper(
+            "_xfa_install_value_format_",
+            &[
+                JsValue::from(obj),
+                text(format),
+                text(edit),
+                JsValue::from(JsString::from(locale.name.as_str())),
+            ],
+        );
+    }
+
+    /// Give `xfa.host.resetData` each field's template default, keyed by its
+    /// path without instance indices (`SomPath::index_free`).
+    pub fn set_template_defaults(&mut self, defaults: &HashMap<SomPath, String>) {
+        let target = self
+            .context
+            .global_object()
+            .get(
+                PropertyKey::from(js_string!("_xfa_template_defaults_")),
+                &mut self.context,
+            )
+            .ok()
+            .and_then(|v| v.as_object().cloned())
+            .expect("_xfa_template_defaults_ is defined by the host extensions");
+        for (path, value) in defaults {
+            target
+                .set(
+                    PropertyKey::from(JsString::from(path.index_free().as_str())),
+                    JsValue::from(JsString::from(value.as_str())),
+                    false,
+                    &mut self.context,
+                )
+                .expect("a plain object accepts any property");
         }
     }
 
@@ -3052,12 +3394,20 @@ _xfa_tmp_.boundItem = function(value) {
             None
         };
 
-        // Wrap the script in a function with proper `this` binding
-        let wrapped_source = if has_this_context {
-            format!("(function() {{ {} }}).call(_xfa_this_)", source)
+        // The script runs as a function with its owner as `this`, inside
+        // `with` its owner's scope (XFA 3.3 §3: an unqualified name is
+        // searched among the container's children, then its siblings, its
+        // parent's siblings, ... up to the root). The `with` is outside the
+        // function so the script's own `var`s shadow form nodes.
+        let (this_expr, scope_expr) = if has_this_context {
+            ("_xfa_this_", "_xfa_this_")
         } else {
-            format!("(function() {{ {} }})()", source)
+            ("undefined", "undefined")
         };
+        let wrapped_source = format!(
+            "var _xfa_result_ = undefined; with (_xfa_scope_({scope_expr})) {{ \
+             _xfa_result_ = (function() {{ {source}\n }}).call({this_expr}); }} _xfa_result_"
+        );
 
         match self.context.eval(Source::from_bytes(&wrapped_source)) {
             Ok(result) => {
@@ -3214,6 +3564,7 @@ _xfa_tmp_.boundItem = function(value) {
                     &mut self.context,
                 )
                 .ok();
+            self.set_merged_value(&subform_obj, value);
 
             self.context
                 .global_object()
@@ -3427,9 +3778,11 @@ _xfa_tmp_.boundItem = function(value) {
                     }
 
                     try {
-                        // Execute with `this` bound to the target object
-                        var fn = new Function(scriptSrc);
-                        fn.call(this);
+                        // Execute with `this` bound to the target object, in
+                        // its scope (see `execute_javascript`).
+                        var fn = new Function('_xfa_scope_proxy_',
+                            'with (_xfa_scope_proxy_) { return (function() { ' + scriptSrc + '\n }).call(this); }');
+                        fn.call(this, _xfa_scope_(this));
                     } finally {
                         _xfa_exec_depth_--;
                     }

@@ -8,7 +8,8 @@ A `ConditionRule` on a Dropdown, Checkbox or RadioButton (`conditions`: `target_
 `value`, `show`) shows or hides a Panel by its `name`. Two things are required, and one without
 the other silently fails: the rule on the trigger, AND `is_conditional: true` on the target Panel.
 Only a conditional Panel is written with the visibility hook (a Visibility script plus an
-Initialize twin calling `window.forms.ubs.showAFShowDor` and `hideAFHideDor`); a Panel left
+Initialize twin calling `window.forms.ubs.showAFShowDor` and `hideAFHideDor`, which show and hide
+the panel in the form and the Document of Record together); a Panel left
 `is_conditional: false` gets no hook, so authoring it `visible: false` and pointing a condition at
 it yields a panel that is invisible forever (and a repeatable inside it renders one instance).
 Renaming a panel without renaming the conditions that name it leaves a rule that looks right in

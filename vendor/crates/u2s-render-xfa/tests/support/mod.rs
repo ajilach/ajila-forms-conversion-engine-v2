@@ -227,3 +227,33 @@ pub fn access() -> PathBuf {
     );
     write("access.xfa.pdf", &template(&body))
 }
+
+/// What a form's scripts tell the person filling it, and what fails.
+///
+/// - `Warn` raises an alert and then writes `Out`, so the alert must neither
+///   abort the handler nor go unreported.
+/// - `Broken` calls something undefined: the click must still succeed, and
+///   its warning must name the failure.
+/// - `Clear` resets `Section` to its template defaults with
+///   `xfa.host.resetData`.
+/// - `Today` is set by `util.printd` when the form loads.
+/// - `LoadFails` throws in its initialize script, so the form opens with a
+///   warning.
+pub fn dialogs() -> PathBuf {
+    let body = format!(
+        r#"{}<field name="Out" w="200pt" h="22pt"><ui><textEdit/></ui></field>
+<subform name="Section" layout="tb" w="540pt">
+<field name="Name" w="200pt" h="22pt"><ui><textEdit/></ui><value><text>default</text></value></field>
+</subform>
+<field name="Today" w="200pt" h="22pt"><ui><textEdit/></ui>
+<event activity="initialize" name="eToday"><script contentType="application/x-javascript">this.rawValue = util.printd("dd.mm.yyyy", new Date(2024, 0, 5));</script></event></field>
+<field name="LoadFails" w="200pt" h="22pt"><ui><textEdit/></ui>
+<event activity="initialize" name="eLoad"><script contentType="application/x-javascript">notDefinedAnywhere.go();</script></event></field>
+{}{}{}"#,
+        draw("Title", "Dialogs", 30),
+        button("Warn", "Warn", "app.alert(\"Bitte pruefen\"); Body.Out.rawValue = \"after\";"),
+        button("Broken", "Broken", "missingHelper.run();"),
+        button("Clear", "Clear", "xfa.host.resetData(\"form1.Body.Section\");"),
+    );
+    write("dialogs.xfa.pdf", &template(&body))
+}

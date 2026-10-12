@@ -177,8 +177,18 @@ pub fn wrap_static_text(root: &mut AemNode) {
         }
         let mut out: Vec<AemNode> = Vec::with_capacity(children.len());
         let mut run: Vec<AemNode> = Vec::new();
+        // The header slot draws right after the banking relationship are
+        // written inside its wrapper (`Lower::children`), so they are no run.
+        let mut after_preface = false;
         for node in std::mem::take(children) {
-            if is_run_member(&node) {
+            after_preface = match &node {
+                AemNode::Preface { .. } => true,
+                n => after_preface && n.is_header_slot_draw(),
+            };
+            if after_preface {
+                flush_run(parent, &mut run, &mut out);
+                out.push(node);
+            } else if is_run_member(&node) {
                 run.push(node);
             } else {
                 flush_run(parent, &mut run, &mut out);
@@ -190,7 +200,9 @@ pub fn wrap_static_text(root: &mut AemNode) {
     });
 }
 
-/// A static text that may join a run: body text, not a heading.
+/// A static text that may join a run: body text, not a heading. A DoR header
+/// line away from the banking relationship joins too, as the feedback guard
+/// reads any static text left directly under a step.
 fn is_run_member(node: &AemNode) -> bool {
     match node {
         AemNode::TextDraw { attrs, .. } => !has_class(attrs, SUBTITLE_CSS),
@@ -765,6 +777,46 @@ mod tests {
             serde_json::to_value(&tree).unwrap(),
             "the on-screen infobox must not be excluded without a copy to carry it"
         );
+    }
+
+    /// The DoR header lines right after the banking relationship are written
+    /// inside its wrapper, so they stay; one anywhere else is a static text
+    /// directly under the step like any other, and is wrapped.
+    #[test]
+    fn header_slot_draws_stay_only_beside_the_banking_relationship() {
+        let slot = |name: &str| AemNode::TextDraw {
+            uuid: Uuid::new_v4(),
+            name: name.into(),
+            content: "<p>UBS Europe SE</p>".into(),
+            attrs: AemAttrs {
+                dor_header_slot: Some("slot2".into()),
+                ..AemAttrs::default()
+            },
+            visible: false,
+            colspan: 12,
+            dor_colspan: None,
+        };
+        let preface = AemNode::Preface { uuid: Uuid::new_v4(), name: "PN_BR".into() };
+        let mut tree = root(vec![page(
+            "PN_Page",
+            vec![preface, slot("ST_HeaderSlot2"), slot("ST_HeaderSlot3"), draw("ST_Body")],
+        )]);
+        wrap_static_text(&mut tree);
+        let AemNode::Root { children, .. } = &tree else {
+            unreachable!()
+        };
+        let names = child_names(&children[0]);
+        assert_eq!(names[..3], ["PN_BR", "ST_HeaderSlot2", "ST_HeaderSlot3"], "{names:?}");
+        assert!(names[3].starts_with("PN_StaticText_"), "{names:?}");
+
+        let mut tree = root(vec![page("PN_Page", vec![slot("ST_HeaderSlot2"), draw("ST_Body")])]);
+        wrap_static_text(&mut tree);
+        let AemNode::Root { children, .. } = &tree else {
+            unreachable!()
+        };
+        let names = child_names(&children[0]);
+        assert_eq!(names.len(), 1, "one run of two texts: {names:?}");
+        assert!(names[0].starts_with("PN_StaticText_"), "{names:?}");
     }
 
     #[test]

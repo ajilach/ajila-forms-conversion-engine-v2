@@ -31,14 +31,19 @@ const SUBTITLE_CSS: &str = "subtitle-after-form-title";
 /// Fold the profile's expansions in `root` back into the nodes they came from.
 pub fn unexpand(root: AemNode) -> AemNode {
     match root {
-        AemNode::Root { title, children } => AemNode::Root {
-            title,
-            children: children
+        AemNode::Root { title, children } => {
+            let mut folded = Vec::with_capacity(children.len());
+            for child in children
                 .into_iter()
                 .filter(|c| !matches!(c.name(), Some(FORM_METADATA | SUMMARY_PANEL)))
-                .map(|c| page(fold(c)))
-                .collect(),
-        },
+            {
+                fold_into(child, &mut folded);
+            }
+            AemNode::Root {
+                title,
+                children: folded.into_iter().map(page).collect(),
+            }
+        }
         other => fold(other),
     }
 }
@@ -122,9 +127,12 @@ fn has_class(attrs: &AemAttrs, class: &str) -> bool {
         .is_some_and(|css| css.split_whitespace().any(|c| c == class))
 }
 
-/// Fold one subtree, outermost expansion first: a recognised node is replaced
-/// whole, so nothing inside it is folded twice.
-fn fold(node: AemNode) -> AemNode {
+/// Fold one child into the nodes it came from, appended to `out`.
+///
+/// The preface's wrapper folds into the `Preface` and, after it, the DoR header
+/// slot draws it held: the issued forms keep the legal entity's slot draw
+/// inside `PN_BR`, and a document authors it beside the `Preface`.
+fn fold_into(node: AemNode, out: &mut Vec<AemNode>) {
     match node {
         AemNode::Panel {
             uuid,
@@ -132,8 +140,17 @@ fn fold(node: AemNode) -> AemNode {
             children,
             ..
         } if name == PREFACE_PANEL && children.iter().any(is_banking_relationship) => {
-            AemNode::Preface { uuid, name }
+            out.push(AemNode::Preface { uuid, name });
+            out.extend(children.into_iter().filter(AemNode::is_header_slot_draw).map(fold));
         }
+        other => out.push(fold(other)),
+    }
+}
+
+/// Fold one subtree, outermost expansion first: a recognised node is replaced
+/// whole, so nothing inside it is folded twice.
+fn fold(node: AemNode) -> AemNode {
+    match node {
         // An inlined fragment: the writer references the fragment and never
         // writes its content, so the content goes and the reference stays.
         AemNode::Panel {
@@ -179,7 +196,13 @@ fn is_banking_relationship(node: &AemNode) -> bool {
 }
 
 fn fold_children(node: AemNode) -> AemNode {
-    let fold_all = |children: Vec<AemNode>| children.into_iter().map(fold).collect();
+    let fold_all = |children: Vec<AemNode>| {
+        let mut out = Vec::with_capacity(children.len());
+        for child in children {
+            fold_into(child, &mut out);
+        }
+        out
+    };
     match node {
         AemNode::Panel {
             uuid,

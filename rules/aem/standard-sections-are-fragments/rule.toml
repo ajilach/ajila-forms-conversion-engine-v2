@@ -31,11 +31,13 @@ sections of the source (xfa_render_pages, xfa_controls), and read the fragment d
 person block, IBAN) and each Fragment against the source.
 
 A break is a standard section built from loose fields where a fragment exists, a Fragment (or a
-Fragment's children) for a block the source does not have, a fragment whose path does not exist in
-the library, or a person block that is not a partner generic in a form with a configurator.
+Fragment's children) for a block the source does not have, a `Preface` in a form whose source has
+no banking relationship or none where it has one, a fragment whose path does not exist in the
+library, or a person block that is not a partner generic in a form with a configurator.
 
-Fix: replace the hand-built section with a Fragment of the matching path; delete a Fragment for a
-block the source does not have; delete the children a Fragment was given.
+Fix: replace the hand-built section with a Fragment of the matching path; delete a Fragment (or a
+`Preface`) for a block the source does not have, and add the `Preface` where the source has a
+banking relationship and the document none; delete the children a Fragment was given.
 
 Precedence: ubs-aem-account-holder-cluster wins over this rule. In a form with NO configurator
 there is no partner generic: a person block (a representative, a person being legitimised) is

@@ -182,9 +182,12 @@ const SCOPING: &[(&str, scope::Mask, Access)] = {
         ("aem_verify_run",                    AUTHOR | REVIEWER, Write),
         ("aem_verify_open",                   AUTHOR | REVIEWER, Write),
         ("aem_verify_controls",               AUTHOR | REVIEWER, Write),
+        ("aem_verify_field",                  AUTHOR | REVIEWER, Write),
         ("aem_verify_set",                    AUTHOR | REVIEWER, Write),
+        ("aem_verify_click",                  AUTHOR | REVIEWER, Write),
         ("aem_verify_next",                   AUTHOR | REVIEWER, Write),
         ("aem_verify_prev",                   AUTHOR | REVIEWER, Write),
+        ("aem_verify_goto",                   AUTHOR | REVIEWER, Write),
         ("aem_verify_reset",                  AUTHOR | REVIEWER, Write),
         ("aem_verify_screenshot",             AUTHOR | REVIEWER, Write),
         ("aem_verify_submit",                 AUTHOR | REVIEWER, Write),
@@ -419,7 +422,6 @@ mod catalog_guards {
     const NON_TOOL_VOCABULARY: &[&str] = &[
         // Argument and result names in the u2s document tools' own descriptions.
         "autofix_available",
-        "from_y",
         "rule_ids",
         "rule_conflicts",
         // AEM / XFA / profile vocabulary appearing verbatim in prose.
@@ -477,10 +479,14 @@ mod catalog_guards {
         "artifact_blob",
         "artifact_path",
         "dry_run",
+        "error_message",
         "has_next",
+        "instance_id",
+        "instance_index",
         "is_terminal",
         "package_path",
-        "session_id",
+        // xfa_controls' and xfa_field's reply fields.
+        "max_chars",
         // Tool family prefixes (`xfa_*`), not tools.
         "aem_verify",
         "xfa",

@@ -17,6 +17,7 @@ pub mod container_engine;
 pub mod conversion;
 pub mod coverage;
 pub mod db;
+pub mod image_fit;
 mod mcp_reply;
 pub mod outputs;
 pub mod package_checks;

@@ -663,7 +663,7 @@
     "name": "xfa_open"
   },
   {
-    "description": "Set one control the way a person would: focus into it, change it, focus out. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the new page count, and the fidelity this interaction was reached at. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one, so an agent can never act on a view that has moved. Field paths are indexed inside repeated sections: `Row.Amount` is the first row, `Row[1].Amount` the second, exactly as xfa_controls lists them. A button has no value to set; press it with xfa_click instead. A field whose `access` is not `open` (see xfa_controls) is refused, since a person filling the form cannot change it either. The form's scripts can lock or unlock fields in response to a change, and prefill them: `access_changes` lists every field whose access changed, as `{field, from, to}`, and `side_effects` every value the scripts wrote.",
+    "description": "Set one control the way a person would: focus into it, change it, focus out. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the new page count, and the fidelity this interaction was reached at. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one, so an agent can never act on a view that has moved. Field paths are indexed inside repeated sections: `Row.Amount` is the first row, `Row[1].Amount` the second, exactly as xfa_controls lists them. A button has no value to set; press it with xfa_click instead. A field whose `access` is not `open` (see xfa_controls) is refused, since a person filling the form cannot change it either. The form's scripts can lock or unlock fields in response to a change, and prefill them: `access_changes` lists every field whose access changed, as `{field, from, to}`, and `side_effects` every value the scripts wrote. `messages` lists every dialog the scripts raised (an `app.alert` saying a field is mandatory, say), each as `{source, text, title, answer}`: nobody can press its buttons, so it takes its default, OK (answer 1) or Yes (answer 4). A script that fails is named in `warning`, since whatever the rest of its handler would have done is missing, and so is a value the field's own validation rejects (empty though mandatory, or refused by its validate script); the value is kept, as the form keeps it.",
     "input_schema": {
       "properties": {
         "expected_revision": {
@@ -680,7 +680,7 @@
           "type": "string"
         },
         "value": {
-          "description": "What to set it to — one of the control's options, or its own on-value for a radio button.",
+          "description": "What to set it to — one of the control's options, or its own on-value for a radio button. A field with a `format` takes its canonical form (a date `YYYY-MM-DD`, a number `1234.5`) or the value as typed in that format (`05.01.2024` for `date{DD.MM.YYYY}`); either is stored canonically.",
           "type": "string"
         }
       },
@@ -695,7 +695,7 @@
     "name": "xfa_set"
   },
   {
-    "description": "Press one button the way a person would. The button's own click script runs, so on a form with a repeatable section this is how rows are added or removed: pressing an add button creates the next instance, and every field in it is listed in `appeared` under an indexed path such as `form1.Body.Row[1].Amount` (the first instance has no index) and in the next xfa_controls. Pressing a remove button lists the removed instance's fields in `disappeared`; the instances after it move down one index. A press the form refuses, because the section is already at its minimum or maximum number of instances, leaves `instances_changed` false and says so in `warning`. Returns the same shape as xfa_set. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one. A button whose `access` is not `open` is refused, since a person cannot press it either.",
+    "description": "Press one button, radio button or checkbox the way a person would: the mouse goes down and up on it (its mouseDown and mouseUp scripts run), then its click. Pressing a checkbox toggles it; pressing a radio selects it, and pressing a selected radio again keeps it selected unless the form's own scripts deselect it, as many UBS forms do. Use xfa_set to set a radio or checkbox to a value without pressing it. The button's own click script runs, so on a form with a repeatable section this is how rows are added or removed: pressing an add button creates the next instance, and every field in it is listed in `appeared` under an indexed path such as `form1.Body.Row[1].Amount` (the first instance has no index) and in the next xfa_controls. Pressing a remove button lists the removed instance's fields in `disappeared`; the instances after it move down one index. A press the form refuses, because the section is already at its minimum or maximum number of instances, leaves `instances_changed` false and says so in `warning`. Returns the same shape as xfa_set, `messages` and failing scripts included. Pass the `revision` you last saw as `expected_revision`; a stale or future one is refused and the error names the current one. A button whose `access` is not `open` is refused, since a person cannot press it either.",
     "input_schema": {
       "properties": {
         "expected_revision": {
@@ -704,7 +704,7 @@
           "type": "integer"
         },
         "field": {
-          "description": "A button's field path, from xfa_controls (kind `button`).",
+          "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
           "type": "string"
         },
         "session": {
@@ -760,7 +760,7 @@
     "name": "xfa_close"
   },
   {
-    "description": "Page count, per-page dimensions in points, detected language, and the XFA packets present. Call this FIRST when addressing by doc_path: if it reports kind 'not_xfa' the document is an ordinary PDF and this server cannot render it — use pdf_info and pdf_render_page instead.",
+    "description": "Page count, per-page dimensions in points, detected language, and the XFA packets present. Call this FIRST when addressing by doc_path: if it reports kind 'not_xfa' the document is an ordinary PDF and this server cannot render it — use pdf_info and pdf_render_page instead. `warning` names any of the form's scripts that failed while it loaded. Also serves the normalizer's ingest `info` step, reporting `applicable: true` for every XFA form it can read.",
     "input_schema": {
       "properties": {
         "doc_path": {
@@ -805,7 +805,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -912,7 +912,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -1028,7 +1028,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -1152,7 +1152,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -1255,7 +1255,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -1361,7 +1361,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -1404,7 +1404,7 @@
     "name": "xfa_search_text"
   },
   {
-    "description": "The fields on the form, a window at a time: radio buttons, checkboxes, dropdowns and buttons, and the free-value fields (`text`, `text_area`, `date`, `time`, `date_time`, `numeric`, `password`, `signature`, `barcode`, `image`), each with its options (empty for a free-value field, which takes any text), what it is set to, whether it is currently visible, and whether the form's own scripts react to it (`affects_layout`) — a form with many controls is worth triaging by that flag first.\n\nEach field also reports `access`, the XFA keyword for what a person filling the form may do with it: `open` can be set or pressed; `readOnly`, `protected` and `nonInteractive` cannot, and xfa_set and xfa_click refuse them. A locked field is still listed, because the form's scripts can still write its value and can unlock it in response to another field; watch `access_changes` in the xfa_set result. `access` is effective: a field inside a locked subform or exclusion group is locked too, and `access_from` then names that container.\n\nA large form has hundreds of fields, so the listing is windowed: it returns at most `limit` (default 100, at most 500) from `offset` (default 0), in field path order, with `total` and `next_offset`; walk `next_offset` until it is null. `kinds` narrows the listing to the kinds given, before windowing — `[\"radio\", \"checkbox\", \"dropdown\", \"button\"]` for the choices that shape the form. `space_size` always describes the whole form.\n\nA button carries `click`: `instances` when pressing it adds or removes rows of a repeatable section, `script` when it does something else, absent when pressing it does nothing. Buttons have no options and do not count towards `space_size`; press them with xfa_click in a session, or with a `click` step in `state`. Addressed by `session` and `revision`, this answers for the form AS IT STANDS after those interactions, which is how a control a script only reveals mid-fill is found: it is invisible before the interaction that reveals it and listed after. Cheap: it reads the form, it does not explore it.\n\nEach control also reports `positions`: where it is drawn, as `{page, x, y, width, height}` in points with the origin at the page's top-left — the exact shape xfa_render_region's rect_pt takes, so an entry here can be passed straight to that tool to zoom in on it. An empty list means the form is not currently showing this control. Each instance of a repeated section is its own control with its own indexed path (`Row.Amount`, `Row[1].Amount`, ...) and its own position. Positions come from the laid-out form, which is why this tool — not the raw XFA data server's xfa_node — is where to find them.",
+    "description": "The fields on the form, a window at a time: radio buttons, checkboxes, dropdowns and buttons, and the free-value fields (`text`, `text_area`, `date`, `time`, `date_time`, `numeric`, `password`, `signature`, `barcode`, `image`), each with its options (empty for a free-value field, which takes any text), what it is set to, whether it is currently visible, and whether the form's own scripts react to it (`affects_layout`) — a form with many controls is worth triaging by that flag first.\n\nEach field also reports `access`, the XFA keyword for what a person filling the form may do with it: `open` can be set or pressed; `readOnly`, `protected` and `nonInteractive` cannot, and xfa_set and xfa_click refuse them. A locked field is still listed, because the form's scripts can still write its value and can unlock it in response to another field; watch `access_changes` in the xfa_set result. `access` is effective: a field inside a locked subform or exclusion group is locked too, and `access_from` then names that container.\n\nA large form has hundreds of fields, so the listing is windowed: it returns at most `limit` (default 100, at most 500) from `offset` (default 0), in field path order, with `total` and `next_offset`; walk `next_offset` until it is null. `kinds` narrows the listing to the kinds given, before windowing — `[\"radio\", \"checkbox\", \"dropdown\", \"button\"]` for the choices that shape the form. `space_size` always describes the whole form.\n\nA button carries `click`: `instances` when pressing it adds or removes rows of a repeatable section, `script` when it does something else, absent when pressing it does nothing. Buttons have no options and do not count towards `space_size`; press them with xfa_click in a session, or with a `click` step in `state`. Addressed by `session` and `revision`, this answers for the form AS IT STANDS after those interactions, which is how a control a script only reveals mid-fill is found: it is invisible before the interaction that reveals it and listed after. Cheap: it reads the form, it does not explore it.\n\nEach control also reports `positions`: where it is drawn, as `{page, x, y, width, height}` in points with the origin at the page's top-left — the exact shape xfa_render_region's rect_pt takes, so an entry here can be passed straight to that tool to zoom in on it. An empty list means the form is not currently showing this control. Each instance of a repeated section is its own control with its own indexed path (`Row.Amount`, `Row[1].Amount`, ...) and its own position. Positions come from the laid-out form, which is why this tool — not the raw XFA data server's xfa_node — is where to find them.\n\nWhat the template says about a field's value is reported too, each only when present: `format`, the picture clause the form shows the value through (such as `date{DD.MM.YYYY}`); `shown`, the value as the form shows it when that differs from `value`, which stays canonical (a date `YYYY-MM-DD`, a number `1234.5`); `max_chars`, the most characters it takes; `multiline`; `tooltip`, often the field's only label; and `mandatory`, when the form requires a value.",
     "input_schema": {
       "properties": {
         "doc_path": {
@@ -1483,7 +1483,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -1524,7 +1524,7 @@
     "name": "xfa_controls"
   },
   {
-    "description": "One field's current state, exactly as xfa_controls lists it: its kind, value, options, whether it is visible, its `access` (`open`, `readOnly`, `protected` or `nonInteractive`, and `access_from` when a locked container imposes it) and where it is drawn. The cheap way to check a single field after an interaction, for example whether a script locked or prefilled it, without listing the whole form. Addressed like xfa_controls.",
+    "description": "One field's current state, exactly as xfa_controls lists it: its kind, value, options, whether it is visible, its `access` (`open`, `readOnly`, `protected` or `nonInteractive`, and `access_from` when a locked container imposes it), where it is drawn, and its `format`, `shown` value, `max_chars`, `multiline`, `tooltip` and `mandatory` when the template gives them. The cheap way to check a single field after an interaction, for example whether a script locked or prefilled it, without listing the whole form. Addressed like xfa_controls.",
     "input_schema": {
       "properties": {
         "doc_path": {
@@ -1573,7 +1573,7 @@
                   "click": {
                     "properties": {
                       "field": {
-                        "description": "A button's field path, from xfa_controls (kind `button`).",
+                        "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`.",
                         "type": "string"
                       }
                     },
@@ -1836,7 +1836,7 @@
     "name": "pdf_search_text"
   },
   {
-    "description": "Reports this server's configured profile (the AEM and Chromium images, the submit artefact strategy, the Redacto rendering dependency UBS's own submit path calls out to), whether Docker and Redacto are currently reachable, and whether `session_id`'s own persistent AEM session is up and for how long (plus how many sessions are active across every `session_id`). Touches nothing -- safe to call at any time, including before ever running Docker, and is how a caller distinguishes \"this server is misconfigured\" from \"Docker is not running right now\". In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Reports this server's configured profile (the AEM and Chromium images, the submit artefact strategy, the Redacto rendering dependency UBS's own submit path calls out to), whether Docker and Redacto are currently reachable, and whether `instance_id`'s own persistent AEM instance is up and for how long (plus how many instances are active across every `instance_id`), and which sessions (open forms) it holds. Touches nothing -- safe to call at any time, including before ever running Docker, and is how a caller distinguishes \"this server is misconfigured\" from \"Docker is not running right now\". In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
@@ -1846,7 +1846,7 @@
     "name": "aem_verify_status"
   },
   {
-    "description": "Validates a FileVault package offline: is it a well-formed ZIP, does its META-INF/vault/filter.xml resolve to exactly one form, what JCR path does it render at, and (UBS-specific) what mandator/language entities its own metadata component authors and which one this server would open the form as. Exactly one of `package` (a u2s blob handle) or `package_path` (a filesystem path, for conformance test vectors) must be given. Never touches Docker, AEM or a network -- this is the check `aem_verify_run`'s own `dry_run: true` performs internally before anything with a side effect runs. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Validates a FileVault package offline: is it a well-formed ZIP, does its META-INF/vault/filter.xml resolve to exactly one form, what JCR path does it render at, and (UBS-specific) what mandator/language entities its own metadata component authors and which one this server would open the form as. Exactly one of `package` (a u2s blob handle) or `package_path` (a filesystem path, for conformance test vectors) must be given. Never touches Docker, AEM or a network -- this is the check `aem_verify_run`'s own `dry_run: true` performs internally before anything with a side effect runs. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
@@ -1856,7 +1856,7 @@
     "name": "aem_verify_package_check"
   },
   {
-    "description": "Installs the package on this profile's persistent AEM session (booted from this profile's prebuilt image on first use, then reused across calls), opens the form with the `mandator`/`afAcceptLang` URL parameters this package's own metadata component resolves to (a UBS form otherwise fails server-side with \"No metadata information for mandator\"), walks its wizard panel by panel, and -- unless `submit: false` -- fills the fields named in `fill` and submits via UBS's own `window.forms.ubs.navigation.submit(...)` routine (not a raw `guideBridge.submit()`, which would take AEM's native XDP rendering path -- unavailable on this workspace's own ARM Docker image), capturing the Redacto rendering dependency's PDF as a browser download; the package is uninstalled again afterward so the session stays clean for the next call. Every screenshot and artefact travels as a blob, never inline: a real run's images would not fit a tool result. `dry_run: true` validates the package and reports Docker reachability without starting anything. This tool is side-effecting: it installs software on a session it does not tear down and, unless `dry_run` or `submit: false`, submits the rendered form. It is never offered to the Conversion Agent. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Installs the package on this profile's persistent AEM instance (booted from this profile's prebuilt image on first use, then reused across calls), opens the form with the `mandator`/`afAcceptLang` URL parameters this package's own metadata component resolves to (a UBS form otherwise fails server-side with \"No metadata information for mandator\"), walks its wizard panel by panel, and -- unless `submit: false` -- fills the fields named in `fill` and submits via UBS's own `window.forms.ubs.navigation.submit(...)` routine (not a raw `guideBridge.submit()`, which would take AEM's native XDP rendering path -- unavailable on this workspace's own ARM Docker image), capturing the Redacto rendering dependency's PDF as a browser download; the package is uninstalled again afterward so the instance stays clean for the next call. Every screenshot and artefact travels as a blob, never inline: a real run's images would not fit a tool result. `dry_run: true` validates the package and reports Docker reachability without starting anything. This tool is side-effecting: it installs software on an instance it does not tear down and, unless `dry_run` or `submit: false`, submits the rendered form. It is never offered to the Conversion Agent. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -1879,7 +1879,7 @@
     "name": "aem_verify_run"
   },
   {
-    "description": "Installs a FileVault package on this profile's persistent session and opens its form for interaction, one step at a time -- the alternative to aem_verify_run's own one-shot walk. Returns a `form` handle plus `revision: 0`; every later interactive call names both, and `expected_revision`/`revision` is refused (naming the current one) if it does not match, so a caller can never act on a view of the form that has moved. Call aem_verify_controls next to see what can be set. Refused if a form is already open on this session_id -- call aem_verify_close first. This tool is side-effecting: it installs software on a session it does not tear down. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Opens a FileVault package's form for interaction, one step at a time, in a new session: its own browser tab on this caller's persistent AEM instance -- the alternative to aem_verify_run's one-shot walk. Returns a `session` handle plus `revision: 0`; every later interactive call names both, and `expected_revision`/`revision` is refused (naming the current one) if it does not match, so a caller can never act on a view of the form that has moved. Several sessions can be open at once, including several of the same package (they share its install), up to 8 per instance. Refused when another open session shows a different package for the same form. Call aem_verify_controls next to see what can be set. Side-effecting: it installs the package on the instance. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
@@ -1889,18 +1889,47 @@
     "name": "aem_verify_open"
   },
   {
-    "description": "Every control on the open form: every radio group, checkbox, dropdown and text field, with its options (for a choice control), what it is currently set to, whether it is visible, enabled and required, which panel it lives on, and -- when visible -- where it is drawn (feed straight into aem_verify_screenshot's own `field` argument to zoom in on it). Addressed by `form` and `revision`, answering for the form as it stands after whatever interactions already happened -- this is how a control a script only reveals mid-fill is found: absent before the interaction that reveals it, present after. Also reports the current panel and the driver's own `has_next`/`is_terminal` navigation signals. A read: `revision` must match exactly, but this call never advances it. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Every control on the open form: every radio group, checkbox, dropdown and text field, each identified by `field`, its SOM expression (unique, and the reference every other tool takes; a field inside a repeated panel's second instance reads like `...Row[1].Amount[0]`), plus its `name`, the repeated panel instance it belongs to (`instance_index`), its options (for a choice control), what it is currently set to, whether it is visible, enabled and required, the format it must match (`pattern`, a regular expression or an AEM picture clause such as date{YYYY-MM-DD}, when the form checks one), its validation state (`valid` and `error_message` from the form's last validation, which runs when aem_verify_next is blocked or aem_verify_submit refuses; until then `valid` is true even for an empty required field), which panel it lives on, and -- when visible -- where it is drawn (feed straight into aem_verify_screenshot's own `field` argument to zoom in on it). Addressed by `session` and `revision`, answering for the form as it stands after whatever interactions already happened -- this is how a control a script only reveals mid-fill is found: absent before the interaction that reveals it, present after. Also reports the current panel and the driver's own `has_next`/`is_terminal` navigation signals. Paged like xfa_controls: at most `limit` controls (default 100, at most 500) from `offset`, optionally only the `kinds` asked for; `total` counts every match and `next_offset` is where the next page starts (absent on the last page). A read: `revision` must match exactly, but this call never advances it. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
-        "form": {
-          "description": "The handle verify_open returned.",
-          "type": "string"
+        "kinds": {
+          "description": "Only controls of these kinds; omit for every kind.",
+          "items": {
+            "enum": [
+              "text",
+              "number",
+              "date",
+              "radio",
+              "checkbox",
+              "dropdown",
+              "button",
+              "signature",
+              "other"
+            ],
+            "type": "string"
+          },
+          "type": "array"
         },
-        "revision": {
-          "description": "The form's current revision, from verify_open or the last interactive call.",
+        "limit": {
+          "description": "How many controls at most; default 100.",
+          "maximum": 500,
+          "minimum": 1,
+          "type": "integer"
+        },
+        "offset": {
+          "description": "Where the page starts; default 0.",
           "minimum": 0,
           "type": "integer"
+        },
+        "revision": {
+          "description": "The form's current revision, from aem_verify_open or the last interactive call.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
+          "type": "string"
         }
       },
       "required": null,
@@ -1909,7 +1938,31 @@
     "name": "aem_verify_controls"
   },
   {
-    "description": "Sets one control the way a person would: focus into it, change it, focus out. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. `field` is a control's own name, from aem_verify_controls; an unknown one is refused naming the fields that do exist. `value` is one of the control's own option values for a radio or dropdown, an array of option values for a multi-select checkbox, or free text/a number for anything else -- a value that is not one of a choice control's own options is refused naming the real ones, never silently coerced. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, and the driver's own navigation signals. To fill several controls at once, pass `fields` (up to 25 `{field, value}` pairs) instead of `field`/`value`: they are set in order, each one's scripts running before the next. The batch stops at the first refused set: the first one refused fails the call as a single set would, a later one is reported under `failed` while the sets before it stay applied and `revision` is the revision after the last of them. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "One control by `field` (its SOM expression, or a name only one control carries), in the same shape aem_verify_controls lists it -- the cheap way to re-read a control after an interaction. A read: `revision` must match exactly, but this call never advances it. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "description": "A control's `field` (its SOM expression), from aem_verify_controls.",
+          "type": "string"
+        },
+        "revision": {
+          "description": "The form's current revision.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_field"
+  },
+  {
+    "description": "Sets one control's value on the form's model, the same place the form's own data binding writes it. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. `field` is a control's SOM expression from aem_verify_controls (refused for a readOnly control, which only the form's own scripts may change, and for a signature, which is drawn); a name is accepted only while exactly one control carries it (instances of a repeated panel share names, and an ambiguous name is refused listing their SOM expressions). `value` is one of the control's own option values for a radio or dropdown, an array of option values for a multi-select checkbox, or free text/a number for anything else -- a value that is not one of a choice control's own options is refused naming the real ones, never silently coerced. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the driver's own navigation signals, and any native dialogs (alert, confirm) the form raised, each already accepted as if OK was clicked. To fill several controls at once, pass `fields` (up to 25 `{field, value}` pairs) instead of `field`/`value`: they are set in order, each one's scripts running before the next. The batch stops at the first refused set: the first one refused fails the call as a single set would, a later one is reported under `failed` while the sets before it stay applied and `revision` is the revision after the last of them. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -1919,7 +1972,7 @@
           "type": "integer"
         },
         "field": {
-          "description": "A control's own name, from verify_controls.",
+          "description": "A control's `field` (its SOM expression), from aem_verify_controls.",
           "type": "string"
         },
         "fields": {
@@ -1927,7 +1980,7 @@
           "items": {
             "properties": {
               "field": {
-                "description": "A control's own name, from verify_controls.",
+                "description": "A control's `field` (its SOM expression), from verify_controls.",
                 "type": "string"
               },
               "value": {
@@ -1944,8 +1997,8 @@
           "minItems": 1,
           "type": "array"
         },
-        "form": {
-          "description": "The handle verify_open returned.",
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
           "type": "string"
         },
         "value": {
@@ -1958,7 +2011,7 @@
     "name": "aem_verify_set"
   },
   {
-    "description": "Advances to the next wizard panel, the same click aem_verify_run's own wizard walk performs, confirming the visible panel actually changed. Refused if no \"next\" control could be clicked, or if one was clicked but the panel never changed (a validation script may be blocking navigation). Returns the same shape aem_verify_set does, with `field`/`value` both null. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Presses one button the way a visitor would, running whatever the form's own click script does. This is how a repeated panel gains or loses an instance: press its Add or Remove button; the new instance's controls are listed in `appeared` and in aem_verify_controls under their own SOM expressions (`...Row[1].Amount[0]` for the second instance), and `instances_changed` is true. When a button that changes instances changed nothing, `warning` says why, usually that the group is already at its maxOccur or minOccur. Each button in aem_verify_controls says what it does in `click`: `instances`, `navigation`, `submit` or `script`. Refused for a control that is not a button (set it with aem_verify_set), for a button that is hidden or disabled right now, and for a submit button (use aem_verify_submit). For wizard steps prefer aem_verify_next/aem_verify_prev, which confirm the panel actually moved. Returns the same shape aem_verify_set does. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -1967,8 +2020,32 @@
           "minimum": 0,
           "type": "integer"
         },
-        "form": {
-          "description": "The handle verify_open returned.",
+        "field": {
+          "description": "The button's `field` (its SOM expression), from aem_verify_controls.",
+          "type": "string"
+        },
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_click"
+  },
+  {
+    "description": "Advances to the next wizard panel, the same click aem_verify_run's own wizard walk performs, confirming the visible panel actually changed. Refused if no \"next\" control could be clicked, or if one was clicked but the panel never changed; the refusal then lists the fields the form's validation reports on this panel (usually required fields still empty), so fill those and call aem_verify_next again. Returns the same shape aem_verify_set does, with `field`/`value` both null. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "The revision this call is based on.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
           "type": "string"
         }
       },
@@ -1978,7 +2055,7 @@
     "name": "aem_verify_next"
   },
   {
-    "description": "Goes back to the previous wizard panel -- the same mechanics as aem_verify_next, in reverse. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Goes back to the previous wizard panel, confirming the visible panel actually changed, and reports the same shape aem_verify_next does. Refused on the first panel, where there is nothing to go back to. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -1987,8 +2064,8 @@
           "minimum": 0,
           "type": "integer"
         },
-        "form": {
-          "description": "The handle verify_open returned.",
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
           "type": "string"
         }
       },
@@ -1998,7 +2075,7 @@
     "name": "aem_verify_prev"
   },
   {
-    "description": "Puts the form back the way it opened, keeping the same `form` handle -- cheaper than closing and opening again, since the package stays installed and only the page itself is reloaded. Returns the same shape aem_verify_next does, describing what changed relative to how the form stood just before the reset. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Jumps straight to one panel of a wizard, tab set or accordion, confirming the visible panel actually changed. `panel` is a SOM expression from the `panels` list aem_verify_open and aem_verify_controls return (each entry says which container it belongs to, its layout, whether it is visible and whether it is the one shown now); a name only one panel carries is accepted too. Going to the panel already shown changes nothing. Refused for a panel that is not visible. A jump forward skips the step validation aem_verify_next runs, and skips whatever the form's own next button does on the way (a summary panel reached by a jump may be empty), so use aem_verify_next to walk a wizard as a visitor would and aem_verify_goto to inspect or revisit a panel; aem_verify_submit still validates the whole form. Returns the same shape aem_verify_next does. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -2007,8 +2084,32 @@
           "minimum": 0,
           "type": "integer"
         },
-        "form": {
-          "description": "The handle verify_open returned.",
+        "panel": {
+          "description": "A panel's `som` from `panels`.",
+          "type": "string"
+        },
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
+          "type": "string"
+        }
+      },
+      "required": null,
+      "type": "object"
+    },
+    "name": "aem_verify_goto"
+  },
+  {
+    "description": "Puts the form back the way it opened, keeping the same `session` handle -- cheaper than closing and opening again, since the package stays installed and only the page itself is reloaded. Returns the same shape aem_verify_next does, describing what changed relative to how the form stood just before the reset. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
+    "input_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_revision": {
+          "description": "The revision this call is based on.",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
           "type": "string"
         }
       },
@@ -2018,16 +2119,12 @@
     "name": "aem_verify_reset"
   },
   {
-    "description": "Renders the open form as an image: the whole page, or -- when `field` is given -- just that control's own on-screen rectangle (from aem_verify_controls' own `position`; refused if the control is not currently visible, since there is nothing to crop). The area comes back as tiles of at most 1800 px a side, top to bottom, at most 4 per call; when a long form needs more, the reply says so and gives `from_y` to continue from. Each tile is inline when it is small enough, otherwise a blob handle the caller dereferences out of band. A read: `revision` must match exactly, but this call never advances it. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Renders the open form as an image: the whole page, or -- when `field` is given -- just that control's own on-screen rectangle (from aem_verify_controls' own `position`; refused if the control is not currently visible, since there is nothing to crop). Returns the image inline when it is small enough, otherwise a blob handle the caller dereferences out of band. A read: `revision` must match exactly, but this call never advances it. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
         "field": {
-          "description": "A control's own name, to crop the screenshot to just that control; omit for the whole page.",
-          "type": "string"
-        },
-        "form": {
-          "description": "The handle verify_open returned.",
+          "description": "A control's `field` (its SOM expression), to crop the screenshot to just that control; omit for the whole page.",
           "type": "string"
         },
         "format": {
@@ -2038,15 +2135,14 @@
           ],
           "type": "string"
         },
-        "from_y": {
-          "description": "Document y (CSS px) to start from, as a previous call's `next_from_y` gave it; omit to start at the top.",
-          "minimum": 0,
-          "type": "integer"
-        },
         "revision": {
           "description": "The form's current revision.",
           "minimum": 0,
           "type": "integer"
+        },
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
+          "type": "string"
         }
       },
       "required": null,
@@ -2055,7 +2151,7 @@
     "name": "aem_verify_screenshot"
   },
   {
-    "description": "Submits the form from its current panel -- refused unless the driver's own navigation signals already say this is the wizard's last panel (call aem_verify_next until `has_next` is false and `is_terminal` is true first). Captures whatever this profile's submit artefact strategy produces (a browser download, a Document of Record fetch, or nothing), the same way aem_verify_run's own submit step does. Does not close the form -- call aem_verify_close afterward. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Submits the form from its current panel -- refused unless the driver's own navigation signals already say this is the wizard's last panel (call aem_verify_next until `has_next` is false and `is_terminal` is true first), and refused, listing each failing field with its message, when the form's own validation rejects anything. Captures whatever this profile's submit artefact strategy produces (a browser download, a Document of Record fetch, or nothing), the same way aem_verify_run's own submit step does. Does not close the form -- call aem_verify_close afterward. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -2064,8 +2160,8 @@
           "minimum": 0,
           "type": "integer"
         },
-        "form": {
-          "description": "The handle verify_open returned.",
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
           "type": "string"
         }
       },
@@ -2075,12 +2171,12 @@
     "name": "aem_verify_submit"
   },
   {
-    "description": "Closes the page and browser session, uninstalls the package, and releases the `form` handle. Always worth calling once done with a form, so the session's one installed-package slot is free for the next aem_verify_open or aem_verify_run -- until then, aem_verify_run on the same session_id is refused. Side-effecting. In this run the latest build_aem_package result is checked automatically and the session is managed for you: pass no `package`, `package_path` or `session_id`.",
+    "description": "Closes the session's browser tab and releases the `session` handle; the package is uninstalled once no other open session shows it. Always worth calling once done with a form: an instance holds at most 8 sessions, and aem_verify_run on an instance with any session open is refused. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
-        "form": {
-          "description": "The handle verify_open returned.",
+        "session": {
+          "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
           "type": "string"
         }
       },

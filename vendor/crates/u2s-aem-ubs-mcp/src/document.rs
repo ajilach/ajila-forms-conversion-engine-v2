@@ -3,7 +3,9 @@
 //!
 //! The document is the multilingual form tree ([`AemNodeTranslated`]) plus the
 //! little the UBS profile needs from the source form to place and name it: the
-//! XFA template variables, the master-page header and the form's languages.
+//! XFA template variables and the form's languages. The source's master-page
+//! header is authored like any other text: hidden `TextDraw`s that print in the
+//! DoR's header slots (see [`AemAttrs::dor_header_slot`](crate::aem::AemAttrs)).
 //! Everything else (the chrome, the step titles, the toolbar, the DAM metadata,
 //! the dictionaries, the schema) is the profile's, rendered by the moved writer.
 
@@ -34,10 +36,6 @@ pub struct UbsAemDocument {
     /// its DAM metadata from them (`formrange_code`, `formrange_entity`,
     /// `formrange_version`, ...), so copy them from the source as they are.
     pub variables: BTreeMap<String, String>,
-    /// The plain text of the source's master-page header (for example the legal
-    /// entity's name printed top of page), if it has one.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub header: Option<String>,
     /// Every language the form ships in, as ISO 639-1 codes. Each text in `form`
     /// may carry only these languages.
     pub languages: Vec<String>,
@@ -106,6 +104,152 @@ fn dropped_keys(
     }
 }
 
+/// Bring a document recorded before the header became authored text up to date,
+/// in place. Returns whether anything changed.
+///
+/// Such a document carries the source's master-page header as one plain string
+/// (`header`), from which the writer printed the legal entity in the DoR's
+/// second header slot and dropped the validity line. Now the header is the
+/// document's own text, so `header` becomes the slot draws that text is
+/// authored as: the legal entity in `slot2` (bold, what qualifies it plain, as
+/// the writer printed it) and the validity line in `slot3`, each a hidden
+/// `TextDraw` on the first page, after the banking relationship where the page
+/// has one. The old string was written in the form's master language and
+/// nothing else, so that is the one language the draws carry; the others are
+/// for the author to add. Anything this cannot place is refused rather than
+/// dropped.
+pub fn migrate(value: &mut serde_json::Value) -> Result<bool, Error> {
+    use serde_json::{Value, json};
+    let invalid = |message: String| Error::InvalidDocument(message);
+    let Some(object) = value.as_object_mut() else {
+        return Err(invalid("a document is a JSON object".into()));
+    };
+    let header = match object.remove("header") {
+        None | Some(Value::Null) => return Ok(false),
+        Some(Value::String(header)) => header,
+        Some(other) => return Err(invalid(format!("`header` is not a string: {other}"))),
+    };
+    let lines: Vec<&str> = header
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+        .collect();
+    if lines.is_empty() {
+        return Ok(true);
+    }
+    let variables: BTreeMap<String, String> = serde_json::from_value(
+        object.get("variables").cloned().unwrap_or(Value::Null),
+    )
+    .map_err(|e| invalid(format!("`variables`: {e}")))?;
+    let languages: Vec<String> = serde_json::from_value(
+        object.get("languages").cloned().unwrap_or(Value::Null),
+    )
+    .map_err(|e| invalid(format!("`languages`: {e}")))?;
+    if languages.is_empty() {
+        return Err(invalid("`languages` must name at least one language".into()));
+    }
+    let language = config_for(&variables, &languages)?.base_language();
+
+    // A bare number (AABF_019's `0319 00`, the banking relationship's
+    // default) is neither: the old writer dropped it, and so does this.
+    let (validity, entity): (Vec<&str>, Vec<&str>) = lines
+        .into_iter()
+        .filter(|l| !is_bare_number(l))
+        .partition(|l| is_validity_line(l));
+    let mut draws = Vec::new();
+    if let Some((first, rest)) = entity.split_first() {
+        // `UBS Europe SE (Succursale Italia)`: the entity in bold, what
+        // qualifies it plain.
+        let (name, qualifier) = match first.find(" (") {
+            Some(at) => (&first[..at], first[at..].trim()),
+            None => (*first, ""),
+        };
+        let tail = std::iter::once(qualifier)
+            .chain(rest.iter().copied())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ");
+        let mut html = format!("<b>{}</b>", crate::util::escape_html(name));
+        if !tail.is_empty() {
+            html.push(' ');
+            html.push_str(&crate::util::escape_html(&tail));
+        }
+        draws.push(("ST_HeaderSlot2", "slot2", html));
+    }
+    if !validity.is_empty() {
+        draws.push(("ST_HeaderSlot3", "slot3", crate::util::escape_html(&validity.join(" "))));
+    }
+
+    let page = object
+        .get_mut("form")
+        .and_then(|form| form.get_mut("children"))
+        .and_then(Value::as_array_mut)
+        .and_then(|pages| {
+            pages.iter_mut().find(|p| {
+                p.get("type").and_then(Value::as_str) == Some("Panel")
+                    && p.get("is_page").and_then(Value::as_bool) == Some(true)
+            })
+        })
+        .and_then(|page| page.get_mut("children"))
+        .and_then(Value::as_array_mut)
+        .ok_or_else(|| {
+            invalid("the document has a `header` and no page to author it on".into())
+        })?;
+    for (name, _, _) in &draws {
+        if page.iter().any(|c| c.get("name").and_then(Value::as_str) == Some(name)) {
+            return Err(invalid(format!(
+                "the first page already holds a `{name}`, so the `header` cannot become one"
+            )));
+        }
+    }
+    let at = page
+        .iter()
+        .position(|c| c.get("type").and_then(Value::as_str) == Some("Preface"))
+        .map_or(0, |i| i + 1);
+    for (offset, (name, slot, html)) in draws.into_iter().enumerate() {
+        page.insert(
+            at + offset,
+            json!({
+                "type": "TextDraw",
+                "uuid": uuid::Uuid::new_v4(),
+                "name": name,
+                "content": {language.clone(): format!("<p>{html}</p>\n")},
+                "visible": false,
+                "colspan": 12,
+                "dor_colspan": null,
+                "always_in_pdf": true,
+                "show_if_hidden": true,
+                "summary_exclude": true,
+                "dor_header_slot": slot,
+            }),
+        );
+    }
+    Ok(true)
+}
+
+/// A header line that dates the form rather than naming its issuer.
+fn is_validity_line(line: &str) -> bool {
+    const PREFIXES: &[&str] = &[
+        "gültig", "gueltig", "valid", "valido", "valida", "valable", "edition", "ausgabe",
+        "version", "stand",
+    ];
+    let lower = line.to_lowercase();
+    if PREFIXES.iter().any(|p| lower.starts_with(p)) {
+        return true;
+    }
+    // A bare date (`02.01.2018`, `1/2018`) is the same thing without a word.
+    let digits = line.chars().filter(|c| c.is_ascii_digit()).count();
+    digits >= 4
+        && line.chars().any(|c| "./-".contains(c))
+        && line.chars().all(|c| c.is_ascii_digit() || " ./-".contains(c))
+}
+
+/// A line of digits and spaces alone, which neither dates the form nor names
+/// its issuer.
+fn is_bare_number(line: &str) -> bool {
+    line.chars().any(|c| c.is_ascii_digit()) && line.chars().all(|c| c.is_ascii_digit() || c == ' ')
+}
+
 /// What [`encode`] builds from a document.
 #[derive(Debug, Clone)]
 pub struct UbsAemBuild {
@@ -122,10 +266,11 @@ pub struct UbsAemBuild {
 /// Encode a document into the UBS package, its bound twin and its schema.
 pub fn encode(doc: &UbsAemDocument) -> Result<UbsAemBuild, Error> {
     validate(doc)?;
-    let config = config_for(&doc.variables, doc.header.as_deref(), &doc.languages)?;
+    let config = config_for(&doc.variables, &doc.languages)?;
     check_parties(doc, &config.fragments)?;
 
     let (node, translations, conflicts) = lower(doc, &config);
+    check_header_slots(&node)?;
     // The dictionary is keyed by master text, so a text translated two ways
     // would ship only one of them.
     if !conflicts.is_empty() {
@@ -213,19 +358,17 @@ fn check_package_chars(package: &[u8]) -> Result<(), Error> {
 /// package can be loaded and edited.
 ///
 /// The form's variables and languages come from the metadata the profile writes
-/// into every package (`metadataTextDraw`), and the header from the DoR header
-/// slot the preface writes from it: the issuing entity and what qualifies it.
-/// The header's validity line never reaches the slot, so it does not come back.
+/// into every package (`metadataTextDraw`). The DoR header slots come back as
+/// the `TextDraw`s they are.
 ///
 /// What the writer expands is folded back into the nodes it is written for
 /// (see [`crate::aem::unexpand`]), and what it regenerates is not kept:
 /// a fragment's Initialize script, for one, becomes the profile's again.
 pub fn decode(package: &[u8]) -> Result<UbsAemDocument, Error> {
     let parsed = parse_aem_zip(package).map_err(Error::Package)?;
-    let header = recorded_header(&parsed.root)?;
     let variables = source_variables(&parsed.metadata);
     let languages = form_languages(&parsed.metadata)?;
-    let config = config_for(&variables, None, &languages)?;
+    let config = config_for(&variables, &languages)?;
     // The package's own strings are in the language the profile masters the
     // form in, which is its fixed master only when the form ships that one.
     let root = crate::aem::unexpand(parsed.root);
@@ -253,63 +396,9 @@ pub fn decode(package: &[u8]) -> Result<UbsAemDocument, Error> {
     });
     Ok(UbsAemDocument {
         variables,
-        header,
         languages,
         form,
     })
-}
-
-/// The name the preface lowering gives the DoR header slot it writes.
-const HEADER_SLOT: &str = "ST_HeaderSlot2";
-
-/// The page header as far as the DoR header slot records it, or `None` for a
-/// form without a slot. The slot holds `<b>entity</b> qualifier`, which a header
-/// of the entity on one line and the qualifier on the next writes again; a slot
-/// that does not come back from that is refused rather than approximated.
-fn recorded_header(root: &AemNode) -> Result<Option<String>, Error> {
-    fn find(node: &AemNode) -> Option<&str> {
-        match node {
-            AemNode::TextDraw { name, content, .. } if name == HEADER_SLOT => Some(content),
-            AemNode::Root { children, .. }
-            | AemNode::Panel { children, .. }
-            | AemNode::Repeatable { children, .. } => children.iter().find_map(find),
-            _ => None,
-        }
-    }
-    let Some(content) = find(root) else {
-        return Ok(None);
-    };
-    let unrecognised = || {
-        Error::Package(format!(
-            "the DoR header slot `{content}` is not the preface's"
-        ))
-    };
-    let slot = content
-        .trim_end()
-        .strip_prefix("<p>")
-        .and_then(|c| c.strip_suffix("</p>"))
-        .ok_or_else(unrecognised)?;
-    let (entity, tail) = slot
-        .strip_prefix("<b>")
-        .and_then(|c| c.split_once("</b>"))
-        .ok_or_else(unrecognised)?;
-    let unescape = |s: &str| {
-        quick_xml::escape::unescape(s)
-            .map(|s| s.into_owned())
-            .map_err(|_| unrecognised())
-    };
-    let header = [unescape(entity)?, unescape(tail.trim())?]
-        .into_iter()
-        .filter(|line| !line.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
-    // The slot the header writes, as the parser reads it back.
-    let rewritten = crate::aem::header_slot_text(&header)
-        .map(|value| quick_xml::escape::unescape(&value).map(|v| v.into_owned()));
-    match rewritten {
-        Some(Ok(value)) if value == slot => Ok(Some(header)),
-        _ => Err(unrecognised()),
-    }
 }
 
 /// The metadata attributes the profile writes itself rather than copying a
@@ -433,16 +522,66 @@ fn check_parties(doc: &UbsAemDocument, library: &[ParsedFragment]) -> Result<(),
     }
 }
 
-/// The profile's configuration, resolved against a document's variables,
-/// header and languages.
+/// The DoR header slots a node may print in.
+const HEADER_SLOTS: &[&str] = &["slot1", "slot2", "slot3"];
+
+/// Every `dorHeaderSlot` names one of the DoR's three header slots, and slot 1
+/// is the banking relationship's: no master-page line takes it, and no field
+/// either where the banking relationship fills it.
+///
+/// Two nodes may share a slot: the issued forms print alternative account
+/// numbers in the same one, and only one of them is filled.
+fn check_header_slots(root: &AemNode) -> Result<(), Error> {
+    fn walk<'a>(node: &'a AemNode, slots: &mut Vec<(&'a str, &'a str, bool)>, preface: &mut bool) {
+        if matches!(node, AemNode::Preface { .. }) {
+            *preface = true;
+        }
+        if let (Some(name), Some(slot)) = (
+            node.name(),
+            node.attrs().and_then(|a| a.dor_header_slot.as_deref()),
+        ) {
+            slots.push((name, slot, node.is_header_slot_draw()));
+        }
+        if let AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } = node
+        {
+            for child in children {
+                walk(child, slots, preface);
+            }
+        }
+    }
+    let mut slots = Vec::new();
+    let mut preface = false;
+    walk(root, &mut slots, &mut preface);
+    let mut problems = Vec::new();
+    for (name, slot, line) in slots {
+        if !HEADER_SLOTS.contains(&slot) {
+            problems.push(format!(
+                "`{name}` prints in the DoR header slot `{slot}`, which is none of {HEADER_SLOTS:?}"
+            ));
+        } else if slot == "slot1" && (preface || line) {
+            problems.push(format!(
+                "`{name}` takes the DoR header slot `slot1`, which is the banking relationship's: \
+                 the legal entity is `slot2` and the validity line `slot3`"
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::InvalidDocument(problems.join("; ")))
+    }
+}
+
+/// The profile's configuration, resolved against a document's variables and
+/// languages.
 fn config_for(
     variables: &BTreeMap<String, String>,
-    header: Option<&str>,
     languages: &[String],
 ) -> Result<AemConfig, Error> {
     let variables: HashMap<String, String> = variables.clone().into_iter().collect();
-    let mut ctx = Context::new(languages[0].clone(), variables);
-    ctx.header = header.map(String::from);
+    let ctx = Context::new(languages[0].clone(), variables);
     let mut config = crate::profiles::load_aem_config(PROFILE, &ctx).map_err(Error::AemConfig)?;
     config.languages = languages.to_vec();
     Ok(config)
@@ -455,9 +594,12 @@ fn lower(
     doc: &UbsAemDocument,
     config: &AemConfig,
 ) -> (AemNode, crate::aem::I18nDict, Vec<LowerConflict>) {
-    let (mut node, dict, conflicts) = doc
-        .form
-        .lower_checked(&config.master_language, &config.languages);
+    // The static texts' text is shaped here, on the multilingual tree, so a
+    // rewritten master and its translations stay one dictionary entry.
+    let mut form = doc.form.clone();
+    crate::aem::text_shape::shape_texts(&mut form);
+    let (mut node, dict, conflicts) =
+        form.lower_checked(&config.master_language, &config.languages);
     if let Some(xsd_config) = config.xsd_config.as_ref().filter(|_| config.bind_to_xsd) {
         let result = generate_xsd_from_aem(&node, xsd_config, &config.fragments);
         apply_bind_refs(&mut node, &result.bind_refs);
@@ -619,6 +761,52 @@ mod tests {
             dictionary.contains("sling:message=\"Zeile 1&#xa;Zeile 2 > 1, l'autre\""),
             "{dictionary}"
         );
+    }
+
+    /// A heading authored as bare text reaches the package as a paragraph, in
+    /// the form and in the dictionary alike, so the platform can mark it as a
+    /// heading and its translation stays keyed by it. A bare address in a static
+    /// text is a link in every language.
+    #[test]
+    fn static_texts_are_paragraphs_and_their_addresses_links() {
+        let heading = json!({
+            "type": "TitleDraw", "uuid": "00000000-0000-0000-0000-000000000021",
+            "name": "TTL_Contact", "heading_level": 3,
+            "content": {"en": "Contact", "de": "Kontakt"}, "colspan": 12, "dor_colspan": null
+        });
+        let body = draw(
+            "ST_Contact",
+            json!({"en": "<p>Write to a@ubs.com.</p>", "de": "<p>Schreiben Sie an a@ubs.com.</p>"}),
+        );
+        let doc = UbsAemDocument::from_json(&document(json!([{
+            "type": "Panel", "uuid": "00000000-0000-0000-0000-000000000010", "name": "PN_Info",
+            "title": {"en": "Information", "de": "Information"}, "is_page": true, "visible": true,
+            "is_conditional": false, "dor_num_cols": null, "colspan": 12, "dor_colspan": null,
+            "bind_ref": null, "frag_ref": null, "children": [heading, body]
+        }])))
+        .unwrap();
+        let build = encode(&doc).unwrap();
+
+        let xml = form_xml(&build.package);
+        assert!(xml.contains("_value=\"&lt;p>Contact&lt;/p>\""), "{xml}");
+        let link =
+            "&lt;a href=&quot;mailto:a@ubs.com&quot; target=&quot;_blank&quot;>a@ubs.com&lt;/a>";
+        assert!(xml.contains(&format!("Write to {link}.")), "{xml}");
+
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&build.package)).unwrap();
+        let name = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_owned())
+            .find(|n| n.ends_with("/dictionary/de.xml"))
+            .expect("the package carries the German dictionary");
+        let mut dictionary = String::new();
+        archive.by_name(&name).unwrap().read_to_string(&mut dictionary).unwrap();
+        assert!(
+            dictionary.contains("sling:key=\"fd_&lt;p>Contact&lt;/p>\"")
+                && dictionary.contains("sling:message=\"&lt;p>Kontakt&lt;/p>\""),
+            "the heading's translation stays keyed by its master: {dictionary}"
+        );
+        assert!(dictionary.contains(&format!("Schreiben Sie an {link}.")), "{dictionary}");
     }
 
     /// The value of `name` on the first `tag` element of `xml`.
@@ -861,5 +1049,161 @@ mod tests {
             message.contains("Konto") && message.contains("Depot"),
             "{message}"
         );
+    }
+
+    /// A legacy document with `header`, its first page holding `children`.
+    fn legacy(header: &str, children: serde_json::Value) -> serde_json::Value {
+        let mut value = page_document(children);
+        value["header"] = json!(header);
+        value
+    }
+
+    /// A document whose first page holds `children`.
+    fn page_document(children: serde_json::Value) -> serde_json::Value {
+        json!({
+            "variables": {"formrange_code": "AAEV", "formrange_entity": "019"},
+            "languages": ["en", "de"],
+            "form": {"type": "Root", "title": {"en": "Form"}, "children": [{
+                "type": "Panel", "uuid": "00000000-0000-0000-0000-0000000000a1",
+                "name": "PN_Page", "title": {"en": "Page"}, "children": children,
+                "is_page": true, "visible": true, "is_conditional": false,
+                "dor_num_cols": null, "colspan": 12, "dor_colspan": null, "bind_ref": null
+            }]}
+        })
+    }
+
+    fn preface() -> serde_json::Value {
+        json!({"type": "Preface", "uuid": "00000000-0000-0000-0000-0000000000b1", "name": "PN_BR"})
+    }
+
+    /// The first page's children after migrating `header`, as (name, slot, text).
+    fn migrated(header: &str, children: serde_json::Value) -> Vec<(String, String, String)> {
+        let mut value = legacy(header, children);
+        assert!(migrate(&mut value).unwrap());
+        assert!(value.get("header").is_none());
+        let doc = UbsAemDocument::from_json(&value).expect("the migrated document reads");
+        encode(&doc).expect("the migrated document encodes");
+        value["form"]["children"][0]["children"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| {
+                (
+                    c["name"].as_str().unwrap().to_string(),
+                    c["dor_header_slot"].as_str().unwrap_or("").to_string(),
+                    c["content"]["en"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect()
+    }
+
+    /// The legal entity goes to slot 2 (bold, what qualifies it plain) and the
+    /// validity line to slot 3, right after the banking relationship, in the
+    /// master language.
+    #[test]
+    fn a_legacy_header_becomes_the_slot_draws() {
+        let children = migrated(
+            "Valid from 09.10.2025\nUBS Europe SE (Succursale Italia)",
+            json!([preface()]),
+        );
+        assert_eq!(
+            children,
+            vec![
+                ("PN_BR".into(), "".into(), "".into()),
+                (
+                    "ST_HeaderSlot2".into(),
+                    "slot2".into(),
+                    "<p><b>UBS Europe SE</b> (Succursale Italia)</p>\n".into()
+                ),
+                ("ST_HeaderSlot3".into(), "slot3".into(), "<p>Valid from 09.10.2025</p>\n".into()),
+            ]
+        );
+    }
+
+    /// AABF_019's header opens with the banking relationship's default
+    /// number, which is neither the entity nor a date.
+    #[test]
+    fn a_bare_number_in_a_legacy_header_is_dropped() {
+        let children = migrated("0319 00\nUBS Europe SE", json!([preface()]));
+        assert_eq!(
+            children,
+            vec![
+                ("PN_BR".into(), "".into(), "".into()),
+                ("ST_HeaderSlot2".into(), "slot2".into(), "<p><b>UBS Europe SE</b></p>\n".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_legacy_header_of_one_kind_writes_only_its_slot() {
+        let entity = migrated("UBS Europe SE", json!([preface()]));
+        assert_eq!(entity.len(), 2);
+        assert_eq!(entity[1].1, "slot2");
+        // Without a banking relationship the draws open the page.
+        let validity = migrated("Gültig ab 02.01.2018", json!([]));
+        assert_eq!(
+            validity,
+            vec![("ST_HeaderSlot3".into(), "slot3".into(), "<p>Gültig ab 02.01.2018</p>\n".into())]
+        );
+    }
+
+    #[test]
+    fn a_document_without_a_header_is_left_alone() {
+        let mut value = document(json!([]));
+        let before = value.clone();
+        assert!(!migrate(&mut value).unwrap());
+        assert_eq!(value, before);
+    }
+
+    /// The header cannot be dropped, so a document with nowhere to put it is
+    /// refused.
+    #[test]
+    fn a_legacy_header_with_no_page_is_refused() {
+        let mut value = document(json!([]));
+        value["header"] = json!("UBS Europe SE");
+        let Err(Error::InvalidDocument(message)) = migrate(&mut value) else {
+            panic!("a header with no page must be refused");
+        };
+        assert!(message.contains("no page"), "{message}");
+    }
+
+    fn slot_draw(name: &str, slot: &str) -> serde_json::Value {
+        json!({
+            "type": "TextDraw", "uuid": uuid::Uuid::new_v4(), "name": name,
+            "content": {"en": "<p>UBS Europe SE</p>", "de": "<p>UBS Europe SE</p>"},
+            "visible": false, "colspan": 12, "dor_colspan": null,
+            "always_in_pdf": true, "show_if_hidden": true, "summary_exclude": true,
+            "dor_header_slot": slot
+        })
+    }
+
+    fn encode_refusal(value: serde_json::Value) -> String {
+        let doc = UbsAemDocument::from_json(&value).unwrap();
+        match encode(&doc) {
+            Err(Error::InvalidDocument(message)) => message,
+            Err(other) => panic!("unexpected error: {other}"),
+            Ok(_) => panic!("the document must be refused"),
+        }
+    }
+
+    /// Slot 1 is the banking relationship's, and a slot is one of three.
+    #[test]
+    fn a_header_slot_the_form_cannot_print_in_is_refused() {
+        let taken = encode_refusal(page_document(json!([preface(), slot_draw("ST_Entity", "slot1")])));
+        assert!(taken.contains("banking relationship's"), "{taken}");
+        let line = encode_refusal(page_document(json!([slot_draw("ST_Entity", "slot1")])));
+        assert!(line.contains("banking relationship's"), "{line}");
+        let unknown = encode_refusal(page_document(json!([slot_draw("ST_Entity", "slot4")])));
+        assert!(unknown.contains("`slot4`"), "{unknown}");
+
+        // A field may print its value in slot 1 where no banking relationship fills it.
+        let field = json!({
+            "type": "TextField", "uuid": uuid::Uuid::new_v4(), "name": "TXT_Account",
+            "label": {"en": "Account", "de": "Konto"}, "mandatory": false, "visible": true,
+            "max_chars": null, "colspan": 12, "dor_colspan": null, "bind_ref": null,
+            "dor_header_slot": "slot1"
+        });
+        encode(&UbsAemDocument::from_json(&page_document(json!([field]))).unwrap())
+            .expect("slot 1 is free for a field");
     }
 }

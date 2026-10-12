@@ -13,10 +13,12 @@ For each form, one run of that engine's pipeline wrote all three:
 
 - `package.zip` and `schema.xsd`, exactly as `blueprint <source pdfs> --aem --xsd --profile ubs`
   builds them;
-- `document.json`, the `UbsAemDocument` of the same AEM tree: the form's XFA variables, header
-  and languages, and the tree lifted with its dictionary (without the old engine's `field_id`,
+- `document.json`, the `UbsAemDocument` of the same AEM tree: the form's XFA variables and
+  languages, and the tree lifted with its dictionary (without the old engine's `field_id`,
   which only its own converter read). An Italian-only form's texts are keyed
-  `it`, not under the profile's fixed master `en`.
+  `it`, not under the profile's fixed master `en`. The master-page header the old engine kept
+  beside the tree is authored since format 0.5.0 as the `ST_HeaderSlot2` / `ST_HeaderSlot3`
+  draws after the `Preface`.
 
 Writing them in one run keeps the old converter's random node uuids consistent between the
 document and the package, so `tests/golden_parity.rs` compares them exactly.
@@ -32,6 +34,11 @@ Since then two things in the documents changed, and nothing else:
   comparison on both sides, and compares the schema for the document without them;
 - the `Appendix` nodes are gone: the profile's appendix template was empty.
 
+One thing in the profile changed: its German, Italian and Spanish default messages quote with
+guillemets (`«Vorschau»`, PROBLEM-guillemet-quotes) where the golden dictionaries have straight
+quotes, so `golden_parity.rs` accepts a golden message in those locales with its straight quote
+pairs turned into `«…»`, and nothing else.
+
 The golden packages and schemas are unchanged. The re-authored clusters pass the feedback guard
 except for `PROBLEM-signature-name-fill` (the signer-name fill is left to the AEM author) and, on
 `AAOS_033_IT`, `PROBLEM-repeatable-add-label` (the guard wants the known wording `Cliente` as an
@@ -41,8 +48,7 @@ wrote at the same commit, and `feedback.txt` is the verdict of the
 `ajila-forms-conversion-feedback` CI guard on those: every enrolled rule clean.
 
 `known-dictionary-gaps.txt` lists the golden dictionary entries `encode` does not reproduce, and
-why none of them is read by the form. The Redacto dumps of the same forms are in
-`u2s-redacto-ubs-mcp/tests/fixtures/golden/`.
+why none of them is read by the form.
 
 Never regenerate these from this crate's own output.
 

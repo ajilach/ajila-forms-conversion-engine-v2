@@ -31,12 +31,12 @@ const SOURCE_RENDERS: &[&str] = &["xfa_render_page", "xfa_render_pages", "xfa_re
 
 #[derive(Debug, Default)]
 pub struct StageEvidence {
-    /// Whether this stage opened the current build on the AEM verifier
-    /// (`aem_verify_open`). A form opened before the build changed is the
-    /// old build, so submitting it verifies nothing.
-    opened: bool,
+    /// The verifier sessions this stage opened on the current build
+    /// (`aem_verify_open`) and has not closed. A session opened before the
+    /// build changed shows the old build, so submitting it verifies nothing.
+    opened: BTreeSet<String>,
     /// Whether the verifier ran on the current build in this stage:
-    /// `aem_verify_submit` on a form [`Self::opened`] here.
+    /// `aem_verify_submit` on a session in [`Self::opened`].
     verified: bool,
     /// The PDFs that run returned, by canonical `doc_path`.
     produced: BTreeSet<String>,
@@ -71,7 +71,7 @@ pub struct StageEvidence {
 impl StageEvidence {
     /// The build changed: what its verifier produced no longer describes it.
     pub fn build_changed(&mut self) {
-        self.opened = false;
+        self.opened.clear();
         self.verified = false;
         self.produced.clear();
         self.read.clear();
@@ -102,9 +102,13 @@ impl StageEvidence {
                     self.exercised.insert(unindexed(field));
                 }
             }
-            "aem_verify_open" => self.opened = true,
-            "aem_verify_close" => self.opened = false,
-            "aem_verify_submit" if !self.opened => {}
+            "aem_verify_open" => self.opened.extend(crate::u2s::opened_session(reply)),
+            "aem_verify_close" => {
+                if let Some(session) = input["session"].as_str() {
+                    self.opened.remove(session);
+                }
+            }
+            "aem_verify_submit" if !input["session"].as_str().is_some_and(|s| self.opened.contains(s)) => {}
             "aem_verify_submit" => {
                 let Some(report) = json_of(reply) else { return };
                 self.verified = true;
@@ -191,9 +195,8 @@ impl StageEvidence {
         }
         if !self.verified {
             missing.push(
-                "open the current build on the AEM verifier (aem_verify_close any form opened \
-                 before it, then aem_verify_open), walk it to the last page and submit it \
-                 (aem_verify_submit)"
+                "open the current build on the AEM verifier (aem_verify_open), walk it to the \
+                 last page and submit it (aem_verify_submit)"
                     .to_string(),
             );
         }
@@ -320,6 +323,11 @@ mod tests {
         ToolReply::Text(value.to_string())
     }
 
+    /// `aem_verify_open`'s reply for `session`.
+    fn opened(session: &str) -> ToolReply {
+        text(json!({ "session": session, "revision": 0 }))
+    }
+
     /// A listed control, serialized by upstream's own type so the fixtures
     /// follow the wire format.
     fn control(field: &str, kind: ControlKind, group: Option<&str>, affects_layout: bool, visible: bool) -> Control {
@@ -336,6 +344,12 @@ mod tests {
             access: FieldAccess::Open,
             access_from: None,
             click: None,
+            format: None,
+            shown: None,
+            max_chars: None,
+            multiline: false,
+            tooltip: None,
+            mandatory: false,
         }
     }
 
@@ -386,8 +400,8 @@ mod tests {
             &text(json!({})),
         );
         e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
-        e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
-        e.observe_reply("aem_verify_submit", &json!({}), &submitted(pdf));
+        e.observe_reply("aem_verify_open", &json!({}), &opened("s-1"));
+        e.observe_reply("aem_verify_submit", &json!({ "session": "s-1" }), &submitted(pdf));
         e.observe_call("pdf_render_pages", &json!({ "doc_path": pdf }));
         e
     }
@@ -480,14 +494,31 @@ mod tests {
     fn a_form_opened_before_the_build_changed_verifies_nothing() {
         let mut e = complete_aem("/blobs/a.pdf");
         e.build_changed();
-        e.observe_reply("aem_verify_submit", &json!({}), &submitted("/blobs/b.pdf"));
+        e.observe_reply("aem_verify_submit", &json!({ "session": "s-1" }), &submitted("/blobs/b.pdf"));
         e.observe_call("pdf_render_pages", &json!({ "doc_path": "/blobs/b.pdf" }));
         let missing = e.missing(true);
         assert_eq!(missing.len(), 1, "{missing:?}");
         assert!(missing[0].contains("aem_verify_open"), "{missing:?}");
-        e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
-        e.observe_reply("aem_verify_submit", &json!({}), &submitted("/blobs/b.pdf"));
+        e.observe_reply("aem_verify_open", &json!({}), &opened("s-1"));
+        e.observe_reply("aem_verify_submit", &json!({ "session": "s-1" }), &submitted("/blobs/b.pdf"));
         assert!(e.missing(true).is_empty());
+    }
+
+    /// Several sessions may be open at once: closing one leaves the others,
+    /// and a submit counts only on a session opened on the current build.
+    #[test]
+    fn a_submit_counts_on_any_session_opened_on_the_current_build() {
+        let mut e = complete_aem("/blobs/a.pdf");
+        e.build_changed();
+        e.observe_reply("aem_verify_open", &json!({}), &opened("s-2"));
+        e.observe_reply("aem_verify_open", &json!({}), &opened("s-3"));
+        e.observe_reply("aem_verify_close", &json!({ "session": "s-2" }), &text(json!({ "closed": true })));
+        e.observe_reply("aem_verify_submit", &json!({ "session": "s-1" }), &submitted("/blobs/b.pdf"));
+        assert!(!e.verified, "s-1 shows the old build");
+        e.observe_reply("aem_verify_submit", &json!({ "session": "s-2" }), &submitted("/blobs/b.pdf"));
+        assert!(!e.verified, "s-2 was closed");
+        e.observe_reply("aem_verify_submit", &json!({ "session": "s-3" }), &submitted("/blobs/b.pdf"));
+        assert!(e.verified);
     }
 
     /// A verification that returns no PDF leaves nothing to compare, so it
@@ -496,8 +527,8 @@ mod tests {
     fn a_verification_without_a_pdf_does_not_pass() {
         let mut e = complete_aem("/blobs/a.pdf");
         e.build_changed();
-        e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
-        e.observe_reply("aem_verify_submit", &json!({}), &text(json!({ "artefacts": [] })));
+        e.observe_reply("aem_verify_open", &json!({}), &opened("s-1"));
+        e.observe_reply("aem_verify_submit", &json!({ "session": "s-1" }), &text(json!({ "artefacts": [] })));
         let missing = e.missing(true);
         assert_eq!(missing.len(), 1, "{missing:?}");
         assert!(missing[0].contains("no PDF"), "{missing:?}");

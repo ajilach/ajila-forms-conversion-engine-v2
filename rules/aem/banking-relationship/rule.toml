@@ -13,8 +13,9 @@ class `ubs-margin-20`. Prefer the `Preface` node.
 
 The `Preface` renders the standard `PN_BR` wrapper, which carries both the DoR and the summary
 exclusion; a hand-built wrapper missing either flag is a defect, not a pass. Never use a germany,
-italy or global variant of the fragment or a dam-path reference. (That the form has one `Preface`,
-and no separate "UBS Europe SE" line, is the ubs-aem-banking-relationship-present rule.)
+italy or global variant of the fragment or a dam-path reference. (That the form has at most one
+`Preface`, where its source has a banking relationship, and no separate "UBS Europe SE" line, is
+the ubs-aem-banking-relationship-present rule.)
 
 Two shapes of a hand-authored block are reported:
 

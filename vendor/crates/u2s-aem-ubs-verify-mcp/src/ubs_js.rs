@@ -19,6 +19,19 @@
 //! submission through Redacto instead of AEM's native (and, on this
 //! workspace's ARM Docker image, non-functional) XDP rendering path.
 
+/// A JS statement setting `onLastStep`: whether the root wizard says it is
+/// on its last step (`navigationContext.hasNextItem === false`).
+macro_rules! on_last_step_js {
+    () => {
+        concat!(
+            "var root = ",
+            u2s_aem_verify_core::root_panel!(),
+            "; var context = root && root.navigationContext; ",
+            "var onLastStep = !!context && context.hasNextItem === false;"
+        )
+    };
+}
+
 /// `true` iff there is a next-panel control to click.
 ///
 /// The same `isFWB()`-is-hardcoded-`true` behaviour that hides `submit`
@@ -41,11 +54,23 @@
 /// is still in the DOM there: `u2s_aem_verify_core::flow` only treats a
 /// panel as terminal when there is no next control, so without this the
 /// walk would keep clicking past the end instead of submitting.
-pub const HAS_NEXT: &str = r#"(function() {
+///
+/// Also `false` on the wizard's last step by its own `navigationContext`
+/// (`hasNextItem === false`), which is the only signal on a form that ends
+/// in a `preview` step instead of a summary (confirmed live on `BAPK_033`:
+/// no `.summaryComponent`, a hidden `button.moveNext`, `hasNextItem`
+/// false), where this used to report a next step forever.
+pub const HAS_NEXT: &str = concat!(
+    r#"(function() {
     var summary = document.querySelector('.summaryComponent');
     if (summary && summary.offsetParent !== null) { return false; }
+    "#,
+    on_last_step_js!(),
+    r#"
+    if (onLastStep) { return false; }
     return !!document.querySelector('button.moveNext');
-})()"#;
+})()"#
+);
 
 /// Clicks that control. A plain `.click()` reaches a `display: none`
 /// button's bound handler perfectly well, which is the whole point: the
@@ -68,9 +93,10 @@ pub const HAS_NEXT: &str = r#"(function() {
 /// were needed -- the library *and* this call.
 ///
 /// It returns a promise and nothing awaits it (`navigation.submit` does not
-/// either), which is why [`IS_SUMMARY_PANEL`] waits for the value to show
+/// either), which is why [`IS_TERMINAL_PANEL`] waits for the value to show
 /// up instead of trusting that the panel is visible.
-pub const CLICK_NEXT: &str = r#"(function() {
+pub const CLICK_NEXT: &str = concat!(
+    r#"(function() {
     var next = document.querySelector('button.moveNext');
     if (!next) { return false; }
     next.click();
@@ -79,26 +105,44 @@ pub const CLICK_NEXT: &str = r#"(function() {
             && window.ajila.forms.ubs.control && window.ajila.forms.ubs.control.summary;
         if (summary && typeof summary.setSummaryData === 'function'
                 && typeof guideBridge !== 'undefined') {
-            var root = guideBridge.resolveNode('guide[0].guide1[0].guideRootPanel[0]');
+            var root = "#,
+    u2s_aem_verify_core::root_panel!(),
+    r#";
             if (root) { summary.setSummaryData(root); }
         }
     } catch (e) { /* the click already happened; the poll reports the rest */ }
     return true;
-})()"#;
+})()"#
+);
 
-/// Clicks the toolbar's "previous panel" control -- the same
-/// `isFWB()`-hides-the-toolbar situation [`HAS_NEXT`]'s own doc describes
-/// for "next": `button.movePrevious` renders `display: none` with its
-/// handler still bound, so this does not gate on visibility either. Unlike
-/// [`CLICK_NEXT`], going backward never needs to kick off
-/// `setSummaryData` -- that only matters on the way *into* the summary
-/// panel, never on the way back out of it.
-pub const CLICK_PREV: &str = r#"(function() {
-    var prev = document.querySelector('button.movePrevious');
-    if (!prev) { return false; }
-    prev.click();
+/// Moves to the previous panel the way UBS's own
+/// `window.forms.ubs.navigation.previousStep` does, minus the step that
+/// can never succeed here. The toolbar's previous button runs
+/// `previousStep(this)`, which under FWB first asks the Forms WorkBench
+/// host to save (`fwb.saveFormDataCallback`) and only calls
+/// `guideBridge.setFocus(panel.somExpression, 'prevItem')` in that save's
+/// success callback. The verifier has no WorkBench host, so the save never
+/// reports success and clicking the button navigates nowhere (confirmed
+/// live on `AF_AABF`: the panel stayed put and the only navigation events
+/// were focus moving to the toolbar). `panel` there is the toolbar's own
+/// panel, the root panel, so this makes the same call on it directly.
+/// `nextStep` has no such gate, which is why only "previous" needs this.
+///
+/// Evaluates to `false` on the first panel, where there is nothing to go
+/// back to, so the caller reports "no previous control" rather than a
+/// navigation that silently did not happen.
+pub const CLICK_PREV: &str = concat!(
+    r#"(function() {
+    if (typeof guideBridge === 'undefined') { return false; }
+    var root = "#,
+    u2s_aem_verify_core::root_panel!(),
+    r#";
+    var context = root && root.navigationContext;
+    if (!context || context.isFirstItem) { return false; }
+    guideBridge.setFocus(root.somExpression, 'prevItem');
     return true;
-})()"#;
+})()"#
+);
 
 /// `true` iff UBS's own summary panel is the visible one.
 ///
@@ -112,34 +156,63 @@ pub const CLICK_PREV: &str = r#"(function() {
 /// What the summary actually needs beforehand is `setSummaryData` having
 /// been kicked off (see [`CLICK_NEXT`]) and its prerequisites being present
 /// on the page, which [`last_panel_checks`] verifies and reports instead.
-pub const IS_SUMMARY_PANEL: &str = r#"(function() {
+///
+/// A form that ends in a `preview` step instead of a summary (`BAPK_033`)
+/// has no summary component at all; there the wizard's own last step is
+/// the terminal panel.
+pub const IS_TERMINAL_PANEL: &str = concat!(
+    r#"(function() {
     var summary = document.querySelector('.summaryComponent');
-    return !!summary && summary.offsetParent !== null;
-})()"#;
+    if (summary) { return summary.offsetParent !== null; }
+    "#,
+    on_last_step_js!(),
+    r#"
+    return onLastStep;
+})()"#
+);
 
 /// Calls UBS's own submit routine
 /// (`window.forms.ubs.navigation.submit(submitErrorMessage)`), guarded by
 /// a `typeof` check so a real instance whose clientlib failed to load (or
 /// a future branch that renames the routine) produces a clear
 /// `submit_failed` finding instead of a JS exception this crate cannot
-/// distinguish from any other evaluation failure. `submitErrorMessage` is
-/// the form's own `messagebox_SubmissionError` guide node
-/// (`specs/AEM.md`'s scripting model: a field's own `name` is a global),
-/// resolved via `guideBridge.resolveNode` rather than assumed to exist as
-/// a bare global, since not every UBS form is guaranteed to author one
-/// under that exact name.
-pub const SUBMIT: &str = r#"(function() {
+/// distinguish from any other evaluation failure.
+///
+/// `submitErrorMessage` is the form's own submission error box, which UBS
+/// only ever shows or hides. It is looked up by walking the model for its
+/// authored names, and replaced by a stand-in that accepts the same
+/// `visible` toggles when the form has none. Confirmed live on `AF_AABF`,
+/// which authors no such box: the `null` this used to pass made the ping
+/// callback's `submitErrorMessage.visible = false` throw inside jQuery,
+/// which swallowed it, so `guideBridge.submit` was never called and the
+/// run ended in `no_download` with no error anywhere.
+pub const SUBMIT: &str = concat!(
+    r#"(function() {
     if (typeof window.forms === 'undefined'
         || typeof window.forms.ubs === 'undefined'
         || typeof window.forms.ubs.navigation === 'undefined'
         || typeof window.forms.ubs.navigation.submit !== 'function') {
         return false;
     }
+    var root = "#,
+    u2s_aem_verify_core::root_panel!(),
+    r#";
     var errorBox = null;
-    try { errorBox = guideBridge.resolveNode('submitErrorMessage'); } catch (e) {}
-    window.forms.ubs.navigation.submit(errorBox);
+    (function find(node) {
+        if (errorBox || !node) { return; }
+        if (node.name === 'messagebox_SubmissionError' || node.name === 'submitErrorMessage') {
+            errorBox = node;
+            return;
+        }
+        (node.items || []).forEach(find);
+    })(root);
+    "#,
+    u2s_aem_verify_core::capture_submit_error_js!(),
+    r#"
+    window.forms.ubs.navigation.submit(errorBox || { visible: false });
     return true;
-})()"#;
+})()"#
+);
 
 /// Evaluated once on the summary panel before [`SUBMIT`], returning a JSON
 /// array of `{"kind", "message"}` findings for anything worth flagging
@@ -219,6 +292,10 @@ mod tests {
     #[test]
     fn the_submit_js_names_the_real_ubs_navigation_routine() {
         assert!(SUBMIT.contains("window.forms.ubs.navigation.submit"));
+        assert!(
+            SUBMIT.contains("errorBox || { visible: false }"),
+            "a form without an error box must still submit: {SUBMIT}"
+        );
     }
 
     /// The point of this crate's own next-control handling: UBS renders
@@ -238,10 +315,13 @@ mod tests {
         }
     }
 
+    /// "Previous" must not go through the toolbar button: its
+    /// `previousStep` waits for a WorkBench save that never succeeds here.
     #[test]
-    fn click_prev_does_not_gate_on_visibility_of_the_button_either() {
-        assert!(CLICK_PREV.contains("button.movePrevious"));
-        assert!(!CLICK_PREV.contains("offsetParent"));
+    fn click_prev_navigates_through_guide_bridge_not_the_toolbar_button() {
+        assert!(CLICK_PREV.contains("setFocus(root.somExpression, 'prevItem')"));
+        assert!(CLICK_PREV.contains("isFirstItem"));
+        assert!(!CLICK_PREV.contains(".click()"));
     }
 
     /// `u2s_aem_verify_core::flow` only treats a panel as terminal when
@@ -253,6 +333,16 @@ mod tests {
             HAS_NEXT.contains(".summaryComponent"),
             "has-next must return false once the summary panel shows: {HAS_NEXT}"
         );
+    }
+
+    /// A form ending in a preview step has no summary component; both
+    /// signals then go by the wizard's own last step.
+    #[test]
+    fn a_preview_ending_is_recognised_by_the_wizards_last_step() {
+        for js in [HAS_NEXT, IS_TERMINAL_PANEL] {
+            assert!(js.contains("hasNextItem === false"), "{js}");
+            assert!(js.contains(u2s_aem_verify_core::root_panel!()), "{js}");
+        }
     }
 
     #[test]

@@ -1,0 +1,21 @@
+# Mirrors `find_guillemet_quotes.py` (PROBLEM-guillemet-quotes) of the feedback repo for the texts a
+# document authors. The profile's own default messages are held to it by the UBS layer's tests.
+id = "ubs-aem-guillemet-quotes"
+title = "German, Italian and Spanish texts quote with guillemets"
+output_formats = ["aem-ubs"]
+description = """
+German, Italian and Spanish quote with guillemets: `«Vorschau»`, `«Anteprima»`, `«Vista previa»`,
+never the straight pair `"Vorschau"` or the curly and low quotes `“E-Dokumente”`, `„Vorschau“` the
+source PDF may show. This holds for the German, Italian and Spanish text (`de`, `it`, `es` and
+their regional codes) of every text that reaches the form's dictionaries: the content of a draw
+or message box, a title, a label and an option label. The English text keeps its own quotes, and
+an `HtmlDisplayer`'s markup is not a dictionary text.
+
+A `"` inside a tag delimits an attribute (`<p style="margin:0">`) and is not a quote, so only the
+text between tags counts, with `&quot;` read as `"`.
+
+Reported: such a text with any of `"`, `“`, `”` or `„` in it. An odd number of them cannot be
+paired by position, so look at the sentence before rewriting it.
+
+Rewrite each straight-quoted run as `«…»` in that language's text, and nothing else.
+"""

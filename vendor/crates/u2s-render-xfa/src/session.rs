@@ -25,7 +25,9 @@ use u2s_render_core::RenderError;
 use u2s_xfa::flattened::FieldAccess;
 use u2s_xfa::states::{Control, Controls, access_by_field, controls_of_form, drawn_field_set, field_of_form};
 use u2s_xfa::xfa::script_executor::LayoutScripts;
-use u2s_xfa::xfa::scripting::{EventResult, SomPath, XfaForm};
+use u2s_xfa::xfa::scripting::{
+    EventResult, HostMessage, ScriptReport, SomPath, XfaForm, join_warnings,
+};
 use u2s_xfa::{Fidelity, XfaNode, extract_xfa_packets};
 
 use crate::renderer::Prepared;
@@ -95,9 +97,16 @@ pub struct Interaction {
     pub instances_changed: bool,
     pub page_count: u32,
     pub fidelity: Fidelity,
-    /// Why the render is incomplete, and/or why a press did nothing (a
-    /// repeatable section already at its `<occur>` limit), joined by "; ".
+    /// Why the render is incomplete, why a press did nothing (a repeatable
+    /// section already at its `<occur>` limit), and which of the form's
+    /// scripts failed during this interaction, joined by "; ".
     pub warning: Option<String>,
+    /// The dialogs the form's scripts raised during this interaction
+    /// (`app.alert`, `xfa.host.messageBox`), each with the default button it
+    /// was answered with. What the form would have told the person filling
+    /// it, often why it refused or reverted a value.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<HostMessage>,
 }
 
 /// One live form, mid-interaction.
@@ -116,6 +125,9 @@ struct LiveSession {
     /// The one renderable view, at `revision`. Replaced wholesale by every
     /// interaction: no raster survives the revision it was drawn from.
     view: Arc<Prepared>,
+    /// Which of the form's scripts failed while it loaded, kept on every
+    /// view's warning: the form stays as those failures left it.
+    load_warning: Option<String>,
     last_used: Instant,
 }
 
@@ -202,14 +214,6 @@ fn diff(
     (side_effects, appeared, disappeared)
 }
 
-/// `a` and `b` joined by "; ", whichever are present.
-fn join_warnings(a: Option<String>, b: Option<String>) -> Option<String> {
-    match (a, b) {
-        (Some(a), Some(b)) => Some(format!("{a}; {b}")),
-        (a, b) => a.or(b),
-    }
-}
-
 impl LiveSession {
     fn open(path: &Path) -> Result<Self, RenderError> {
         let (xfa, packet_names) = packets_of(path)?;
@@ -222,7 +226,13 @@ impl LiveSession {
         // paged refresh, so it never disagrees with what an interaction
         // later produces from the same engine.
         let (fidelity, warning) = refresh(&mut form, &mut layout)?;
-        let view = Arc::new(view_of(&form, &fidelity, &warning, &packet_names));
+        let load_warning = form.take_script_report().warning();
+        let view = Arc::new(view_of(
+            &form,
+            &fidelity,
+            &join_warnings(warning, load_warning.clone()),
+            &packet_names,
+        ));
 
         Ok(LiveSession {
             original_nodes,
@@ -230,6 +240,7 @@ impl LiveSession {
             layout,
             revision: 0,
             view,
+            load_warning,
             last_used: Instant::now(),
         })
     }
@@ -244,6 +255,10 @@ impl LiveSession {
             ));
         };
         let is_button = node.is_button();
+        // A radio button or checkbox can be pressed as well as set: a press
+        // runs its mouse events, which a form may use (a second press on a
+        // UBS radio deselects it).
+        let is_pressable = is_button || node.is_radio_button() || node.is_checkbox();
         // Refused before anything runs, as an argument error naming why: the
         // form would refuse the same thing (`XfaForm::interact` and `click`
         // check it too), but a caller addressing a locked field made a
@@ -256,9 +271,12 @@ impl LiveSession {
                 "field",
                 format!("{field} is a button; it has no value to set. Press it with xfa_click"),
             )),
-            (InteractionKind::Click, false) => Err(RenderError::invalid_argument(
+            (InteractionKind::Click, _) if !is_pressable => Err(RenderError::invalid_argument(
                 "field",
-                format!("{field} is not a button; set it to a value with xfa_set"),
+                format!(
+                    "{field} is not a button, radio button or checkbox; set it to a value with \
+                     xfa_set"
+                ),
             )),
             _ => Ok(()),
         }
@@ -288,7 +306,8 @@ impl LiveSession {
         let before = Snapshot::of(&mut self.form);
         let result = op(&mut self.form).map_err(|e| RenderError::backend(ENGINE, e))?;
         let (fidelity, warning) = refresh(&mut self.form, &mut self.layout)?;
-        Ok(self.finish(kind, field, value, before, result, fidelity, warning))
+        let report = self.form.take_script_report();
+        Ok(self.finish(kind, field, value, before, result, report, fidelity, warning))
     }
 
     fn reset(&mut self) -> Result<Interaction, RenderError> {
@@ -297,6 +316,8 @@ impl LiveSession {
         let (mut form, mut layout) = XfaForm::new_with_layout(self.original_nodes.clone())
             .map_err(|e| RenderError::backend(ENGINE, e))?;
         let (fidelity, warning) = refresh(&mut form, &mut layout)?;
+        let report = form.take_script_report();
+        self.load_warning = report.warning();
         self.form = form;
         self.layout = layout;
 
@@ -310,6 +331,7 @@ impl LiveSession {
             "",
             before,
             result,
+            report,
             fidelity,
             warning,
         );
@@ -333,6 +355,7 @@ impl LiveSession {
         value: &str,
         before: Snapshot,
         result: EventResult,
+        report: ScriptReport,
         fidelity: Fidelity,
         warning: Option<String>,
     ) -> Interaction {
@@ -342,7 +365,12 @@ impl LiveSession {
         let access_changes = access_diff(&before, &after);
 
         let packet_names = self.view.packets.clone();
-        let view = view_of(&self.form, &fidelity, &warning, &packet_names);
+        let view = view_of(
+            &self.form,
+            &fidelity,
+            &join_warnings(warning.clone(), self.load_warning.clone()),
+            &packet_names,
+        );
         let page_count = crate::bands::bands(&view.flattened).len() as u32;
 
         self.revision += 1;
@@ -362,7 +390,15 @@ impl LiveSession {
             instances_changed: result.instances_changed,
             page_count,
             fidelity,
-            warning: join_warnings(warning, result.instance_limit_hit),
+            warning: join_warnings(
+                join_warnings(
+                    join_warnings(warning, result.instance_limit_hit),
+                    report.warning(),
+                ),
+                (!result.validation_failures.is_empty())
+                    .then(|| result.validation_failures.join("; ")),
+            ),
+            messages: report.messages,
         }
     }
 

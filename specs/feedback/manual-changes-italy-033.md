@@ -181,8 +181,9 @@ Reference shape, from the owner's hand-built `AAOS_033` and `AAOV_033` packages
     visible="{Boolean}false"/>
 ```
 
-Engine: `preface.xml` emits this draw from the master-page header text the
-analysis recovers into `Context::header`.
+Engine: the document authors this draw itself, a hidden `TextDraw` with
+`dor_header_slot` `slot2` right after the `Preface` (rule `ubs-aem-dor-header-slots`),
+and the writer places it inside `PN_BR`.
 
 ---
 

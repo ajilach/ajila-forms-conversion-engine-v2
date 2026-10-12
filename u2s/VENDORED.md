@@ -3,7 +3,7 @@
 Source: `ajilach/ajila-forms-conversion-engine-v3` (local checkout usually at
 `../unstructured-to-structured`).
 
-Upstream commit: `5827daa51d23dc1becf71c50826fd5870e22b01f`
+Upstream commit: `b152fb834b8caaef537e35b2d4ff0b71be748785`
 
 The u2s crates are git dependencies at that one revision (`[workspace.dependencies]` in the root
 `Cargo.toml`, which `agent` inherits), and their sources are checked in under `vendor/crates/`,
@@ -66,7 +66,7 @@ next sync brings it back. Until then the vendored crate carries it, so:
 
 | Crate | Patch | Upstream |
 |---|---|---|
-| `u2s-aem-verify-core` | `verify_screenshot` in tiles of at most 1800 px (`from_y` to continue); `verify_set` with `fields` (several controls in one call); `AemVerifyServer::warm_up` | proposed on v3 branch `perf/verify-mcp-tiles-batch-warmup` |
+| `u2s-aem-verify-core` | `verify_set` with `fields` (several controls in one call); `AemVerifyServer::warm_up` | proposed on v3 branch `perf/verify-mcp-tiles-batch-warmup` |
 
 ## How the agent offers the vendored tools
 

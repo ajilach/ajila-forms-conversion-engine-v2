@@ -25,7 +25,7 @@ use crate::driver::FormDriver;
 use crate::interactive;
 use crate::package_check;
 use crate::profile::Profile;
-use crate::session::SessionPool;
+use crate::instance::InstancePool;
 
 const MANIFEST_URI: &str = "u2s://manifest";
 
@@ -55,7 +55,7 @@ pub struct ServerConfig {
 pub struct AemVerifyServer {
     profile: Arc<Profile>,
     blobs: Arc<BlobStore>,
-    session: Arc<SessionPool>,
+    instances: Arc<InstancePool>,
     config: Arc<ServerConfig>,
 }
 
@@ -88,7 +88,7 @@ impl AemVerifyServer {
         Ok(Self {
             profile: Arc::new(profile),
             blobs: Arc::new(blobs),
-            session: Arc::new(SessionPool::new()),
+            instances: Arc::new(InstancePool::new()),
             config,
         })
     }
@@ -98,21 +98,21 @@ impl AemVerifyServer {
         let docker = DockerLifecycle::connect()
             .await
             .map_err(|err| format!("could not reach Docker to tear down sessions: {err}"))?;
-        self.session
+        self.instances
             .sweep_idle(&docker, std::time::Duration::ZERO)
             .await;
         Ok(())
     }
 
-    /// Boots the AEM session `session_id` (the default one when `None`) in
-    /// advance -- see [`crate::session::warm_up`]. Not an MCP tool: an
+    /// Boots `instance_id`'s instance (the default one when `None`) in
+    /// advance -- see [`crate::instance::warm_up`]. Not an MCP tool: an
     /// in-process host calls it when it knows a form will be opened soon,
     /// so the boot overlaps work it does anyway.
-    pub async fn warm_up(&self, session_id: Option<&str>) -> Result<(), String> {
-        let key = session_id
+    pub async fn warm_up(&self, instance_id: Option<&str>) -> Result<(), String> {
+        let key = instance_id
             .filter(|id| !id.is_empty())
-            .unwrap_or(crate::session::DEFAULT_SESSION_KEY);
-        crate::session::warm_up(&self.session, key, &self.profile)
+            .unwrap_or(crate::instance::DEFAULT_INSTANCE_KEY);
+        crate::instance::warm_up(&self.instances, key, &self.profile)
             .await
             .map(|_findings| ())
             .map_err(|err| err.to_string())
@@ -125,9 +125,12 @@ impl AemVerifyServer {
             "verify_run" => self.verify_run(args).await,
             "verify_open" => self.verify_open(args).await,
             "verify_controls" => self.verify_controls(args).await,
+            "verify_field" => self.verify_field(args).await,
             "verify_set" => self.verify_set(args).await,
+            "verify_click" => self.verify_click(args).await,
             "verify_next" => self.verify_next(args).await,
             "verify_prev" => self.verify_prev(args).await,
+            "verify_goto" => self.verify_goto(args).await,
             "verify_reset" => self.verify_reset(args).await,
             "verify_screenshot" => self.verify_screenshot(args).await,
             "verify_submit" => self.verify_submit(args).await,
@@ -136,16 +139,16 @@ impl AemVerifyServer {
         }
     }
 
-    /// `session_id` names which caller's session a call belongs to
-    /// (`crate::session`'s module doc explains why this exists at all);
+    /// `instance_id` names which caller's instance a call belongs to
+    /// (`crate::instance`'s module doc explains why this exists at all);
     /// callers that omit it -- a human, a test, anything with no
-    /// `u2s-server` run behind it -- get [`crate::session::DEFAULT_SESSION_KEY`],
-    /// preserving the single-session behaviour this crate had before.
-    fn session_id(args: &Value) -> String {
-        args.get("session_id")
+    /// `u2s-server` run behind it -- get
+    /// [`crate::instance::DEFAULT_INSTANCE_KEY`], one shared instance.
+    fn instance_id(args: &Value) -> String {
+        args.get("instance_id")
             .and_then(Value::as_str)
             .filter(|v| !v.is_empty())
-            .unwrap_or(crate::session::DEFAULT_SESSION_KEY)
+            .unwrap_or(crate::instance::DEFAULT_INSTANCE_KEY)
             .to_owned()
     }
 
@@ -172,9 +175,9 @@ impl AemVerifyServer {
             ),
             None => None,
         };
-        let session_id = Self::session_id(args);
-        let session_status = crate::session::status(&self.session, &session_id).await;
-        let active_session_count = self.session.active_count().await;
+        let instance_id = Self::instance_id(args);
+        let instance_status = crate::instance::status(&self.instances, &instance_id).await;
+        let active_instance_count = self.instances.active_count().await;
 
         Ok(CallToolResult::structured(json!({
             "format": self.profile.format,
@@ -188,15 +191,16 @@ impl AemVerifyServer {
             "aem_data_volume": self.profile.aem_data_volume,
             "redacto_url": self.profile.redacto_url,
             "redacto_reachable": redacto_reachable,
-            "session_id": session_id,
-            "session_active": session_status.active,
-            "session_uptime_secs": session_status.uptime_secs,
-            "session_aem_image": session_status.aem_image,
-            "session_open_form": session_status.open_form.map(|form| json!({
-                "form": form.handle,
-                "revision": form.revision,
-            })),
-            "active_session_count": active_session_count,
+            "instance_id": instance_id,
+            "instance_active": instance_status.active,
+            "instance_uptime_secs": instance_status.uptime_secs,
+            "instance_aem_image": instance_status.aem_image,
+            "sessions": instance_status.sessions.iter().map(|session| json!({
+                "session": session.handle,
+                "form_jcr_path": session.form_jcr_path,
+                "revision": session.revision,
+            })).collect::<Vec<_>>(),
+            "active_instance_count": active_instance_count,
         })))
     }
 
@@ -233,13 +237,13 @@ impl AemVerifyServer {
                 .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                 .unwrap_or_default();
             let submit = args.get("submit").and_then(Value::as_bool).unwrap_or(true);
-            let session_id = Self::session_id(args);
+            let instance_id = Self::instance_id(args);
             crate::flow::run(
                 &self.profile,
                 self.config.driver.as_ref(),
                 &self.blobs,
-                &self.session,
-                &session_id,
+                &self.instances,
+                &instance_id,
                 crate::flow::RunRequest {
                     package_bytes: bytes,
                     fill,
@@ -259,12 +263,12 @@ impl AemVerifyServer {
 
     async fn verify_open(&self, args: &Value) -> Result<CallToolResult, String> {
         let bytes = self.read_package(args)?;
-        let session_id = Self::session_id(args);
+        let instance_id = Self::instance_id(args);
         let result = interactive::open(
             &self.profile,
             self.config.driver.as_ref(),
-            &self.session,
-            &session_id,
+            &self.instances,
+            &instance_id,
             bytes,
         )
         .await
@@ -273,35 +277,52 @@ impl AemVerifyServer {
     }
 
     async fn verify_controls(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
+        let session = require_str(args, "session")?;
         let revision = require_u64(args, "revision")?;
-        let session_id = Self::session_id(args);
+        let query = interactive::ControlsQuery::new(
+            optional_u64(args, "offset")?,
+            optional_u64(args, "limit")?,
+            parse_kinds(args)?,
+        )?;
+        let instance_id = Self::instance_id(args);
         let result = interactive::controls(
-            &self.session,
+            &self.instances,
             self.config.driver.as_ref(),
-            &session_id,
-            form,
+            &instance_id,
+            session,
             revision,
+            &query,
         )
         .await
         .map_err(|err| err.to_string())?;
         Ok(CallToolResult::structured(to_structured(&result)?))
     }
 
+    async fn verify_field(&self, args: &Value) -> Result<CallToolResult, String> {
+        let session = require_str(args, "session")?;
+        let revision = require_u64(args, "revision")?;
+        let field = require_str(args, "field")?;
+        let instance_id = Self::instance_id(args);
+        let result = interactive::field(&self.instances, &instance_id, session, revision, field)
+            .await
+            .map_err(|err| err.to_string())?;
+        Ok(CallToolResult::structured(to_structured(&result)?))
+    }
+
     async fn verify_set(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
+        let session = require_str(args, "session")?;
         let expected_revision = require_u64(args, "expected_revision")?;
         if let Some(fields) = args.get("fields").filter(|v| !v.is_null()) {
             if args.get("field").is_some_and(|v| !v.is_null()) {
                 return Err("pass either `field`/`value` or `fields`, not both".to_owned());
             }
             let requests = parse_set_requests(fields)?;
-            let session_id = Self::session_id(args);
+            let instance_id = Self::instance_id(args);
             let result = interactive::set_many(
-                &self.session,
+                &self.instances,
                 self.config.driver.as_ref(),
-                &session_id,
-                form,
+                &instance_id,
+                session,
                 expected_revision,
                 &requests,
             )
@@ -313,12 +334,12 @@ impl AemVerifyServer {
         let value = args
             .get("value")
             .ok_or_else(|| "missing required argument: value".to_owned())?;
-        let session_id = Self::session_id(args);
+        let instance_id = Self::instance_id(args);
         let result = interactive::set(
-            &self.session,
+            &self.instances,
             self.config.driver.as_ref(),
-            &session_id,
-            form,
+            &instance_id,
+            session,
             expected_revision,
             field,
             value,
@@ -328,15 +349,33 @@ impl AemVerifyServer {
         Ok(CallToolResult::structured(to_structured(&result)?))
     }
 
-    async fn verify_next(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
+    async fn verify_click(&self, args: &Value) -> Result<CallToolResult, String> {
+        let session = require_str(args, "session")?;
         let expected_revision = require_u64(args, "expected_revision")?;
-        let session_id = Self::session_id(args);
-        let result = interactive::next(
-            &self.session,
+        let field = require_str(args, "field")?;
+        let instance_id = Self::instance_id(args);
+        let result = interactive::click(
+            &self.instances,
             self.config.driver.as_ref(),
-            &session_id,
-            form,
+            &instance_id,
+            session,
+            expected_revision,
+            field,
+        )
+        .await
+        .map_err(|err| err.to_string())?;
+        Ok(CallToolResult::structured(to_structured(&result)?))
+    }
+
+    async fn verify_next(&self, args: &Value) -> Result<CallToolResult, String> {
+        let session = require_str(args, "session")?;
+        let expected_revision = require_u64(args, "expected_revision")?;
+        let instance_id = Self::instance_id(args);
+        let result = interactive::next(
+            &self.instances,
+            self.config.driver.as_ref(),
+            &instance_id,
+            session,
             expected_revision,
         )
         .await
@@ -345,14 +384,14 @@ impl AemVerifyServer {
     }
 
     async fn verify_prev(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
+        let session = require_str(args, "session")?;
         let expected_revision = require_u64(args, "expected_revision")?;
-        let session_id = Self::session_id(args);
+        let instance_id = Self::instance_id(args);
         let result = interactive::prev(
-            &self.session,
+            &self.instances,
             self.config.driver.as_ref(),
-            &session_id,
-            form,
+            &instance_id,
+            session,
             expected_revision,
         )
         .await
@@ -360,16 +399,34 @@ impl AemVerifyServer {
         Ok(CallToolResult::structured(to_structured(&result)?))
     }
 
-    async fn verify_reset(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
+    async fn verify_goto(&self, args: &Value) -> Result<CallToolResult, String> {
+        let session = require_str(args, "session")?;
         let expected_revision = require_u64(args, "expected_revision")?;
-        let session_id = Self::session_id(args);
+        let panel = require_str(args, "panel")?;
+        let instance_id = Self::instance_id(args);
+        let result = interactive::goto(
+            &self.instances,
+            self.config.driver.as_ref(),
+            &instance_id,
+            session,
+            expected_revision,
+            panel,
+        )
+        .await
+        .map_err(|err| err.to_string())?;
+        Ok(CallToolResult::structured(to_structured(&result)?))
+    }
+
+    async fn verify_reset(&self, args: &Value) -> Result<CallToolResult, String> {
+        let session = require_str(args, "session")?;
+        let expected_revision = require_u64(args, "expected_revision")?;
+        let instance_id = Self::instance_id(args);
         let result = interactive::reset(
             &self.profile,
             self.config.driver.as_ref(),
-            &self.session,
-            &session_id,
-            form,
+            &self.instances,
+            &instance_id,
+            session,
             expected_revision,
         )
         .await
@@ -378,38 +435,28 @@ impl AemVerifyServer {
     }
 
     async fn verify_screenshot(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
+        let session = require_str(args, "session")?;
         let revision = require_u64(args, "revision")?;
         let format = parse_image_format(args)?;
         let field = args.get("field").and_then(Value::as_str);
-        let from_y = match args.get("from_y") {
-            None | Some(Value::Null) => None,
-            Some(value) => Some(
-                value
-                    .as_u64()
-                    .and_then(|y| u32::try_from(y).ok())
-                    .ok_or_else(|| "from_y must be a non-negative integer".to_owned())?,
-            ),
-        };
-        let session_id = Self::session_id(args);
-        let result =
-            interactive::screenshot(&self.session, &session_id, form, revision, format, field, from_y)
-                .await
+        let instance_id = Self::instance_id(args);
+        let result = interactive::screenshot(&self.instances, &instance_id, session, revision, format, field)
+            .await
             .map_err(|err| err.to_string())?;
         self.screenshot_content(result)
     }
 
     async fn verify_submit(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
+        let session = require_str(args, "session")?;
         let expected_revision = require_u64(args, "expected_revision")?;
-        let session_id = Self::session_id(args);
+        let instance_id = Self::instance_id(args);
         let result = interactive::submit(
-            &self.session,
+            &self.instances,
             self.config.driver.as_ref(),
             &self.profile,
             &self.blobs,
-            &session_id,
-            form,
+            &instance_id,
+            session,
             expected_revision,
         )
         .await
@@ -418,77 +465,65 @@ impl AemVerifyServer {
     }
 
     async fn verify_close(&self, args: &Value) -> Result<CallToolResult, String> {
-        let form = require_str(args, "form")?;
-        let session_id = Self::session_id(args);
-        interactive::close(&self.session, &self.profile, &session_id, form)
+        let session = require_str(args, "session")?;
+        let instance_id = Self::instance_id(args);
+        interactive::close(&self.instances, &self.profile, &instance_id, session)
             .await
             .map_err(|err| err.to_string())?;
         Ok(CallToolResult::structured(json!({ "closed": true })))
     }
 
-    /// Builds `verify_screenshot`'s tool result: one block per tile, each an
-    /// inline image under `profile.max_inline_bytes` or a text block naming
-    /// its blob handle otherwise -- the same `xfa_render_page` convention
+    /// Builds `verify_screenshot`'s tool result: an inline image under
+    /// `profile.max_inline_bytes`, or a blob handle plus a text block
+    /// otherwise -- the same `xfa_render_page` convention
     /// `u2s-render-xfa-mcp` already uses (see that server's own
     /// `page_content`), applied here to a live browser screenshot instead
-    /// of a rendered document page. The structured part lists every tile
-    /// with where it sits, and `next_from_y` when tiles were left out.
+    /// of a rendered document page.
     fn screenshot_content(
         &self,
         result: interactive::ScreenshotResult,
     ) -> Result<CallToolResult, String> {
-        let count = result.tiles.len();
-        let mut blocks = Vec::with_capacity(count);
-        let mut tiles = Vec::with_capacity(count);
-        for (index, tile) in result.tiles.into_iter().enumerate() {
-            let byte_len = tile.bytes.len();
-            let mut meta = json!({
-                "index": index,
-                "x": tile.x,
-                "y": tile.y,
-                "width_px": tile.width_px,
-                "height_px": tile.height_px,
+        let byte_len = result.bytes.len();
+        if byte_len <= self.profile.max_inline_bytes {
+            let data = BASE64.encode(&result.bytes);
+            let meta = json!({
+                "width_px": result.width_px,
+                "height_px": result.height_px,
+                "mime": result.mime,
                 "byte_len": byte_len,
+                "inline": true,
             });
-            if byte_len <= self.profile.max_inline_bytes {
-                blocks.push(ContentBlock::image(BASE64.encode(&tile.bytes), result.mime));
-                meta["inline"] = json!(true);
-            } else {
-                let blob = self
-                    .blobs
-                    .put(&tile.bytes, result.mime, result.ext)
-                    .map_err(|err| format!("storing the screenshot: {err}"))?;
-                blocks.push(ContentBlock::text(format!(
-                    "screenshot tile {} of {count} rendered to blob {} ({byte_len} bytes, {}) -- \
-                     too large to inline",
-                    index + 1,
-                    blob.handle,
-                    result.mime
-                )));
-                meta["inline"] = json!(false);
-                meta["blob"] = json!({
+            Ok(with_structured(
+                CallToolResult::success(vec![ContentBlock::image(data, result.mime)]),
+                meta,
+            ))
+        } else {
+            let blob = self
+                .blobs
+                .put(&result.bytes, result.mime, result.ext)
+                .map_err(|err| format!("storing the screenshot: {err}"))?;
+            let text = format!(
+                "screenshot rendered to blob {} ({byte_len} bytes, {}) -- too large to inline",
+                blob.handle, result.mime
+            );
+            let meta = json!({
+                "width_px": result.width_px,
+                "height_px": result.height_px,
+                "mime": result.mime,
+                "byte_len": byte_len,
+                "inline": false,
+                "blob": {
                     "handle": blob.handle,
                     "media_type": blob.media_type,
                     "byte_len": blob.byte_len,
                     "digest": blob.digest,
-                });
-            }
-            tiles.push(meta);
+                },
+            });
+            Ok(with_structured(
+                CallToolResult::success(vec![ContentBlock::text(text)]),
+                meta,
+            ))
         }
-        if let Some(next) = result.next_from_y {
-            blocks.push(ContentBlock::text(format!(
-                "{count} tile(s) shown; the area continues below -- call verify_screenshot \
-                 again with from_y={next} for the rest"
-            )));
-        }
-        let meta = json!({
-            "width_px": result.width_px,
-            "height_px": result.height_px,
-            "mime": result.mime,
-            "tiles": tiles,
-            "next_from_y": result.next_from_y,
-        });
-        Ok(with_structured(CallToolResult::success(blocks), meta))
     }
 
     fn read_package(&self, args: &Value) -> Result<Vec<u8>, String> {
@@ -570,6 +605,36 @@ fn require_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
         .and_then(Value::as_str)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| format!("missing required argument: {key}"))
+}
+
+/// `key` when present: absent and `null` both mean "not given"; anything
+/// else that is not a non-negative integer is refused.
+fn optional_u64(args: &Value, key: &str) -> Result<Option<u64>, String> {
+    match args.get(key) {
+        None | Some(Value::Null) => Ok(None),
+        Some(value) => value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| format!("{key} must be a non-negative integer, got {value}")),
+    }
+}
+
+/// `verify_controls`' `kinds` filter, refused with the valid kinds when it
+/// names one that does not exist.
+fn parse_kinds(args: &Value) -> Result<Vec<interactive::ControlKind>, String> {
+    match args.get("kinds") {
+        None | Some(Value::Null) => Ok(Vec::new()),
+        Some(kinds) => serde_json::from_value(kinds.clone()).map_err(|_| {
+            format!(
+                "kinds must be an array of {}, got {kinds}",
+                interactive::ControlKind::ALL
+                    .iter()
+                    .map(|kind| serde_json::to_string(kind).expect("a kind serialises"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        }),
+    }
 }
 
 fn require_u64(args: &Value, key: &str) -> Result<u64, String> {
@@ -706,13 +771,13 @@ pub async fn run_main(config: ServerConfig) -> Result<(), Box<dyn std::error::Er
             std::process::exit(2);
         }
     };
-    u2s_verify_core::session::remove_leftovers(
+    u2s_verify_core::instance::remove_leftovers(
         &server.profile.format,
-        &crate::session::reach_of(&server.profile),
+        &crate::instance::reach_of(&server.profile),
     )
     .await;
-    tokio::spawn(u2s_verify_core::session::idle_sweep_loop(
-        Arc::clone(&server.session),
+    tokio::spawn(u2s_verify_core::instance::idle_sweep_loop(
+        Arc::clone(&server.instances),
         server.profile.idle_timeout,
     ));
 

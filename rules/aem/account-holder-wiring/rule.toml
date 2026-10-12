@@ -10,8 +10,10 @@ fragment named by its role: `affrg_ContractualPartnerGeneric1` as `PN_CPGRP`;
 `affrg_BeneficialOwnerGeneric1` as `PN_BOGRP`; `affrg_PowerofAttorneyGeneric1` as `PN_PAGRP`.
 `init_hide` lists the sub-panels the party does not show (a private person:
 `["PN_EntityBasic", "PN_Address"]`) and `init_show` the hidden ones it does (`PN_DOBNationality`
-for a date of birth); together they are the fragment's one Initialize rule, and only a partner
-generic takes them.
+for a date of birth); together they are the fragment's one Initialize rule, which calls
+`window.forms.ubs.hideAFHideDor(this.<sub-panel>)` for each hidden one, removing it from the form
+and the Document of Record, and `showAFShowDor(this.<sub-panel>)` for each shown one, showing it in
+both. Only a partner generic takes them.
 
 A signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, both named after the party:
 `RCP_SGN_CPGRP` wrapping `PN_SGN_CPGRP` for `PN_CPGRP`; `RCP_Sign_AHGRP` wrapping `PN_Sign_AHGRP`
