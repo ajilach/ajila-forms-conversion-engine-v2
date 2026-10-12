@@ -378,9 +378,7 @@ async fn aem_verify_readiness(settings: &AemVerifySettings) -> Result<String, No
 /// calls this before it starts and does not start when it fails. Returns a
 /// short report.
 pub async fn ensure_aem_image(settings: &AemVerifySettings) -> Result<String, String> {
-    let docker = DockerLifecycle::connect()
-        .await
-        .map_err(|e| format!("{}: {e}", crate::container_engine::unreachable_hint()))?;
+    let docker = connect_docker().await?;
     if docker
         .image_id(AEM_IMAGE)
         .await
@@ -495,9 +493,7 @@ pub async fn pull_verifier_images(aem: &AemVerifySettings) -> Result<String, Str
     .map_err(|e| format!("could not read the verifier's defaults: {e}"))?
     .chromium_image;
     let platform = optional(&aem.platform).unwrap_or_else(|| host_platform().into());
-    let docker = DockerLifecycle::connect()
-        .await
-        .map_err(|e| format!("{}: {e}", crate::container_engine::unreachable_hint()))?;
+    let docker = connect_docker().await?;
     docker
         .ensure_image(&chromium, &platform, None)
         .await
@@ -509,20 +505,45 @@ pub async fn pull_verifier_images(aem: &AemVerifySettings) -> Result<String, Str
     }
 }
 
-async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> {
-    match DockerLifecycle::connect().await {
-        Ok(docker) if docker.is_reachable().await => {
-            problems.extend(crate::container_engine::problems());
-            Some(docker)
-        }
-        Ok(_) | Err(_) => {
-            problems.extend(crate::container_engine::problems());
-            if problems.is_empty() {
-                problems.push(crate::container_engine::unreachable_hint());
-            }
-            None
-        }
+/// How long the container engine has to answer a ping. A healthy daemon
+/// answers in milliseconds; a hung Docker Desktop would otherwise hold the
+/// check for bollard's own two-minute timeout.
+pub const DOCKER_PING_DEADLINE: Duration = Duration::from_secs(10);
+
+/// Connects to the container engine and pings it, or says why it cannot.
+async fn connect_docker() -> Result<DockerLifecycle, String> {
+    connect_within(DockerLifecycle::connect(), DOCKER_PING_DEADLINE).await
+}
+
+/// What [`connect_docker`] does with `connect`, the deadline given so a test
+/// can stand in a daemon that never answers.
+async fn connect_within<E: std::fmt::Display>(
+    connect: impl std::future::Future<Output = Result<DockerLifecycle, E>>,
+    deadline: Duration,
+) -> Result<DockerLifecycle, String> {
+    let hint = crate::container_engine::unreachable_hint();
+    match tokio::time::timeout(deadline, connect).await {
+        Ok(Ok(docker)) => Ok(docker),
+        Ok(Err(e)) => Err(format!("{hint} ({e})")),
+        Err(_) => Err(format!(
+            "{hint} (no answer within {}s: if it is running, it looks hung, so quit and restart it)",
+            deadline.as_secs()
+        )),
     }
+}
+
+async fn docker_problems(problems: &mut Vec<String>) -> Option<DockerLifecycle> {
+    let engine = crate::container_engine::problems();
+    let connected = connect_docker().await;
+    // An engine problem (a Podman socket not found, a Podman too old)
+    // already says why nothing answers.
+    let unreachable = match (&connected, engine.is_empty()) {
+        (Err(e), true) => Some(e.clone()),
+        _ => None,
+    };
+    problems.extend(engine);
+    problems.extend(unreachable);
+    connected.ok()
 }
 
 async fn image_problem(docker: &DockerLifecycle, image: &str, problems: &mut Vec<String>) {
@@ -1200,6 +1221,21 @@ fn fallback_font(fonts: &[(String, &'static [u8])]) -> Option<&'static [u8]> {
 mod tests {
     use super::*;
     use crate::conversion::ReplyBlock;
+
+    /// A daemon that never answers is reported within the deadline, as hung,
+    /// and a failed connection carries its own error.
+    #[tokio::test]
+    async fn an_unresponsive_container_engine_is_reported_within_the_deadline() {
+        let started = Instant::now();
+        let hung = std::future::pending::<Result<DockerLifecycle, String>>();
+        let err = connect_within(hung, Duration::from_millis(50)).await.err().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(err.contains("no answer within"), "{err}");
+
+        let refused = async { Err::<DockerLifecycle, _>("connection refused") };
+        let err = connect_within(refused, Duration::from_secs(5)).await.err().unwrap();
+        assert!(err.contains("connection refused"), "{err}");
+    }
 
     fn fixture_pdf() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR"))
