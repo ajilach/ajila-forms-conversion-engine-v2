@@ -92,16 +92,13 @@ fn open_tags(xml: &str) -> Vec<(&str, &str)> {
     out
 }
 
-/// Whether an XML-escaped rich-text value is made of block elements: it opens
-/// with one (`&lt;p>`, `&lt;ul ...>`, ...).
-fn is_block_markup(value: &str) -> bool {
-    let Some(rest) = value.trim_start().strip_prefix("&lt;") else {
-        return false;
-    };
-    let name: String = rest.chars().take_while(|c| c.is_ascii_alphanumeric()).collect();
-    ["p", "ul", "ol", "table", "div", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"]
-        .iter()
-        .any(|b| name.eq_ignore_ascii_case(b))
+/// An attribute value as the markup it escapes.
+fn unescaped(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
 }
 
 /// The visual-editor properties an `fd:rules` node must not carry: a rule lives
@@ -214,7 +211,7 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
         if resource_type.is_some_and(|rt| rt.ends_with("controls/titledraw"))
             && let Some(value) = attr(tag, "_value")
             && !value.trim().is_empty()
-            && !is_block_markup(value)
+            && !u2s_aem_ubs_mcp::aem::text_shape::is_paragraph(&unescaped(value))
         {
             push(
                 "ENGINE-heading-paragraph",

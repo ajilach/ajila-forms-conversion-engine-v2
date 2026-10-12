@@ -16,10 +16,10 @@ TitleDraw, `title` of a page), where a group opens and closes, and where a repea
 Heading levels follow what the page draws. Level 2 (a page's `title`, or a level-2 `TitleDraw`)
 prints in the Document of Record with a rule above it, so it is only for a heading the source draws
 with a rule line above it. A heading without one is level 3 or deeper, by its nesting. Bold text
-that does not open a section is not a heading at all: a line under the form's title, a "Please
-note:" lead-in, a label in front of a value. Write it as `<b>` inside a `TextDraw`'s paragraph.
-The first page's `title` is the exception: it prints as the subtitle under the form title, not as
-a step heading, so it holds that subtitle line. Any other page takes a `title` only for a heading
+that does not open a section is not a heading at all: a "Please note:" lead-in, a label in front
+of a value. Write it as `<b>` inside a `TextDraw`'s paragraph. The line under the form's title is
+the first page's `title`, which the writer prints as the subtitle, not as a step heading; it is
+never also a draw. Any other page takes a `title` only for a heading
 the source rules; a page without one has no `title` (most steps of the reference forms have none),
 and its headings are `TitleDraw`s at level 3 or deeper.
 

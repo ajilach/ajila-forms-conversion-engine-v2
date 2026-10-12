@@ -404,8 +404,8 @@ pub fn parse_translation_toml(
 mod tests {
     use super::*;
 
-    /// German, Italian and Spanish quote with guillemets
-    /// (PROBLEM-guillemet-quotes), and a default message lands in every form
+    /// German, Italian and Spanish quote with guillemets, never with straight,
+    /// curly or low quotes (PROBLEM-guillemet-quotes), and a default message lands in every form
     /// shipping that language, so one straight pair here fails the feedback
     /// guard on every one of them. A `"` inside a tag delimits an attribute and
     /// is not a quote.
@@ -417,7 +417,7 @@ mod tests {
         for (key, messages) in &profile.default_translations {
             for lang in ["de", "it", "sp", "es"] {
                 if let Some(message) = messages.get(lang)
-                    && tag.replace_all(message, "").contains('"')
+                    && tag.replace_all(message, "").contains(['"', '“', '”', '„'])
                 {
                     straight.push(format!("{lang}: {key}"));
                 }

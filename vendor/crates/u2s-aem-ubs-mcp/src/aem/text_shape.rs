@@ -19,23 +19,23 @@
 //!
 //! Both are idempotent.
 
+use std::sync::LazyLock;
+
 use super::AemI18nText;
 use super::translated::AemNodeTranslated;
 
 /// Apply every text correction to the static texts of `form`, in every language.
 pub fn shape_texts(form: &mut AemNodeTranslated) {
-    form.visit_mut(&mut |node| {
-        if let AemNodeTranslated::TextDraw { content, .. }
-        | AemNodeTranslated::TitleDraw { content, .. } = node
-        {
-            reshape(content);
-        }
+    form.visit_mut(&mut |node| match node {
+        AemNodeTranslated::TextDraw { content, .. } => reshape(content, paragraph),
+        AemNodeTranslated::TitleDraw { content, .. } => reshape(content, title_paragraph),
+        _ => {}
     });
 }
 
-fn reshape(text: &mut AemI18nText) {
+fn reshape(text: &mut AemI18nText, shape: fn(&str) -> String) {
     for value in text.0.values_mut() {
-        *value = link_addresses(&paragraph(value));
+        *value = link_addresses(&shape(value));
     }
 }
 
@@ -55,6 +55,45 @@ pub fn paragraph(value: &str) -> String {
         return value.to_string();
     }
     format!("<p>{trimmed}</p>")
+}
+
+/// A heading's value as the paragraph the platform marks as the heading: bare
+/// text is wrapped, a single other block around it (`<h3>`, `<div>`) becomes
+/// the paragraph, and a value that already opens with `<p>` is left alone. A
+/// list or table cannot be a heading and is left for the package check to
+/// report.
+pub fn title_paragraph(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || is_paragraph(trimmed) {
+        return value.to_string();
+    }
+    if let Some(inner) = single_block(trimmed, &["div", "blockquote", "h1", "h2", "h3", "h4", "h5", "h6"]) {
+        return format!("<p>{}</p>", inner.trim());
+    }
+    paragraph(value)
+}
+
+/// Whether `html` opens with a `<p>`, which is what the platform marks as a
+/// heading (`role="heading"` on a title draw's first paragraph).
+pub fn is_paragraph(html: &str) -> bool {
+    html.trim_start()
+        .strip_prefix('<')
+        .and_then(|rest| rest.split_once('>'))
+        .is_some_and(|(tag, _)| tag_name(tag).eq_ignore_ascii_case("p") && !tag.starts_with('/'))
+}
+
+/// The inside of `html` when it is exactly one element named in `names`:
+/// `Key features` for `<h3>Key features</h3>`.
+fn single_block<'a>(html: &'a str, names: &[&str]) -> Option<&'a str> {
+    let (open, rest) = html.strip_prefix('<')?.split_once('>')?;
+    let name = tag_name(open);
+    if !names.iter().any(|n| name.eq_ignore_ascii_case(n)) {
+        return None;
+    }
+    let close = format!("</{name}>");
+    let inner = rest.strip_suffix(close.as_str())?;
+    // Another element of the same name inside would make the outer one not the only block.
+    (!inner.to_ascii_lowercase().contains(&format!("<{}", name.to_ascii_lowercase()))).then_some(inner)
 }
 
 fn has_block(html: &str) -> bool {
@@ -101,27 +140,31 @@ pub fn link_addresses(html: &str) -> String {
     while !rest.is_empty() {
         match rest.find('<') {
             Some(0) => {
-                let end = rest.find('>').map_or(rest.len(), |i| i + 1);
-                let tag = &rest[1..end.saturating_sub(1).max(1)];
+                let Some(close) = rest.find('>') else {
+                    // A `<` that opens no tag is text.
+                    out.push_str(&text_run(rest, in_anchor));
+                    break;
+                };
+                let tag = &rest[1..close];
                 if tag_name(tag).eq_ignore_ascii_case("a") {
                     in_anchor = !tag.starts_with('/');
                 }
-                out.push_str(&rest[..end]);
-                rest = &rest[end..];
+                out.push_str(&rest[..=close]);
+                rest = &rest[close + 1..];
             }
             found => {
                 let end = found.unwrap_or(rest.len());
-                let text = &rest[..end];
-                if in_anchor {
-                    out.push_str(text);
-                } else {
-                    out.push_str(&link_text(text));
-                }
+                out.push_str(&text_run(&rest[..end], in_anchor));
                 rest = &rest[end..];
             }
         }
     }
     out
+}
+
+/// A run of text, linked unless it is already a link's text.
+fn text_run(text: &str, in_anchor: bool) -> String {
+    if in_anchor { text.to_string() } else { link_text(text) }
 }
 
 /// The kind of address a match is, which decides its href.
@@ -134,9 +177,14 @@ enum Kind {
 /// One text run (no markup) with its addresses linked.
 fn link_text(text: &str) -> String {
     let mut found: Vec<(usize, usize, Kind)> = Vec::new();
+    // Every URL's span, linked or not: an e-mail inside a URL is part of it.
+    let mut claimed: Vec<(usize, usize)> = Vec::new();
     for (kind, start, end) in candidates(text) {
-        if found.iter().any(|&(a, b, _)| start < b && a < end) {
-            continue; // an e-mail inside a URL already taken
+        if claimed.iter().any(|&(a, b)| start < b && a < end) {
+            continue;
+        }
+        if kind == Kind::Url {
+            claimed.push((start, end));
         }
         let address = trim(&text[start..end]);
         if address.is_empty() || suspect(address, &text[start + address.len()..]) {
@@ -156,10 +204,26 @@ fn link_text(text: &str) -> String {
     out
 }
 
+/// A web address: it ends at markup, a quote, an entity or query `&`, and at any
+/// space, the Unicode ones included (regex-lite's `\s` is ASCII only).
+static URL: LazyLock<regex_lite::Regex> = LazyLock::new(|| {
+    regex_lite::Regex::new(
+        r#"(?i)(?:https?://|www\.)[^\s\x{a0}\x{2000}-\x{200b}\x{202f}\x{205f}\x{3000}<>"'&;]+"#,
+    )
+    .expect("a valid pattern")
+});
+
+static MAIL: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"[\w.%+-]+@[\w-]+(?:\.[\w-]+)+").expect("a valid pattern"));
+
+/// An entity that stands for text (`&nbsp;`, `&#160;`), which ends an address
+/// like a space does. Any other `&` after an address starts a query string.
+static TEXT_ENTITY: LazyLock<regex_lite::Regex> =
+    LazyLock::new(|| regex_lite::Regex::new(r"^&(?:[a-zA-Z][a-zA-Z0-9]*|#[0-9]+|#x[0-9a-fA-F]+);").expect("a valid pattern"));
+
 /// Every URL, then every e-mail address, in `text`, as (kind, start, end).
 fn candidates(text: &str) -> Vec<(Kind, usize, usize)> {
-    let url = regex_lite::Regex::new(r#"(?i)(?:https?://|www\.)[^\s<>"'&;]+"#).expect("valid");
-    let mail = regex_lite::Regex::new(r"[\w.%+-]+@[\w-]+(?:\.[\w-]+)+").expect("valid");
+    let (url, mail) = (&*URL, &*MAIL);
     let preceded_by = |at: usize, set: &dyn Fn(char) -> bool| {
         text[..at].chars().next_back().is_some_and(set)
     };
@@ -192,7 +256,7 @@ fn trim(mut address: &str) -> &str {
 }
 
 /// Whether `address` must not be linked: it is written twice over, or a query
-/// string (`&amp;` right after it) cut it short.
+/// string (an `&` right after it that is not a text entity) cut it short.
 fn suspect(address: &str, after: &str) -> bool {
     let low = address.to_lowercase();
     low.matches("www.").count() > 1
@@ -201,7 +265,7 @@ fn suspect(address: &str, after: &str) -> bool {
         || (address.len() > 2 * HEAD
             && address.is_char_boundary(HEAD)
             && address[1..].contains(&address[..HEAD]))
-        || after.starts_with("&amp;")
+        || (after.starts_with('&') && (after.starts_with("&amp;") || !TEXT_ENTITY.is_match(after)))
 }
 
 fn anchor(address: &str, kind: Kind) -> String {
@@ -291,6 +355,49 @@ mod tests {
         ] {
             assert!(!link_addresses(value).contains("<a "), "{value:?}");
         }
+    }
+
+    /// A `<` that opens no tag is text, even before a character of several bytes.
+    #[test]
+    fn a_stray_angle_bracket_is_text() {
+        for value in ["<p>Hinweis</p>Betrag < 5 €", "<ä", "a <"] {
+            assert_eq!(link_addresses(value), value, "{value:?}");
+        }
+    }
+
+    /// An address ends at any space, a non-breaking one included: XFA texts
+    /// carry U+00A0 as a character.
+    #[test]
+    fn an_address_ends_at_a_non_breaking_space() {
+        assert_eq!(
+            link_addresses("<p>See www.ubs.com\u{a0}oder mehr</p>"),
+            "<p>See <a href=\"https://www.ubs.com\" target=\"_blank\">www.ubs.com</a>\u{a0}oder mehr</p>"
+        );
+    }
+
+    /// A query string cuts the match short whether its `&` is escaped or not,
+    /// and an e-mail inside such a URL is not linked on its own.
+    #[test]
+    fn a_url_with_a_query_string_is_left_whole() {
+        for value in [
+            "<p>see www.x.com/?a=1&b=2</p>",
+            "<p>https://x.example/?to=a@b.com&amp;x=1</p>",
+        ] {
+            assert!(!link_addresses(value).contains("<a "), "{value:?}");
+        }
+        // An entity that is text, not a query, still ends the address as a space does.
+        assert!(link_addresses("<p>www.ubs.com&nbsp;mehr</p>").contains("href=\"https://www.ubs.com\""));
+    }
+
+    /// A heading is marked by its `<p>`, so a title draw written as another
+    /// single block becomes that paragraph.
+    #[test]
+    fn a_title_written_as_another_block_becomes_a_paragraph() {
+        assert_eq!(title_paragraph("<h3>Key features</h3>"), "<p>Key features</p>");
+        assert_eq!(title_paragraph("<div class=\"x\"><b>A</b></div>"), "<p><b>A</b></p>");
+        assert_eq!(title_paragraph("Key features"), "<p>Key features</p>");
+        assert_eq!(title_paragraph("<p>Key features</p>"), "<p>Key features</p>");
+        assert!(is_paragraph(&title_paragraph("<h3>A</h3>")));
     }
 
     #[test]

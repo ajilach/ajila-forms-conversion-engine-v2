@@ -18,10 +18,12 @@ page is an explicit TitleDraw. On the first page the heading renders as a
   `is_page: true`. (The special panels, such as `PN_Preview` and the form metadata, are not
   steps.)
 - A page whose `title` is empty in the master language and which holds a level-2 `TitleDraw`
-  that is not alone in its own panel. The heading is the step title written at the wrong place.
-  Move its text into the page's `title` and delete the draw. A page without a `title` is fine and
-  common: a step title prints as a ruled level-2 heading, which is only for a heading the source
-  rules (ubs-aem-structure-matches-source), so an untitled page may open with a level-3 heading.
+  that is not alone in its own panel. Where the heading opens the page it is the step title
+  written at the wrong place: move its text into the page's `title` and delete the draw. Where the
+  source rules it further down the page, it is a section heading: give it a panel of its own,
+  holding only the draw. A page without a `title` is fine and common: level 2 prints as a ruled
+  heading, which is only for a heading the source rules (ubs-aem-structure-matches-source), so an
+  untitled page may open with a level-3 heading.
 - A `Panel` below the first level with `is_page: true`. Only the panels directly under `form`
   are wizard steps; a nested one builds a step-title panel in the middle of the step above it. Set
   `is_page` to false (an inner grouping, column wrapper or conditional panel), or move the panel up

@@ -999,6 +999,23 @@ fn german_italian_and_spanish_texts_quote_with_guillemets() {
         ]
     );
 
+    // A label, an option label and a page title reach the dictionaries too.
+    let mut field = text_field("TXT_Ref", "Reference", None);
+    field["label"]["de"] = json!("Referenz \"Kunde\"");
+    let mut choice = radio("RB_Kind", &["Buy", "Sell"], &[]);
+    choice["options"][1]["label"]["it"] = json!("\"Vendere\"");
+    let mut titled = page("PN_A", "A", vec![field, choice]);
+    titled["title"]["es"] = json!("“Datos”");
+    let doc = with_languages(doc_with(vec![titled]));
+    assert_eq!(
+        violations("guillemet-quotes", &doc),
+        vec![
+            "/form/children/0/title/es".to_string(),
+            format!("{p}/0/label/de"),
+            format!("{p}/1/options/1/label/it"),
+        ]
+    );
+
     // Guillemets, and a `"` that only delimits an attribute, are fine.
     let doc = with_languages(doc_with(vec![page(
         "PN_A",

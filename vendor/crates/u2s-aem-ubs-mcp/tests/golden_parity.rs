@@ -70,7 +70,8 @@ fn is_identity(key: &str, message: &str) -> bool {
 
 /// The locales that quote with guillemets since the golden run
 /// (PROBLEM-guillemet-quotes): the profile's default messages were reworded
-/// from `"…"` to `«…»` there, and nothing else about them changed.
+/// from `"…"` to `«…»` there, and nothing else about them changed. Only a
+/// default message's key is held to the rewording.
 const GUILLEMET_LOCALES: &[&str] = &["de", "de-ch", "it", "es", "sp"];
 
 /// `golden` as the profile words it since the guillemet rewording: each
@@ -141,6 +142,10 @@ fn without_reauthored(mut node: serde_json::Value) -> serde_json::Value {
 #[test]
 fn encoded_packages_match_the_golden_packages() {
     let mut failures = Vec::new();
+    // Only the profile's own default messages were reworded.
+    let defaults = u2s_aem_ubs_mcp::profiles::load_aem_profile("ubs")
+        .expect("the UBS profile loads")
+        .default_translations;
     for form in FORMS {
         let build = encode_golden(form);
         let golden = unzip(&std::fs::read(golden_dir(form).join("package.zip")).unwrap());
@@ -186,6 +191,7 @@ fn encoded_packages_match_the_golden_packages() {
                         Some(m) if m == message => {}
                         Some(m)
                             if GUILLEMET_LOCALES.contains(&locale)
+                                && key.strip_prefix("fd_").is_some_and(|k| defaults.contains_key(k))
                                 && *m == with_guillemets(message) => {}
                         Some(m) => failures.push(format!(
                             "{form}: {locale} translates {key:?} as {m:?}, golden {message:?}"
