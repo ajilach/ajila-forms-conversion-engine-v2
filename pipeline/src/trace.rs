@@ -126,6 +126,12 @@ pub enum ControlKind {
     Aborted,
     /// The stage ended on an error that is neither of the above.
     StageError,
+    /// The provider refused a request over something the context budget can
+    /// change (an image too large); it changed it and the turn was sent again.
+    RequestRepaired,
+    /// A tool call ran long enough for the prompt cache to expire, and the
+    /// stage's last request was re-sent with a one-token output to keep it.
+    CacheRefreshed,
 }
 
 impl ControlKind {
@@ -144,6 +150,8 @@ impl ControlKind {
             Self::ContextBudgetFailed => "context budget failed",
             Self::Aborted => "aborted",
             Self::StageError => "stage error",
+            Self::RequestRepaired => "request repaired",
+            Self::CacheRefreshed => "cache refreshed",
         }
     }
 }

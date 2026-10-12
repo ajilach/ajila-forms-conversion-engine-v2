@@ -60,7 +60,8 @@ pub(crate) struct StageHook {
     obs: SharedObserver,
     price: PriceFn,
     stuck: Mutex<StuckWatch>,
-    spend: Mutex<Spend>,
+    /// Shared with the cache-refresh task, whose requests are spend too.
+    spend: Arc<Mutex<Spend>>,
     consecutive_max_tokens: AtomicUsize,
     /// The full outgoing request — history plus the prompt about to be sent —
     /// captured on every attempted turn, successful or not.
@@ -116,6 +117,27 @@ pub(crate) struct StageHook {
     /// Set once that nudge has been given: a second unfinished end is
     /// accepted, and the controller warns about it.
     finish_nudged: std::sync::atomic::AtomicBool,
+    /// The stage's system prompt: what names its requests for
+    /// [`ContextBudget::refresh_cache`]. `None` turns the refresh off.
+    system: Option<Arc<str>>,
+    /// The task keeping the prompt cache warm while tool calls run (see
+    /// [`CACHE_REFRESH_EVERY`]); aborted when the last one ends, or with the
+    /// hook.
+    cache_refresh: Mutex<Option<AbortOnDrop>>,
+}
+
+/// How long a tool call may run before the stage's prompt cache is
+/// refreshed, and how often after that: inside the provider's five-minute
+/// cache lifetime, with a minute to spare.
+pub(crate) const CACHE_REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(4 * 60);
+
+/// A spawned task that is aborted when this is dropped.
+struct AbortOnDrop(tokio::task::JoinHandle<()>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
 }
 
 impl StageHook {
@@ -137,7 +159,7 @@ impl StageHook {
             abort,
             obs,
             price,
-            spend: Mutex::new(starting_spend),
+            spend: Arc::new(Mutex::new(starting_spend)),
             consecutive_max_tokens: AtomicUsize::new(0),
             last_attempt: Mutex::new(Vec::new()),
             completed_turns: AtomicUsize::new(0),
@@ -151,7 +173,69 @@ impl StageHook {
             tool_started: Mutex::new(HashMap::new()),
             finish_nudge: role.name == AUTHOR && finish_nudge_on(),
             finish_nudged: std::sync::atomic::AtomicBool::new(false),
+            system: None,
+            cache_refresh: Mutex::new(None),
         }
+    }
+
+    /// The stage's system prompt, which turns on the cache refresh while a
+    /// tool call runs long (see [`Self::start_cache_refresh`]).
+    pub(crate) fn with_system(mut self, system: &str) -> Self {
+        self.system = Some(Arc::from(system));
+        self
+    }
+
+    /// Starts refreshing the prompt cache every [`CACHE_REFRESH_EVERY`] for
+    /// as long as a tool call runs: the first refresh only once the call has
+    /// run that long, so a quick call costs nothing. Called when the first of
+    /// a turn's tool calls starts; [`Self::stop_cache_refresh`] when the last
+    /// one ends.
+    fn start_cache_refresh(&self) {
+        let Some(system) = self.system.clone() else {
+            return;
+        };
+        let budget = Arc::clone(&self.context_budget);
+        let spend = Arc::clone(&self.spend);
+        let price = self.price.clone();
+        let obs = self.obs.clone();
+        let stage = self.stage();
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(CACHE_REFRESH_EVERY).await;
+                let Some(refresh) = budget.refresh_cache(&system) else {
+                    return;
+                };
+                let (detail, ok) = match refresh.await {
+                    Ok(usage) => {
+                        let cost = price(&usage);
+                        let total = {
+                            let mut spend = spend.lock().unwrap_or_else(|p| p.into_inner());
+                            spend.add(&usage, cost);
+                            *spend
+                        };
+                        obs.emit(RunEvent::Spend(total));
+                        (
+                            format!(
+                                "a tool call is still running; {} cached input tokens re-read{}",
+                                usage.cached_input_tokens,
+                                cost.map(|c| format!(" for USD {c:.4}")).unwrap_or_default()
+                            ),
+                            true,
+                        )
+                    }
+                    Err(e) => (format!("refreshing the prompt cache failed: {e}"), false),
+                };
+                obs.trace(TraceEvent::Control { stage: stage.clone(), kind: ControlKind::CacheRefreshed, detail });
+                if !ok {
+                    return;
+                }
+            }
+        });
+        *self.cache_refresh.lock().unwrap_or_else(|p| p.into_inner()) = Some(AbortOnDrop(task));
+    }
+
+    fn stop_cache_refresh(&self) {
+        self.cache_refresh.lock().unwrap_or_else(|p| p.into_inner()).take();
     }
 
     /// Where in its stage this hook's attempt sits, for the trace: which
@@ -449,10 +533,15 @@ impl AgentHook for StageHook {
         // Arguments that are not JSON are kept verbatim: the trace is where a
         // malformed call has to be visible.
         let args = parsed.unwrap_or_else(|| serde_json::Value::String(event.args.to_string()));
-        self.tool_started
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .insert(event.internal_call_id.to_string(), Instant::now());
+        let first_running = {
+            let mut started = self.tool_started.lock().unwrap_or_else(|p| p.into_inner());
+            let first = started.is_empty();
+            started.insert(event.internal_call_id.to_string(), Instant::now());
+            first
+        };
+        if first_running {
+            self.start_cache_refresh();
+        }
         self.obs.trace(TraceEvent::ToolStarted {
             stage: self.stage(),
             attempt: self.attempt,
@@ -476,13 +565,14 @@ impl AgentHook for StageHook {
             ok,
             reply_chars: output_total_chars(output),
         });
-        let duration_ms = self
-            .tool_started
-            .lock()
-            .unwrap_or_else(|p| p.into_inner())
-            .remove(event.internal_call_id)
-            .map(trace::elapsed_ms)
-            .unwrap_or(0);
+        let (duration_ms, none_running) = {
+            let mut started = self.tool_started.lock().unwrap_or_else(|p| p.into_inner());
+            let duration = started.remove(event.internal_call_id).map(trace::elapsed_ms).unwrap_or(0);
+            (duration, started.is_empty())
+        };
+        if none_running {
+            self.stop_cache_refresh();
+        }
         // Rendered once: for an image reply this serializes the base64
         // payload, and both the trace digest and the stuck watch need it.
         let rendered = output.render();
@@ -994,6 +1084,75 @@ mod tests {
         }
         let log = std::sync::Arc::new(Mutex::new(Vec::new()));
         (SharedObserver::new(Logging(log.clone())), log)
+    }
+
+    /// A budget whose cache refresh answers at once with a fixed usage, and
+    /// counts how often it was asked.
+    struct Refreshing(std::sync::Arc<AtomicUsize>);
+
+    impl ContextBudget for Refreshing {
+        fn policy(&self) -> std::sync::Arc<dyn rig_memory::MemoryPolicy> {
+            std::sync::Arc::new(rig_memory::NoopMemoryPolicy)
+        }
+        fn raw_estimate(&self, _history: &[rig_core::message::Message]) -> usize {
+            0
+        }
+        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
+        fn refresh_cache(&self, system: &str) -> Option<crate::memory::CacheRefresh> {
+            assert_eq!(system, "the stage's system prompt");
+            self.0.fetch_add(1, Ordering::Relaxed);
+            let mut usage = rig_core::completion::Usage::new();
+            usage.cached_input_tokens = 200_000;
+            Some(Box::pin(async move { Ok(usage) }))
+        }
+    }
+
+    /// While a tool call runs, the prompt cache is refreshed every few
+    /// minutes and what that costs counts toward the stage's spend; a quick
+    /// call costs nothing, and once the call ends the refreshing stops.
+    #[tokio::test(start_paused = true)]
+    async fn a_long_tool_call_keeps_the_prompt_cache_warm() {
+        let asked = std::sync::Arc::new(AtomicUsize::new(0));
+        let (obs, log) = recorder();
+        let price: PriceFn = std::sync::Arc::new(|usage| Some(usage.cached_input_tokens as f64 * 1e-6));
+        let hook = StageHook::new(
+            &PLAIN,
+            AbortFlag::default(),
+            obs,
+            price,
+            Spend::default(),
+            std::sync::Arc::new(Refreshing(asked.clone())),
+        )
+        .with_system("the stage's system prompt");
+
+        hook.start_cache_refresh();
+        tokio::time::sleep(CACHE_REFRESH_EVERY / 2).await;
+        assert_eq!(asked.load(Ordering::Relaxed), 0, "a call shorter than the cache lifetime costs nothing");
+        tokio::time::sleep(CACHE_REFRESH_EVERY * 2).await;
+        assert_eq!(asked.load(Ordering::Relaxed), 2);
+        assert_eq!(hook.spend().cached_input_tokens, 400_000);
+        assert!(log.lock().unwrap().iter().any(|e| matches!(e, RunEvent::Spend(s) if s.cached_input_tokens == 400_000)));
+
+        hook.stop_cache_refresh();
+        tokio::time::sleep(CACHE_REFRESH_EVERY * 3).await;
+        assert_eq!(asked.load(Ordering::Relaxed), 2, "no refresh once the call ended");
+    }
+
+    /// A hook without a system prompt never refreshes.
+    #[tokio::test(start_paused = true)]
+    async fn without_a_system_prompt_nothing_is_refreshed() {
+        let asked = std::sync::Arc::new(AtomicUsize::new(0));
+        let hook = StageHook::new(
+            &PLAIN,
+            AbortFlag::default(),
+            SharedObserver::new(crate::observer::NullObserver),
+            no_price(),
+            Spend::default(),
+            std::sync::Arc::new(Refreshing(asked.clone())),
+        );
+        hook.start_cache_refresh();
+        tokio::time::sleep(CACHE_REFRESH_EVERY * 3).await;
+        assert_eq!(asked.load(Ordering::Relaxed), 0);
     }
 
     /// Drive a stream to completion (or a stop), discarding items — tests
