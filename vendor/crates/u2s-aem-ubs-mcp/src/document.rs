@@ -594,9 +594,12 @@ fn lower(
     doc: &UbsAemDocument,
     config: &AemConfig,
 ) -> (AemNode, crate::aem::I18nDict, Vec<LowerConflict>) {
-    let (mut node, dict, conflicts) = doc
-        .form
-        .lower_checked(&config.master_language, &config.languages);
+    // The static texts' text is shaped here, on the multilingual tree, so a
+    // rewritten master and its translations stay one dictionary entry.
+    let mut form = doc.form.clone();
+    crate::aem::text_shape::shape_texts(&mut form);
+    let (mut node, dict, conflicts) =
+        form.lower_checked(&config.master_language, &config.languages);
     if let Some(xsd_config) = config.xsd_config.as_ref().filter(|_| config.bind_to_xsd) {
         let result = generate_xsd_from_aem(&node, xsd_config, &config.fragments);
         apply_bind_refs(&mut node, &result.bind_refs);
@@ -758,6 +761,52 @@ mod tests {
             dictionary.contains("sling:message=\"Zeile 1&#xa;Zeile 2 > 1, l'autre\""),
             "{dictionary}"
         );
+    }
+
+    /// A heading authored as bare text reaches the package as a paragraph, in
+    /// the form and in the dictionary alike, so the platform can mark it as a
+    /// heading and its translation stays keyed by it. A bare address in a static
+    /// text is a link in every language.
+    #[test]
+    fn static_texts_are_paragraphs_and_their_addresses_links() {
+        let heading = json!({
+            "type": "TitleDraw", "uuid": "00000000-0000-0000-0000-000000000021",
+            "name": "TTL_Contact", "heading_level": 3,
+            "content": {"en": "Contact", "de": "Kontakt"}, "colspan": 12, "dor_colspan": null
+        });
+        let body = draw(
+            "ST_Contact",
+            json!({"en": "<p>Write to a@ubs.com.</p>", "de": "<p>Schreiben Sie an a@ubs.com.</p>"}),
+        );
+        let doc = UbsAemDocument::from_json(&document(json!([{
+            "type": "Panel", "uuid": "00000000-0000-0000-0000-000000000010", "name": "PN_Info",
+            "title": {"en": "Information", "de": "Information"}, "is_page": true, "visible": true,
+            "is_conditional": false, "dor_num_cols": null, "colspan": 12, "dor_colspan": null,
+            "bind_ref": null, "frag_ref": null, "children": [heading, body]
+        }])))
+        .unwrap();
+        let build = encode(&doc).unwrap();
+
+        let xml = form_xml(&build.package);
+        assert!(xml.contains("_value=\"&lt;p>Contact&lt;/p>\""), "{xml}");
+        let link =
+            "&lt;a href=&quot;mailto:a@ubs.com&quot; target=&quot;_blank&quot;>a@ubs.com&lt;/a>";
+        assert!(xml.contains(&format!("Write to {link}.")), "{xml}");
+
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(&build.package)).unwrap();
+        let name = (0..archive.len())
+            .map(|i| archive.by_index(i).unwrap().name().to_owned())
+            .find(|n| n.ends_with("/dictionary/de.xml"))
+            .expect("the package carries the German dictionary");
+        let mut dictionary = String::new();
+        archive.by_name(&name).unwrap().read_to_string(&mut dictionary).unwrap();
+        assert!(
+            dictionary.contains("sling:key=\"fd_&lt;p>Contact&lt;/p>\"")
+                && dictionary.contains("sling:message=\"&lt;p>Kontakt&lt;/p>\""),
+            "the heading's translation stays keyed by its master: {dictionary}"
+        );
+        assert!(dictionary.contains(&format!("Schreiben Sie an {link}.")), "{dictionary}");
     }
 
     /// The value of `name` on the first `tag` element of `xml`.

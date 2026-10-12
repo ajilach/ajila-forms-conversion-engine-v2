@@ -718,7 +718,7 @@ impl Lower<'_> {
         for lang in self.config.expand_languages() {
             let markup = content
                 .get(&lang)
-                .or_else(|| content.get(&self.config.canonical_language(&lang)))
+                .or_else(|| self.config.language_family(&lang).iter().find_map(|l| content.get(l)))
                 .unwrap_or_else(|| content.master(&self.config.master_language));
             if markup.trim().is_empty() {
                 continue;
@@ -831,20 +831,20 @@ impl Lower<'_> {
         self.carry(el, node, owned::PANEL)
     }
 
-    /// A step's title panel: its heading, which on a first page that opens
-    /// with the banking relationship is the subtitle under the form title
-    /// (PROBLEM-banking-subtitle), and the
+    /// A step's title panel: its heading, which on the first page is the
+    /// subtitle under the form title (PROBLEM-subtitle-detector), and the
     /// jump-to-field button where the step has something to fill in and no
     /// rows of its own (PROBLEM-jump-to-field-button).
     fn step_title(&self, uuid: Uuid, name: &str, title: &str, children: &[AemNode]) -> Result<Node, LowerError> {
         // The first page's title is the configurator's own where that page is
         // the configurator, and otherwise the subtitle under the form title,
-        // but only above the banking relationship: a form whose source has
-        // none titles its first page like any other.
+        // whether or not the page opens with the banking relationship: an h2
+        // step title prints as a ruled section heading in the DoR, which the
+        // subtitle under the source's title is not (BBTB_019 has no banking
+        // relationship and printed its subtitle as one).
         let first_page = self.index.first_page == Some(uuid);
         let configurator = first_page && name.starts_with("PN_FormConfigurator");
-        let preface = children.iter().any(|c| matches!(c, AemNode::Preface { .. }));
-        let subtitle = first_page && preface && !configurator;
+        let subtitle = first_page && !configurator;
         let mut repeatables = HashSet::new();
         for child in children {
             collect_repeatable_names(child, &mut repeatables);

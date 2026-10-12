@@ -34,6 +34,11 @@ Since then two things in the documents changed, and nothing else:
   comparison on both sides, and compares the schema for the document without them;
 - the `Appendix` nodes are gone: the profile's appendix template was empty.
 
+One thing in the profile changed: its German, Italian and Spanish default messages quote with
+guillemets (`«Vorschau»`, PROBLEM-guillemet-quotes) where the golden dictionaries have straight
+quotes, so `golden_parity.rs` accepts a golden message in those locales with its straight quote
+pairs turned into `«…»`, and nothing else.
+
 The golden packages and schemas are unchanged. The re-authored clusters pass the feedback guard
 except for `PROBLEM-signature-name-fill` (the signer-name fill is left to the AEM author) and, on
 `AAOS_033_IT`, `PROBLEM-repeatable-add-label` (the guard wants the known wording `Cliente` as an

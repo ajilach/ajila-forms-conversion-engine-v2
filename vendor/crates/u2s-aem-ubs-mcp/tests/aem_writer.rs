@@ -733,12 +733,14 @@ fn the_dor_header_slots_are_the_documents_own_draws() {
     }
 }
 
-/// The first page's heading is the subtitle under the form title only above
-/// the banking relationship (PROBLEM-banking-subtitle). A form whose source has
-/// none titles its first page like any other step, and its configurator keeps
-/// the configurator's own title, excluded from the DoR and the summary.
+/// The first page's heading is the subtitle under the form title, with the
+/// banking relationship or without it (PROBLEM-subtitle-detector): an h2 step
+/// title prints as a ruled section heading in the DoR, and BBTB_019, whose
+/// source has no banking relationship, printed its subtitle as one. The
+/// configurator keeps the configurator's own title, excluded from the DoR and
+/// the summary.
 #[test]
-fn a_first_page_without_the_banking_relationship_has_a_step_title() {
+fn the_first_page_heading_is_a_subtitle_with_or_without_the_banking_relationship() {
     let config = italian_config();
     let draw = || header_draw("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>\n");
     let title_tag = |xml: &str, name: &str| {
@@ -758,10 +760,13 @@ fn a_first_page_without_the_banking_relationship_has_a_step_title() {
 
     let without = generate_aem_xml(&first_page("PN_Dati", vec![draw()]), &config).unwrap();
     assert!(
-        !without.contains("subtitle-after-form-title"),
-        "a page without the banking relationship got its subtitle"
+        without.contains("subtitle-after-form-title"),
+        "a page without the banking relationship lost its subtitle"
     );
-    assert!(without.contains("css=\"stepTitle\""), "the first page has no step title");
+    assert!(
+        !without.contains("css=\"stepTitle\""),
+        "the first page's subtitle printed as a step title"
+    );
 
     let configurator = generate_aem_xml(&first_page("PN_FormConfigurator", vec![draw()]), &config).unwrap();
     let title = title_tag(&configurator, "PN_FormConfigurator");

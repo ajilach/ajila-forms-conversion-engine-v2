@@ -1198,6 +1198,36 @@ mod tests {
         );
     }
 
+    /// Markup authored under a synonym reaches its canonical locale too: a
+    /// document writes Spanish as `es`, and the component's `sp` item must carry
+    /// that, not fall back to the master language (BBTB_019 shipped English
+    /// tables to every `sp` reader).
+    #[test]
+    fn the_canonical_locale_takes_markup_authored_under_its_synonym() {
+        let mut config = test_config();
+        config.languages = vec!["en".into(), "es".into()];
+        config.master_language = "en".into();
+        let root = AemNode::Root {
+            title: "Test Form".into(),
+            children: vec![html_node(&[
+                ("en", "<table><tr><td>Plan EN</td></tr></table>"),
+                ("es", "<table><tr><td>Plan ES</td></tr></table>"),
+            ])],
+        };
+
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
+
+        let item = |locale: &str| {
+            xml.split("<item")
+                .find(|item| item.contains(&format!("locale=\"{locale}\"")))
+                .unwrap_or_else(|| panic!("no `{locale}` item:\n{xml}"))
+                .to_string()
+        };
+        assert!(item("sp").contains("Plan ES"), "{}", item("sp"));
+        assert!(item("es").contains("Plan ES"), "{}", item("es"));
+        assert!(item("en").contains("Plan EN"), "{}", item("en"));
+    }
+
     /// A locale the profile renames is written under the profile's spelling.
     /// Which spelling the deployed component matches on is its business, not
     /// this engine's, so it has to be configurable.

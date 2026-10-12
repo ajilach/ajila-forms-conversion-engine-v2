@@ -68,6 +68,33 @@ fn is_identity(key: &str, message: &str) -> bool {
     key.strip_prefix("fd_") == Some(message)
 }
 
+/// The locales that quote with guillemets since the golden run
+/// (PROBLEM-guillemet-quotes): the profile's default messages were reworded
+/// from `"…"` to `«…»` there, and nothing else about them changed.
+const GUILLEMET_LOCALES: &[&str] = &["de", "de-ch", "it", "es", "sp"];
+
+/// `golden` as the profile words it since the guillemet rewording: each
+/// straight-quoted run outside markup in `«…»`. A `"` inside a tag delimits an
+/// attribute and stays.
+fn with_guillemets(golden: &str) -> String {
+    let mut out = String::with_capacity(golden.len());
+    let (mut in_tag, mut open) = (false, true);
+    for c in golden.chars() {
+        match c {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            '"' if !in_tag => {
+                out.push(if open { '«' } else { '»' });
+                open = !open;
+                continue;
+            }
+            _ => {}
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// `<locale> <key>` lines of the golden entries the encoder knowingly does not
 /// reproduce. Lines starting with `#` explain why.
 fn known_gaps(form: &str) -> BTreeSet<(String, String)> {
@@ -157,6 +184,9 @@ fn encoded_packages_match_the_golden_packages() {
                 for (key, message) in &want {
                     match got.get(key) {
                         Some(m) if m == message => {}
+                        Some(m)
+                            if GUILLEMET_LOCALES.contains(&locale)
+                                && *m == with_guillemets(message) => {}
                         Some(m) => failures.push(format!(
                             "{form}: {locale} translates {key:?} as {m:?}, golden {message:?}"
                         )),

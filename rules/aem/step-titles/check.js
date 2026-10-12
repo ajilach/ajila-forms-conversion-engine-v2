@@ -117,22 +117,8 @@ function check(output, ctx) {
       });
       continue;
     }
-    if (h2.length === 0) {
-      // The first drawn element with text, in document order. A DoR header slot line after the
-      // banking relationship is written inside its wrapper, so it precedes a heading as well.
-      const first = inside.find(function (e) {
-        if (e.node.type !== "TextDraw" && e.node.type !== "TitleDraw") return false;
-        return plain(masterText(e.node.content, master)) !== "";
-      });
-      if (first && first.node.type === "TitleDraw") {
-        violations.push({
-          pointer: first.pointer,
-          message:
-            "page `" + page.name + "` has no title and starts with the heading `" + first.node.name +
-            "`: that is the step title written as a draw. Set the page's title to its text and delete the draw",
-        });
-      }
-    }
+    // An untitled page opening with a deeper heading is fine: a step title prints as a ruled
+    // level-2 heading, which is only for a heading the source rules (ubs-aem-structure-matches-source).
   }
 
   // Only the panels directly under the form are wizard steps. A panel below one that is marked

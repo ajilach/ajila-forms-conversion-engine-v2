@@ -616,14 +616,18 @@ fn a_step_is_a_page_and_its_heading_is_its_title() {
     )]);
     assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
 
-    // The banking relationship alone is no text before a heading; its DoR header slot line is.
+    // An untitled page may open with a deeper heading: a step title prints as a ruled level-2
+    // heading, which is only for a heading the source rules, and an unruled one is level 3 or
+    // deeper (BBTB_019's sections). That holds with the banking relationship before it too.
     let heading = || {
         let mut heading = draw("TitleDraw", "TTL_A", "Account");
         heading["heading_level"] = json!(3);
         heading
     };
+    let doc = doc_with(vec![page("PN_A", "", vec![heading(), body()])]);
+    assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
     let doc = doc_with(vec![page("PN_A", "", vec![preface(), heading()])]);
-    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
+    assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
     let entity = header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>");
     let doc = doc_with(vec![page("PN_A", "", vec![preface(), entity, heading()])]);
     assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
@@ -954,6 +958,58 @@ fn html_that_does_not_survive_into_the_document_is_reported() {
         vec![html("TBL_Ok", table), html("IMG_Ok", image), html("ST_Text", "<p>Anything</p>")],
     )]);
     assert!(violations("html-displayer-markup", &doc).is_empty());
+}
+
+#[test]
+fn german_italian_and_spanish_texts_quote_with_guillemets() {
+    let quoted = |name: &str, texts: Value| {
+        let mut node = draw("TextDraw", name, "");
+        node["content"] = texts;
+        node
+    };
+    let with_languages = |mut doc: Value| {
+        doc["languages"] = json!(["en", "de", "it", "es"]);
+        doc
+    };
+    let doc = with_languages(doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            // English keeps its straight quotes; German does not.
+            quoted("ST_Pair", json!({
+                "en": "<p>Click \"Preview\".</p>",
+                "de": "<p style=\"margin:0\">Klicken Sie auf \"Vorschau\".</p>",
+            })),
+            // An escaped quote is a quote, and a lone one is reported too.
+            quoted("ST_Escaped", json!({"es": "<p>Haga clic en &quot;Enviar&quot;</p>"})),
+            quoted("ST_Odd", json!({"it": "<p>Il \"modulo</p>"})),
+            // The source's curly and low quotes are not guillemets either (BBTB_019's
+            // “E-Dokumente”).
+            quoted("ST_Curly", json!({"de": "<p>die “E-Dokumente” und „Vorschau“</p>"})),
+        ],
+    )]));
+    let p = "/form/children/0/children";
+    assert_eq!(
+        violations("guillemet-quotes", &doc),
+        vec![
+            format!("{p}/0/content/de"),
+            format!("{p}/1/content/es"),
+            format!("{p}/2/content/it"),
+            format!("{p}/3/content/de"),
+        ]
+    );
+
+    // Guillemets, and a `"` that only delimits an attribute, are fine.
+    let doc = with_languages(doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![quoted("ST_Ok", json!({
+            "en": "<p>Click \"Preview\".</p>",
+            "de": "<p style=\"margin:0\">Klicken Sie auf «Vorschau».</p>",
+            "it": "<p><a href=\"https://www.ubs.com\" target=\"_blank\">www.ubs.com</a></p>",
+        }))],
+    )]));
+    assert!(violations("guillemet-quotes", &doc).is_empty(), "{:?}", violations("guillemet-quotes", &doc));
 }
 
 #[test]

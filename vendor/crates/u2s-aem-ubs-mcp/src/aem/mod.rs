@@ -23,6 +23,7 @@ pub mod partner;
 pub mod profile;
 pub mod script_engine;
 pub mod scripts;
+pub mod text_shape;
 pub mod to_translated;
 pub mod translated;
 mod unexpand;
@@ -321,6 +322,16 @@ impl AemConfig {
             }
         }
         lang.to_string()
+    }
+
+    /// Every code `lang`'s content may be filed under: the language's canonical
+    /// code first, then each of its synonyms. Content authored as `es` serves an
+    /// `sp` reader and the other way round.
+    pub fn language_family(&self, lang: &str) -> Vec<String> {
+        let canonical = self.canonical_language(lang);
+        let mut family = vec![canonical.clone()];
+        family.extend(self.language_synonyms.get(&canonical).into_iter().flatten().cloned());
+        family
     }
 
     /// The Add-button label for `subject` in `lang`, or `None` when the profile
