@@ -304,6 +304,12 @@ pub enum TraceEvent {
         /// Why there is no verdict, when there is none.
         unchecked_reason: Option<String>,
         turns: usize,
+        /// How often the judge called each tool: its own turns are not
+        /// traced, so this says what it spent them on.
+        tool_calls: std::collections::BTreeMap<String, usize>,
+        /// Whether the judge reached its last turn and was held to its
+        /// verdict tool (see `crate::hooks::WrapUp`).
+        wrapped_up: bool,
         duration_ms: u64,
         revision: u64,
         spend: Spend,
