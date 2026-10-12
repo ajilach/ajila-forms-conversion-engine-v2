@@ -800,7 +800,8 @@ pub(crate) fn opened_session(reply: &ToolReply) -> Option<String> {
 }
 
 /// `reply`, preceded by a line naming the sessions closed (or found gone)
-/// before the call.
+/// before the call. The line is a block of its own, so a JSON reply stays
+/// readable as JSON.
 fn with_closed_note(reply: ToolReply, closed: &[String]) -> ToolReply {
     if closed.is_empty() {
         return reply;
@@ -811,7 +812,7 @@ fn with_closed_note(reply: ToolReply, closed: &[String]) -> ToolReply {
         closed.join(", ")
     );
     match reply {
-        ToolReply::Text(text) => ToolReply::Text(format!("{note}\n\n{text}")),
+        ToolReply::Text(text) => ToolReply::Blocks(vec![ReplyBlock::Text(note), ReplyBlock::Text(text)]),
         ToolReply::Blocks(mut blocks) => {
             blocks.insert(0, ReplyBlock::Text(note));
             ToolReply::Blocks(blocks)
@@ -1664,6 +1665,14 @@ mod tests {
         assert!(matches!(with_closed_note(ToolReply::Text("x".into()), &[]), ToolReply::Text(t) if t == "x"));
     }
 
+    /// The note must not break the reply it precedes: the stage evidence reads
+    /// the opened session from the reply the model sees.
+    #[test]
+    fn a_noted_open_reply_still_names_its_session() {
+        let reply = ToolReply::Text(r#"{"session":"s-2","revision":0}"#.into());
+        assert_eq!(opened_session(&with_closed_note(reply, &["s-1".into()])).as_deref(), Some("s-2"));
+    }
+
     /// The tools that open or close a session go through `call`, which keeps
     /// the agent's sessions, never beside other calls.
     #[tokio::test]
@@ -1705,8 +1714,15 @@ mod tests {
 
         let reopened = tools.call("aem_verify_open", &serde_json::json!({}), Some(second)).await;
         let new = opened_session(&reopened).unwrap_or_else(|| panic!("second open: {reopened:?}"));
-        let ToolReply::Blocks(blocks) = &reopened else { panic!("{reopened:?}") };
-        assert!(matches!(&blocks[0], ReplyBlock::Text(t) if t.contains(&old)), "{blocks:?}");
+        let note = match &reopened {
+            ToolReply::Text(text) => text.as_str(),
+            ToolReply::Blocks(blocks) => match &blocks[0] {
+                ReplyBlock::Text(text) => text.as_str(),
+                ReplyBlock::Image { .. } => "",
+            },
+            ToolReply::Error(e) => e.as_str(),
+        };
+        assert!(note.starts_with("Closed 1 session(s)") && note.contains(&old), "{reopened:?}");
         assert_eq!(tools.open_sessions.keys().collect::<Vec<_>>(), vec![&new]);
 
         let closed = tools.call("aem_verify_close", &serde_json::json!({ "session": new }), None).await;
