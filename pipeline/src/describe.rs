@@ -98,4 +98,6 @@ const DESCRIBE: Role = Role {
     max_tokens_nudge: "Summarise what you have and finish the description.",
     remember: true,
     resume: true,
+    wrap_up_tool: None,
+    max_output_tokens: None,
 };

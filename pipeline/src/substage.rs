@@ -96,6 +96,10 @@ pub(crate) struct SubStageEnd {
     pub(crate) turns: usize,
     /// What it spent on its own (already folded into the context's spend).
     pub(crate) spend: Spend,
+    /// How often it called each tool. A sub-stage's own trace is not kept
+    /// (see [`SubStageObserver`]), so this is what says how it spent its
+    /// turns.
+    pub(crate) tool_calls: std::collections::BTreeMap<String, usize>,
 }
 
 impl SubStageEnd {
@@ -124,11 +128,13 @@ pub(crate) async fn run_sub_stage(
 ) -> SubStageEnd {
     let failure = Arc::new(Mutex::new(None));
     let turns = Arc::new(Mutex::new(0));
+    let tool_calls = Arc::new(Mutex::new(std::collections::BTreeMap::new()));
     let obs = SharedObserver::new(SubStageObserver {
         inner: ctx.obs.clone(),
         label,
         failure: failure.clone(),
         turns: turns.clone(),
+        tool_calls: tool_calls.clone(),
     });
     let mut spend = Spend::default();
     let ended = run_stage_as(
@@ -151,7 +157,8 @@ pub(crate) async fn run_sub_stage(
     ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
     let failure = failure.lock().unwrap_or_else(|p| p.into_inner()).take();
     let turns = *turns.lock().unwrap_or_else(|p| p.into_inner());
-    SubStageEnd { ended, failure, turns, spend }
+    let tool_calls = std::mem::take(&mut *tool_calls.lock().unwrap_or_else(|p| p.into_inner()));
+    SubStageEnd { ended, failure, turns, spend, tool_calls }
 }
 
 /// What a sub-stage reports to the run's observer: its tool timeline and its
@@ -169,6 +176,8 @@ struct SubStageObserver {
     failure: Arc<Mutex<Option<String>>>,
     /// The turns the sub-stage took, from its own `StageFinished`.
     turns: Arc<Mutex<usize>>,
+    /// Its tool calls, counted by tool.
+    tool_calls: Arc<Mutex<std::collections::BTreeMap<String, usize>>>,
 }
 
 impl RunObserver for SubStageObserver {
@@ -178,11 +187,14 @@ impl RunObserver for SubStageObserver {
             RunEvent::Thought(text) => self.inner.emit(RunEvent::Thought(format!("[{}] {text}", self.label))),
             RunEvent::Warning(text) => self.inner.emit(RunEvent::Warning(format!("[{}] {text}", self.label))),
             // Several sub-stages run at once: each call says whose it is.
-            RunEvent::ToolStarted { id, name, input_summary } => self.inner.emit(RunEvent::ToolStarted {
-                id,
-                name,
-                input_summary: format!("[{}] {input_summary}", self.label),
-            }),
+            RunEvent::ToolStarted { id, name, input_summary } => {
+                *self.tool_calls.lock().unwrap_or_else(|p| p.into_inner()).entry(name.clone()).or_default() += 1;
+                self.inner.emit(RunEvent::ToolStarted {
+                    id,
+                    name,
+                    input_summary: format!("[{}] {input_summary}", self.label),
+                })
+            }
             other => self.inner.emit(other),
         }
     }

@@ -22,7 +22,7 @@ use agent::{Caller, JudgeView, ToolReply};
 use futures_util::StreamExt;
 
 use crate::observer::{RunEvent, SharedObserver, Spend};
-use crate::substage::{SubStageContext, run_sub_stage};
+use crate::substage::{SubStageContext, SubStageEnd, run_sub_stage};
 use crate::tools::SharedAgent;
 use crate::trace::{self, JudgeVerdict, TraceEvent};
 
@@ -104,12 +104,21 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
         judged: to_judge.len(),
         revision,
     });
-    // `buffered`, not `buffer_unordered`: the report keeps the rules' order.
-    let judged: Vec<Judged> = futures_util::stream::iter(to_judge)
-        .map(|(rule, view)| judge(agent, ctx, rule, view, first_pages.clone(), revision, check))
-        .buffered(JUDGES_AT_ONCE)
+    // `buffer_unordered`: a judge starts as soon as any slot frees up. With
+    // `buffered`, a slow judge at the head of the queue held back every judge
+    // after it (one judge ran alone for five minutes while twelve waited).
+    // Each judge carries its position, so the report still keeps the rules'
+    // order.
+    let mut judged: Vec<(usize, Judged)> = futures_util::stream::iter(to_judge.into_iter().enumerate())
+        .map(|(index, (rule, view))| {
+            let pages = first_pages.clone();
+            async move { (index, judge(agent, ctx, rule, view, pages, revision, check).await) }
+        })
+        .buffer_unordered(JUDGES_AT_ONCE)
         .collect()
         .await;
+    judged.sort_by_key(|(index, _)| *index);
+    let judged: Vec<Judged> = judged.into_iter().map(|(_, one)| one).collect();
     let mut judges_spend = Spend::default();
     for one in &judged {
         judges_spend.merge(&one.spend);
@@ -205,13 +214,17 @@ async fn judge(
     let _ended = JudgingEnds { obs: &ctx.obs, rule_id: rule.id.clone() };
     let started = Instant::now();
     let handed = handed_sections(&rule, &view, first_pages.as_deref().map(String::as_str));
-    let (outcome, turns, spend) = judge_rule(agent, ctx, &rule, &handed).await;
+    let (outcome, end) = judge_rule(agent, ctx, &rule, &handed).await;
+    let (outcome, incomplete) = read_not_checked(outcome);
+    let wrapped_up = end.turns >= crate::roles::judge_role(rule.scope.max_turns).max_iterations;
     let duration_ms = trace::elapsed_ms(started);
     let mut guard = agent.lock().await;
     // The judge read the live document. An edit made while it did means its
     // verdict may describe neither revision.
     let outcome = if guard.revision() == revision { outcome } else { Err(CHANGED_WHILE_JUDGED.into()) };
-    if let Ok(verdict) = &outcome {
+    // A verdict on part of the rule is not the rule's verdict on this view:
+    // the next check judges it afresh.
+    if let (Ok(verdict), false) = (&outcome, incomplete) {
         guard.cache_verdict(&rule, view.key, verdict.clone());
     }
     let judged = (rule, outcome);
@@ -219,8 +232,8 @@ async fn judge(
     let board = guard.rule_board();
     drop(guard);
     let (rule, outcome) = judged;
-    let judged = Judged { rule, outcome, spend };
-    ctx.obs.trace(judge_finished(check, &judged, turns, duration_ms, revision));
+    let judged = Judged { rule, outcome, spend: end.spend };
+    ctx.obs.trace(judge_finished(check, &judged, &end, wrapped_up, duration_ms, revision));
     ctx.obs.emit(RunEvent::Rules(board));
     judged
 }
@@ -321,7 +334,8 @@ async fn source_first_pages(agent: &mut agent::ConversionAgent) -> Option<String
 fn judge_finished(
     check: u64,
     judged: &Judged,
-    turns: usize,
+    end: &SubStageEnd,
+    wrapped_up: bool,
     duration_ms: u64,
     revision: u64,
 ) -> TraceEvent {
@@ -340,11 +354,42 @@ fn judge_finished(
         verdict,
         violations,
         unchecked_reason,
-        turns,
+        turns: end.turns,
+        tool_calls: end.tool_calls.clone(),
+        wrapped_up,
         duration_ms,
         revision,
         spend: judged.spend,
     }
+}
+
+/// Reads back what a judge held to its last turn marked as not checked (see
+/// [`crate::hooks::NOT_CHECKED_PREFIX`]): those are not violations. A
+/// verdict that found breaks keeps them and stays negative; one that found
+/// none but did not check everything leaves the rule unchecked, saying
+/// what was left. The flag says the verdict covers only part of the rule.
+fn read_not_checked(outcome: Result<RuleVerdict, String>) -> (Result<RuleVerdict, String>, bool) {
+    let Ok(verdict) = outcome else {
+        return (outcome, false);
+    };
+    let (skipped, found): (Vec<_>, Vec<_>) = verdict
+        .violations
+        .into_iter()
+        .partition(|v| v.message.trim_start().starts_with(crate::hooks::NOT_CHECKED_PREFIX));
+    if skipped.is_empty() {
+        return (Ok(RuleVerdict { pass: verdict.pass, violations: found }), false);
+    }
+    if !found.is_empty() {
+        return (Ok(RuleVerdict { pass: false, violations: found }), true);
+    }
+    let parts: Vec<String> = skipped
+        .iter()
+        .map(|v| {
+            let part = v.message.trim_start()[crate::hooks::NOT_CHECKED_PREFIX.len()..].trim();
+            format!("{} ({part})", v.pointer)
+        })
+        .collect();
+    (Err(format!("the judge ran out of turns with these parts left to check: {}", parts.join("; "))), true)
 }
 
 /// Reports a judge's end however its future ends, a dropped one included, so
@@ -367,21 +412,21 @@ async fn judge_rule(
     ctx: &SubStageContext,
     rule: &JudgedRule,
     handed: &str,
-) -> (Result<RuleVerdict, String>, usize, Spend) {
+) -> (Result<RuleVerdict, String>, SubStageEnd) {
     let role = crate::roles::judge_role(rule.scope.max_turns);
     let judgement = agent.lock().await.open_judgement();
     let end = run_sub_stage(
         agent,
         ctx,
         role,
-        &crate::roles::sys_judge(rule, &judgement, handed),
+        &crate::roles::sys_judge(rule, &judgement, handed, role.max_iterations),
         &format!("Judge the rule \"{}\", then call submit_rule_verdict with judgement {judgement}.", rule.title),
         &Caller::Judge,
         format!("judge: {}", rule.title),
     )
     .await;
     let verdict = agent.lock().await.take_judgement(&judgement).ok_or_else(|| end.why_no("judge", "a verdict"));
-    (verdict, end.turns, end.spend)
+    (verdict, end)
 }
 
 #[cfg(test)]
@@ -989,5 +1034,100 @@ mod tests {
         for verdict in stopped {
             assert_eq!(verdict["unchecked_reason"], "the judge was stopped before it gave a verdict");
         }
+    }
+
+    fn violation(pointer: &str, message: &str) -> agent::rules::Violation {
+        agent::rules::Violation { pointer: pointer.into(), message: message.into() }
+    }
+
+    /// A verdict without "not checked" parts is read as it was given.
+    #[test]
+    fn a_complete_verdict_is_kept_as_given() {
+        let given = RuleVerdict { pass: false, violations: vec![violation("/a", "split the table")] };
+        assert_eq!(read_not_checked(Ok(given.clone())), (Ok(given), false));
+        let error: Result<RuleVerdict, String> = Err("the judge failed".into());
+        assert_eq!(read_not_checked(error.clone()), (error, false));
+    }
+
+    /// Breaks found before the turns ran out stay a negative verdict; the
+    /// parts left unchecked are not violations.
+    #[test]
+    fn breaks_found_before_the_turns_ran_out_stay_negative() {
+        let given = RuleVerdict {
+            pass: false,
+            violations: vec![violation("/a", "split the table"), violation("/b", "NOT CHECKED: page 3")],
+        };
+        let (outcome, incomplete) = read_not_checked(Ok(given));
+        assert!(incomplete);
+        assert_eq!(outcome, Ok(RuleVerdict { pass: false, violations: vec![violation("/a", "split the table")] }));
+    }
+
+    /// Nothing found but not everything checked leaves the rule unchecked,
+    /// naming what was left.
+    #[test]
+    fn nothing_found_but_parts_left_is_unchecked() {
+        let given = RuleVerdict { pass: false, violations: vec![violation("/body/3", "NOT CHECKED: the last two panels")] };
+        let (outcome, incomplete) = read_not_checked(Ok(given));
+        assert!(incomplete);
+        let reason = outcome.unwrap_err();
+        assert!(reason.contains("/body/3 (the last two panels)"), "{reason}");
+    }
+
+    /// A judge that reads until its last turn is offered only its verdict
+    /// tool there, told so, and its verdict counts.
+    #[tokio::test]
+    async fn a_judge_on_its_last_turn_is_held_to_its_verdict() {
+        let budget = crate::roles::JUDGE.max_iterations;
+        let read = || {
+            vec![
+                MockStreamEvent::tool_call("read", "json_outline", serde_json::json!({})),
+                MockStreamEvent::final_response(Usage::new()),
+            ]
+        };
+        let mut turns: Vec<Vec<MockStreamEvent>> = std::iter::repeat_with(read).take(budget - 1).collect();
+        turns.push(vec![
+            MockStreamEvent::tool_call(
+                "verdict",
+                "submit_rule_verdict",
+                serde_json::json!({"judgement": "judgement-1", "pass": false,
+                    "violations": [{"pointer": "/body", "message": "NOT CHECKED: the body"}]}),
+            ),
+            MockStreamEvent::final_response(Usage::new()),
+        ]);
+        let model = MockCompletionModel::from_stream_turns(turns);
+        let recorder = Recorder::default();
+        let mut ctx = context(model.clone(), AbortFlag::default());
+        ctx.obs = SharedObserver::new(recorder.clone());
+        let report = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
+
+        let requests = model.requests();
+        assert_eq!(requests.len(), budget);
+        let last = &requests[budget - 1];
+        let offered: Vec<&str> = last.tools.iter().map(|t| t.name.as_str()).collect();
+        assert_eq!(offered, ["submit_rule_verdict"]);
+        assert!(last.documents.iter().any(|d| d.text.contains("last turn")), "{:?}", last.documents);
+        assert!(requests[..budget - 1].iter().all(|r| r.documents.is_empty()), "no note before the last turn");
+        let preamble = requests[0].chat_history.iter().find_map(|m| match m {
+            rig_core::message::Message::System { content } => Some(content.clone()),
+            _ => None,
+        });
+        assert!(
+            requests[0].preamble.iter().chain(preamble.iter()).any(|p| p.contains("NOT CHECKED:")),
+            "the judge knows its budget and how to report what it left from the first turn"
+        );
+        assert!(requests[0].tools.len() > 1, "earlier turns keep every tool");
+        assert!(requests.iter().all(|r| r.max_tokens.is_some_and(|m| m <= 16_000)), "a judge's own output cap");
+
+        let verdict = &judged(&report)[0];
+        assert_eq!(verdict["verdict"], "unchecked");
+        assert!(verdict["unchecked_reason"].as_str().unwrap().contains("the body"), "{verdict}");
+        let traced = recorder.1.lock().unwrap().clone();
+        let Some(TraceEvent::JudgeFinished { wrapped_up, tool_calls, .. }) =
+            traced.iter().find(|e| matches!(e, TraceEvent::JudgeFinished { .. }))
+        else {
+            panic!("the judge is traced: {traced:?}");
+        };
+        assert!(*wrapped_up);
+        assert_eq!(tool_calls.get("json_outline"), Some(&(budget - 1)));
     }
 }

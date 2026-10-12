@@ -74,6 +74,16 @@ pub(crate) struct Role {
     /// it carries on where it left off. The Reviewer's is stored (for a
     /// diagnosis) but never loaded: every round reviews from scratch.
     pub(crate) resume: bool,
+    /// The terminal tool a stage must end with, when it has one it can be
+    /// held to: on its last turn the stage is offered only that tool, and a
+    /// note two turns before says the budget is running out. A judge that
+    /// ran out of turns used to end without a verdict, leaving its rule
+    /// unchecked; now it hands in what it found.
+    pub(crate) wrap_up_tool: Option<&'static str>,
+    /// An output-token cap of the role's own, below the model's: a turn of a
+    /// role that only reads and reports never needs the model's full cap,
+    /// and a runaway turn there costs the whole cap.
+    pub(crate) max_output_tokens: Option<u32>,
 }
 
 pub(crate) const AUTHOR: Role = Role {
@@ -85,6 +95,8 @@ pub(crate) const AUTHOR: Role = Role {
     max_tokens_nudge: MAX_TOKENS_NUDGE,
     remember: true,
     resume: true,
+    wrap_up_tool: None,
+    max_output_tokens: None,
 };
 
 /// The Reviewer's budget covers a browser click-through of the deployed form
@@ -106,6 +118,8 @@ pub(crate) const REVIEWER: Role = Role {
     max_tokens_nudge: MAX_TOKENS_NUDGE,
     remember: true,
     resume: false,
+    wrap_up_tool: None,
+    max_output_tokens: None,
 };
 
 /// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
@@ -116,6 +130,10 @@ pub(crate) const REVIEWER: Role = Role {
 /// several things per turn otherwise. A rule that walks every page of the
 /// source asks for more in its `[judge] max_turns`.
 const JUDGE_TURNS: usize = 40;
+/// A judge's output cap. A verdict with a long list of violations fits in a
+/// few thousand tokens; one judge was seen writing 130,000 output tokens in
+/// eight turns.
+const JUDGE_MAX_OUTPUT_TOKENS: u32 = 16_000;
 const JUDGE_NUDGE: &str = "Your previous turn was cut off at the output-token limit. Keep each \
 call small: read one part of the document at a time, then call submit_rule_verdict.";
 
@@ -128,6 +146,8 @@ pub(crate) static JUDGE: Role = Role {
     max_tokens_nudge: JUDGE_NUDGE,
     remember: false,
     resume: false,
+    wrap_up_tool: Some("submit_rule_verdict"),
+    max_output_tokens: Some(JUDGE_MAX_OUTPUT_TOKENS),
 };
 
 /// The judge role with `max_turns` instead of the default turn budget when a
@@ -203,12 +223,27 @@ pub(crate) fn sys_reviewer(extra: &str, reviews: &[String]) -> String {
 /// A judge's system prompt: its preamble, the document format, the one rule
 /// it judges and, after it, what it was handed to read (`handed`, already
 /// written as prompt sections, or empty).
-pub(crate) fn sys_judge(rule: &agent::rules::JudgedRule, judgement: &str, handed: &str) -> String {
+pub(crate) fn sys_judge(rule: &agent::rules::JudgedRule, judgement: &str, handed: &str, turns: usize) -> String {
     format!(
-        "{JUDGE_PREAMBLE}{}\n\n## THE RULE\njudgement: {judgement}\n{}\n\n{}{handed}",
+        "{JUDGE_PREAMBLE}\n\n{}{}\n\n## THE RULE\njudgement: {judgement}\n{}\n\n{}{handed}",
+        judge_budget_note(turns),
         format_note(),
         rule.title,
         rule.description
+    )
+}
+
+/// What a judge is told about its turn budget, in its system prompt from the
+/// first turn: the prompt stays one cached prefix, and the last turn only
+/// narrows the tools (see `crate::hooks::WrapUp`).
+fn judge_budget_note(turns: usize) -> String {
+    format!(
+        "You have {turns} turns. On your last one only submit_rule_verdict is offered, so plan to \
+         have looked at what matters by then. If you get there without having checked everything \
+         the rule covers, still submit: one violation per break you found (pass=false), plus one \
+         violation per part you did not get to, its message starting with \"{}\" and naming that \
+         part. pass=true only when you checked everything and found no break.",
+        crate::hooks::NOT_CHECKED_PREFIX
     )
 }
 
@@ -322,7 +357,7 @@ mod tests {
             description: "d".into(),
             scope: Default::default(),
         };
-        for prompt in [sys_author("", "", &[]), sys_reviewer("", &[]), sys_judge(&rule, "judgement-1", "")] {
+        for prompt in [sys_author("", "", &[]), sys_reviewer("", &[]), sys_judge(&rule, "judgement-1", "", 8)] {
             assert!(prompt.contains("UBS AEM document"), "{prompt}");
         }
     }

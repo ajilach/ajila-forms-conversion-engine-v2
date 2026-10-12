@@ -1130,6 +1130,8 @@ mod tests {
             violations: usize::from(verdict == JudgeVerdict::Negative),
             unchecked_reason: None,
             turns: 4,
+            tool_calls: std::collections::BTreeMap::new(),
+            wrapped_up: false,
             duration_ms: 10_000,
             revision: 7,
             spend: Spend { input_tokens: 1_000, cost_usd: Some(cost), ..Spend::default() },

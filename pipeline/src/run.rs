@@ -842,6 +842,8 @@ pub(crate) async fn run_stage_as(
             .filter_map(|spec| spec.get("name").and_then(|n| n.as_str()).map(str::to_string))
             .collect(),
     });
+    // A role with an output cap of its own (a judge) gets the lower of the two.
+    let max_tokens = role.max_output_tokens.map_or(max_tokens, |cap| cap.min(max_tokens));
     let agent = build_stage_agent(model, max_tokens, shared_agent, &specs, &sub_stages, caller);
 
     let memory = if role.remember {
@@ -2681,6 +2683,8 @@ mod controller {
         max_tokens_nudge: "nudge incrementally",
         remember: true,
         resume: true,
+        wrap_up_tool: None,
+        max_output_tokens: None,
     };
 
     /// A restart after a turn already succeeded must not lose what that turn
@@ -3120,6 +3124,8 @@ mod controller {
         max_tokens_nudge: "nudge incrementally",
         remember: true,
         resume: true,
+        wrap_up_tool: None,
+        max_output_tokens: None,
     };
 
     async fn traced_stage(

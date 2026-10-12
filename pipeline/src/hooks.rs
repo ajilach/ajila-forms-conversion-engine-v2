@@ -247,6 +247,18 @@ impl StageHook {
         self
     }
 
+    /// `patch` plus what a stage with a [`Role::wrap_up_tool`] is told on
+    /// turn `turn` (see [`wrap_up`]).
+    fn with_wrap_up(&self, patch: RequestPatch, turn: usize) -> RequestPatch {
+        match wrap_up(self.role, turn) {
+            None => patch,
+            Some(WrapUp::Now(tool)) => patch.active_tools([tool]).context(wrap_up_note(format!(
+                "This is your last turn: call {tool} now with what you have found, marking the \
+                 parts you did not get to with \"{NOT_CHECKED_PREFIX}\" as your instructions say."
+            ))),
+        }
+    }
+
     fn stage(&self) -> String {
         self.role.name.to_string()
     }
@@ -395,6 +407,37 @@ fn describe_finish_reason(reason: &FinishReason) -> String {
     }
 }
 
+/// Where a stage with a [`Role::wrap_up_tool`] stands against its turn
+/// budget on turn `turn` (stage-wide, one-based): nothing to say, or its
+/// last turn. Pure. Unit-tested.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum WrapUp {
+    Now(&'static str),
+}
+
+/// How a judge marks, in its last-turn verdict, a part of the rule it did
+/// not get to check (see [`WrapUp::Now`]); `crate::judge` reads them back.
+pub(crate) const NOT_CHECKED_PREFIX: &str = "NOT CHECKED:";
+
+/// A stage's last turn holds it to its wrap-up tool. Nothing is said
+/// earlier: the budget is in the stage's system prompt, and a note on an
+/// earlier turn would change the start of the request (rig puts context
+/// documents ahead of the history) and so cost a cache write of the whole
+/// history twice more. The last turn changes the tools anyway.
+pub(crate) fn wrap_up(role: &Role, turn: usize) -> Option<WrapUp> {
+    let tool = role.wrap_up_tool?;
+    (turn >= role.max_iterations).then_some(WrapUp::Now(tool))
+}
+
+/// The note a wrap-up adds to its turn's request, as a context document.
+fn wrap_up_note(text: String) -> rig_core::completion::Document {
+    rig_core::completion::Document {
+        id: "turn-budget".to_string(),
+        text,
+        additional_props: std::collections::HashMap::new(),
+    }
+}
+
 /// A tool presentation as the trace records it: the text in full, each image
 /// reduced to a placeholder line, and how much image data that left out.
 struct TracedPresentation {
@@ -499,7 +542,7 @@ impl AgentHook for StageHook {
                 // pair a stale, smaller estimate with this turn's real usage
                 // and feed a mismatched ratio into the calibration EMA.
                 self.last_prompt_estimate.store(0, Ordering::Relaxed);
-                return CompletionCallAction::continue_run();
+                return CompletionCallAction::patch(self.with_wrap_up(RequestPatch::new(), turn));
             }
             Err(e) => {
                 self.obs.emit(RunEvent::Warning(format!(
@@ -509,7 +552,7 @@ impl AgentHook for StageHook {
                 self.control(ControlKind::ContextBudgetFailed, e.to_string());
                 self.trace_turn_started(turn, history_messages, history_messages, 0, shaping_started);
                 self.last_prompt_estimate.store(0, Ordering::Relaxed);
-                return CompletionCallAction::continue_run();
+                return CompletionCallAction::patch(self.with_wrap_up(RequestPatch::new(), turn));
             }
         };
 
@@ -517,7 +560,7 @@ impl AgentHook for StageHook {
         self.last_prompt_estimate.store(estimate, Ordering::Relaxed);
         self.trace_turn_started(turn, history_messages, shaped.len(), estimate, shaping_started);
 
-        CompletionCallAction::patch(RequestPatch::new().history(shaped))
+        CompletionCallAction::patch(self.with_wrap_up(RequestPatch::new().history(shaped), turn))
     }
 
     /// Reports the call starting, for the activity timeline. Never rewrites
@@ -960,6 +1003,25 @@ mod tests {
     use rig_agent::agent::{Agent, AgentBuilder};
     use rig_core::test_utils::{MockCompletionModel, MockStreamEvent};
 
+    /// A judge is held to its verdict tool on its last turn only; a role
+    /// without a wrap-up tool never is.
+    #[test]
+    fn wrap_up_follows_the_turn_budget() {
+        let judge = &crate::roles::JUDGE;
+        let budget = judge.max_iterations;
+        for turn in 1..budget {
+            assert_eq!(wrap_up(judge, turn), None, "turn {turn}");
+        }
+        assert_eq!(wrap_up(judge, budget), Some(WrapUp::Now("submit_rule_verdict")));
+        assert_eq!(wrap_up(judge, budget + 1), Some(WrapUp::Now("submit_rule_verdict")));
+        let long = crate::roles::judge_role(Some(16));
+        assert_eq!(wrap_up(long, 15), None);
+        assert_eq!(wrap_up(long, 16), Some(WrapUp::Now("submit_rule_verdict")));
+        for turn in 1..=250 {
+            assert_eq!(wrap_up(&crate::roles::AUTHOR, turn), None);
+        }
+    }
+
     fn no_price() -> PriceFn {
         Arc::new(|_| None)
     }
@@ -1025,6 +1087,8 @@ mod tests {
         max_tokens_nudge: "nudge incrementally",
         remember: true,
         resume: true,
+        wrap_up_tool: None,
+        max_output_tokens: None,
     };
 
     /// A role with no stuck tool, so a test's repeated calls never trip the
@@ -1038,6 +1102,8 @@ mod tests {
         max_tokens_nudge: "nudge incrementally",
         remember: true,
         resume: true,
+        wrap_up_tool: None,
+        max_output_tokens: None,
     };
 
     fn agent_with(model: MockCompletionModel) -> Agent {

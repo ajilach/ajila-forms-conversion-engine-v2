@@ -254,18 +254,27 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
             violations,
             unchecked_reason,
             turns,
+            tool_calls,
+            wrapped_up,
             duration_ms,
             spend,
             ..
         } => {
             let number = stats.check_number(*check);
+            let tools = if tool_calls.is_empty() {
+                String::new()
+            } else {
+                let calls: Vec<String> = tool_calls.iter().map(|(name, n)| format!("`{name}`×{n}")).collect();
+                format!("; tools: {}", calls.join(", "))
+            };
+            let wrapped = if *wrapped_up { " (held to its verdict on its last turn)" } else { "" };
             let outcome = match (verdict, unchecked_reason) {
                 (pipeline::trace::JudgeVerdict::Negative, _) => format!("negative ({violations} violation(s))"),
                 (_, Some(reason)) => format!("unchecked: {}", excerpt(&format::one_line(reason), 200)),
                 (v, None) => v.label().to_string(),
             };
             format!(
-                "- {at} judge `{rule_name}` (rule_check {number}) → {outcome}; {turns} turn(s), {}, {}\n",
+                "- {at} judge `{rule_name}` (rule_check {number}) → {outcome}{wrapped}; {turns} turn(s), {}, {}{tools}\n",
                 duration(*duration_ms),
                 usd(spend.cost_usd),
             )
