@@ -46,13 +46,27 @@ documents and a generated PDF from there, so they follow the pinned revision.
 The table lists the crates `agent` uses and what they pull in; `cargo vendor` adds the rest of
 their dependency tree among the u2s crates.
 
-## No local patches
+## Local patches, tried here first
 
 v3's tool servers are libraries as well as stdio binaries (each crate's `lib.rs` holds the server,
 `main.rs` serves it from the environment), so `agent/src/u2s.rs` links them in-process through their
 own `with_parts`, `dispatch`, `specs` and, for the verifier, `shutdown`. The host pdfium path is
-upstream's `u2s_render_pdf::set_library_path`. Nothing is patched: a change this repo needs goes
-upstream.
+upstream's `u2s_render_pdf::set_library_path`.
+
+A change to a u2s tool server is made here first and tried on real conversions with the run
+analyzer; once it has proven itself it goes upstream to ajila-forms-conversion-engine-v3, and the
+next sync brings it back. Until then the vendored crate carries it, so:
+
+- each patch is its own commits touching only `vendor/crates/<crate>`, so it ports with
+  `git format-patch --relative=vendor/crates` and `git am --directory=crates` in v3;
+- the crate's `.cargo-checksum.json` is regenerated for the files it changes (cargo refuses a
+  vendored file whose checksum does not match);
+- `scripts/sync-u2s.sh` replaces `vendor/crates` wholesale: do not run it while a patch below is
+  not yet upstream.
+
+| Crate | Patch | Upstream |
+|---|---|---|
+| `u2s-aem-verify-core` | `verify_set` with `fields` (several controls in one call); `AemVerifyServer::warm_up` | proposed on v3 branch `perf/verify-mcp-tiles-batch-warmup` |
 
 ## How the agent offers the vendored tools
 

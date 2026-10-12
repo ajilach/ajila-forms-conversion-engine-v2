@@ -1962,7 +1962,7 @@
     "name": "aem_verify_field"
   },
   {
-    "description": "Sets one control's value on the form's model, the same place the form's own data binding writes it. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. `field` is a control's SOM expression from aem_verify_controls (refused for a readOnly control, which only the form's own scripts may change, and for a signature, which is drawn); a name is accepted only while exactly one control carries it (instances of a repeated panel share names, and an ambiguous name is refused listing their SOM expressions). `value` is one of the control's own option values for a radio or dropdown, an array of option values for a multi-select checkbox, or free text/a number for anything else -- a value that is not one of a choice control's own options is refused naming the real ones, never silently coerced. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the driver's own navigation signals, and any native dialogs (alert, confirm) the form raised, each already accepted as if OK was clicked. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
+    "description": "Sets one control's value on the form's model, the same place the form's own data binding writes it. The form's own scripts run in response, so this can reveal a hidden section, recompute a total, or move content onto another page. `field` is a control's SOM expression from aem_verify_controls (refused for a readOnly control, which only the form's own scripts may change, and for a signature, which is drawn); a name is accepted only while exactly one control carries it (instances of a repeated panel share names, and an ambiguous name is refused listing their SOM expressions). `value` is one of the control's own option values for a radio or dropdown, an array of option values for a multi-select checkbox, or free text/a number for anything else -- a value that is not one of a choice control's own options is refused naming the real ones, never silently coerced. Returns the new `revision` plus what happened: which other fields changed as a side effect, which controls appeared or disappeared, the driver's own navigation signals, and any native dialogs (alert, confirm) the form raised, each already accepted as if OK was clicked. To fill several controls at once, pass `fields` (up to 25 `{field, value}` pairs) instead of `field`/`value`: they are set in order, each one's scripts running before the next. The batch stops at the first refused set: the first one refused fails the call as a single set would, a later one is reported under `failed` while the sets before it stay applied and `revision` is the revision after the last of them. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
@@ -1974,6 +1974,28 @@
         "field": {
           "description": "A control's `field` (its SOM expression), from aem_verify_controls.",
           "type": "string"
+        },
+        "fields": {
+          "description": "Several controls to set in order, instead of `field`/`value`.",
+          "items": {
+            "properties": {
+              "field": {
+                "description": "A control's `field` (its SOM expression), from verify_controls.",
+                "type": "string"
+              },
+              "value": {
+                "description": "What to set it to, as `value` above."
+              }
+            },
+            "required": [
+              "field",
+              "value"
+            ],
+            "type": "object"
+          },
+          "maxItems": 25,
+          "minItems": 1,
+          "type": "array"
         },
         "session": {
           "description": "The session handle aem_verify_open returned: one open form, in its own browser tab.",
