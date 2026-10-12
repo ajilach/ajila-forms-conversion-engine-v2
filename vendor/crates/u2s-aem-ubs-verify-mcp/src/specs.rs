@@ -20,19 +20,19 @@ pub fn tool_specs() -> Vec<Value> {
                 "Reports this server's configured profile (the AEM and Chromium images, the \
                  submit artefact strategy, the Redacto rendering dependency UBS's own submit \
                  path calls out to), whether Docker and Redacto are currently reachable, and \
-                 whether `session_id`'s own persistent AEM session is up and for how long (plus \
-                 how many sessions are active across every `session_id`). Touches nothing -- \
+                 whether `instance_id`'s own persistent AEM instance is up and for how long (plus \
+                 how many instances are active across every `instance_id`), and which sessions (open forms) it holds. Touches nothing -- \
                  safe to call at any time, including before ever running Docker, and is how a \
                  caller distinguishes \"this server is misconfigured\" from \"Docker is not \
                  running right now\".",
             "input_schema": {
                 "type": "object",
                 "properties": {
-                    "session_id": {
+                    "instance_id": {
                         "type": "string",
                         "description":
-                            "Which caller's session to report on -- the same value passed to \
-                             verify_run. Omit to report on the shared default session."
+                            "Which caller's instance to report on -- the same value passed to \
+                             verify_run. Omit to report on the shared default instance."
                     }
                 },
                 "additionalProperties": false
@@ -67,7 +67,7 @@ pub fn tool_specs() -> Vec<Value> {
         json!({
             "name": "verify_run",
             "description":
-                "Installs the package on this profile's persistent AEM session (booted from \
+                "Installs the package on this profile's persistent AEM instance (booted from \
                  this profile's prebuilt image on first use, then reused across calls), opens \
                  the form with the `mandator`/`afAcceptLang` URL parameters this package's own \
                  metadata component resolves to (a UBS form otherwise fails server-side with \
@@ -77,11 +77,11 @@ pub fn tool_specs() -> Vec<Value> {
                  `guideBridge.submit()`, which would take AEM's native XDP rendering path -- \
                  unavailable on this workspace's own ARM Docker image), capturing the Redacto \
                  rendering dependency's PDF as a browser download; the package is uninstalled \
-                 again afterward so the session stays clean for the next call. Every screenshot \
+                 again afterward so the instance stays clean for the next call. Every screenshot \
                  and artefact travels as a blob, never inline: a real run's images would not \
                  fit a tool result. `dry_run: true` validates the package and reports Docker \
                  reachability without starting anything. This tool is side-effecting: it \
-                 installs software on a session it does not tear down and, unless `dry_run` or \
+                 installs software on an instance it does not tear down and, unless `dry_run` or \
                  `submit: false`, submits the rendered form. It is never offered to the \
                  Conversion Agent.",
             "input_schema": {
@@ -110,14 +110,14 @@ pub fn tool_specs() -> Vec<Value> {
                         "type": "boolean",
                         "description": "Fill and submit after rendering; default true."
                     },
-                    "session_id": {
+                    "instance_id": {
                         "type": "string",
                         "description":
                             "Any stable string identifying the calling agent/run. Two different \
-                             values get two independent AEM+Chromium sessions, so concurrent \
+                             values get two independent AEM+Chromium instances, so concurrent \
                              callers never share or block on one another's instance; the same \
-                             value across calls reuses that caller's own session. Omit to use a \
-                             single shared default session."
+                             value across calls reuses that caller's own instance. Omit to use a \
+                             single shared default instance."
                     }
                 },
                 "additionalProperties": false
@@ -224,11 +224,11 @@ mod tests {
     }
 
     #[test]
-    fn there_are_twelve_tools_scoped_to_aem_ubs() {
+    fn there_are_fifteen_tools_scoped_to_aem_ubs() {
         let specs = tool_specs();
-        // verify_status, verify_package_check, verify_run, plus the nine
+        // verify_status, verify_package_check, verify_run, plus the twelve
         // shared interactive tools (`u2s_aem_verify_core::specs_shared`).
-        assert_eq!(specs.len(), 12);
+        assert_eq!(specs.len(), 15);
         assert_eq!(specs[0]["name"], "verify_status");
         assert_eq!(specs[1]["name"], "verify_package_check");
         assert_eq!(specs[2]["name"], "verify_run");
@@ -269,9 +269,12 @@ mod tests {
                 "verify_run",
                 "verify_open",
                 "verify_controls",
+                "verify_field",
                 "verify_set",
+                "verify_click",
                 "verify_next",
                 "verify_prev",
+                "verify_goto",
                 "verify_reset",
                 "verify_screenshot",
                 "verify_submit",
@@ -294,9 +297,12 @@ mod tests {
         for tool in [
             "verify_open",
             "verify_controls",
+            "verify_field",
             "verify_set",
+            "verify_click",
             "verify_next",
             "verify_prev",
+            "verify_goto",
             "verify_reset",
             "verify_screenshot",
             "verify_submit",

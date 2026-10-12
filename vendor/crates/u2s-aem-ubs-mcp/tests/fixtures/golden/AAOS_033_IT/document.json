@@ -10,6 +10,21 @@
             "uuid": "88cb9d98-21e5-4280-a49a-e7d27beb80d9"
           },
           {
+            "always_in_pdf": true,
+            "colspan": 12,
+            "content": {
+              "it": "<p><b>UBS Europe SE</b> (Succursale Italia)</p>\n"
+            },
+            "dor_colspan": null,
+            "dor_header_slot": "slot2",
+            "name": "ST_HeaderSlot2",
+            "show_if_hidden": true,
+            "summary_exclude": true,
+            "type": "TextDraw",
+            "uuid": "00000000-0000-4000-8000-00000000d020",
+            "visible": false
+          },
+          {
             "alignment": "Vertical",
             "bind_ref": null,
             "colspan": 12,
@@ -977,7 +992,6 @@
     },
     "type": "Root"
   },
-  "header": "UBS Europe SE (Succursale Italia)",
   "languages": [
     "it"
   ],

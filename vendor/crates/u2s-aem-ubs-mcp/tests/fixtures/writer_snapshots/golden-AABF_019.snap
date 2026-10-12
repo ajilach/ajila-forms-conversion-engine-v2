@@ -236,7 +236,10 @@ Content-Package-Type: content
                     <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
                     <fd:rules jcr:primaryType="nt:unstructured">
                     <fd:scripts fd:init="[{\"script\":{\"field\":\"this\"\\,\"event\":\"Initialize\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"TXT_BankingRelationship1.value = '0319';\\\\nTXT_BankingRelationship1.enabled = false;\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
-                  <textdraw_slot2_291a0127a0f04cbf93036c6f742bc2ed _value="<p><b>UBS Europe SE</b></p>\n" alwaysInPdf="true" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                  <textdraw_0000000000004000800000000000d020 _value="<p><b>UBS Europe SE</b></p>\n" alwaysInPdf="true" css="" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
               <radiobutton_50ed42aa43f84792b3196197a9f332d7 _value="1" alignment="vertical" css="widget_ajila_forms_radiobutton" dorFieldStyling="Default" guideNodeClass="guideRadioButton" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Formular Adressat" mandatory="true" name="RB_FormularAdressat" options="[1=Private Person,2=Minderjährige,3=Firma,4=GbR]" richTextOptions="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/radiobutton" textIsRich="[false,false,false,false]">
                 <cq:responsive jcr:primaryType="nt:unstructured">
                   <default jcr:primaryType="nt:unstructured" offset="0" width="12">
@@ -1103,7 +1106,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Vertretungsberechtigte(r)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Bank des Begünstigten</p>"
 "fd_<p>Beneficiary</p>" = "<p>Begünstigter</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Kosten Ausland</p>"
 "fd_<p>Costs</p>" = "<p>Kosten</p>"
 "fd_<p>Execution day</p>" = "<p>Ausführungstag</p>"
@@ -1182,7 +1185,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Vertretungsberechtigte(r)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Bank des Begünstigten</p>"
 "fd_<p>Beneficiary</p>" = "<p>Begünstigter</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Kosten Ausland</p>"
 "fd_<p>Costs</p>" = "<p>Kosten</p>"
 "fd_<p>Execution day</p>" = "<p>Ausführungstag</p>"
@@ -1279,7 +1282,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Representante(s) autorizado(s)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Banco del beneficiario</p>"
 "fd_<p>Beneficiary</p>" = "<p>Beneficiario</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Costes en el extranjero</p>"
 "fd_<p>Costs</p>" = "<p>Costes</p>"
 "fd_<p>Execution day</p>" = "<p>Día de ejecución</p>"
@@ -1369,7 +1372,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Résumé des informations du formulaire"
 "fd_Thank you for submitting the form." = "Merci d'avoir soumis le formulaire."
 == package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AABF/_jcr_content/guideContainer/assets/dictionary/it.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su \"Anteprima\", è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su \"Invia\", non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su «Anteprima», è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su «Invia», non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Il modulo non è stato inviato. Si prega di riprovare più tardi.</p>"
 "fd_Add" = "Aggiungi"
 "fd_Back" = "Indietro"
@@ -1394,7 +1397,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Representante(s) autorizado(s)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Banco del beneficiario</p>"
 "fd_<p>Beneficiary</p>" = "<p>Beneficiario</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Costes en el extranjero</p>"
 "fd_<p>Costs</p>" = "<p>Costes</p>"
 "fd_<p>Execution day</p>" = "<p>Día de ejecución</p>"
@@ -1831,7 +1834,10 @@ Content-Package-Type: content
                     <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
                     <fd:rules jcr:primaryType="nt:unstructured">
                     <fd:scripts fd:init="[{\"script\":{\"field\":\"this\"\\,\"event\":\"Initialize\"\\,\"model\":{\"nodeName\":\"EVENT_SCRIPTS\"}\\,\"content\":\"TXT_BankingRelationship1.value = '0319';\\\\nTXT_BankingRelationship1.enabled = false;\"}\\,\"nodeName\":\"SCRIPTMODEL\"\\,\"version\":1\\,\"enabled\":true}]" jcr:primaryType="nt:unstructured">
-                  <textdraw_slot2_291a0127a0f04cbf93036c6f742bc2ed _value="<p><b>UBS Europe SE</b></p>\n" alwaysInPdf="true" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                  <textdraw_0000000000004000800000000000d020 _value="<p><b>UBS Europe SE</b></p>\n" alwaysInPdf="true" css="" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
               <radiobutton_50ed42aa43f84792b3196197a9f332d7 _value="1" alignment="vertical" bindRef="/UBSAF_AABF/FormConfigurator/FormularAdressat" css="widget_ajila_forms_radiobutton" dorFieldStyling="Default" guideNodeClass="guideRadioButton" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Formular Adressat" mandatory="true" name="RB_FormularAdressat" options="[1=Private Person,2=Minderjährige,3=Firma,4=GbR]" richTextOptions="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/radiobutton" textIsRich="[false,false,false,false]">
                 <cq:responsive jcr:primaryType="nt:unstructured">
                   <default jcr:primaryType="nt:unstructured" offset="0" width="12">
@@ -2698,7 +2704,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Vertretungsberechtigte(r)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Bank des Begünstigten</p>"
 "fd_<p>Beneficiary</p>" = "<p>Begünstigter</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Kosten Ausland</p>"
 "fd_<p>Costs</p>" = "<p>Kosten</p>"
 "fd_<p>Execution day</p>" = "<p>Ausführungstag</p>"
@@ -2777,7 +2783,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Vertretungsberechtigte(r)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Bank des Begünstigten</p>"
 "fd_<p>Beneficiary</p>" = "<p>Begünstigter</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Kosten Ausland</p>"
 "fd_<p>Costs</p>" = "<p>Kosten</p>"
 "fd_<p>Execution day</p>" = "<p>Ausführungstag</p>"
@@ -2874,7 +2880,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Representante(s) autorizado(s)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Banco del beneficiario</p>"
 "fd_<p>Beneficiary</p>" = "<p>Beneficiario</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Costes en el extranjero</p>"
 "fd_<p>Costs</p>" = "<p>Costes</p>"
 "fd_<p>Execution day</p>" = "<p>Día de ejecución</p>"
@@ -2964,7 +2970,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Résumé des informations du formulaire"
 "fd_Thank you for submitting the form." = "Merci d'avoir soumis le formulaire."
 == bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AABF/_jcr_content/guideContainer/assets/dictionary/it.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su \"Anteprima\", è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su \"Invia\", non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su «Anteprima», è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su «Invia», non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Il modulo non è stato inviato. Si prega di riprovare più tardi.</p>"
 "fd_Add" = "Aggiungi"
 "fd_Back" = "Indietro"
@@ -2989,7 +2995,7 @@ Content-Package-Type: content
 "fd_<p>Authorized representative(s)</p>" = "<p>Representante(s) autorizado(s)</p>"
 "fd_<p>Bank of beneficiary</p>" = "<p>Banco del beneficiario</p>"
 "fd_<p>Beneficiary</p>" = "<p>Beneficiario</p>"
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>Costs abroad</p>" = "<p>Costes en el extranjero</p>"
 "fd_<p>Costs</p>" = "<p>Costes</p>"
 "fd_<p>Execution day</p>" = "<p>Día de ejecución</p>"

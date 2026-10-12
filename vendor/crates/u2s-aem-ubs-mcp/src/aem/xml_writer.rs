@@ -92,6 +92,11 @@ pub(super) struct RenderIndex {
     /// Configurator choice name → the value of the option that opens selected.
     /// Absent means nothing is preselected.
     pub(super) preselect: HashMap<String, String>,
+    /// The first wizard step: the first page panel directly under the root.
+    /// Its title is the subtitle under the form title when the page opens with
+    /// the banking relationship, and the configurator's own when it is the
+    /// configurator. `None` for a form with no page.
+    pub(super) first_page: Option<Uuid>,
 }
 
 impl RenderIndex {
@@ -106,8 +111,20 @@ impl RenderIndex {
             signature_twins: twins.0,
             twin_data_panels: twins.1,
             jump_to_field_repeatables: collect_jump_to_field_repeatables(root),
+            first_page: first_page(root),
         }
     }
+}
+
+/// The uuid of the first page panel directly under the root.
+fn first_page(root: &AemNode) -> Option<Uuid> {
+    let AemNode::Root { children, .. } = root else {
+        return None;
+    };
+    children.iter().find_map(|child| match child {
+        AemNode::Panel { uuid, is_page: true, .. } => Some(*uuid),
+        _ => None,
+    })
 }
 
 /// The longest a subject may be before it stops being a subject and starts being
@@ -244,8 +261,8 @@ fn sane_subject(text: &str) -> Option<String> {
 /// account-holder rows). Excluding the whole page here suppressed the button on
 /// exactly the repeatables — `PN_CPGRP`, `PN_AHGRP` — a person would most want to
 /// reach. Only the configurator's own title panel is exempt, which is decided
-/// separately where that panel's DoR/summary exclusions are (`is_first_page &&
-/// name.starts_with("PN_FormConfigurator")` in the panel context), not here.
+/// separately where that panel's DoR/summary exclusions are (the first page
+/// named `PN_FormConfigurator...` in `Lower::step_title`), not here.
 fn collect_jump_to_field_repeatables(root: &AemNode) -> HashSet<String> {
     let mut out = HashSet::new();
     let AemNode::Root { children, .. } = root else {
@@ -1179,6 +1196,36 @@ mod tests {
             2,
             "both items carry the same markup:\n{xml}"
         );
+    }
+
+    /// Markup authored under a synonym reaches its canonical locale too: a
+    /// document writes Spanish as `es`, and the component's `sp` item must carry
+    /// that, not fall back to the master language (BBTB_019 shipped English
+    /// tables to every `sp` reader).
+    #[test]
+    fn the_canonical_locale_takes_markup_authored_under_its_synonym() {
+        let mut config = test_config();
+        config.languages = vec!["en".into(), "es".into()];
+        config.master_language = "en".into();
+        let root = AemNode::Root {
+            title: "Test Form".into(),
+            children: vec![html_node(&[
+                ("en", "<table><tr><td>Plan EN</td></tr></table>"),
+                ("es", "<table><tr><td>Plan ES</td></tr></table>"),
+            ])],
+        };
+
+        let xml = generate_aem_xml(&root, &config).expect("the form is written");
+
+        let item = |locale: &str| {
+            xml.split("<item")
+                .find(|item| item.contains(&format!("locale=\"{locale}\"")))
+                .unwrap_or_else(|| panic!("no `{locale}` item:\n{xml}"))
+                .to_string()
+        };
+        assert!(item("sp").contains("Plan ES"), "{}", item("sp"));
+        assert!(item("es").contains("Plan ES"), "{}", item("es"));
+        assert!(item("en").contains("Plan EN"), "{}", item("en"));
     }
 
     /// A locale the profile renames is written under the profile's spelling.

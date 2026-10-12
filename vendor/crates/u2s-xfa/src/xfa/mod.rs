@@ -1,8 +1,13 @@
 pub mod font_manager;
 pub mod hyphenation;
+pub mod caption;
+pub mod field_meta;
 pub mod instances;
+pub mod locale;
+pub mod picture;
 pub mod script_executor;
 pub mod scripting;
+pub mod shapes;
 pub mod text_metrics;
 
 use quick_xml::Reader;
@@ -176,6 +181,30 @@ impl Border {
 pub struct Fill {
     pub color: Option<(u8, u8, u8)>,
     pub presence: String,
+    /// A `<linear>` gradient from `color` to its own end color. `None` for a
+    /// solid fill. (`<radial>`, `<pattern>` and `<stipple>` are not drawn:
+    /// the fill is its solid start color.)
+    pub linear: Option<LinearGradient>,
+}
+
+/// The direction a `<linear>` fill runs in, from its start color to its end
+/// color (XFA 3.3 "The linear element").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GradientDirection {
+    #[default]
+    ToRight,
+    ToBottom,
+    ToLeft,
+    ToTop,
+}
+
+/// A `<linear>` gradient fill.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinearGradient {
+    pub direction: GradientDirection,
+    /// The `<linear>`'s own `<color>`. Black when it has none: the spec
+    /// leaves that default to the context, and Designer always writes one.
+    pub end: (u8, u8, u8),
 }
 
 /// Generic font family for fallback per XFA spec
@@ -584,6 +613,11 @@ pub struct XfaNode {
 
     /// Child nodes
     pub children: Vec<XfaNode>,
+
+    /// A `<field>`'s pictures, length, lines, tooltip and null test, with
+    /// its prevailing locale. Set by [`XfaNode::parse`] for every field and
+    /// `None` on every other node; see [`field_meta`].
+    pub field_meta: Option<Box<field_meta::FieldMeta>>,
 }
 
 /// Enum representing the specific kind/type of XFA node
@@ -740,7 +774,27 @@ impl XfaNode {
             presence,
             attributes,
             children: Vec::new(),
+            field_meta: None,
         }
+    }
+
+    /// The value the template gives this node: its `<value>`'s content
+    /// (`<text>`, `<date>`, `<integer>`, ...), the field's initial value in a
+    /// merge with no data (XFA 3.3 §4). `None` when it has none or it is
+    /// empty.
+    pub fn template_value(&self) -> Option<String> {
+        self.children
+            .iter()
+            .filter(|c| matches!(c.kind, XfaNodeKind::Value))
+            .flat_map(|v| v.children.iter())
+            .find_map(|content| match &content.kind {
+                XfaNodeKind::Text { content } if !content.is_empty() => Some(content.clone()),
+                XfaNodeKind::Element {
+                    text_content: Some(content),
+                    ..
+                } if !content.is_empty() => Some(content.clone()),
+                _ => None,
+            })
     }
 
     /// Extract margins from child <margin> element after parsing children
@@ -843,7 +897,7 @@ impl XfaNode {
     }
 
     /// Parse an <edge> element
-    fn parse_edge(node: &XfaNode) -> Edge {
+    pub(crate) fn parse_edge(node: &XfaNode) -> Edge {
         Edge {
             thickness: node
                 .attributes
@@ -864,7 +918,7 @@ impl XfaNode {
     }
 
     /// Parse a <corner> element
-    fn parse_corner(node: &XfaNode) -> Corner {
+    pub(crate) fn parse_corner(node: &XfaNode) -> Corner {
         Corner {
             thickness: node
                 .attributes
@@ -888,7 +942,19 @@ impl XfaNode {
     }
 
     /// Parse a <fill> element
-    fn parse_fill(node: &XfaNode) -> Fill {
+    pub(crate) fn parse_fill(node: &XfaNode) -> Fill {
+        let linear = node.children.iter().find_map(|child| match &child.kind {
+            XfaNodeKind::Element { tag_name, .. } if tag_name == "linear" => Some(LinearGradient {
+                direction: match child.attributes.get("type").map(String::as_str) {
+                    Some("toBottom") => GradientDirection::ToBottom,
+                    Some("toLeft") => GradientDirection::ToLeft,
+                    Some("toTop") => GradientDirection::ToTop,
+                    _ => GradientDirection::ToRight,
+                },
+                end: Self::parse_color_from_children(&child.children).unwrap_or((0, 0, 0)),
+            }),
+            _ => None,
+        });
         Fill {
             presence: node
                 .attributes
@@ -896,6 +962,7 @@ impl XfaNode {
                 .cloned()
                 .unwrap_or_else(|| "visible".to_string()),
             color: Self::parse_color_from_children(&node.children),
+            linear,
         }
     }
 
@@ -1086,8 +1153,15 @@ impl XfaNode {
     }
 
     /// Parse dimension string to Num (handles units like pt, mm, in)
+    ///
+    /// A leading `=` is accepted and ignored. XFA 3.3 "Measurements" (p.36)
+    /// has no such prefix, but Designer writes it on dimensions it locks
+    /// (`h="=0mm"` on table rules, 185 times in the UBS corpus), and Acrobat
+    /// reads the value after it. Rejecting it would leave those draws with no
+    /// height and their rules undrawn.
     pub fn parse_dimension(s: &str) -> Result<Num, String> {
         let s = s.trim();
+        let s = s.strip_prefix('=').map(str::trim_start).unwrap_or(s);
 
         // Conversion constants with full precision
         let pts_per_inch = Decimal::from_str("72").unwrap();
@@ -1135,6 +1209,10 @@ impl XfaNode {
         // Re-extract styling after prototype resolution so that merged
         // attributes (e.g. hyphenation settings from proto) are picked up.
         Self::refresh_styling(&mut root_nodes);
+
+        // Each field's pictures and other value metadata, read once here
+        // with its prevailing locale.
+        field_meta::attach(&mut root_nodes);
 
         Ok(root_nodes)
     }
@@ -1329,8 +1407,17 @@ impl XfaNode {
                     let text = crate::util::normalize_nfc(&text);
                     text_content.push_str(&text);
                 }
-                Ok(Event::Empty(_e)) => {
-                    // Self-closing tags - we can handle them if needed
+                Ok(Event::Empty(e)) => {
+                    // A self-closing element is an element with no content
+                    // (`<keep intact="contentArea"/>`, `<line/>`), exactly as
+                    // `parse_element_content` reads one.
+                    let tag_name = std::str::from_utf8(e.name().as_ref())
+                        .map_err(|e| format!("Invalid UTF-8: {}", e))?
+                        .to_string();
+                    let attributes = Self::parse_attributes(&e)?;
+                    let mut node = Self::new(XfaNodeKind::from_tag(&tag_name), attributes);
+                    node.extract_styling_from_children();
+                    nodes.push(node);
                 }
                 Ok(Event::Eof) => {
                     return Ok(());
@@ -2137,6 +2224,7 @@ mod context_extraction_tests {
             presence: Presence::Visible,
             attributes: HashMap::new(),
             children: vec![],
+            field_meta: None,
         }
     }
 
@@ -2251,6 +2339,41 @@ mod context_extraction_tests {
         let nodes = vec![page_set, root];
         let found = find_root_subform(&nodes).unwrap();
         assert_eq!(found.name.as_deref(), Some("RootForm"));
+    }
+}
+
+#[cfg(test)]
+mod parse_edge_case_tests {
+    use super::*;
+
+    #[test]
+    fn a_designer_locked_dimension_reads_the_value_after_the_equals_sign() {
+        assert_eq!(XfaNode::parse_dimension("=0mm"), Ok(Num::ZERO));
+        assert_eq!(XfaNode::parse_dimension("= 2pt"), Ok(num(2.0)));
+        assert!(XfaNode::parse_dimension("=").is_err());
+    }
+
+    #[test]
+    fn self_closing_children_survive_under_a_bare_template_root() {
+        let nodes = XfaNode::parse(
+            br#"<template><subform name="S"><keep intact="contentArea"/><draw name="D"><value><line/></value></draw></subform></template>"#,
+        )
+        .expect("parse");
+        let subform = &nodes[0].children[0];
+        let tags: Vec<String> = subform
+            .children
+            .iter()
+            .map(|c| match &c.kind {
+                XfaNodeKind::Element { tag_name, .. } => tag_name.clone(),
+                other => format!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(tags, ["keep", "Draw"]);
+        let value = &subform.children[1].children[0];
+        assert!(matches!(
+            &value.children[0].kind,
+            XfaNodeKind::Element { tag_name, .. } if tag_name == "line"
+        ));
     }
 }
 

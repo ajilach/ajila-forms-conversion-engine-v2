@@ -232,7 +232,10 @@ Content-Package-Type: content
                     <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
                     <fd:rules jcr:primaryType="nt:unstructured">
                     <fd:scripts jcr:primaryType="nt:unstructured">
-                  <textdraw_slot2_88cb9d9821e54280a49ae7d27beb80d9 _value="<p><b>UBS Europe SE</b> (Succursale Italia)</p>\n" alwaysInPdf="true" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                  <textdraw_0000000000004000800000000000d020 _value="<p><b>UBS Europe SE</b> (Succursale Italia)</p>\n" alwaysInPdf="true" css="" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
               <radiobutton_5ac2f10c525449218a1d6f9091b1bdf6 _value="1" alignment="vertical" css="widget_ajila_forms_radiobutton" dorFieldStyling="Default" guideNodeClass="guideRadioButton" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Tipo" mandatory="true" name="RB_GroupTipo" options="[1=Individual,2=Legal entity]" richTextOptions="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/radiobutton" textIsRich="[false,false]">
                 <cq:responsive jcr:primaryType="nt:unstructured">
                   <default jcr:primaryType="nt:unstructured" offset="0" width="12">
@@ -636,7 +639,7 @@ Content-Package-Type: content
     <parsys2 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
       <guidefooter jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guidefooter">
 == package jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/de-ch.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -655,7 +658,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Zusammenfassung der Formulardaten"
 "fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
 == package jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/de.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -692,7 +695,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Summary of form information"
 "fd_Thank you for submitting the form." = "Thank you for submitting the form."
 == package jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/es.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.</p>"
 "fd_Add" = "Añadir"
 "fd_Back" = "Atrás"
@@ -729,7 +732,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Résumé des informations du formulaire"
 "fd_Thank you for submitting the form." = "Merci d'avoir soumis le formulaire."
 == package jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/it.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su \"Anteprima\", è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su \"Invia\", non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su «Anteprima», è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su «Invia», non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Il modulo non è stato inviato. Si prega di riprovare più tardi.</p>"
 "fd_Add" = "Aggiungi"
 "fd_Add Cliente" = "Aggiungere Cliente"
@@ -750,7 +753,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Riepilogo delle informazioni del modulo"
 "fd_Thank you for submitting the form." = "Grazie per aver inviato il modulo."
 == package jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/sp.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.</p>"
 "fd_Add" = "Añadir"
 "fd_Back" = "Atrás"
@@ -1075,7 +1078,10 @@ Content-Package-Type: content
                     <items jcr:primaryType="nt:unstructured" sling:resourceType="fd/af/layouts/gridFluidLayout2">
                     <fd:rules jcr:primaryType="nt:unstructured">
                     <fd:scripts jcr:primaryType="nt:unstructured">
-                  <textdraw_slot2_88cb9d9821e54280a49ae7d27beb80d9 _value="<p><b>UBS Europe SE</b> (Succursale Italia)</p>\n" alwaysInPdf="true" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                  <textdraw_0000000000004000800000000000d020 _value="<p><b>UBS Europe SE</b> (Succursale Italia)</p>\n" alwaysInPdf="true" css="" dorFieldStyling="Default" dorHeaderSlot="slot2" guideNodeClass="guideTextDraw" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" name="ST_HeaderSlot2" showIfHidden="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw" summaryExclusion="true" textIsRich="true" visible="{Boolean}false">
+                    <fd:rules jcr:primaryType="nt:unstructured">
+                    <cq:responsive jcr:primaryType="nt:unstructured">
+                      <default jcr:primaryType="nt:unstructured" offset="0" width="12">
               <radiobutton_5ac2f10c525449218a1d6f9091b1bdf6 _value="1" alignment="vertical" bindRef="/UBSAF_AAOS/FormConfigurator/Tipo" css="widget_ajila_forms_radiobutton" dorFieldStyling="Default" guideNodeClass="guideRadioButton" jcr:created="{Date}<DATE>" jcr:createdBy="blueprint" jcr:lastModified="{Date}<DATE>" jcr:lastModifiedBy="blueprint" jcr:primaryType="nt:unstructured" jcr:title="Tipo" mandatory="true" name="RB_GroupTipo" options="[1=Individual,2=Legal entity]" richTextOptions="true" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/radiobutton" textIsRich="[false,false]">
                 <cq:responsive jcr:primaryType="nt:unstructured">
                   <default jcr:primaryType="nt:unstructured" offset="0" width="12">
@@ -1479,7 +1485,7 @@ Content-Package-Type: content
     <parsys2 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
       <guidefooter jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guidefooter">
 == bound jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/de-ch.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -1498,7 +1504,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Zusammenfassung der Formulardaten"
 "fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
 == bound jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/de.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -1535,7 +1541,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Summary of form information"
 "fd_Thank you for submitting the form." = "Thank you for submitting the form."
 == bound jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/es.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.</p>"
 "fd_Add" = "Añadir"
 "fd_Back" = "Atrás"
@@ -1572,7 +1578,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Résumé des informations du formulaire"
 "fd_Thank you for submitting the form." = "Merci d'avoir soumis le formulaire."
 == bound jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/it.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su \"Anteprima\", è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su \"Invia\", non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Cliccando su «Anteprima», è possibile verificare il documento prima dell'invio.</p><p>Dopo aver cliccato su «Invia», non sarà più possibile modificare il documento e il PDF verrà creato per la firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Il modulo non è stato inviato. Si prega di riprovare più tardi.</p>"
 "fd_Add" = "Aggiungi"
 "fd_Add Cliente" = "Aggiungere Cliente"
@@ -1593,7 +1599,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Riepilogo delle informazioni del modulo"
 "fd_Thank you for submitting the form." = "Grazie per aver inviato il modulo."
 == bound jcr_root/content/forms/af/afforms_italy_all/af_aa/AF_AAOS/_jcr_content/guideContainer/assets/dictionary/sp.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.</p>"
 "fd_Add" = "Añadir"
 "fd_Back" = "Atrás"

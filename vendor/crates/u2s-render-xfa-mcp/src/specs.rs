@@ -104,7 +104,7 @@ fn state_prop() -> Value {
                         "click": {
                             "type": "object",
                             "properties": {
-                                "field": { "type": "string", "description": "A button's field path, from xfa_controls (kind `button`)." }
+                                "field": { "type": "string", "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`." }
                             },
                             "required": ["field"]
                         }
@@ -155,18 +155,29 @@ pub fn tool_specs() -> Vec<Value> {
              cannot change it either. The form's scripts can lock or unlock fields in \
              response to a change, and prefill them: `access_changes` lists every field \
              whose access changed, as `{field, from, to}`, and `side_effects` every value \
-             the scripts wrote.",
+             the scripts wrote. `messages` lists every dialog the scripts raised (an \
+             `app.alert` saying a field is mandatory, say), each as `{source, text, title, \
+             answer}`: nobody can press its buttons, so it takes its default, OK (answer 1) \
+             or Yes (answer 4). A script that fails is named in `warning`, since whatever \
+             the rest of its handler would have done is missing, and so is a value the \
+             field's own validation rejects (empty though mandatory, or refused by its \
+             validate script); the value is kept, as the form keeps it.",
             json!({
                 "session": session_prop(),
                 "expected_revision": revision_prop(),
                 "field": { "type": "string", "description": "A field path, from xfa_controls." },
-                "value": { "type": "string", "description": "What to set it to — one of the control's options, or its own on-value for a radio button." }
+                "value": { "type": "string", "description": "What to set it to — one of the control's options, or its own on-value for a radio button. A field with a `format` takes its canonical form (a date `YYYY-MM-DD`, a number `1234.5`) or the value as typed in that format (`05.01.2024` for `date{DD.MM.YYYY}`); either is stored canonically." }
             }),
             json!(["session", "expected_revision", "field", "value"]),
         ),
         tool(
             "xfa_click",
-            "Press one button the way a person would. The button's own click script runs, \
+            "Press one button, radio button or checkbox the way a person would: the mouse \
+             goes down and up on it (its mouseDown and mouseUp scripts run), then its click. \
+             Pressing a checkbox toggles it; pressing a radio selects it, and pressing a \
+             selected radio again keeps it selected unless the form's own scripts deselect \
+             it, as many UBS forms do. Use xfa_set to set a radio or checkbox to a value \
+             without pressing it. The button's own click script runs, \
              so on a form with a repeatable section this is how rows are added or removed: \
              pressing an add button creates the next instance, and every field in it is \
              listed in `appeared` under an indexed path such as `form1.Body.Row[1].Amount` \
@@ -175,13 +186,13 @@ pub fn tool_specs() -> Vec<Value> {
              instances after it move down one index. A press the form refuses, because the \
              section is already at its minimum or maximum number of instances, leaves \
              `instances_changed` false and says so in `warning`. Returns the same shape as \
-             xfa_set. Pass the `revision` you last saw as `expected_revision`; a stale or \
+             xfa_set, `messages` and failing scripts included. Pass the `revision` you last saw as `expected_revision`; a stale or \
              future one is refused and the error names the current one. A button whose \
              `access` is not `open` is refused, since a person cannot press it either.",
             json!({
                 "session": session_prop(),
                 "expected_revision": revision_prop(),
-                "field": { "type": "string", "description": "A button's field path, from xfa_controls (kind `button`)." }
+                "field": { "type": "string", "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`." }
             }),
             json!(["session", "expected_revision", "field"]),
         ),
@@ -210,7 +221,9 @@ pub fn tool_specs() -> Vec<Value> {
             "Page count, per-page dimensions in points, detected language, and the XFA \
              packets present. Call this FIRST when addressing by doc_path: if it reports kind \
              'not_xfa' the document is an ordinary PDF and this server cannot render it — use \
-             pdf_info and pdf_render_page instead.",
+             pdf_info and pdf_render_page instead. `warning` names any of the form's scripts \
+             that failed while it loaded. Also serves the normalizer's ingest `info` \
+             step, reporting `applicable: true` for every XFA form it can read.",
             json!({ "doc_path": doc_path_prop(), "session": session_prop(), "revision": revision_prop(), "state": state_prop() }),
             json!([]),
         ),
@@ -364,7 +377,13 @@ pub fn tool_specs() -> Vec<Value> {
              currently showing this control. Each instance of a repeated section is its own \
              control with its own indexed path (`Row.Amount`, `Row[1].Amount`, ...) and its \
              own position. Positions come from the laid-out form, which is why this tool — \
-             not the raw XFA data server's xfa_node — is where to find them.",
+             not the raw XFA data server's xfa_node — is where to find them.\n\n\
+             What the template says about a field's value is reported too, each only when \
+             present: `format`, the picture clause the form shows the value through (such as \
+             `date{DD.MM.YYYY}`); `shown`, the value as the form shows it when that differs \
+             from `value`, which stays canonical (a date `YYYY-MM-DD`, a number `1234.5`); \
+             `max_chars`, the most characters it takes; `multiline`; `tooltip`, often the \
+             field's only label; and `mandatory`, when the form requires a value.",
             json!({
                 "doc_path": doc_path_prop(),
                 "session": session_prop(),
@@ -384,8 +403,9 @@ pub fn tool_specs() -> Vec<Value> {
             "xfa_field",
             "One field's current state, exactly as xfa_controls lists it: its kind, value, \
              options, whether it is visible, its `access` (`open`, `readOnly`, `protected` or \
-             `nonInteractive`, and `access_from` when a locked container imposes it) and \
-             where it is drawn. The cheap way to check a single field after an interaction, \
+             `nonInteractive`, and `access_from` when a locked container imposes it), where it \
+             is drawn, and its `format`, `shown` value, `max_chars`, `multiline`, `tooltip` \
+             and `mandatory` when the template gives them. The cheap way to check a single field after an interaction, \
              for example whether a script locked or prefilled it, without listing the whole \
              form. Addressed like xfa_controls.",
             json!({
@@ -403,35 +423,32 @@ pub fn tool_specs() -> Vec<Value> {
 /// The `u2s.manifest` resource: what u2s reads at registration to learn each
 /// tool's role, format scope, session contract and conformance vectors.
 pub fn manifest() -> Value {
-    // Declares no ingest capability, for now: opting in would make this
-    // renderer win the normalizer's `info`/`render` probes for every XFA
-    // form (it reports `applicable` honestly where `u2s-render-pdf-mcp`'s
-    // shim page does not), which changes `page_count`, `input_pages` and
-    // the review prompt for every existing XFA input. A real improvement,
-    // but a separate, visible change from this one.
     let scope = json!({ "output_formats": [] });
-    let names = [
-        "xfa_open",
-        "xfa_set",
-        "xfa_click",
-        "xfa_reset",
-        "xfa_close",
-        "xfa_info",
-        "xfa_render_page",
-        "xfa_render_pages",
-        "xfa_render_region",
-        "xfa_page_text",
-        "xfa_search_text",
-        "xfa_controls",
-        "xfa_field",
-    ];
     json!({
         "contract": CONTRACT_VERSION,
         "server": { "name": "u2s-render-xfa-mcp", "version": env!("CARGO_PKG_VERSION") },
-        "tools": names
-            .iter()
-            .map(|n| json!({ "tool": n, "role": "query", "scope": scope }))
-            .collect::<Vec<_>>(),
+        // `xfa_info`/`xfa_page_text`/`xfa_render_pages` opt into the
+        // normalizer's ingest capabilities (`u2s_mcp::manifest::IngestCapability`),
+        // so an XFA input is normalized from the real form rather than from
+        // pdfium's "please update your reader" shim page. The election stays
+        // correct for every document: pdfium answers `applicable: false` for
+        // an XFA form, and `xfa_info` fails with `not_xfa` for an ordinary
+        // PDF. No `outline`: `u2s-xfa-mcp` serves the XFA outline.
+        "tools": [
+            { "tool": "xfa_open",          "role": "query", "scope": scope },
+            { "tool": "xfa_set",           "role": "query", "scope": scope },
+            { "tool": "xfa_click",         "role": "query", "scope": scope },
+            { "tool": "xfa_reset",         "role": "query", "scope": scope },
+            { "tool": "xfa_close",         "role": "query", "scope": scope },
+            { "tool": "xfa_info",          "role": "query", "ingest": "info",   "scope": scope },
+            { "tool": "xfa_render_page",   "role": "query", "scope": scope },
+            { "tool": "xfa_render_pages",  "role": "query", "ingest": "render", "scope": scope },
+            { "tool": "xfa_render_region", "role": "query", "scope": scope },
+            { "tool": "xfa_page_text",     "role": "query", "ingest": "text",   "scope": scope },
+            { "tool": "xfa_search_text",   "role": "query", "scope": scope },
+            { "tool": "xfa_controls",      "role": "query", "scope": scope },
+            { "tool": "xfa_field",         "role": "query", "scope": scope },
+        ],
         "sessions": {
             "open": "xfa_open",
             "close": "xfa_close",
@@ -442,7 +459,7 @@ pub fn manifest() -> Value {
             {
                 "tool": "xfa_info",
                 "args": { "doc_path": "$FIXTURES/minimal.xfa.pdf" },
-                "expect": { "structured": { "kind": "xfa", "page_count": 1 } }
+                "expect": { "structured": { "kind": "xfa", "page_count": 1, "applicable": true } }
             },
             {
                 "tool": "xfa_render_page",

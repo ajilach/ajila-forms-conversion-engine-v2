@@ -11,7 +11,7 @@
 "Submission failed" = "Übermittlung fehlgeschlagen"
 "<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
-"<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf \"Vorschau\" können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf \"Absenden\" können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "Summary of form information" = "Zusammenfassung der Formulardaten"
 "Summary" = "Zusammenfassung"
 

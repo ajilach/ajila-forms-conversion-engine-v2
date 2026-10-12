@@ -14,7 +14,7 @@ use std::collections::HashMap;
 
 use u2s_aem_ubs_mcp::aem::{
     AemAttrs, AemConfig, AemNode, AemOption, ConditionRule, OptionAlignment, TextFieldKind,
-    generate_aem_xml, header_slot_text, parse_aem_zip,
+    generate_aem_xml, parse_aem_zip,
 };
 use u2s_aem_ubs_mcp::context::Context;
 use u2s_aem_ubs_mcp::value::InputValue;
@@ -322,27 +322,6 @@ bind_to_xsd = true
         config.xsd_path, None,
         "xsd_path should be None when not configured"
     );
-}
-
-/// [`header_slot_text`]: the entity is bolded, what qualifies it is not, and a
-/// validity line is not the issuer.
-#[test]
-fn header_slot_text_keeps_the_entity_and_drops_the_validity_line() {
-    assert_eq!(
-        header_slot_text("Gültig ab 02.01.2018\nUBS Europe SE").as_deref(),
-        Some("&lt;b>UBS Europe SE&lt;/b>")
-    );
-    assert_eq!(
-        header_slot_text("UBS Europe SE (Succursale Italia)").as_deref(),
-        Some("&lt;b>UBS Europe SE&lt;/b> (Succursale Italia)")
-    );
-    assert_eq!(
-        header_slot_text("UBS Europe SE\nSuccursale Italia").as_deref(),
-        Some("&lt;b>UBS Europe SE&lt;/b> Succursale Italia")
-    );
-    // Nothing but a date: no line to print, so no draw.
-    assert_eq!(header_slot_text("02.01.2018").as_deref(), None);
-    assert_eq!(header_slot_text("   ").as_deref(), None);
 }
 
 /// The wizard toolbar's Submit and Back buttons must run the UBS
@@ -653,55 +632,148 @@ fn the_first_page_heading_is_a_subtitle_not_a_step_title() {
     );
 }
 
-/// The legal-entity line under the banking relationship goes to the DoR's
-/// second header slot, hidden on screen and off the summary step. Its text
-/// is the source document's own master-page header, so a form without one
-/// gets no draw.
-#[test]
-fn the_banking_preface_carries_the_dor_header_slot_text() {
+/// A first page, `name`, holding `children`.
+fn first_page(name: &str, children: Vec<AemNode>) -> AemNode {
+    AemNode::Root {
+        title: "AAOS".into(),
+        children: vec![AemNode::Panel {
+            uuid: Uuid::new_v4(),
+            name: name.into(),
+            title: "Dati".into(),
+            children,
+            is_page: true,
+            attrs: AemAttrs::default(),
+            visible: true,
+            is_conditional: false,
+            dor_num_cols: None,
+            colspan: 12,
+            dor_colspan: None,
+            bind_ref: None,
+            frag_ref: None,
+        }],
+    }
+}
+
+/// A master-page line authored for the DoR header `slot`.
+fn header_draw(name: &str, slot: &str, content: &str) -> AemNode {
+    AemNode::TextDraw {
+        uuid: Uuid::new_v4(),
+        name: name.into(),
+        content: content.into(),
+        attrs: AemAttrs {
+            always_in_pdf: true,
+            show_if_hidden: true,
+            summary_exclude: true,
+            dor_header_slot: Some(slot.into()),
+            ..AemAttrs::default()
+        },
+        visible: false,
+        colspan: 12,
+        dor_colspan: None,
+    }
+}
+
+fn italian_config() -> AemConfig {
     let profile = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "AAOS".into());
     vars.insert("formrange_entity".into(), "033".into());
-    let mut ctx = Context::new("it".to_string(), vars);
-    ctx.header = Some("UBS Europe SE (Succursale Italia)".to_string());
-    let config = AemConfig::from_profile(&profile, &ctx)
-        .expect("profile config");
+    AemConfig::from_profile(&profile, &Context::new("it".to_string(), vars)).expect("profile config")
+}
 
-    let root = AemNode::Root {
-        title: "AAOS".into(),
-        children: vec![AemNode::Preface {
-            uuid: Uuid::new_v4(),
-            name: "PN_BR".into(),
-        }],
-    };
-    let xml = generate_aem_xml(&root, &config).expect("the form is written");
+/// The banking relationship fills the DoR's first header slot through its
+/// fragment and writes no other: the master-page lines are the document's own
+/// draws, written hidden on screen, off the summary step and into the DoR in
+/// the slot they name.
+#[test]
+fn the_dor_header_slots_are_the_documents_own_draws() {
+    let config = italian_config();
+    let preface = AemNode::Preface { uuid: Uuid::new_v4(), name: "PN_BR".into() };
+    let bare = generate_aem_xml(&first_page("PN_Dati", vec![preface.clone()]), &config)
+        .expect("the form is written");
+    assert!(
+        !bare.contains("dorHeaderSlot=\"slot2\""),
+        "the preface wrote a header slot of its own"
+    );
 
-    let draw = support::open_tags(&xml)
-        .into_iter()
-        .find(|(_, tag)| tag.contains("dorHeaderSlot=\"slot2\""))
-        .map(|(_, tag)| tag)
-        .unwrap_or_else(|| panic!("no slot-2 header draw"));
-    for attr in [
-        "alwaysInPdf=\"true\"",
-        "showIfHidden=\"true\"",
-        "summaryExclusion=\"true\"",
-        "visible=\"{Boolean}false\"",
-        "name=\"ST_HeaderSlot2\"",
+    let xml = generate_aem_xml(
+        &first_page(
+            "PN_Dati",
+            vec![
+                preface,
+                header_draw("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b> (Succursale Italia)</p>\n"),
+                header_draw("ST_HeaderSlot3", "slot3", "<p>Valido dal 09.10.2025</p>\n"),
+            ],
+        ),
+        &config,
+    )
+    .expect("the form is written");
+    for (slot, text) in [
+        ("slot2", "&lt;b>UBS Europe SE&lt;/b> (Succursale Italia)"),
+        ("slot3", "Valido dal 09.10.2025"),
     ] {
+        let draw = support::open_tags(&xml)
+            .into_iter()
+            .find(|(_, tag)| tag.contains(&format!("dorHeaderSlot=\"{slot}\"")))
+            .map(|(_, tag)| tag)
+            .unwrap_or_else(|| panic!("no {slot} header draw"));
+        for attr in [
+            "alwaysInPdf=\"true\"",
+            "showIfHidden=\"true\"",
+            "summaryExclusion=\"true\"",
+            "visible=\"{Boolean}false\"",
+        ] {
+            assert!(draw.contains(attr), "the {slot} draw lacks {attr}:\n{draw}");
+        }
         assert!(
-            draw.contains(attr),
-            "the slot-2 draw lacks {attr}:\n{draw}"
+            !draw.contains("dorExclusion="),
+            "the {slot} draw exists to reach the DoR:\n{draw}"
         );
+        assert!(draw.contains(text), "the {slot} draw is not the authored text:\n{draw}");
     }
+}
+
+/// The first page's heading is the subtitle under the form title, with the
+/// banking relationship or without it (PROBLEM-subtitle-detector): an h2 step
+/// title prints as a ruled section heading in the DoR, and BBTB_019, whose
+/// source has no banking relationship, printed its subtitle as one. The
+/// configurator keeps the configurator's own title, excluded from the DoR and
+/// the summary.
+#[test]
+fn the_first_page_heading_is_a_subtitle_with_or_without_the_banking_relationship() {
+    let config = italian_config();
+    let draw = || header_draw("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>\n");
+    let title_tag = |xml: &str, name: &str| {
+        support::open_tags(xml)
+            .into_iter()
+            .find(|(_, tag)| tag.contains(&format!("name=\"{name}Title\"")))
+            .map(|(_, tag)| tag)
+            .unwrap_or_else(|| panic!("no title panel for {name}"))
+    };
+
+    let with = generate_aem_xml(
+        &first_page("PN_Dati", vec![AemNode::Preface { uuid: Uuid::new_v4(), name: "PN_BR".into() }]),
+        &config,
+    )
+    .unwrap();
+    assert!(with.contains("subtitle-after-form-title"), "the banking page lost its subtitle");
+
+    let without = generate_aem_xml(&first_page("PN_Dati", vec![draw()]), &config).unwrap();
     assert!(
-        !draw.contains("dorExclusion="),
-        "the slot-2 draw exists to reach the DoR:\n{draw}"
+        without.contains("subtitle-after-form-title"),
+        "a page without the banking relationship lost its subtitle"
     );
     assert!(
-        draw.contains("&lt;b>UBS Europe SE&lt;/b> (Succursale Italia)"),
-        "the slot-2 text is not the source's own header:\n{draw}"
+        !without.contains("css=\"stepTitle\""),
+        "the first page's subtitle printed as a step title"
     );
+
+    let configurator = generate_aem_xml(&first_page("PN_FormConfigurator", vec![draw()]), &config).unwrap();
+    let title = title_tag(&configurator, "PN_FormConfigurator");
+    for attr in ["dorExclusion=\"true\"", "summaryExclusion=\"true\""] {
+        assert!(title.contains(attr), "the configurator's title lacks {attr}:\n{title}");
+    }
+    assert!(!configurator.contains("subtitle-after-form-title"));
 }
 
 /// The configurator reset carries the archetype the sweep recognises it by: an

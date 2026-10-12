@@ -9,7 +9,16 @@
 //! from a stream nothing here can poll synchronously, so something has to
 //! own them between "the browser reported it" and "the caller asked for
 //! it". The mutex is held only for the length of a `Vec::push`/`drain`,
-//! never across an `.await`.
+//! never across an `.await`. The dialog buffer is the same shape.
+//!
+//! **Native dialogs are answered, not left open.** While an `alert`,
+//! `confirm`, `prompt` or `beforeunload` dialog is open in a headless page
+//! with no browser-side handler, the page's script execution stalls, so
+//! every later `evaluate` would hang. Each page therefore answers every
+//! dialog the moment it opens, accepting it the way a visitor clicking OK
+//! would (a `prompt` gets its own default text), and records it so a caller
+//! can report what the form said. The handler is attached before the page
+//! navigates, so a dialog raised while the form loads is answered too.
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,12 +33,14 @@ use chromiumoxide::cdp::browser_protocol::network::{
 use chromiumoxide::cdp::js_protocol::runtime::{
     ConsoleApiCalledType, EventConsoleApiCalled, EventExceptionThrown,
 };
-use chromiumoxide::cdp::browser_protocol::page::Viewport;
+use chromiumoxide::cdp::browser_protocol::page::{
+    EventJavascriptDialogOpening, HandleJavaScriptDialogParams, Viewport,
+};
 use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::{Page, ScreenshotParams};
 use futures::StreamExt;
 
-use crate::types::FailedRequest;
+use crate::types::{Dialog, FailedRequest};
 
 /// The encoded image format a screenshot is captured in -- mirrors the two
 /// formats `u2s-render-core::encode` already standardises on for a
@@ -259,6 +270,9 @@ impl BrowserSession {
                 url: url.to_owned(),
                 source,
             })?;
+        // Before anything navigates: a dialog raised while the form loads
+        // would otherwise stall the navigation itself (module doc).
+        let dialogs = answer_dialogs(&page).await?;
 
         if let Some((user, password)) = basic_auth {
             use base64::Engine;
@@ -285,7 +299,7 @@ impl BrowserSession {
                 source,
             })?;
 
-        PageHandle::new(page).await
+        PageHandle::new(page, dialogs).await
     }
 
     /// Drops the connection and leaves the browser running.
@@ -311,14 +325,59 @@ pub struct PageHandle {
     page: Page,
     console_errors: Arc<Mutex<Vec<String>>>,
     failed_requests: Arc<Mutex<Vec<FailedRequest>>>,
+    dialogs: Arc<Mutex<Vec<Dialog>>>,
+    _dialog_task: tokio::task::JoinHandle<()>,
     _console_task: tokio::task::JoinHandle<()>,
     _exception_task: tokio::task::JoinHandle<()>,
     _response_task: tokio::task::JoinHandle<()>,
     _loading_failed_task: tokio::task::JoinHandle<()>,
 }
 
+/// Starts answering `page`'s native dialogs (module doc), returning the
+/// buffer they are recorded in and the task that drains the event stream.
+async fn answer_dialogs(
+    page: &Page,
+) -> Result<(Arc<Mutex<Vec<Dialog>>>, tokio::task::JoinHandle<()>), BrowserError> {
+    let dialogs = Arc::new(Mutex::new(Vec::new()));
+    let mut dialog_stream = page
+        .event_listener::<EventJavascriptDialogOpening>()
+        .await
+        .map_err(|source| BrowserError::Listen {
+            what: "JS dialogs",
+            source,
+        })?;
+    let dialog_sink = Arc::clone(&dialogs);
+    let answering_page = page.clone();
+    let task = tokio::spawn(async move {
+        while let Some(event) = dialog_stream.next().await {
+            dialog_sink
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .push(Dialog {
+                    kind: event.r#type.as_ref().to_owned(),
+                    message: event.message.clone(),
+                });
+            let mut answer = HandleJavaScriptDialogParams::new(true);
+            answer.prompt_text = event.default_prompt.clone();
+            if let Err(err) = answering_page.execute(answer).await {
+                // Nothing to return this to: the dialog stays open and the
+                // next evaluate fails or times out with its own error.
+                log::warn!(
+                    "{}: could not answer a {} dialog: {err}",
+                    crate::LOG_PREFIX,
+                    event.r#type.as_ref()
+                );
+            }
+        }
+    });
+    Ok((dialogs, task))
+}
+
 impl PageHandle {
-    async fn new(page: Page) -> Result<Self, BrowserError> {
+    async fn new(
+        page: Page,
+        (dialogs, dialog_task): (Arc<Mutex<Vec<Dialog>>>, tokio::task::JoinHandle<()>),
+    ) -> Result<Self, BrowserError> {
         let console_errors = Arc::new(Mutex::new(Vec::new()));
         let failed_requests = Arc::new(Mutex::new(Vec::new()));
 
@@ -414,6 +473,8 @@ impl PageHandle {
             page,
             console_errors,
             failed_requests,
+            dialogs,
+            _dialog_task: dialog_task,
             _console_task: console_task,
             _exception_task: exception_task,
             _response_task: response_task,
@@ -510,6 +571,15 @@ impl PageHandle {
             .clone()
     }
 
+    /// Every native dialog this page raised since it opened, in order.
+    /// Each was already answered when it opened (module doc).
+    pub fn dialogs(&self) -> Vec<Dialog> {
+        self.dialogs
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
     pub async fn close(self) {
         let _ = self.page.close().await;
     }
@@ -531,6 +601,70 @@ mod tests {
         assert_eq!(ImageFormat::Png.ext(), "png");
         assert_eq!(ImageFormat::Jpeg { quality: 82 }.mime(), "image/jpeg");
         assert_eq!(ImageFormat::Jpeg { quality: 82 }.ext(), "jpg");
+    }
+
+    /// Awaits `future`, failing the test instead of hanging when a dialog
+    /// was left open and stalled the page.
+    async fn bounded<T>(what: &str, future: impl std::future::Future<Output = T>) -> T {
+        tokio::time::timeout(Duration::from_secs(20), future)
+            .await
+            .unwrap_or_else(|_| panic!("{what} hung: a dialog was left open"))
+    }
+
+    /// Native dialogs never stall the page: one raised while the page
+    /// loads, one raised later from a timer, and one raised synchronously
+    /// inside an evaluate are all answered and recorded, and the evaluate
+    /// that raised the `prompt` gets the prompt's own default text back.
+    /// Needs a headless Chromium, e.g.
+    /// `docker run -d -p 127.0.0.1::9222 chromedp/headless-shell:stable`,
+    /// with `U2S_VERIFY_LIVE_CDP_URL=http://127.0.0.1:<port>`.
+    #[tokio::test]
+    #[ignore = "needs a real headless Chromium at U2S_VERIFY_LIVE_CDP_URL"]
+    async fn native_dialogs_are_answered_and_recorded() {
+        let cdp_url = std::env::var("U2S_VERIFY_LIVE_CDP_URL")
+            .expect("U2S_VERIFY_LIVE_CDP_URL must name a headless Chromium's CDP endpoint");
+        let session = BrowserSession::connect(&cdp_url).await.expect("connect");
+
+        let page = bounded(
+            "opening a page that alerts on load",
+            session.open("data:text/html,<script>alert('on load')</script><p>form</p>", None),
+        )
+        .await
+        .expect("the page opens");
+
+        let answered = bounded(
+            "an evaluate that raised a prompt",
+            page.evaluate_string("prompt('your name?', 'the default')"),
+        )
+        .await
+        .expect("the evaluate answers");
+        assert_eq!(answered, "the default");
+
+        page.evaluate_bool("setTimeout(function() { confirm('later'); }, 0); true")
+            .await
+            .expect("scheduling the confirm");
+        page.wait(Duration::from_millis(500)).await;
+        let still = bounded("an evaluate after a deferred confirm", page.evaluate_bool("true"))
+            .await
+            .expect("the evaluate answers");
+        assert!(still);
+
+        let kinds: Vec<(String, String)> = page
+            .dialogs()
+            .into_iter()
+            .map(|dialog| (dialog.kind, dialog.message))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("alert".to_owned(), "on load".to_owned()),
+                ("prompt".to_owned(), "your name?".to_owned()),
+                ("confirm".to_owned(), "later".to_owned()),
+            ]
+        );
+
+        page.close().await;
+        session.disconnect().await;
     }
 
     #[test]

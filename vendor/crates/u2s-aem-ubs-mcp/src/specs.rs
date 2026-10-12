@@ -39,7 +39,12 @@ pub const CONTRACT_VERSION: &str = "1.0.0";
 /// `init_show` (the hidden sub-panels a form shows) and a party's
 /// `Repeatable` a content `Panel` beside its fragment. Both are optional, so
 /// a `0.3.0` document reads unchanged.
-pub const FORMAT_VERSION: &str = "0.4.0";
+///
+/// Bumped `0.4.0` -> `0.5.0` when the master-page `header` string left the
+/// document: its lines are authored as hidden `TextDraw`s in the DoR header
+/// slots, translated like any other text. A `0.4.0` document with a `header`
+/// is refused until `u2s_aem_ubs_mcp::migrate` turns it into those draws.
+pub const FORMAT_VERSION: &str = "0.5.0";
 
 pub fn tool_specs() -> Vec<Value> {
     vec![
@@ -50,7 +55,7 @@ pub fn tool_specs() -> Vec<Value> {
                  Exactly one of `artifact_blob` (a u2s blob handle) or `artifact_path` (a \
                  filesystem path, for conformance test vectors) must be given. The form's \
                  variables and languages come from the metadata the profile writes into every \
-                 package, the header from the DoR header slot, and what the UBS writer \
+                 package, and what the UBS writer \
                  writes (step titles, repeatable wrappers, the preface, fragment content, the \
                  form chrome) is folded back into the nodes it is written for; anything the \
                  model does not type is kept as passthrough. A package that is not a UBS \
@@ -162,7 +167,7 @@ pub fn manifest() -> Value {
                 "UBS AEM Adaptive Forms. The delivered artefact is a FileVault content \
                  package (a ZIP of JCR XML); this JSON is the UBS document the encoder \
                  lowers into it through the UBS writer: the source form's XFA variables \
-                 (which name and place the form), its master-page header, its languages, and \
+                 (which name and place the form), its languages, and \
                  the multilingual form tree (`form`, a `Root`). The step titles, the toolbar, \
                  the DAM metadata, the dictionaries and the schema are the profile's. The \
                  schema is generated from `UbsAemDocument` in `u2s-aem-ubs-mcp`.",

@@ -10,6 +10,9 @@ own PDF.
 Exempt are a text that is identical in the source in every language (a proper noun, a code, a
 number, an acronym, an address, a form code), and a packager-derived synonym locale (`de-ch` from
 `de`, `es` from `sp`), which must match its base language and is correct, so never report it.
+Exempt as well is a node gated by a language script (ubs-aem-language-specific-content): the
+languages whose source lacks its content carry the wording of one that has it, which the script
+keeps hidden, as that rule asks.
 
 How to judge: the master language is English when the form ships it, otherwise the first language
 of `/languages`. For each other language, list the texts that are equal to the master text (json_search

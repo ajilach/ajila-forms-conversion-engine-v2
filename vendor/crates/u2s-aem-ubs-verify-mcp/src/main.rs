@@ -18,7 +18,8 @@
 //!   panel (the Forms WorkBench host is normally what triggers submit
 //!   instead). So the generic driver's "a visible submit button" signal
 //!   never fires; this crate's own signal is "the summary panel
-//!   (`.summaryComponent`) is showing" (`u2s_aem_ubs_verify_mcp::ubs_js::IS_SUMMARY_PANEL`).
+//!   (`.summaryComponent`) is showing, or the wizard says it is on its last step
+//!   (a form ending in a preview step)" (`u2s_aem_ubs_verify_mcp::ubs_js::IS_TERMINAL_PANEL`).
 //! - **Submitting.** A raw `guideBridge.submit()` takes AEM's native XDP
 //!   rendering path, whose 32-bit x86 native services (`XMLForm.exe`,
 //!   `convertpdf.exe`) cannot run on this workspace's own ARM Docker
@@ -50,15 +51,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             format!(
                 "Verifies an encoded {} package against a real AEM instance running UBS's own \
                  `ajila-forms-ubs` platform: installs it on this profile's persistent AEM \
-                 session (booted from this profile's prebuilt image on first use, then reused \
+                 instance (booted from this profile's prebuilt image on first use, then reused \
                  across calls), opens the form with the `mandator`/`afAcceptLang` URL \
                  parameters its own metadata component resolves to, walks its wizard, and -- \
                  unless told not to -- fills and submits it through UBS's own \
                  `window.forms.ubs.navigation.submit(...)` routine, capturing the Redacto \
-                 rendering dependency's PDF as a browser download. Pass `session_id` (any \
+                 rendering dependency's PDF as a browser download. Pass `instance_id` (any \
                  stable string identifying the calling agent/run) so concurrent callers each \
                  get their own AEM instance rather than sharing and blocking on one; omit it to \
-                 use a single shared default session. `verify_run` is side-effecting and \
+                 use a single shared default instance. `verify_run` is side-effecting and \
                  offered to the Output Review Agent alone; `verify_status` and \
                  `verify_package_check` are plain reads. Read `u2s://manifest` for the exact \
                  `verify_run` contract.",

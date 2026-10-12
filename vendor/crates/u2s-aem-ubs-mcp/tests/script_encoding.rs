@@ -186,7 +186,7 @@ fn every_rule_of_a_reloaded_golden_package_decodes() {
 fn a_hostile_repeatable_subject_reaches_the_buttons_intact() {
     let mut json = golden_json("AABF_019");
     let repeatable = json
-        .pointer_mut("/form/children/0/children/6/children/1/children/0")
+        .pointer_mut("/form/children/0/children/7/children/1/children/0")
         .unwrap();
     assert_eq!(repeatable["name"], "RCP_CPGRP");
     repeatable["title"] =
@@ -342,7 +342,7 @@ fn every_rule_the_writer_emits_has_a_shape_the_reviewed_forms_use() {
 fn a_text_holding_a_character_xml_cannot_carry_is_refused() {
     let mut json = golden_json("AABF_019");
     let repeatable = json
-        .pointer_mut("/form/children/0/children/6/children/1/children/0")
+        .pointer_mut("/form/children/0/children/7/children/1/children/0")
         .unwrap();
     repeatable["title"] = serde_json::json!({ "de": "A\u{1}B", "en": "A\u{1}B", "es": "A\u{1}B" });
     let doc = UbsAemDocument::from_json(&json).unwrap();

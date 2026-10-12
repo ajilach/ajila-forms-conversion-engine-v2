@@ -11,7 +11,7 @@
 "Submission failed" = "Error en el envío"
 "<p>The form could not be sent. Please try again later.</p>" = "<p>No se pudo enviar el formulario. Por favor, inténtelo de nuevo más tarde.</p>"
 "Thank you for submitting the form." = "Gracias por enviar el formulario."
-"<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en \"Vista previa\", puede revisar su documento antes del envío.</p><p>Después de hacer clic en \"Enviar\", ya no podrá editar el documento y se creará el PDF para su firma.</p>"
+"<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Al hacer clic en «Vista previa», puede revisar su documento antes del envío.</p><p>Después de hacer clic en «Enviar», ya no podrá editar el documento y se creará el PDF para su firma.</p>"
 "Summary of form information" = "Resumen de la información del formulario"
 "Summary" = "Resumen"
 
