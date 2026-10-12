@@ -459,6 +459,19 @@ impl ConversionAgent {
         self.u2s.as_ref().is_some_and(|t| t.has_verifier())
     }
 
+    /// Starts the verifier's platform boot in the background, so the
+    /// Author's first `aem_verify_open` finds AEM up; the receiver gets the
+    /// boot's outcome. See [`crate::u2s::U2sTools::start_warm_up`].
+    /// `Ok(None)` without a verifier.
+    pub async fn start_verifier_warm_up(
+        &mut self,
+    ) -> Result<Option<tokio::sync::oneshot::Receiver<Result<(), String>>>, String> {
+        match self.u2s.as_mut() {
+            Some(tools) => tools.start_warm_up().await,
+            None => Ok(None),
+        }
+    }
+
     /// The tools a stage is offered.
     pub fn tools_for_stage(&self, scopes: scope::Mask) -> Vec<Value> {
         tools_for(scopes)

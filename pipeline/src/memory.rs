@@ -42,7 +42,22 @@ pub trait ContextBudget: Send + Sync {
     /// (uncalibrated) actually billed `real_tokens` — the feedback that lets
     /// a wrong heuristic self-correct after at most one turn.
     fn record_actual(&self, raw_estimate: usize, real_tokens: u64);
+
+    /// A request that re-reads the provider's cached prefix of the last
+    /// request a stage with system prompt `system` sent, so the cache does
+    /// not expire while that stage waits on a slow tool. Resolves to what it
+    /// cost. `None` when the provider keeps no cache this can refresh, or no
+    /// such request was sent yet.
+    fn refresh_cache(&self, _system: &str) -> Option<CacheRefresh> {
+        None
+    }
 }
+
+/// A cache-refreshing request in flight — see
+/// [`ContextBudget::refresh_cache`].
+pub type CacheRefresh = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<rig_core::completion::Usage, String>> + Send + 'static>,
+>;
 
 /// The character joining `session_id` and `stage` in a conversation id — an
 /// unprintable separator that cannot appear in either half, so splitting is

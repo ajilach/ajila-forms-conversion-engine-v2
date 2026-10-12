@@ -164,7 +164,12 @@ pub fn tool_specs() -> Vec<Value> {
              real ones, never silently coerced. Returns the new `revision` plus what happened: \
              which other fields changed as a side effect, which controls appeared or disappeared, \
              the driver's own navigation signals, and any native dialogs (alert, confirm) the \
-             form raised, each already accepted as if OK was clicked. Side-effecting.",
+             form raised, each already accepted as if OK was clicked. To fill several controls \
+             at once, pass `fields` (up to 25 `{field, value}` pairs) instead of `field`/`value`: \
+             they are set in order, each one's scripts running before the next. The batch stops \
+             at the first refused set: the first one refused fails the call as a single set \
+             would, a later one is reported under `failed` while the sets before it stay applied \
+             and `revision` is the revision after the last of them. Side-effecting.",
             json!({
                 "type": "object",
                 "properties": {
@@ -178,6 +183,25 @@ pub fn tool_specs() -> Vec<Value> {
                         "description":
                             "What to set it to -- one of the control's own option values (an \
                              array for a multi-select checkbox), or free text/a number."
+                    },
+                    "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 25,
+                        "description": "Several controls to set in order, instead of `field`/`value`.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field": {
+                                    "type": "string",
+                                    "description": "A control's `field` (its SOM expression), from verify_controls."
+                                },
+                                "value": {
+                                    "description": "What to set it to, as `value` above."
+                                }
+                            },
+                            "required": ["field", "value"]
+                        }
                     },
                     "instance_id": instance_id_prop(),
                 }

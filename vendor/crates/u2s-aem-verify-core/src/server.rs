@@ -104,6 +104,20 @@ impl AemVerifyServer {
         Ok(())
     }
 
+    /// Boots `instance_id`'s instance (the default one when `None`) in
+    /// advance -- see [`crate::instance::warm_up`]. Not an MCP tool: an
+    /// in-process host calls it when it knows a form will be opened soon,
+    /// so the boot overlaps work it does anyway.
+    pub async fn warm_up(&self, instance_id: Option<&str>) -> Result<(), String> {
+        let key = instance_id
+            .filter(|id| !id.is_empty())
+            .unwrap_or(crate::instance::DEFAULT_INSTANCE_KEY);
+        crate::instance::warm_up(&self.instances, key, &self.profile)
+            .await
+            .map(|_findings| ())
+            .map_err(|err| err.to_string())
+    }
+
     pub async fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, String> {
         match name {
             "verify_status" => self.verify_status(args).await,
@@ -298,6 +312,24 @@ impl AemVerifyServer {
     async fn verify_set(&self, args: &Value) -> Result<CallToolResult, String> {
         let session = require_str(args, "session")?;
         let expected_revision = require_u64(args, "expected_revision")?;
+        if let Some(fields) = args.get("fields").filter(|v| !v.is_null()) {
+            if args.get("field").is_some_and(|v| !v.is_null()) {
+                return Err("pass either `field`/`value` or `fields`, not both".to_owned());
+            }
+            let requests = parse_set_requests(fields)?;
+            let instance_id = Self::instance_id(args);
+            let result = interactive::set_many(
+                &self.instances,
+                self.config.driver.as_ref(),
+                &instance_id,
+                session,
+                expected_revision,
+                &requests,
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            return Ok(CallToolResult::structured(to_structured(&result)?));
+        }
         let field = require_str(args, "field")?;
         let value = args
             .get("value")
@@ -529,6 +561,41 @@ fn with_structured(mut result: CallToolResult, value: Value) -> CallToolResult {
 /// serialize would only ever mean a bug in this crate's own result types,
 /// never bad caller input, but this still reports it as a tool error
 /// rather than panicking.
+/// `verify_set`'s `fields`: a non-empty array of `{field, value}` objects,
+/// at most [`MAX_SETS_PER_CALL`] of them.
+fn parse_set_requests(fields: &Value) -> Result<Vec<interactive::SetRequest>, String> {
+    let entries = fields
+        .as_array()
+        .ok_or_else(|| "fields must be an array of {field, value} objects".to_owned())?;
+    if entries.is_empty() {
+        return Err("fields must name at least one control".to_owned());
+    }
+    if entries.len() > MAX_SETS_PER_CALL {
+        return Err(format!(
+            "fields names {} controls; set at most {MAX_SETS_PER_CALL} per call",
+            entries.len()
+        ));
+    }
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let field = entry
+                .get("field")
+                .and_then(Value::as_str)
+                .filter(|f| !f.is_empty())
+                .ok_or_else(|| format!("fields[{index}] has no `field`"))?;
+            let value = entry
+                .get("value")
+                .ok_or_else(|| format!("fields[{index}] ({field}) has no `value`"))?;
+            Ok(interactive::SetRequest { field: field.to_owned(), value: value.clone() })
+        })
+        .collect()
+}
+
+/// How many controls one batched `verify_set` may set.
+const MAX_SETS_PER_CALL: usize = 25;
+
 fn to_structured(value: &impl serde::Serialize) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|err| format!("could not serialize the result: {err}"))
 }

@@ -148,25 +148,65 @@ impl TokenCounter for CalibratedTokenCounter {
     }
 }
 
+/// [`crate::history_hygiene::tidy`] in front of a token window: superseded
+/// results are dropped before the window counts what is left.
+struct TidiedWindow {
+    window: TokenWindowMemory,
+}
+
+impl MemoryPolicy for TidiedWindow {
+    fn apply(&self, messages: Vec<Message>) -> Result<Vec<Message>, rig_memory::MemoryError> {
+        self.window.apply(crate::history_hygiene::tidy(messages))
+    }
+
+    fn apply_with_demoted(
+        &self,
+        messages: Vec<Message>,
+    ) -> Result<(Vec<Message>, Vec<Message>), rig_memory::MemoryError> {
+        self.window.apply_with_demoted(crate::history_hygiene::tidy(messages))
+    }
+}
+
 /// The [`ContextBudget`] `pipeline` shapes a stage's history through: a
 /// [`TokenWindowMemory`] over the calibrated counter, budgeted to
 /// `prompt_target` tokens — the same figure `evict_to_fit` used to budget
-/// against (`models::prompt_token_target`).
+/// against (`models::prompt_token_target`) — behind the history hygiene of
+/// [`crate::history_hygiene`].
 pub struct RunnerContextBudget {
     policy: Arc<dyn MemoryPolicy>,
+    /// What [`ContextBudget::refresh_cache`] re-sends and through which
+    /// model, when the provider keeps a cache worth refreshing.
+    refresher: Option<(Arc<crate::cache_refresh::RequestLog>, rig_agent::agent::model::ModelHandle)>,
 }
 
 impl RunnerContextBudget {
     pub fn new(prompt_target: usize) -> Self {
         Self {
-            policy: Arc::new(TokenWindowMemory::new(prompt_target, CalibratedTokenCounter)),
+            policy: Arc::new(TidiedWindow { window: TokenWindowMemory::new(prompt_target, CalibratedTokenCounter) }),
+            refresher: None,
         }
+    }
+
+    /// Lets [`ContextBudget::refresh_cache`] re-send what `log` recorded,
+    /// through `model` (the model under the recording).
+    pub fn with_cache_refresh(
+        mut self,
+        log: Arc<crate::cache_refresh::RequestLog>,
+        model: rig_agent::agent::model::ModelHandle,
+    ) -> Self {
+        self.refresher = Some((log, model));
+        self
     }
 }
 
 impl ContextBudget for RunnerContextBudget {
     fn policy(&self) -> Arc<dyn MemoryPolicy> {
         self.policy.clone()
+    }
+
+    fn refresh_cache(&self, system: &str) -> Option<pipeline::memory::CacheRefresh> {
+        let (log, model) = self.refresher.as_ref()?;
+        crate::cache_refresh::refresh(log, model, system)
     }
 
     fn raw_estimate(&self, history: &[Message]) -> usize {
@@ -343,4 +383,11 @@ mod tests {
 
         CFG_TOKEN_CALIBRATION_MILLI.store(saved, Ordering::Relaxed);
     }
+
+    /// Without a recorded model there is nothing to refresh.
+    #[test]
+    fn no_refresh_without_a_recorded_model() {
+        assert!(RunnerContextBudget::new(100_000).refresh_cache("any").is_none());
+    }
 }
+

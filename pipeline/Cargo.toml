@@ -21,8 +21,9 @@ tokio = { version = "1", features = ["rt", "time", "macros"] }
 futures-util = "0.3"
 
 [dev-dependencies]
-# The controller is async; the tests drive it directly.
-tokio = { version = "1", features = ["macros", "rt"] }
+# The controller is async; the tests drive it directly, on a paused clock where
+# they wait out a timer (`test-util`).
+tokio = { version = "1", features = ["macros", "rt", "test-util"] }
 # Per-test scratch directories for the fake browser session and the
 # conversation-memory database.
 uuid = { workspace = true }

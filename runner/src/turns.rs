@@ -153,13 +153,22 @@ impl TurnPlan {
         let model = crate::client::model_for(&self.endpoint)?;
         let model = crate::ratelimit::wrap(model, &self.endpoint, self.max_concurrent);
         let model_id = self.endpoint.model.clone();
+        let mut context_budget = crate::token_counter::RunnerContextBudget::new(self.prompt_target);
+        // Only Anthropic's cache is refreshed: it is the provider whose
+        // five-minute tail cache a slow tool outlasts, and a refresh on a
+        // provider without one would only cost a request.
+        let model = if self.endpoint.provider == Provider::Anthropic {
+            let log = Arc::new(crate::cache_refresh::RequestLog::default());
+            context_budget = context_budget.with_cache_refresh(Arc::clone(&log), model.clone());
+            crate::cache_refresh::record(model, log)
+        } else {
+            model
+        };
         Ok(ResolvedModel {
             model,
             price: Arc::new(move |usage| crate::pricing::cost_usd(&model_id, usage)),
             max_tokens: self.max_tokens,
-            context_budget: Arc::new(crate::token_counter::RunnerContextBudget::new(
-                self.prompt_target,
-            )),
+            context_budget: Arc::new(context_budget),
         })
     }
 }

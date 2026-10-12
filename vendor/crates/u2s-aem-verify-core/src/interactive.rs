@@ -1735,6 +1735,122 @@ pub async fn set(
     .await
 }
 
+/// One entry of a `verify_set` batch: a control's name and the value to
+/// give it, exactly as a single `verify_set` takes them.
+#[derive(Debug, Clone)]
+pub struct SetRequest {
+    pub field: String,
+    pub value: Value,
+}
+
+/// What one set of a batch did: [`Interaction`] without the navigation,
+/// console and dialog state, which [`BatchInteraction`] reports once for
+/// the whole batch.
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchStep {
+    pub revision: u64,
+    pub field: String,
+    pub value: Value,
+    pub values_changed: bool,
+    pub side_effects: Vec<FieldChange>,
+    pub appeared: Vec<String>,
+    pub disappeared: Vec<String>,
+    pub access_changes: Vec<AccessChange>,
+    pub instances_changed: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
+}
+
+/// The set of a batch that was refused: its position, its field and why.
+/// The sets before it were applied and stay applied.
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchFailure {
+    pub index: usize,
+    pub field: String,
+    pub error: String,
+}
+
+/// `verify_set`'s result for a batch: every set applied in order, the
+/// first refused one (the batch stops there), and the form as it stands
+/// afterwards. `revision` is the session's revision after the last applied
+/// set: one revision per set, as if each had been its own call.
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchInteraction {
+    pub revision: u64,
+    pub applied: Vec<BatchStep>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed: Option<BatchFailure>,
+    pub panel: Value,
+    pub has_next: bool,
+    pub is_terminal: bool,
+    pub console_errors: Vec<String>,
+    pub failed_requests: Vec<FailedRequest>,
+    pub dialogs: Vec<Dialog>,
+}
+
+/// Sets several controls in one call, in order, each exactly as [`set`]
+/// would (so each one's scripts run before the next is set), stopping at
+/// the first refusal. Only `expected_revision` is checked against the
+/// caller; every later set is based on the revision the previous one left.
+/// A refused set is reported in the result, not as an error, because the
+/// sets before it already changed the form and advanced its revision. A
+/// batch whose first set is refused changed nothing and is an error, like
+/// a refused single set.
+pub async fn set_many(
+    pool: &InstancePool,
+    driver: &dyn FormDriver,
+    instance_id: &str,
+    session: &str,
+    expected_revision: u64,
+    requests: &[SetRequest],
+) -> Result<BatchInteraction, InteractionError> {
+    assert!(!requests.is_empty(), "a batch names at least one control");
+    on_session(pool, instance_id, session, async |open, _| {
+        check_revision(&open.handle, open.revision, expected_revision)?;
+        let mut applied = Vec::with_capacity(requests.len());
+        let mut failed = None;
+        let mut last: Option<Interaction> = None;
+        for (index, request) in requests.iter().enumerate() {
+            match set_inner(open, driver, open.revision, &request.field, &request.value).await {
+                Ok(interaction) => {
+                    open.revision += 1;
+                    applied.push(BatchStep {
+                        revision: open.revision,
+                        field: interaction.field.clone().unwrap_or_else(|| request.field.clone()),
+                        value: interaction.value.clone(),
+                        values_changed: interaction.values_changed,
+                        side_effects: interaction.side_effects.clone(),
+                        appeared: interaction.appeared.clone(),
+                        disappeared: interaction.disappeared.clone(),
+                        access_changes: interaction.access_changes.clone(),
+                        instances_changed: interaction.instances_changed,
+                        warning: interaction.warning.clone(),
+                    });
+                    last = Some(interaction);
+                }
+                Err(err) if index == 0 => return Err(err),
+                Err(err) => {
+                    failed = Some(BatchFailure { index, field: request.field.clone(), error: err.to_string() });
+                    break;
+                }
+            }
+        }
+        let last = last.expect("the first set either applied or returned its error");
+        Ok(BatchInteraction {
+            revision: open.revision,
+            applied,
+            failed,
+            panel: last.panel,
+            has_next: last.has_next,
+            is_terminal: last.is_terminal,
+            console_errors: last.console_errors,
+            failed_requests: last.failed_requests,
+            dialogs: last.dialogs,
+        })
+    })
+    .await
+}
+
 async fn set_inner(
     open_form: &OpenSession,
     driver: &dyn FormDriver,

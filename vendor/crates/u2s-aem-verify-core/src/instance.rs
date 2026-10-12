@@ -252,6 +252,23 @@ pub async fn ensure(
     Ok((guard, findings))
 }
 
+/// Boots `key`'s instance ahead of its first use, so the call that needs
+/// it (`verify_open`, `verify_run`) finds AEM already up instead of
+/// waiting minutes for it. Does nothing to an instance that is already up.
+/// Holds the instance's lock only while booting: a call that arrives
+/// meanwhile waits for the boot rather than starting a second one.
+pub async fn warm_up(
+    pool: &InstancePool,
+    key: &str,
+    profile: &Profile,
+) -> Result<Vec<Finding>, VerifyError> {
+    let docker = DockerLifecycle::connect()
+        .await
+        .map_err(|err| VerifyError::new(ErrorKind::DockerUnreachable, err.to_string()))?;
+    let (_guard, findings) = ensure(pool, key, &docker, profile).await?;
+    Ok(findings)
+}
+
 /// A point-in-time snapshot of `key`'s instance for `verify_status`.
 pub async fn status(pool: &InstancePool, key: &str) -> InstanceStatus {
     let guard = pool.lock(key).await;
