@@ -181,7 +181,7 @@ fn to_entry(spec: &Value, family: Family, siblings: &[String]) -> Entry {
 /// own data volume, which the verifier names after the image. Pinned here
 /// like pdfium in `agent/build.rs`: move it to the tag upstream's
 /// `.env.example` names whenever the vendored u2s crates are re-synced.
-pub const AEM_IMAGE: &str = "ghcr.io/ajilach/u2s-aem-ubs:2026-10-09.2";
+pub const AEM_IMAGE: &str = "ghcr.io/ajilach/u2s-aem-ubs:2026-10-10";
 
 /// What signs the GitHub CLI in with the scope pulling [`AEM_IMAGE`] needs.
 const GH_LOGIN: &str = "gh auth login -s read:packages";
