@@ -419,6 +419,7 @@ mod catalog_guards {
     const NON_TOOL_VOCABULARY: &[&str] = &[
         // Argument and result names in the u2s document tools' own descriptions.
         "autofix_available",
+        "from_y",
         "rule_ids",
         "rule_conflicts",
         // AEM / XFA / profile vocabulary appearing verbatim in prose.

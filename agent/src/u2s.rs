@@ -800,6 +800,9 @@ pub struct U2sTools {
     /// Tears the verifier's containers down once it sits idle; started with
     /// the first call that needs them.
     watcher: Option<tokio::task::JoinHandle<()>>,
+    /// The platform boot [`Self::start_warm_up`] started, which
+    /// [`Self::shutdown`] waits for before tearing the verifier down.
+    warm_up: Option<tokio::task::JoinHandle<()>>,
     /// Canonical paths a `doc_path` argument may name, besides the PDFs in the
     /// blob store (which only a verifier writes).
     documents: HashSet<PathBuf>,
@@ -825,6 +828,7 @@ impl U2sTools {
                 lock: None,
             })),
             watcher: None,
+            warm_up: None,
             documents: HashSet::new(),
             dir,
         })
@@ -844,9 +848,60 @@ impl U2sTools {
         self.verifier.is_some()
     }
 
+    /// Boots the verifier's platform ahead of its first use, in the
+    /// background: takes the verifier lock as a verifier call would, and
+    /// returns where the boot's outcome arrives. `Ok(None)` when no verifier
+    /// is attached; an error when the lock is taken by another conversion
+    /// (the first real verifier call then reports that the usual way).
+    ///
+    /// The boot counts as a use of the verifier when it ends, so the idle
+    /// watcher measures from a platform that is up, and [`Self::shutdown`]
+    /// waits for a boot still under way before removing the containers.
+    pub async fn start_warm_up(
+        &mut self,
+    ) -> Result<Option<tokio::sync::oneshot::Receiver<Result<(), String>>>, String> {
+        let Some(verifier) = self.verifier.clone() else {
+            return Ok(None);
+        };
+        self.acquire_lock().await?;
+        self.touch();
+        let deadline = verifier.boot_timeout();
+        let activity = Arc::clone(&self.activity);
+        let (sender, outcome) = tokio::sync::oneshot::channel();
+        self.warm_up = Some(tokio::spawn(async move {
+            let booted = tokio::time::timeout(deadline, verifier.server.warm_up(None))
+                .await
+                .unwrap_or_else(|_| Err(format!("the platform did not boot within {deadline:?}")));
+            if booted.is_ok()
+                && let Ok(mut activity) = activity.lock()
+            {
+                activity.last_used = Instant::now();
+            }
+            // Nobody listening is fine: the outcome is only reported.
+            let _ = sender.send(booted);
+        }));
+        Ok(Some(outcome))
+    }
+
+    /// Waits for a boot [`Self::start_warm_up`] started, so the teardown
+    /// that follows finds its containers. Bounded by the boot's own
+    /// deadline; a boot still running after that is abandoned, and the next
+    /// run's leftover cleanup removes what it left.
+    async fn finish_warm_up(&mut self) {
+        let Some(boot) = self.warm_up.take() else {
+            return;
+        };
+        let deadline = self.verifier.as_ref().map_or(Duration::ZERO, Verifier::boot_timeout);
+        let abort = boot.abort_handle();
+        if tokio::time::timeout(deadline, boot).await.is_err() {
+            abort.abort();
+        }
+    }
+
     /// Tears down whatever containers the verifier started, and releases its
     /// lock for the next conversion.
     pub async fn shutdown(&mut self) -> Result<(), String> {
+        self.finish_warm_up().await;
         if let Some(watcher) = self.watcher.take() {
             watcher.abort();
         }

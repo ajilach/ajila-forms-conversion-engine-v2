@@ -254,6 +254,7 @@ async fn drive(
         capture_review: true,
         final_rule_check: true,
         finish_nudge: true,
+        warm_up_verifier: true,
     };
 
     // A session's review images show its last finished run. This run will

@@ -80,6 +80,11 @@ pub struct RunConfig {
     /// the controller tests that pin a run's stages and model calls, whose
     /// Authors end with a plain answer.
     pub finish_nudge: bool,
+    /// Whether the verifier's platform boots in the background as the run
+    /// starts, so the Author's first `aem_verify_open` does not wait minutes
+    /// for AEM. Off only in the controller tests, which must not reach
+    /// Docker.
+    pub warm_up_verifier: bool,
 }
 
 /// What starts a run: a fresh conversion, feedback on the previous result, or
@@ -161,6 +166,9 @@ pub async fn run(
     seed: RunSeed,
     obs: SharedObserver,
 ) -> Option<RunOutcome> {
+    if config.warm_up_verifier {
+        warm_up_verifier(&shared_agent, &obs).await;
+    }
     let outcome = run_stages(&shared_agent, &config, seed, &obs).await;
     // Every way out (approved, unapproved, aborted, given up at a retry
     // prompt) tears the verifier down, so no AEM container outlives the run.
@@ -170,6 +178,38 @@ pub async fn run(
         )));
     }
     outcome
+}
+
+/// Starts booting the verifier's platform in the background, when the run
+/// has one. Nothing waits for it: the first verifier call that needs the
+/// platform waits on the same session lock, and the teardown at the end of
+/// the run (`shutdown_verifiers`) waits for a boot still under way before
+/// removing its containers.
+/// A boot that fails is only a warning — the first real call boots again
+/// and reports its own error.
+async fn warm_up_verifier(shared_agent: &SharedAgent, obs: &SharedObserver) {
+    let outcome = match shared_agent.lock().await.start_verifier_warm_up().await {
+        Ok(Some(outcome)) => outcome,
+        Ok(None) => return,
+        Err(e) => {
+            obs.emit(RunEvent::Thought(format!("Not warming up the AEM verifier: {e}")));
+            return;
+        }
+    };
+    let obs = obs.clone();
+    tokio::spawn(async move {
+        let started = std::time::Instant::now();
+        match outcome.await.unwrap_or_else(|_| Err("the boot was abandoned".into())) {
+            Ok(()) => obs.emit(RunEvent::Thought(format!(
+                "AEM verifier ready ({}s, booted in the background).",
+                started.elapsed().as_secs()
+            ))),
+            Err(e) => obs.emit(RunEvent::Warning(format!(
+                "Booting the AEM verifier in the background failed ({e}); the first \
+                 aem_verify_open boots it again."
+            ))),
+        }
+    });
 }
 
 /// The stages themselves; [`run`] wraps this with the teardown that must happen
@@ -1964,6 +2004,7 @@ mod controller {
             capture_review: false,
             final_rule_check: false,
             finish_nudge: false,
+            warm_up_verifier: false,
         }
     }
 

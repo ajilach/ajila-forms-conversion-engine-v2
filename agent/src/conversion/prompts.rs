@@ -52,7 +52,8 @@ resolves to one form and names the mandator and language the form opens with (th
 package's own metadata, so there is nothing to add). Then aem_verify_open installs and opens the \
 form, and aem_verify_controls lists every control with its options, visibility, required state and \
 position. Walk EVERY wizard page with aem_verify_next, entering a plausible value in every field \
-type on the way with aem_verify_set; switch each conditional choice as in (c) so its gated panel \
+type on the way with aem_verify_set (one call per page: pass every field of the page as `fields`); \
+switch each conditional choice as in (c) so its gated panel \
 appears; add an instance to each repeatable; and look at each page with aem_verify_screenshot (its \
 `field` argument zooms in on one control). On the last page, aem_verify_submit submits through \
 UBS's own routine and returns the PDF the submission produces, the Document of Record the UBS \
