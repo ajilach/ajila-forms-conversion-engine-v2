@@ -2,7 +2,7 @@
 //! does not do.
 //!
 //! [`crate::token_counter::RunnerContextBudget`] runs [`tidy`] before its
-//! token window on every turn. It does two things the window cannot:
+//! token window on every turn. It does what the window cannot:
 //!
 //! - **It drops results a later call superseded.** An `aem_verify_controls`
 //!   listing is the whole form's control inventory (over 100,000 characters
@@ -14,35 +14,16 @@
 //!   The replacement is stable — a superseded result stays superseded — so
 //!   it moves the provider's cached prefix once, not every turn.
 //!
-//! - **It keeps every image within what the API accepts** ([`fit_images`],
-//!   applied by [`ImageLimits`] to the request as it is sent, since the
-//!   turn's newest tool results are not in the history a stage shapes). Anthropic refuses
-//!   a request in which any image has a side over 2000 px once the request
-//!   holds more than 20 images. A run's history crossed 20 images with a
-//!   900×6803 screenshot in it, and every retry re-sent the same refused
-//!   request. Past [`MANY_IMAGES`] images, an image with a side over
-//!   [`MAX_EDGE_MANY_IMAGES`] is scaled down to [`TARGET_EDGE`]; in strict
-//!   mode (after the provider refused an image anyway) every image is held
-//!   to [`TARGET_EDGE`], whatever the count.
+//! Images are not this module's business: `agent::image_fit` cuts an
+//! oversized one where it enters a reply and again on every request.
 //!
 //! Pure functions over rig messages, unit-tested below.
 
 use std::collections::HashMap;
 
-use rig_core::message::{
-    AssistantContent, DocumentSourceKind, Image, ImageMediaType, Message, Text, ToolResultContent, UserContent,
-};
-
-/// More images than this in one request and the per-image size limit drops.
-pub const MANY_IMAGES: usize = 20;
-/// The longest side an image may have once a request holds more than
-/// [`MANY_IMAGES`] images.
-pub const MAX_EDGE_MANY_IMAGES: u32 = 2000;
-/// What an image that is too large is scaled down to: below the limit, with
-/// room for rounding.
-pub const TARGET_EDGE: u32 = 1800;
-/// JPEG quality of a scaled-down image (what the render tools use).
-const JPEG_QUALITY: u8 = 82;
+use rig_core::message::{AssistantContent, Message, Text, ToolResultContent, UserContent};
+#[cfg(test)]
+use rig_core::message::Image;
 
 /// Tools whose latest result supersedes every earlier one.
 const LATEST_ONLY: &[&str] = &["aem_verify_controls"];
@@ -50,34 +31,12 @@ const LATEST_ONLY: &[&str] = &["aem_verify_controls"];
 /// stale once another form is open.
 const PER_FORM_IMAGES: &[&str] = &["aem_verify_screenshot"];
 
-/// Replaces the results later calls superseded (see the module docs). The
-/// policy half of the hygiene: it runs on a stage's history every turn.
+/// Replaces the results later calls superseded (see the module docs). Runs
+/// on a stage's history every turn.
 pub fn tidy(messages: Vec<Message>) -> Vec<Message> {
     let calls = tool_calls(&messages);
     let superseded = superseded_results(&messages, &calls);
     messages.into_iter().map(|message| replace_superseded(message, &superseded)).collect()
-}
-
-/// Holds every image in `messages` to what the API accepts (see the module
-/// docs): past [`MANY_IMAGES`] images, none keeps a side over
-/// [`MAX_EDGE_MANY_IMAGES`]; in `strict` mode none keeps one over
-/// [`TARGET_EDGE`]. The request half of the hygiene: it runs on the whole
-/// request as it is sent, the turn's own tool results included, which the
-/// history a stage shapes does not hold yet. Deterministic, so an image is
-/// sent the same way on every turn once it is past the limit.
-pub fn fit_images(messages: &mut [Message], strict: bool) {
-    let limit = if strict {
-        TARGET_EDGE
-    } else if count_images(messages) > MANY_IMAGES {
-        MAX_EDGE_MANY_IMAGES
-    } else {
-        return;
-    };
-    for message in messages.iter_mut() {
-        for image in images_mut(message) {
-            fit_image(image, limit);
-        }
-    }
 }
 
 /// A tool call as the assistant made it: its tool and arguments.
@@ -186,6 +145,7 @@ fn replace_superseded(message: Message, superseded: &HashMap<String, String>) ->
     }
 }
 
+#[cfg(test)]
 /// How many images `messages` holds, in user content and tool results alike.
 fn count_images(messages: &[Message]) -> usize {
     messages
@@ -209,6 +169,7 @@ fn count_images(messages: &[Message]) -> usize {
         .sum()
 }
 
+#[cfg(test)]
 /// Every image in `message`, mutably.
 fn images_mut(message: &mut Message) -> Vec<&mut Image> {
     let mut images = Vec::new();
@@ -240,97 +201,11 @@ fn images_mut(message: &mut Message) -> Vec<&mut Image> {
     images
 }
 
-/// Scales `image` down to [`TARGET_EDGE`] on its longer side when either side
-/// is over `limit`, re-encoded as JPEG. An image that cannot be decoded is
-/// left as it is: the provider says so if it is a problem, and strict mode
-/// then holds it to the target anyway.
-fn fit_image(image: &mut Image, limit: u32) {
-    use base64::Engine;
-    let DocumentSourceKind::Base64(data) = &image.data else {
-        return;
-    };
-    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(data) else {
-        return;
-    };
-    let Ok(reader) = image::ImageReader::new(std::io::Cursor::new(&bytes)).with_guessed_format() else {
-        return;
-    };
-    let Ok((width, height)) = reader.into_dimensions() else {
-        return;
-    };
-    if width.max(height) <= limit {
-        return;
-    }
-    let Ok(decoded) = image::load_from_memory(&bytes) else {
-        return;
-    };
-    let scaled = decoded.resize(TARGET_EDGE, TARGET_EDGE, image::imageops::FilterType::Triangle);
-    let mut out = Vec::new();
-    let encoder = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY);
-    if scaled.to_rgb8().write_with_encoder(encoder).is_err() {
-        return;
-    }
-    image.data = DocumentSourceKind::Base64(base64::engine::general_purpose::STANDARD.encode(&out));
-    image.media_type = Some(ImageMediaType::JPEG);
-}
-
-/// A model that holds every request's images to the API's limits
-/// ([`fit_images`]) before sending it. `strict` is shared with the context
-/// budget, which sets it when the provider refused an image anyway.
-pub struct ImageLimits {
-    inner: rig_agent::agent::model::ModelHandle,
-    strict: std::sync::Arc<std::sync::atomic::AtomicBool>,
-}
-
-impl ImageLimits {
-    fn fitted(&self, mut request: rig_core::completion::CompletionRequest) -> rig_core::completion::CompletionRequest {
-        fit_images(&mut request.chat_history, self.strict.load(std::sync::atomic::Ordering::Relaxed));
-        request
-    }
-}
-
-impl rig_core::completion::CompletionModel for ImageLimits {
-    async fn completion(
-        &self,
-        request: rig_core::completion::CompletionRequest,
-    ) -> Result<rig_core::completion::CompletionResponse, rig_core::completion::CompletionError> {
-        self.inner.completion(self.fitted(request)).await
-    }
-
-    async fn stream(
-        &self,
-        request: rig_core::completion::CompletionRequest,
-    ) -> Result<rig_core::streaming::StreamingCompletionResponse, rig_core::completion::CompletionError> {
-        self.inner.stream(self.fitted(request)).await
-    }
-
-    /// Forwarded, not defaulted -- see `ratelimit::RateLimited`.
-    fn capabilities(&self) -> rig_core::completion::ProviderCapabilities {
-        self.inner.capabilities()
-    }
-}
-
-/// `model`, holding its requests' images to the API's limits.
-pub fn limit_images(
-    model: rig_agent::agent::model::ModelHandle,
-    strict: std::sync::Arc<std::sync::atomic::AtomicBool>,
-) -> rig_agent::agent::model::ModelHandle {
-    let label = model.label().unwrap_or("model").to_string();
-    rig_agent::agent::model::ModelHandle::named(label, ImageLimits { inner: model, strict })
-}
-
-/// Whether a provider's refusal names an image it would not take — what
-/// strict mode answers.
-pub fn is_image_refusal(error: &str) -> bool {
-    let e = error.to_ascii_lowercase();
-    e.contains("image") && (e.contains("dimension") || e.contains("exceed") || e.contains("too large"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use base64::Engine;
-    use rig_core::message::{ToolCall, ToolCallId, ToolFunction, ToolResult};
+    use rig_core::message::{DocumentSourceKind, ImageMediaType, ToolCall, ToolCallId, ToolFunction, ToolResult};
     use serde_json::json;
 
     fn call(id: &str, name: &str, args: serde_json::Value) -> Message {
@@ -451,55 +326,4 @@ mod tests {
         assert_eq!(dims(&tidied[5]), [(40, 40)]);
     }
 
-    #[test]
-    fn a_large_image_is_left_alone_while_the_request_has_few_images() {
-        let history = vec![call("s1", "aem_verify_screenshot", json!({"form": "f1"})), result("s1", vec![jpeg(300, 2600)])];
-        let mut history = history;
-        fit_images(&mut history, false);
-        assert_eq!(dims(&history[1]), [(300, 2600)]);
-    }
-
-    #[test]
-    fn past_twenty_images_none_has_a_side_over_the_limit() {
-        // The run that motivated this: a 900x6803 screenshot already in the
-        // history when a page render took the request past 20 images.
-        let mut history = vec![
-            call("s0", "aem_verify_screenshot", json!({"form": "f1"})),
-            result("s0", vec![jpeg(90, 680)]),
-            call("big", "aem_verify_screenshot", json!({"form": "f1"})),
-            result("big", vec![jpeg(300, 2268)]),
-        ];
-        for n in 0..20 {
-            let id = format!("r{n}");
-            history.push(call(&id, "xfa_render_pages", json!({})));
-            history.push(result(&id, vec![jpeg(20, 28)]));
-        }
-        let mut tidied = history;
-        fit_images(&mut tidied, false);
-        assert_eq!(count_images(&tidied), 22);
-        let big = dims(&tidied[3]);
-        assert_eq!(big.len(), 1);
-        assert!(big[0].0.max(big[0].1) <= MAX_EDGE_MANY_IMAGES, "{big:?}");
-        assert_eq!(dims(&tidied[1]), [(90, 680)], "a small image is not touched");
-    }
-
-    #[test]
-    fn strict_mode_holds_every_image_to_the_target() {
-        let history = vec![call("s1", "x", json!({})), result("s1", vec![jpeg(1900, 100)])];
-        let mut lenient = history.clone();
-        fit_images(&mut lenient, false);
-        assert_eq!(dims(&lenient[1]), [(1900, 100)]);
-        let mut strict = history;
-        fit_images(&mut strict, true);
-        let strict = dims(&strict[1]);
-        assert!(strict[0].0 <= TARGET_EDGE, "{strict:?}");
-    }
-
-    #[test]
-    fn the_refusal_of_the_motivating_run_is_recognised() {
-        assert!(is_image_refusal(
-            "LLM API error: ProviderResponseError: status 400 Bad Request: {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.1.content.146.image.source.base64.data: At least one of the image dimensions exceed max allowed size for many-image requests: 3000 pixels\"}}"
-        ));
-        assert!(!is_image_refusal("status 400 Bad Request: prompt is too long"));
-    }
 }

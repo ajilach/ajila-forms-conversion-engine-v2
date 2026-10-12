@@ -154,9 +154,6 @@ impl TurnPlan {
         let model = crate::ratelimit::wrap(model, &self.endpoint, self.max_concurrent);
         let model_id = self.endpoint.model.clone();
         let mut context_budget = crate::token_counter::RunnerContextBudget::new(self.prompt_target);
-        // Images are held to the API's limits on the request as it is sent,
-        // below the recording, so a cache refresh re-sends them the same way.
-        let model = crate::history_hygiene::limit_images(model, context_budget.strict_images());
         // Only Anthropic's cache is refreshed: it is the provider whose
         // five-minute tail cache a slow tool outlasts, and a refresh on a
         // provider without one would only cost a request.

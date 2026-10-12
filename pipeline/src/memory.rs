@@ -43,15 +43,6 @@ pub trait ContextBudget: Send + Sync {
     /// a wrong heuristic self-correct after at most one turn.
     fn record_actual(&self, raw_estimate: usize, real_tokens: u64);
 
-    /// Told that the provider refused a request outright with `error` (a
-    /// 4xx that sending it again unchanged would only repeat). Returns
-    /// whether the budget changed how it shapes history in answer, so that
-    /// re-sending the turn is worth it — once: a second refusal of the same
-    /// kind returns `false`. The default changes nothing.
-    fn repair_after_refusal(&self, _error: &str) -> bool {
-        false
-    }
-
     /// A request that re-reads the provider's cached prefix of the last
     /// request a stage with system prompt `system` sent, so the cache does
     /// not expire while that stage waits on a slow tool. Resolves to what it

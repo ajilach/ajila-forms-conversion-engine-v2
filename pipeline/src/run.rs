@@ -1107,23 +1107,6 @@ async fn run_stage_attempts(
                     restart_from = Some(hook.last_attempt());
                     continue;
                 }
-                // A refusal the context budget can answer (an image the
-                // provider will not take): it changes how it shapes the
-                // history, and the turn goes again — once, since a second
-                // refusal of the same kind returns false.
-                if context_budget.repair_after_refusal(&text) {
-                    obs.emit(RunEvent::Thought(format!(
-                        "The provider refused the request ({text}); the history was adjusted \
-                         and the turn is sent again."
-                    )));
-                    obs.trace(TraceEvent::Control {
-                        stage: role.name.to_string(),
-                        kind: ControlKind::RequestRepaired,
-                        detail: text.clone(),
-                    });
-                    restart_from = Some(hook.last_attempt());
-                    continue;
-                }
                 match await_user_retry(obs, abort, role.name, &text).await {
                     RetryAction::Retry => {
                         // A user-driven retry resets the automatic budget, so a
@@ -2741,82 +2724,6 @@ mod controller {
             last_spend.input_tokens, 400,
             "the turn billed before the failure must still count toward the total"
         );
-    }
-
-    /// A budget that answers an image refusal once, the way the runner's
-    /// does: by holding images to a smaller size from then on.
-    struct RepairsImagesOnce(std::sync::atomic::AtomicBool);
-
-    impl ContextBudget for RepairsImagesOnce {
-        fn policy(&self) -> Arc<dyn MemoryPolicy> {
-            Arc::new(rig_memory::NoopMemoryPolicy)
-        }
-        fn raw_estimate(&self, _history: &[Message]) -> usize {
-            0
-        }
-        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
-        fn repair_after_refusal(&self, error: &str) -> bool {
-            error.contains("image dimensions") && !self.0.swap(true, std::sync::atomic::Ordering::Relaxed)
-        }
-    }
-
-    const IMAGE_REFUSAL: &str = "LLM API error: ProviderResponseError: status 400 Bad Request: \
-        {\"type\":\"error\",\"error\":{\"type\":\"invalid_request_error\",\"message\":\"messages.1.content.146.image.source.base64.data: \
-        At least one of the image dimensions exceed max allowed size for many-image requests: 3000 pixels\"}}";
-
-    /// A refusal the context budget can repair is sent again at once, without
-    /// asking the operator (who would only re-send the same refused request).
-    #[tokio::test]
-    async fn a_refused_image_is_repaired_and_the_turn_sent_again() {
-        let model = MockCompletionModel::from_stream_turns([
-            vec![MockStreamEvent::error(IMAGE_REFUSAL)],
-            vec![MockStreamEvent::text("done"), MockStreamEvent::final_response(Usage::new())],
-        ]);
-        // An operator who would give up: the stage only finishes if nobody asked.
-        let (obs, _rec) = recorder_with_answer(RetryAction::Cancel);
-        let text = run_stage(
-            &bare_agent(),
-            &TINY_BUDGET,
-            "system prompt",
-            "seed",
-            &AbortFlag::default(),
-            ModelHandle::new(model.clone()),
-            no_price(),
-            4096,
-            Arc::new(RepairsImagesOnce(Default::default())),
-            &obs,
-            &mut Spend::default(),
-        )
-        .await;
-        assert_eq!(text.as_deref(), Some("done"));
-        assert_eq!(model.request_count(), 2);
-    }
-
-    /// The same refusal after the repair goes to the operator as before.
-    #[tokio::test]
-    async fn a_refusal_the_repair_did_not_fix_goes_to_the_operator() {
-        let model = MockCompletionModel::from_stream_turns([
-            vec![MockStreamEvent::error(IMAGE_REFUSAL)],
-            vec![MockStreamEvent::error(IMAGE_REFUSAL)],
-            vec![MockStreamEvent::text("never reached"), MockStreamEvent::final_response(Usage::new())],
-        ]);
-        let (obs, _rec) = recorder_with_answer(RetryAction::Cancel);
-        let text = run_stage(
-            &bare_agent(),
-            &TINY_BUDGET,
-            "system prompt",
-            "seed",
-            &AbortFlag::default(),
-            ModelHandle::new(model.clone()),
-            no_price(),
-            4096,
-            Arc::new(RepairsImagesOnce(Default::default())),
-            &obs,
-            &mut Spend::default(),
-        )
-        .await;
-        assert_eq!(text, None, "the operator gave up");
-        assert_eq!(model.request_count(), 2);
     }
 
     /// A stage run under a real session id against the scratch database, and
