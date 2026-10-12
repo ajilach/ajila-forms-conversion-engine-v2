@@ -33,4 +33,8 @@ same wording, as an internal page printed only in German), that wording under bo
 language's own PDF, not another language's text, and is not a break. This wins over
 ubs-aem-repeatable-add-label: a party title on such a page copies the source's text in every
 language, `title/en` included.
+
+Content that only some language versions carry is gated by a language script
+(ubs-aem-language-specific-content), which hides it in the other languages. Its keys for those
+languages hold the wording of a language that has it, as that rule asks, and are not a break.
 """
