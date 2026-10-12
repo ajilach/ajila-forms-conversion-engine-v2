@@ -14,6 +14,16 @@ use image::{DynamicImage, GenericImageView as _, ImageFormat, ImageReader};
 /// The longest side, in pixels, the model API accepts for an image.
 pub const MAX_IMAGE_SIDE: u32 = 8000;
 
+/// The longest side of a part an oversized image is cut into. The API takes
+/// at most 2000 px a side once a request carries more than 20 images, which a
+/// long stage's history does, and it scales every image down to about 1.15
+/// megapixels, so a taller part would arrive too small to read.
+pub const PART_SIDE: u32 = 2000;
+
+/// How much of the base64 [`dimensions`] decodes first: enough for a PNG's or
+/// a JPEG's header, a small share of a page render.
+const HEADER_CHARS: usize = 64 * 1024;
+
 /// The JPEG quality a cut image is re-encoded at: the vision-payload quality
 /// the u2s renderers and the verifier's screenshots use.
 const JPEG_QUALITY: u8 = 82;
@@ -26,7 +36,7 @@ pub struct Fitted {
     pub note: String,
     /// The parts, top to bottom, base64-encoded.
     pub parts: Vec<String>,
-    /// Whether the parts are JPEG (otherwise PNG).
+    /// Whether the parts are JPEG, as the image was (otherwise PNG).
     pub jpeg: bool,
 }
 
@@ -37,27 +47,43 @@ impl Fitted {
     }
 }
 
-/// `data` (base64) cut to fit, or `None` when it already fits. Only the
-/// header is read to decide, so a request full of page renders stays cheap.
-/// A larger image (a full-page screenshot of a long panel) is scaled down to
-/// [`MAX_IMAGE_SIDE`] wide when wider, then cut into the fewest equal bands no
-/// taller, each re-encoded as JPEG when `jpeg` and as PNG otherwise, so it
-/// stays readable. An image whose size cannot be read (a format this build
-/// does not decode) is `None` as well: no u2s tool emits one.
-pub fn fit(data: &str, jpeg: bool) -> Option<Fitted> {
-    let bytes = BASE64.decode(data).ok()?;
-    let (width, height) = ImageReader::new(Cursor::new(&bytes))
-        .with_guessed_format()
-        .ok()?
-        .into_dimensions()
-        .ok()?;
+/// The width and height of a base64 image, read from its header: only the
+/// first [`HEADER_CHARS`] are decoded unless the header lies further in.
+/// `None` when it is not base64 or not an image this build reads.
+pub fn dimensions(data: &str) -> Option<(u32, u32)> {
+    let probe = |bytes: &[u8]| {
+        ImageReader::new(Cursor::new(bytes))
+            .with_guessed_format()
+            .ok()?
+            .into_dimensions()
+            .ok()
+    };
+    let head = &data.as_bytes()[..data.len().min(HEADER_CHARS) / 4 * 4];
+    BASE64
+        .decode(head)
+        .ok()
+        .and_then(|bytes| probe(&bytes))
+        .or_else(|| probe(&BASE64.decode(data).ok()?))
+}
+
+/// `data` (base64) cut to fit, or `None` when it already fits, which only its
+/// header is read to decide. A side over [`MAX_IMAGE_SIDE`] (a full-page
+/// screenshot of a long panel) gets the image scaled down to [`PART_SIDE`]
+/// wide when wider, then cut into the fewest equal bands no taller, each
+/// re-encoded in the image's own format (JPEG stays JPEG, anything else
+/// becomes PNG), so it stays readable. An image whose size cannot be read (a
+/// format this build does not decode) is `None` as well: no u2s tool emits one.
+pub fn fit(data: &str) -> Option<Fitted> {
+    let (width, height) = dimensions(data)?;
     if width <= MAX_IMAGE_SIDE && height <= MAX_IMAGE_SIDE {
         return None;
     }
-    let image = image::load_from_memory(&bytes).ok()?;
-    let bands = bands(image);
+    let bytes = BASE64.decode(data).ok()?;
+    let jpeg = image::guess_format(&bytes).ok() == Some(ImageFormat::Jpeg);
+    let bands = bands(image::load_from_memory(&bytes).ok()?);
+    let scaled = if width > PART_SIDE { format!(", scaled down to {PART_SIDE} px wide") } else { String::new() };
     let note = format!(
-        "[a {width}x{height} px image, shown in {} part(s) top to bottom: the model takes at most {MAX_IMAGE_SIDE} px a side]",
+        "[a {width}x{height} px image, too large for the model in one piece: shown{scaled} in {} part(s) top to bottom]",
         bands.len()
     );
     let parts = bands.into_iter().map(|band| BASE64.encode(encode(&band, jpeg))).collect();
@@ -77,18 +103,18 @@ fn encode(image: &DynamicImage, jpeg: bool) -> Vec<u8> {
     bytes
 }
 
-/// `image` scaled down to [`MAX_IMAGE_SIDE`] wide when wider, then cut into
-/// the fewest equal horizontal bands that are each at most that tall.
+/// `image` scaled down to [`PART_SIDE`] wide when wider, then cut into the
+/// fewest equal horizontal bands that are each at most that tall.
 fn bands(image: DynamicImage) -> Vec<DynamicImage> {
-    let image = if image.width() > MAX_IMAGE_SIDE {
-        let height = (u64::from(image.height()) * u64::from(MAX_IMAGE_SIDE)).div_ceil(u64::from(image.width()));
+    let image = if image.width() > PART_SIDE {
+        let height = (u64::from(image.height()) * u64::from(PART_SIDE)).div_ceil(u64::from(image.width()));
         let height = u32::try_from(height).expect("scaling down keeps the height in range").max(1);
-        image.resize_exact(MAX_IMAGE_SIDE, height, image::imageops::FilterType::Triangle)
+        image.resize_exact(PART_SIDE, height, image::imageops::FilterType::Triangle)
     } else {
         image
     };
     let (width, height) = image.dimensions();
-    let parts = height.div_ceil(MAX_IMAGE_SIDE);
+    let parts = height.div_ceil(PART_SIDE);
     let band = height.div_ceil(parts);
     (0..parts)
         .map(|part| part * band)
@@ -114,8 +140,8 @@ pub mod testing {
         encoded(DynamicImage::ImageRgb8(tall), ImageFormat::Jpeg)
     }
 
-    /// The width and height of a base64 image.
-    pub fn dimensions(data: &str) -> (u32, u32) {
+    /// The width and height of a base64 image, decoded in full.
+    pub fn decoded_dimensions(data: &str) -> (u32, u32) {
         image::load_from_memory(&BASE64.decode(data).unwrap()).unwrap().dimensions()
     }
 }
@@ -130,28 +156,40 @@ mod tests {
     /// model whole, in parts it accepts.
     #[test]
     fn an_image_taller_than_the_api_takes_is_cut_into_bands() {
-        let fitted = fit(&too_tall_screenshot(), true).expect("too tall");
-        assert_eq!(fitted.parts.len(), 2);
+        let fitted = fit(&too_tall_screenshot()).expect("too tall");
         assert_eq!(fitted.media_type(), "image/jpeg");
-        let sizes: Vec<_> = fitted.parts.iter().map(|part| dimensions(part)).collect();
-        assert!(sizes.iter().all(|&(w, h)| w == 900 && h <= MAX_IMAGE_SIDE), "{sizes:?}");
+        let sizes: Vec<_> = fitted.parts.iter().map(|part| decoded_dimensions(part)).collect();
+        assert_eq!(sizes.len(), 5, "{sizes:?}");
+        assert!(sizes.iter().all(|&(w, h)| w == 900 && h <= PART_SIDE), "{sizes:?}");
         assert_eq!(sizes.iter().map(|(_, h)| h).sum::<u32>(), 8079);
-        assert!(fitted.note.contains("900x8079"), "{}", fitted.note);
+        assert!(fitted.note.contains("900x8079") && !fitted.note.contains("scaled"), "{}", fitted.note);
     }
 
+    /// The parts keep the format the image is in, whatever it was labelled.
     #[test]
-    fn an_image_wider_than_the_api_takes_is_scaled_then_cut() {
-        let wide = encoded(DynamicImage::ImageLuma8(image::GrayImage::new(16_000, 20_000)), ImageFormat::Png);
-        let fitted = fit(&wide, false).expect("too wide");
+    fn an_image_wider_than_the_api_takes_is_scaled_then_cut_as_png() {
+        let wide = encoded(DynamicImage::ImageLuma8(image::GrayImage::new(8001, 4001)), ImageFormat::Png);
+        let fitted = fit(&wide).expect("too wide");
         assert_eq!(fitted.media_type(), "image/png");
-        let sizes: Vec<_> = fitted.parts.iter().map(|part| dimensions(part)).collect();
-        assert_eq!(sizes, vec![(MAX_IMAGE_SIDE, 5000), (MAX_IMAGE_SIDE, 5000)]);
+        let sizes: Vec<_> = fitted.parts.iter().map(|part| decoded_dimensions(part)).collect();
+        assert_eq!(sizes, vec![(PART_SIDE, 1001)]);
+        assert!(fitted.note.contains("scaled down"), "{}", fitted.note);
     }
 
     #[test]
     fn an_image_the_api_takes_is_left_alone() {
         let fits = encoded(DynamicImage::ImageLuma8(image::GrayImage::new(900, MAX_IMAGE_SIDE)), ImageFormat::Png);
-        assert!(fit(&fits, false).is_none());
-        assert!(fit("not base64 at all", false).is_none());
+        assert!(fit(&fits).is_none());
+        assert!(fit("not base64 at all").is_none());
+    }
+
+    /// The header is enough to size an image, and a payload shorter than the
+    /// probe is read whole.
+    #[test]
+    fn dimensions_come_from_the_header() {
+        assert_eq!(dimensions(&too_tall_screenshot()), Some((900, 8079)));
+        let small = encoded(DynamicImage::ImageLuma8(image::GrayImage::new(3, 2)), ImageFormat::Png);
+        assert_eq!(dimensions(&small), Some((3, 2)));
+        assert_eq!(dimensions("####"), None);
     }
 }

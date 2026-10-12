@@ -148,7 +148,8 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
 /// A tool's image is already fitted where it enters a reply; this fits every
 /// image again on its way out (see [`agent::image_fit`]), so a conversation
 /// recorded with an oversized one, as a resumed session reloads it, still runs
-/// instead of failing every retry. Only an oversized image is decoded.
+/// instead of failing every retry. Only an image's header is read, unless it
+/// has to be cut.
 struct FittedImages<M>(M);
 
 impl<M: CompletionModel> CompletionModel for FittedImages<M> {
@@ -229,21 +230,24 @@ impl FittedPart {
 /// and the parts [`agent::image_fit::fit`] cut it into.
 fn fit_parts(image: Image) -> Vec<FittedPart> {
     let fitted = match &image.data {
-        DocumentSourceKind::Base64(data) => {
-            agent::image_fit::fit(data, image.media_type == Some(ImageMediaType::JPEG))
-        }
+        DocumentSourceKind::Base64(data) => agent::image_fit::fit(data),
         _ => None,
     };
     let Some(fitted) = fitted else {
         return vec![FittedPart::Image(image)];
     };
     let media_type = if fitted.jpeg { ImageMediaType::JPEG } else { ImageMediaType::PNG };
+    // The part's settings are the image's own, without its oversized data.
+    let template = Image {
+        data: DocumentSourceKind::Unknown,
+        ..image
+    };
     std::iter::once(FittedPart::Note(fitted.note))
         .chain(fitted.parts.into_iter().map(|part| {
             FittedPart::Image(Image {
                 data: DocumentSourceKind::Base64(part),
                 media_type: Some(media_type.clone()),
-                ..image.clone()
+                ..template.clone()
             })
         }))
         .collect()
@@ -479,8 +483,8 @@ mod tests {
     /// that already fits untouched.
     #[test]
     fn an_oversized_image_in_the_history_is_cut_to_fit() {
-        use agent::image_fit::MAX_IMAGE_SIDE;
-        use agent::image_fit::testing::{dimensions, too_tall_screenshot};
+        use agent::image_fit::PART_SIDE;
+        use agent::image_fit::testing::{decoded_dimensions, too_tall_screenshot};
         let tall = too_tall_screenshot();
         let jpeg = |data: &str| ToolResultContent::image_base64(data, Some(ImageMediaType::JPEG), None);
         let history = vec![Message::User {
@@ -504,22 +508,24 @@ mod tests {
         let parts: Vec<_> = shot.content.iter().collect();
         assert!(matches!(parts[0], ToolResultContent::Text(t) if t.text == "shot"));
         assert!(matches!(parts[1], ToolResultContent::Text(t) if t.text.contains("900x8079")));
-        let heights: Vec<u32> = parts[2..4]
+        let (last, cut) = parts[2..].split_last().expect("parts follow the note");
+        let heights: Vec<u32> = cut
             .iter()
             .map(|part| match part {
-                ToolResultContent::Image(image) => dimensions(&base64_of(image)).1,
-                other => panic!("expected a part, got {other:?}"),
+                ToolResultContent::Image(image) if image.media_type == Some(ImageMediaType::JPEG) => {
+                    decoded_dimensions(&base64_of(image)).1
+                }
+                other => panic!("expected a JPEG part, got {other:?}"),
             })
             .collect();
-        assert!(heights.iter().all(|&h| h <= MAX_IMAGE_SIDE), "{heights:?}");
+        assert!(heights.iter().all(|&h| h <= PART_SIDE), "{heights:?}");
         assert_eq!(heights.iter().sum::<u32>(), 8079);
-        assert!(matches!(parts[4], ToolResultContent::Image(image) if base64_of(image) == "small"));
-        assert_eq!(parts.len(), 5);
+        assert!(matches!(last, ToolResultContent::Image(image) if base64_of(image) == "small"));
 
         assert!(matches!(&content[1], UserContent::Text(t) if t.text.contains("900x8079")));
         assert!(content[2..].iter().all(|item| matches!(item, UserContent::Image(image)
-            if dimensions(&base64_of(image)).1 <= MAX_IMAGE_SIDE)));
-        assert_eq!(content.len(), 4);
+            if decoded_dimensions(&base64_of(image)).1 <= PART_SIDE)));
+        assert_eq!(content.len(), 2 + heights.len());
     }
 
     /// Somebody else's gateway must not be built as an OpenRouter client — the

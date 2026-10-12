@@ -72,14 +72,15 @@ pub fn reply_from_result(result: CallToolResult, blobs: Option<&Path>) -> ToolRe
 /// A tool's image as blocks the model API accepts: untouched when it fits,
 /// otherwise a note and its parts (see [`crate::image_fit::fit`]).
 fn image_blocks(media_type: String, data: String) -> Vec<ReplyBlock> {
-    let Some(fitted) = crate::image_fit::fit(&data, media_type == "image/jpeg") else {
+    let Some(fitted) = crate::image_fit::fit(&data) else {
         return vec![ReplyBlock::Image { media_type, data }];
     };
-    let parts = fitted.parts.iter().map(|part| ReplyBlock::Image {
-        media_type: fitted.media_type().into(),
-        data: part.clone(),
+    let part_type = fitted.media_type();
+    let parts = fitted.parts.into_iter().map(|data| ReplyBlock::Image {
+        media_type: part_type.into(),
+        data,
     });
-    std::iter::once(ReplyBlock::Text(fitted.note.clone())).chain(parts).collect()
+    std::iter::once(ReplyBlock::Text(fitted.note)).chain(parts).collect()
 }
 
 /// Gives every object naming a blob `handle` that exists in `blobs` the
@@ -138,23 +139,24 @@ mod tests {
     /// parts, in place; one it takes passes untouched.
     #[test]
     fn a_tool_image_reaches_the_model_in_parts_it_takes() {
-        use crate::image_fit::testing::{dimensions, encoded, too_tall_screenshot};
+        use crate::image_fit::testing::{decoded_dimensions, encoded, too_tall_screenshot};
         let result = CallToolResult::success(vec![
             ContentBlock::text("first"),
-            ContentBlock::image(too_tall_screenshot(), "image/jpeg"),
+            ContentBlock::image(too_tall_screenshot(), "image/jpg"),
         ]);
         let ToolReply::Blocks(blocks) = reply_from_result(result, None) else {
             panic!("an image result stays blocks");
         };
-        let [ReplyBlock::Text(first), ReplyBlock::Text(note), ReplyBlock::Image { media_type, data: top }, ReplyBlock::Image { data: bottom, .. }] =
-            &blocks[..]
-        else {
-            panic!("expected the text, a note and two parts: {}", blocks.len());
+        let [ReplyBlock::Text(first), ReplyBlock::Text(note), parts @ ..] = &blocks[..] else {
+            panic!("expected the text, a note and the parts: {}", blocks.len());
         };
         assert_eq!(first, "first");
         assert!(note.contains("900x8079"), "{note}");
-        assert_eq!(media_type, "image/jpeg");
-        assert_eq!(dimensions(top).1 + dimensions(bottom).1, 8079);
+        let heights = parts.iter().map(|part| match part {
+            ReplyBlock::Image { media_type, data } if media_type == "image/jpeg" => decoded_dimensions(data).1,
+            _ => panic!("expected a JPEG part"),
+        });
+        assert_eq!(heights.sum::<u32>(), 8079);
 
         let small = encoded(image::DynamicImage::ImageLuma8(image::GrayImage::new(900, 1200)), image::ImageFormat::Png);
         let result = CallToolResult::success(vec![ContentBlock::image(small.clone(), "image/png")]);
