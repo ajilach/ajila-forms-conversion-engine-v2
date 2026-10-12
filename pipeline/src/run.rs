@@ -975,7 +975,8 @@ async fn run_stage_attempts(
                 *total_spend,
                 context_budget.clone(),
             )
-            .with_trace_position(stats.attempts, total_completed_turns),
+            .with_trace_position(stats.attempts, total_completed_turns)
+            .with_system(system),
         );
 
         // The history this attempt starts from, which its own messages

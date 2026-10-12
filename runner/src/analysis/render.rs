@@ -73,7 +73,7 @@ started), `stage_index` (1-based position of the stage in the run) and an\n\
 - `turn_finished` — `latency_ms`, `usage` (tokens), `cost_usd`, `finish_reason`, the model's `text` and `reasoning`, and the `tool_calls` it asked for (full arguments).\n\
 - `tool_started` / `tool_finished` — `name`, `args`, `ok`, `duration_ms`, the full `result` text (images replaced by a placeholder), `result_hash`.\n\
 - `review_verdict` — one review round: `round`, `approved` (`null` when the Reviewer ended without a verdict), `report`.\n\
-- `control` — the controller steering the run: `kind` is one of `output_cap_nudge`, `stuck_stop`, `turn_budget_exhausted`, `transient_retry`, `operator_prompt`, `operator_retried`, `operator_cancelled`, `invalid_tool_call`, `context_budget_failed`, `aborted`, `stage_error`.\n\
+- `control` — the controller steering the run: `kind` is one of `output_cap_nudge`, `stuck_stop`, `turn_budget_exhausted`, `transient_retry`, `operator_prompt`, `operator_retried`, `operator_cancelled`, `invalid_tool_call`, `context_budget_failed`, `aborted`, `stage_error`, `cache_refreshed`.\n\
 - `rule_check_started` — a `rule_check` handing its judged rules to judges: `check` (an id that the judges' lines repeat), `partial` (chosen `rule_ids` rather than every rule), `scripted`, `judged`, `revision`.\n\
 - `judge_finished` — one judge: `rule_id`, `rule_name`, `rule_title`, `verdict` (`positive`, `negative`, `unchecked`), `violations`, `unchecked_reason`, `turns`, `duration_ms`, `revision`, and its own `spend`. A judge's own turns and tool calls are not traced.\n\
 - `rule_check_finished` — `duration_ms`, `judges_spend` (all its judges together), `outdated` (the document changed while they judged).\n\
