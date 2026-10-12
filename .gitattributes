@@ -1,2 +1,5 @@
 references-mcp/models/** filter=lfs diff=lfs merge=lfs -text
 forms/** filter=lfs diff=lfs merge=lfs -text
+# Cargo checks the vendored crates byte for byte against .cargo-checksum.json,
+# so a checkout must never convert their line endings (core.autocrlf on Windows).
+vendor/crates/** -text
