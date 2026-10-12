@@ -3,9 +3,10 @@ title = "Each heading of the source is rendered exactly once"
 output_formats = ["aem-ubs"]
 description = """
 A page Panel (`is_page: true`) renders its heading from its own `title`: the writer wraps it in a
-panel named `<panel name>Title` holding one level-2 TitleDraw (on the first page, the one that
-carries the banking relationship, as a subtitle text). Give every page its heading as `title` and
-do not author a TitleDraw or TextDraw for it: a drawn copy renders the heading twice. Likewise two
+panel named `<panel name>Title` holding one level-2 TitleDraw (on the first page, as the subtitle
+text under the form title). Give a page its heading as `title` and do not author a TitleDraw or
+TextDraw for it: a drawn copy renders the heading twice. Which pages have a heading at all is
+ubs-aem-structure-matches-source's question. Likewise two
 neighbouring TitleDraws or TextDraws that carry the same text render it twice. Below page level a
 Panel `title` does not render, so a sub-heading is an authored TitleDraw (and never both a titled
 sub-panel and a TitleDraw with the same text next to it as one heading).

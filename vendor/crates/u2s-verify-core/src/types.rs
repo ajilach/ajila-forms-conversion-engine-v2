@@ -45,6 +45,17 @@ pub struct Step {
     pub screenshot: BlobDescriptor,
     pub console_errors: Vec<String>,
     pub failed_requests: Vec<FailedRequest>,
+    pub dialogs: Vec<Dialog>,
+}
+
+/// A native JS dialog (`alert`, `confirm`, `prompt`, `beforeunload`) a page
+/// raised. The browser driver answers every one immediately (see
+/// `crate::browser`'s module doc), so this records that it happened and
+/// what it said; nothing ever waits on a person to dismiss it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct Dialog {
+    pub kind: String,
+    pub message: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -213,15 +224,11 @@ pub enum ErrorKind {
     /// have depended on it -- refused up front rather than left to fail
     /// obscurely partway through `guideBridge.submit()`.
     RedactoUnreachable,
-    /// A verifier that boots its own Redacto platform
-    /// (`u2s-redacto-verify-core::session`) could not bring it up: a
-    /// container failed to start, the migration failed, or a service never
-    /// became ready.
-    RedactoNotReady,
-    /// `verify_run` was called on a `session_id` that already has a form
-    /// open for interaction (`u2s-aem-verify-core::interactive`). The two
-    /// paths share one installed-package slot per AEM session, so they
-    /// cannot run at once -- the caller must `verify_close` first.
+    /// The request would disturb a form open for interaction
+    /// (`u2s-aem-verify-core::interactive`): `verify_run` on an instance
+    /// with sessions open, or a `verify_open` whose package differs from
+    /// the one other open sessions show for the same form. The caller
+    /// closes those sessions first.
     FormOpen,
 }
 
@@ -241,7 +248,6 @@ impl ErrorKind {
             Self::DownloadBlank => "download_blank",
             Self::StorageFailed => "storage_failed",
             Self::RedactoUnreachable => "redacto_unreachable",
-            Self::RedactoNotReady => "redacto_not_ready",
             Self::FormOpen => "form_open",
         }
     }
@@ -313,6 +319,7 @@ mod tests {
                 name: "page-1".to_owned(),
                 screenshot: blob("aaaa.png"),
                 console_errors: vec!["TypeError: x".to_owned()],
+                dialogs: Vec::new(),
                 failed_requests: vec![FailedRequest {
                     url: "https://example/x.js".to_owned(),
                     status: Some(404),
@@ -366,7 +373,6 @@ mod tests {
             ErrorKind::DownloadBlank,
             ErrorKind::StorageFailed,
             ErrorKind::RedactoUnreachable,
-            ErrorKind::RedactoNotReady,
         ];
         let strings: std::collections::BTreeSet<&str> = all.iter().map(|k| k.as_str()).collect();
         assert_eq!(

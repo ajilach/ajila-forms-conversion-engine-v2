@@ -32,19 +32,34 @@ impl Readiness {
 /// Renders nothing while it is ready, or before the first check finishes.
 #[component]
 pub fn EnvironmentBanner(readiness: Resource<Readiness>) -> Element {
+    // A re-check that finds the same problems would otherwise look as if the
+    // button did nothing.
+    let mut rechecks = use_signal(|| 0u32);
     let Some(Readiness(Err(NotReady(problems)))) = readiness.value().read().clone() else {
         return rsx! {};
     };
     let checking = readiness.pending();
+    let rechecked = rechecks();
+    let docker_deadline = agent::u2s::DOCKER_PING_DEADLINE.as_secs();
     rsx! {
         div { class: "environment-banner",
             div { class: "environment-banner-head",
                 strong { "This machine is not ready to run a conversion" }
-                button {
-                    class: "btn btn-secondary btn-sm",
-                    disabled: checking,
-                    onclick: move |_| readiness.restart(),
-                    if checking { "Checking…" } else { "Re-check" }
+                div { class: "environment-banner-actions",
+                    if checking {
+                        span { "Checking Docker, the images and the rule sandbox (up to {docker_deadline}s for Docker)…" }
+                    } else if rechecked > 0 {
+                        span { "Still not ready after re-check {rechecked}." }
+                    }
+                    button {
+                        class: "btn btn-secondary btn-sm",
+                        disabled: checking,
+                        onclick: move |_| {
+                            rechecks += 1;
+                            readiness.restart();
+                        },
+                        if checking { "Checking…" } else { "Re-check" }
+                    }
                 }
             }
             ul {

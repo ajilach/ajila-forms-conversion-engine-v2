@@ -17,7 +17,9 @@ use serde::Serialize;
 /// One guard problem found in the rendered package.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct PackageFinding {
-    /// The guard's problem slug, e.g. `PROBLEM-dor-exclusion-implies-summary`.
+    /// The guard's problem slug, e.g. `PROBLEM-dor-exclusion-implies-summary`, or
+    /// an `ENGINE-` slug for a shape the UBS platform needs that the guard does
+    /// not police.
     pub problem: &'static str,
     /// The offending component's `name`, or its JCR tag when it has none.
     pub node: String,
@@ -88,6 +90,15 @@ fn open_tags(xml: &str) -> Vec<(&str, &str)> {
         i = j + 1;
     }
     out
+}
+
+/// An attribute value as the markup it escapes.
+fn unescaped(value: &str) -> String {
+    value
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&amp;", "&")
 }
 
 /// The visual-editor properties an `fd:rules` node must not carry: a rule lives
@@ -194,6 +205,23 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
             );
         }
 
+        // The platform marks a heading by its first `<p>` (`role="heading"`), and the
+        // DoR prints only such a row as a heading: a bare-text title draw prints as
+        // body text.
+        if resource_type.is_some_and(|rt| rt.ends_with("controls/titledraw"))
+            && let Some(value) = attr(tag, "_value")
+            && !value.trim().is_empty()
+            && !u2s_aem_ubs_mcp::aem::text_shape::is_paragraph(&unescaped(value))
+        {
+            push(
+                "ENGINE-heading-paragraph",
+                label.clone(),
+                "the title draw's value is not a paragraph, so it never becomes a heading and \
+                 prints as body text"
+                    .into(),
+            );
+        }
+
         if let Some(frag_ref) = attr(tag, "fragRef") {
             // The bank's own copy: never on screen, never in the summary, always
             // in the PDF, and never `dorExclusion`, which would undo `alwaysInPdf`.
@@ -290,6 +318,8 @@ mod tests {
   <panel_infobox_copy sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
       fragRef="/content/dam/formsanddocuments/afforms_italy_fragmentlib/affrg_italy_infobox"
       guideNodeClass="guidePanel" name="PN_ItalyInfoboxDoR" visible="{Boolean}false"/>
+  <titledraw_bare sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
+      _value="1. General information" headingLevel="3" name="TTL_Bare"/>
 </jcr:root>"##;
 
     /// A form that satisfies every check.
@@ -315,6 +345,8 @@ mod tests {
       visible="{Boolean}false"/>
   <guidebutton sling:resourceType="fd/af/components/guidebutton" dorExclusion="true"
       summaryExclusion="true" guideNodeClass="guideButton" name="fwbSaveProgress"/>
+  <titledraw_ok sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
+      _value="&lt;p>&lt;b>1. General information&lt;/b>&lt;/p>" headingLevel="3" name="TTL_Ok"/>
 </jcr:root>"##;
 
     fn problems_of(xml: &str) -> Vec<&'static str> {
@@ -329,6 +361,7 @@ mod tests {
         assert_eq!(
             problems_of(DEFECTIVE),
             [
+                "ENGINE-heading-paragraph",
                 "PROBLEM-checkbox-rich-text-options",
                 "PROBLEM-dor-exclusion-implies-summary",
                 "PROBLEM-fragment-library-consolidation",

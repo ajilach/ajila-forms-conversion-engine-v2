@@ -50,12 +50,15 @@
 //! form.refresh()?;
 //! ```
 
+pub mod acrobat;
 pub mod dependency;
 pub mod engine;
 pub mod events;
+pub mod formcalc;
 pub mod form;
 pub mod js_helpers;
 pub mod registry;
+pub mod report;
 pub mod script_object;
 pub mod som;
 pub mod state;
@@ -82,10 +85,11 @@ pub use state::{FormState, Presence, SharedFormState, XfaValue};
 
 // Engine
 pub use engine::XfaScriptEngine;
+pub use report::{HostMessage, ScriptFailure, ScriptReport, join_warnings};
 pub use form::{EffectiveAccess, EventResult, NodeBounds, XfaForm, XfaNodeRef, XfaNodeRefMut};
 
 // Script object wrapper
-pub use script_object::wrap_script_object;
+pub use script_object::script_object_factory;
 
 // Form (high-level API)
 

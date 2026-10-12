@@ -83,6 +83,27 @@ pub struct Control {
     /// (pressing it does nothing).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub click: Option<ClickEffect>,
+    /// The picture clause the form shows the value through (XFA 3.3
+    /// "Picture Clause Reference"), as the template wrote it, such as
+    /// `date{DD.MM.YYYY}`: its format picture, else its edit picture.
+    /// `value` stays canonical (a date `YYYY-MM-DD`, a number `1234.5`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<String>,
+    /// `value` as the form shows it through `format`, when that differs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shown: Option<String>,
+    /// The most characters the field takes (`<text maxChars>`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_chars: Option<u32>,
+    /// Whether the field takes several lines (`<textEdit multiLine="1">`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiline: bool,
+    /// The field's tooltip (`<assist><toolTip>`): often its only label.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tooltip: Option<String>,
+    /// Whether the form requires a value (`<validate nullTest="error">`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub mandatory: bool,
 }
 
 /// What pressing a button does.
@@ -684,12 +705,33 @@ fn control_of(
         ))
     })?;
 
+    let meta = resolved
+        .as_ref()
+        .and_then(|n| n.xfa_node().field_meta.clone());
+    let format = meta.as_ref().and_then(|m| {
+        m.format
+            .as_ref()
+            .or(m.edit.as_ref())
+            .map(|p| p.source.clone())
+    });
+    let shown = meta
+        .as_ref()
+        .zip(value.as_deref())
+        .and_then(|(m, v)| m.display(v))
+        .filter(|s| Some(s) != value.as_ref());
+
     Ok(Control {
         field: f.path.as_str().to_string(),
         kind: ControlKind::from(&f.kind),
         group: group_of(f.path.as_str(), &f.kind),
         options,
         default: value.clone(),
+        format,
+        shown,
+        max_chars: meta.as_ref().and_then(|m| m.max_chars),
+        multiline: meta.as_ref().is_some_and(|m| m.multiline),
+        tooltip: meta.as_ref().and_then(|m| m.tooltip.clone()),
+        mandatory: meta.as_ref().is_some_and(|m| m.mandatory()),
         value,
         visible,
         affects_layout,
@@ -795,7 +837,10 @@ fn apply_steps(form: &mut XfaForm, spec: &StateSpec) -> Result<Option<String>, X
         };
         // Looked up in the form as the previous step left it: a press can
         // add or remove fields.
-        let Some(is_button) = form.resolve(field).map(|n| n.is_button()) else {
+        let Some((is_button, is_check_button)) = form
+            .resolve(field)
+            .map(|n| (n.is_button(), n.is_radio_button() || n.is_checkbox()))
+        else {
             // Naming the field is not enough — a caller that guessed wrong
             // needs to know where the real names come from.
             return Err(XfaError::Layout(format!(
@@ -816,10 +861,14 @@ fn apply_steps(form: &mut XfaForm, spec: &StateSpec) -> Result<Option<String>, X
                     "'{field}' is a button; it has no value to set — press it with a click step"
                 )));
             }
-            (Step::Click { .. }, true) => form.click(field).map_err(XfaError::Layout)?,
-            (Step::Click { .. }, false) => {
+            // A radio button or checkbox can be pressed too: see `XfaForm::click`.
+            (Step::Click { .. }, _) if is_button || is_check_button => {
+                form.click(field).map_err(XfaError::Layout)?
+            }
+            (Step::Click { .. }, _) => {
                 return Err(XfaError::Layout(format!(
-                    "'{field}' is not a button; set it to a value with a set step instead"
+                    "'{field}' is not a button, radio button or checkbox; set it to a value \
+                     with a set step instead"
                 )));
             }
         };
@@ -923,6 +972,12 @@ mod tests {
             access: FieldAccess::Open,
             access_from: None,
             click: None,
+            format: None,
+            shown: None,
+            max_chars: None,
+            multiline: false,
+            tooltip: None,
+            mandatory: false,
         }
     }
 

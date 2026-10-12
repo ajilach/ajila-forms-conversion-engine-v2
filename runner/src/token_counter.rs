@@ -32,19 +32,11 @@ const IMAGE_TOKEN_FALLBACK: usize = 1_600;
 const PX_PER_TOKEN: usize = 750;
 const MAX_IMAGE_PX: usize = 1_150_000;
 
-/// Real vision-token cost of one base64 image: decode just enough to read its
-/// dimensions, then apply Anthropic's `min(w*h, MAX_IMAGE_PX) / PX_PER_TOKEN`.
+/// Real vision-token cost of one base64 image: read its dimensions from its
+/// header, then apply Anthropic's `min(w*h, MAX_IMAGE_PX) / PX_PER_TOKEN`.
 /// Falls back to [`IMAGE_TOKEN_FALLBACK`] if the payload can't be read.
 fn image_token_cost(data_b64: &str) -> usize {
-    use base64::Engine;
-    let Ok(bytes) = base64::prelude::BASE64_STANDARD.decode(data_b64) else {
-        return IMAGE_TOKEN_FALLBACK;
-    };
-    match image::ImageReader::new(std::io::Cursor::new(&bytes))
-        .with_guessed_format()
-        .ok()
-        .and_then(|r| r.into_dimensions().ok())
-    {
+    match agent::image_fit::dimensions(data_b64) {
         Some((w, h)) => (w as usize * h as usize).min(MAX_IMAGE_PX) / PX_PER_TOKEN,
         None => IMAGE_TOKEN_FALLBACK,
     }

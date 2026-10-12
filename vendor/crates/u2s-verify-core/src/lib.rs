@@ -7,7 +7,7 @@
 //!   `wait_for_http`, a generic readiness poll.
 //! - [`browser`] -- a CDP driver over `chromiumoxide`, connecting to an
 //!   already-running Chromium rather than launching one.
-//! - [`session`] -- the per-`session_id` pool of booted sessions, how this
+//! - [`instance`] -- the per-`instance_id` pool of booted instances, how this
 //!   process reaches their containers, and their startup and idle cleanup.
 //! - [`http`] -- a one-shot reachability probe for a dependency this
 //!   crate's callers do not themselves start or stop.
@@ -17,9 +17,13 @@
 //!   `u2s_mcp::manifest::VerifyCapability::Run`'s documented contract
 //!   field for field.
 
+
+/// Prefixes every log line this crate writes.
+pub(crate) const LOG_PREFIX: &str = "u2s-verify-core";
+
 pub mod browser;
 pub mod docker;
 pub mod http;
 pub mod pdf_content;
-pub mod session;
+pub mod instance;
 pub mod types;

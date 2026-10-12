@@ -59,6 +59,40 @@ async fn handshake_and_manifest_agree() {
     harness::handshake_matches_manifest(&s, &fixtures()).await;
 }
 
+/// The normalizer reads an XFA form through exactly these three tools
+/// (`u2s_mcp::manifest::IngestCapability`): its page count from `xfa_info`,
+/// its page text from `xfa_page_text` and its page images from
+/// `xfa_render_pages`. Anything else declaring `ingest` would take part in an
+/// election it was not written for.
+#[tokio::test]
+async fn the_manifest_declares_info_text_and_render_ingest() {
+    let s = require_server!();
+    let client = s.connect().await;
+    let manifest = harness::read_manifest(&client).await;
+    client.cancel().await.ok();
+
+    let mut ingest: Vec<(String, String)> = manifest["tools"]
+        .as_array()
+        .expect("tools")
+        .iter()
+        .filter_map(|t| {
+            Some((
+                t["tool"].as_str()?.to_string(),
+                t.get("ingest")?.as_str()?.to_string(),
+            ))
+        })
+        .collect();
+    ingest.sort();
+    assert_eq!(
+        ingest,
+        vec![
+            ("xfa_info".to_string(), "info".to_string()),
+            ("xfa_page_text".to_string(), "text".to_string()),
+            ("xfa_render_pages".to_string(), "render".to_string()),
+        ]
+    );
+}
+
 #[tokio::test]
 async fn cursor_walk_covers_the_overflow_form_exactly_once() {
     let s = require_server!();

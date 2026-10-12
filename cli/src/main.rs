@@ -38,6 +38,44 @@ enum Command {
     /// The Docker-hosted AEM Forms instance the Author and Reviewer check
     /// their output with.
     Verify(VerifyArgs),
+
+    /// Render every page of source PDFs as the review shows them (XFA forms
+    /// in their initial state), to compare a run's output against.
+    RenderSources(RenderSourcesArgs),
+}
+
+#[derive(ClapArgs, Debug)]
+struct RenderSourcesArgs {
+    /// The source PDF(s).
+    #[arg(value_name = "PDF", required = true)]
+    pdfs: Vec<std::path::PathBuf>,
+
+    /// Directory the pages are written to as `source-NN-<label>.png`
+    /// (created if missing).
+    #[arg(long, default_value = ".")]
+    out: std::path::PathBuf,
+}
+
+/// `blueprint render-sources`.
+fn render_sources(args: RenderSourcesArgs) -> Result<(), Box<dyn std::error::Error>> {
+    let files = args
+        .pdfs
+        .iter()
+        .map(|path| {
+            let name = path.file_name().map_or_else(|| path.display().to_string(), |n| n.to_string_lossy().into_owned());
+            std::fs::read(path)
+                .map(|bytes| (name, bytes))
+                .map_err(|e| format!("Could not read {}: {e}", path.display()))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let images = agent::review::render_sources(&files)?;
+    std::fs::create_dir_all(&args.out).map_err(|e| format!("Could not create {}: {e}", args.out.display()))?;
+    for (index, image) in images.iter().enumerate() {
+        let path = args.out.join(runner::review_image_filename("source", index, &image.label));
+        std::fs::write(&path, &image.png).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+        println!("Wrote: {}", path.display());
+    }
+    Ok(())
 }
 
 #[derive(ClapArgs, Debug)]
@@ -118,5 +156,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             Ok(())
         }
         Command::Verify(verify_args) => verify_command(verify_args),
+        Command::RenderSources(render_args) => render_sources(render_args),
     }
 }

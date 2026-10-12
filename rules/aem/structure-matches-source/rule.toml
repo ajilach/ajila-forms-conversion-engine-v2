@@ -13,9 +13,21 @@ walk the tree section by section (json_outline, json_get). Check the order of th
 fields share a row (`colspan`), which texts are headings and at what level (`heading_level` of a
 TitleDraw, `title` of a page), where a group opens and closes, and where a repeatable is.
 
+Heading levels follow what the page draws. Level 2 (a page's `title`, or a level-2 `TitleDraw`)
+prints in the Document of Record with a rule above it, so it is only for a heading the source draws
+with a rule line above it. A heading without one is level 3 or deeper, by its nesting. Bold text
+that does not open a section is not a heading at all: a "Please note:" lead-in, a label in front
+of a value. Write it as `<b>` inside a `TextDraw`'s paragraph. The line under the form's title is
+the first page's `title`, which the writer prints as the subtitle, not as a step heading; it is
+never also a draw. Any other page takes as its `title` the heading it opens with, ruled in the
+source or not (ubs-aem-step-titles): a page never opens with a `TitleDraw`. A page that opens with
+body text has no `title` (most steps of the reference forms have none), and its headings are
+`TitleDraw`s at level 3 or deeper.
+
 A break is a region whose structure in the tree differs from the page: sections in another order,
-a heading at another level, fields grouped differently, a list or table flattened into plain
-paragraphs, or a repeated block authored once or as copies.
+a heading at another level, a level-2 heading the source does not rule (other than a page's
+`title`), fields grouped differently,
+a list or table flattened into plain paragraphs, or a repeated block authored once or as copies.
 
 Fix: json_patch the tree to match the page. Tables are covered by the
 ubs-aem-tables-are-html-tables rule. Two arrangements of the page the tree does not copy: text the
@@ -27,4 +39,4 @@ them (ubs-aem-account-holder-cluster). Neither is a break.
 
 [judge]
 # Walks every page of the source in every language.
-max_turns = 16
+max_turns = 80

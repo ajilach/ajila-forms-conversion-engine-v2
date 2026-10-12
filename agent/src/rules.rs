@@ -103,10 +103,10 @@ struct RuleToml {
 ///
 /// ```toml
 /// [judge]
-/// pointers = ["/header"]          # parts of the document, by JSON Pointer
+/// pointers = ["/variables"]       # parts of the document, by JSON Pointer
 /// node_types = ["Repeatable"]     # every node of these `type`s, wherever it sits
 /// source = "first_page"           # "tools" (default), "first_page" or "none"
-/// max_turns = 12                  # the judge's turn budget, when not the default
+/// max_turns = 80                  # the judge's turn budget, when not the default
 /// ```
 ///
 /// A scope is a promise that the rule reads nothing else of the document:
@@ -523,11 +523,11 @@ mod tests {
     #[test]
     fn a_judge_scope_is_read_from_the_rule_toml() {
         let toml: RuleToml = toml::from_str(
-            "id = \"x\"\ntitle = \"t\"\ndescription = \"d\"\n[judge]\npointers = [\"/header\"]\nnode_types = [\"Repeatable\"]\nsource = \"first_page\"\nmax_turns = 12\n",
+            "id = \"x\"\ntitle = \"t\"\ndescription = \"d\"\n[judge]\npointers = [\"/variables\"]\nnode_types = [\"Repeatable\"]\nsource = \"first_page\"\nmax_turns = 12\n",
         )
         .unwrap();
         let scope = toml.judge.unwrap();
-        assert_eq!(scope.pointers, ["/header"]);
+        assert_eq!(scope.pointers, ["/variables"]);
         assert_eq!(scope.node_types, ["Repeatable"]);
         assert_eq!((scope.source, scope.max_turns), (SourceNeed::FirstPage, Some(12)));
         assert!(scope.is_partial());

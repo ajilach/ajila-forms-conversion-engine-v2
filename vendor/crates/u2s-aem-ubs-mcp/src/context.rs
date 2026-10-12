@@ -1,5 +1,5 @@
-//! What the writer reads about the source form: its language, its
-//! XFA template variables and its master-page header.
+//! What the writer reads about the source form: its language and its
+//! XFA template variables.
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -19,11 +19,6 @@ pub struct Context {
     /// not built from an XFA template — failed to deserialize.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub variables: HashMap<String, String>,
-
-    /// Plain text of the source's master-page header (e.g. a legal-entity name
-    /// drawn top of page), which the preface writes into the DoR header slot.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub header: Option<String>,
 }
 
 impl Context {
@@ -32,7 +27,6 @@ impl Context {
         Self {
             language,
             variables,
-            header: None,
         }
     }
 
@@ -44,7 +38,6 @@ impl Context {
         Self {
             language: language.into(),
             variables: HashMap::new(),
-            header: None,
         }
     }
 
@@ -120,6 +113,5 @@ mod tests {
             .expect("a context with no XFA variables must deserialize again");
         assert_eq!(back.language(), "en");
         assert!(back.variables.is_empty());
-        assert!(back.header.is_none());
     }
 }

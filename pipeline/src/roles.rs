@@ -111,11 +111,11 @@ pub(crate) const REVIEWER: Role = Role {
 /// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
 /// ends with `submit_rule_verdict`.
 ///
-/// Eight turns: a judge gets the part of the document its rule reads in its
+/// Forty turns: a judge gets the part of the document its rule reads in its
 /// prompt when the rule names one (see `agent::rules::JudgeScope`), and reads
 /// several things per turn otherwise. A rule that walks every page of the
 /// source asks for more in its `[judge] max_turns`.
-const JUDGE_TURNS: usize = 8;
+const JUDGE_TURNS: usize = 40;
 const JUDGE_NUDGE: &str = "Your previous turn was cut off at the output-token limit. Keep each \
 call small: read one part of the document at a time, then call submit_rule_verdict.";
 

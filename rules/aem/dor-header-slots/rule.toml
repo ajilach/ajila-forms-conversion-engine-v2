@@ -1,0 +1,30 @@
+id = "ubs-aem-dor-header-slots"
+title = "The master-page lines are hidden static texts in the Document of Record's header slots"
+output_formats = ["aem-ubs"]
+description = """
+The lines the source's master page draws top of page reach the Document of Record's header, not
+the form's pages. The header has three slots, the same on every form:
+
+- `slot1`: the banking relationship. The `Preface`'s fragment fills it; no master-page line takes
+  it, and it stays empty in a form without one.
+- `slot2`: the legal entity, as the page draws it: the entity in bold, what qualifies it plain
+  (`<p><b>UBS Europe SE</b> (Succursale Italia)</p>`).
+- `slot3`: the validity line (`<p>Valid from 09.10.2025</p>`, `<p>Gültig ab 09.10.2025</p>`).
+
+Each line is a static `TextDraw` (named `ST_HeaderSlot2`, `ST_HeaderSlot3`) on the first page,
+right after the `Preface` where there is one (the writer puts it inside the banking relationship's
+wrapper) and first otherwise, with `dor_header_slot` set to its
+slot and `visible: false`, `always_in_pdf: true`, `show_if_hidden: true` and
+`summary_exclude: true`: hidden on screen and off the summary step, printed in the header. Its
+`content` is translated like any other text, each language read from that language's own PDF
+(xfa_page_text on the master page), so a German form says "Gültig ab" where an English one says
+"Valid from". A source with no such line has no draw for its slot.
+
+Reported: a node in a slot other than `slot1`, `slot2` or `slot3`; a static text in `slot1`, and
+any node there beside a `Preface`; a static node in a slot that is not a `TextDraw`; two static
+texts in one slot; and a slot draw that is not hidden, not in the PDF, not kept in the summary data
+or not off the summary step. Whether each master-page line has its draw, in its slot
+and in every language, is judged by ubs-aem-source-coverage.
+
+Fix: add the missing flag, move the draw to its slot, or delete the second draw of a slot.
+"""

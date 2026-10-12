@@ -404,6 +404,28 @@ pub fn parse_translation_toml(
 mod tests {
     use super::*;
 
+    /// German, Italian and Spanish quote with guillemets, never with straight,
+    /// curly or low quotes (PROBLEM-guillemet-quotes), and a default message lands in every form
+    /// shipping that language, so one straight pair here fails the feedback
+    /// guard on every one of them. A `"` inside a tag delimits an attribute and
+    /// is not a quote.
+    #[test]
+    fn the_ubs_defaults_quote_with_guillemets() {
+        let profile = load_aem_profile("ubs").expect("the UBS profile loads");
+        let tag = regex_lite::Regex::new(r"<[^>]*>").unwrap();
+        let mut straight = Vec::new();
+        for (key, messages) in &profile.default_translations {
+            for lang in ["de", "it", "sp", "es"] {
+                if let Some(message) = messages.get(lang)
+                    && tag.replace_all(message, "").contains(['"', '“', '”', '„'])
+                {
+                    straight.push(format!("{lang}: {key}"));
+                }
+            }
+        }
+        assert!(straight.is_empty(), "straight quotes in {straight:#?}");
+    }
+
     #[test]
     fn ubs_profile_has_configs() {
         assert!(has_aem_config("ubs"));

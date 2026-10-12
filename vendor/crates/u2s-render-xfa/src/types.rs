@@ -31,8 +31,9 @@ pub struct DocumentInfo {
     pub fidelity: Fidelity,
     /// The XFA packets present, by name.
     pub packets: Vec<String>,
-    /// Set when the caller should be using a different renderer, or when
-    /// fidelity had to degrade.
+    /// Set when the caller should be using a different renderer, when
+    /// fidelity had to degrade, or when some of the form's scripts failed
+    /// while it loaded (each named, since the rest of its handler is missing).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
 }

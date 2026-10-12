@@ -25,9 +25,10 @@ use crate::xfa::scripting::som::SomResolver;
 use crate::xfa::scripting::som::{child_som_path, sibling_indices};
 use crate::xfa::scripting::{
     EventActivity, EventRef, Presence, ScriptContentType, SomPath, XfaScript, XfaScriptEngine,
-    parse_events_from_node, wrap_script_object,
+    parse_events_from_node,
 };
 use crate::xfa::{XfaNode, XfaNodeKind};
+use crate::xfa::scripting::engine::MAX_RECORDED_SCRIPT_ERRORS;
 use std::collections::{HashMap, HashSet};
 
 /// A pair of child name and child ID.
@@ -69,6 +70,8 @@ pub struct ScriptExecutionResult {
     /// initialize script, say), under each node's canonical SOM path, to
     /// apply with [`ScriptExecutor::apply_access_changes`].
     pub access_changes: Vec<(SomPath, FieldAccess)>,
+    /// The dialogs the load-time scripts raised and the scripts that failed.
+    pub script_report: crate::xfa::scripting::ScriptReport,
 }
 
 /// One node's presence as a load-pass script left it.
@@ -98,6 +101,9 @@ pub struct LayoutScripts {
     events: Vec<EventWithChildren>,
     /// Which events belong to a master page: (node name, full SOM path).
     master_keys: HashSet<(String, String)>,
+    /// The master-page scripts that failed since the last
+    /// [`take_failures`](Self::take_failures), each tagged with its page.
+    page_failures: Vec<crate::xfa::scripting::ScriptFailure>,
 }
 
 impl LayoutScripts {
@@ -129,6 +135,9 @@ impl LayoutScripts {
     /// over the document-wide values for that page alone.
     pub fn evaluate(&mut self, page_area: &str, page_index: usize, page_count: usize) -> PageOverrides {
         self.engine.set_layout_context(page_index, page_count);
+        // Whatever ran in this engine before this page (a body-value sync)
+        // is not this page's to report.
+        self.engine.take_report();
 
         // Clear the master fields before each page.
         //
@@ -186,9 +195,8 @@ impl LayoutScripts {
                 .set_current_field_with_children(full_path, field_name, "", child_fields);
             self.engine
                 .update_event_context(&script.activity, full_path, None);
-            if let Err(e) = self.engine.execute_script(script) {
-                log::debug!("[LAYOUT PASS] page {page_index} {full_path}: {e}");
-            }
+            // A failure is recorded by the engine and collected below.
+            let _ = self.engine.execute_script(script);
 
             if let Some(presence) = self.engine.get_current_field_presence() {
                 overrides.presence.insert(field_name.clone(), presence);
@@ -235,7 +243,25 @@ impl LayoutScripts {
             overrides.presence.insert(path, p);
         }
 
+        // A dialog a master-page script raises would be raised again by every
+        // page of every relayout; the document-wide pass already reported it
+        // once, so only failures are kept.
+        let report = self.engine.take_report();
+        if self.page_failures.len() < MAX_RECORDED_SCRIPT_ERRORS {
+            self.page_failures
+                .extend(report.errors.into_iter().map(|mut failure| {
+                    failure.page = Some(page_index);
+                    failure
+                }));
+        }
+
         overrides
+    }
+
+    /// The master-page scripts that failed while the pages were laid out
+    /// since the last call, each tagged with its page.
+    pub fn take_failures(&mut self) -> Vec<crate::xfa::scripting::ScriptFailure> {
+        std::mem::take(&mut self.page_failures)
     }
 }
 
@@ -311,35 +337,19 @@ impl ScriptExecutor {
         // Build the XFA SOM hierarchy for unqualified references
         Self::build_and_register_xfa_som_hierarchy(xfa_nodes, prototypes, &mut engine);
 
-        // Per XFA 3.3 §10: a named script object is "registered with the
-        // subform" that declares it, so `subform.scriptName` must resolve,
-        // not only the bare global `extract_and_register_translations`
-        // already exposed it as.
-        if let Some(root) = Self::find_root_subform(xfa_nodes) {
-            let root_name = root.name.clone().unwrap_or_default();
-            if !root_name.is_empty() {
-                for (script_name, _content, owner_path) in
-                    crate::xfa::collect_variable_script_owners(&root_name, &root.children)
-                {
-                    engine.attach_script_object_to_subform(&owner_path, &script_name);
-                }
-            }
-        }
+        // Named script objects, built on first reference in their owner
+        // subform's scope (XFA 3.3 §10), so the owners must exist first.
+        engine.register_script_objects(xfa_nodes);
 
         let mut all_events = Self::scan_events(xfa_nodes, &mut engine);
 
-        // Warn about FormCalc scripts that cannot be executed.
-        // Only JavaScript is supported; FormCalc scripts are silently skipped.
-        let formcalc_count = all_events
-            .iter()
-            .filter(|(_, _, _, script, _, _, _)| script.content_type == ScriptContentType::FormCalc)
-            .count();
-        if formcalc_count > 0 {
-            log::warn!(
-                "{} FormCalc script(s) found but not executed \
-                 (only JavaScript is supported). Results may be incomplete.",
-                formcalc_count
-            );
+        // A FormCalc script that did not translate (`events::executable`)
+        // never runs: the JavaScript-only phases below skip it, so it is
+        // reported here, once.
+        for (_, full_path, _, script, _, _, _) in &all_events {
+            if script.content_type == ScriptContentType::FormCalc {
+                engine.record_unrunnable(script, full_path);
+            }
         }
 
         // Phase 0: Execute calculate scripts with convergence loop
@@ -384,10 +394,11 @@ impl ScriptExecutor {
 
                 if let Ok(Some(value)) = engine.execute_script(script) {
                     // Per XFA 3.3 §10 p.380: the calculate result replaces the
-                    // container's value.
+                    // container's value, which the next calculation reads.
                     if old_value.as_ref() != Some(&value) {
                         any_changed = true;
                     }
+                    engine.update_field_value(&SomPath::new(full_path.clone()), &value);
                     computed_values.insert(SomPath::new(field_name.clone()), value.clone());
                     computed_values.insert(SomPath::new(full_path.clone()), value);
                 }
@@ -686,11 +697,23 @@ impl ScriptExecutor {
         // document-wide pass, page 1 of 1 -- is what the form keeps.
         let access_changes = engine.take_access_changes();
 
+        // A master-page script runs again for every page once the pages are
+        // known (`LayoutScripts::evaluate`), with every body script's effects
+        // in place, and what it computes there is what is drawn. Its failure
+        // in this document-wide pass is superseded, so it is left out here;
+        // its own per-page failures are reported by `take_failures`.
         let master_keys = Self::master_page_event_keys(xfa_nodes);
+        let mut script_report = engine.take_report();
+        let master_paths: HashSet<&str> = master_keys.iter().map(|(_, p)| p.as_str()).collect();
+        script_report
+            .errors
+            .retain(|failure| !master_paths.contains(failure.owner.as_str()));
+
         let layout = LayoutScripts {
             engine,
             events: all_events,
             master_keys,
+            page_failures: Vec::new(),
         };
 
         Ok((
@@ -698,6 +721,7 @@ impl ScriptExecutor {
                 computed_values,
                 presence_changes,
                 access_changes,
+                script_report,
             },
             layout,
         ))
@@ -1382,7 +1406,14 @@ impl ScriptExecutor {
 
             let full_path = child_som_path(parent_path.unwrap_or(""), &node_name, index);
 
-            let value = node.attributes.get("rawValue").cloned().unwrap_or_default();
+            // A field starts with its saved `rawValue`, else its template
+            // default (XFA 3.3 §4: an empty merge keeps the template value).
+            let value = node
+                .attributes
+                .get("rawValue")
+                .cloned()
+                .or_else(|| is_field.then(|| node.template_value()).flatten())
+                .unwrap_or_default();
 
             // Extract item values from <items> for exclGroup children
             // (XFA 3.3 §4 pp.195-197, §17 pp.758-759).
@@ -1457,24 +1488,12 @@ impl ScriptExecutor {
         super::find_root_subform(xfa_nodes)
     }
 
-    /// Extract and register translations from <variables> elements.
-    /// This handles both <text> variables (simple values) and <script> variables (code objects).
+    /// Register the `<text>` variables of `<variables>` elements (named
+    /// script objects are declared by `register_script_objects`).
     fn extract_and_register_translations(xfa_nodes: &[XfaNode], engine: &mut XfaScriptEngine) {
-        // Register <text> variables as fields using the shared helper
         let text_vars = super::collect_text_variables(xfa_nodes);
         for (name, value) in &text_vars {
             engine.register_field(name, name, value);
-        }
-
-        // Collect and register <script> variables using the shared helper
-        let variable_scripts = super::collect_variable_scripts(xfa_nodes);
-
-        // Register <script> variables as JavaScript objects
-        // Per XFA 3.3 §10 pp. 376-378: named script objects expose all
-        // top-level variables and functions as properties/methods.
-        for (name, content) in &variable_scripts {
-            let wrapped = wrap_script_object(name, content, false);
-            let _ = engine.execute_variable_script(&wrapped);
         }
     }
 }

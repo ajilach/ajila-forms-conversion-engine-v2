@@ -41,4 +41,4 @@ Fix: change the node's type (replace the node), `mandatory`, `options`, `visible
 
 [judge]
 # Walks every page of the source in every language.
-max_turns = 16
+max_turns = 80

@@ -10,6 +10,23 @@
             "uuid": "291a0127-a0f0-4cbf-9303-6c6f742bc2ed"
           },
           {
+            "always_in_pdf": true,
+            "colspan": 12,
+            "content": {
+              "de": "<p><b>UBS Europe SE</b></p>\n",
+              "en": "<p><b>UBS Europe SE</b></p>\n",
+              "es": "<p><b>UBS Europe SE</b></p>\n"
+            },
+            "dor_colspan": null,
+            "dor_header_slot": "slot2",
+            "name": "ST_HeaderSlot2",
+            "show_if_hidden": true,
+            "summary_exclude": true,
+            "type": "TextDraw",
+            "uuid": "00000000-0000-4000-8000-00000000d020",
+            "visible": false
+          },
+          {
             "alignment": "Vertical",
             "bind_ref": null,
             "colspan": 12,
@@ -3487,7 +3504,6 @@
     },
     "type": "Root"
   },
-  "header": "0319 00\nUBS Europe SE",
   "languages": [
     "de",
     "en",

@@ -148,80 +148,169 @@ fn extract_bare_assignment_names(
         .collect()
 }
 
-/// Generate the JavaScript wrapper for a named XFA script object.
-///
-/// Per XFA 3.3 §10 pp. 376–378, the script content is compiled into a script
-/// object where all top-level variables and functions become properties/methods.
-///
-/// # Arguments
-/// * `name` - The script object name (e.g., "foo", "soGlobal")
-/// * `content` - The raw JavaScript content from `<variables><script>`
-/// * `use_global_this` - If true, uses `globalThis.{name}` instead of `var {name}`
-///
-/// # Returns
-/// The wrapped JavaScript source code ready for execution.
-pub fn wrap_script_object(name: &str, content: &str, use_global_this: bool) -> String {
-    let function_names = extract_function_names(content);
-    let var_names = extract_var_names(content);
-    let bare_names = extract_bare_assignment_names(content, &var_names, &function_names);
+/// `src` with every comment and the inside of every string and regular
+/// expression literal replaced by spaces, newlines kept, so that a scan for
+/// top-level declarations sees only code, at the same offsets and lines: a
+/// `function setupVariables()` inside `/* ... */` (AAHQ_019_DE) is no
+/// declaration.
+pub fn blank_comments_and_strings(src: &str) -> String {
+    #[derive(PartialEq)]
+    enum State {
+        Code,
+        Line,
+        Block,
+        Quote(char),
+        Regex { in_class: bool },
+    }
+    let chars: Vec<char> = src.chars().collect();
+    let mut out = String::with_capacity(src.len());
+    let mut state = State::Code;
+    // The last character of code that was not whitespace: a `/` after one of
+    // these (or at the start) begins a regular expression, not a division.
+    let mut last_significant: Option<char> = None;
+    let mut i = 0;
+    let blank = |c: char| if c == '\n' { '\n' } else { ' ' };
+    while i < chars.len() {
+        let c = chars[i];
+        let next = chars.get(i + 1).copied();
+        match state {
+            State::Code => {
+                if c == '/' && next == Some('/') {
+                    state = State::Line;
+                    out.push_str("  ");
+                    i += 2;
+                    continue;
+                }
+                if c == '/' && next == Some('*') {
+                    state = State::Block;
+                    out.push_str("  ");
+                    i += 2;
+                    continue;
+                }
+                if c == '"' || c == '\'' || c == '`' {
+                    state = State::Quote(c);
+                    out.push(c);
+                } else if c == '/'
+                    && last_significant.is_none_or(|p| "(,=:[!&|?{};+-*%<>~^".contains(p))
+                {
+                    state = State::Regex { in_class: false };
+                    out.push(c);
+                } else {
+                    out.push(c);
+                }
+                if !c.is_whitespace() {
+                    last_significant = Some(c);
+                }
+            }
+            State::Line => {
+                if c == '\n' {
+                    state = State::Code;
+                }
+                out.push(blank(c));
+            }
+            State::Block => {
+                if c == '*' && next == Some('/') {
+                    state = State::Code;
+                    out.push_str("  ");
+                    i += 2;
+                    continue;
+                }
+                out.push(blank(c));
+            }
+            State::Quote(q) => {
+                if c == '\\' {
+                    out.push(' ');
+                    if let Some(n) = next {
+                        out.push(blank(n));
+                    }
+                    i += 2;
+                    continue;
+                }
+                if c == q {
+                    state = State::Code;
+                    out.push(c);
+                    last_significant = Some(c);
+                } else {
+                    out.push(blank(c));
+                }
+            }
+            State::Regex { in_class } => {
+                if c == '\\' {
+                    out.push(' ');
+                    if let Some(n) = next {
+                        out.push(blank(n));
+                    }
+                    i += 2;
+                    continue;
+                }
+                if c == '\n' {
+                    // Not a regular expression after all; resume as code.
+                    state = State::Code;
+                    out.push(c);
+                } else if c == '/' && !in_class {
+                    state = State::Code;
+                    out.push(c);
+                    last_significant = Some(c);
+                } else {
+                    if c == '[' {
+                        state = State::Regex { in_class: true };
+                    } else if c == ']' {
+                        state = State::Regex { in_class: false };
+                    }
+                    out.push(blank(c));
+                }
+            }
+        }
+        i += 1;
+    }
+    out
+}
 
-    // NOTE: We do NOT prepend `var` to bare assignments. In XFA forms, bare
-    // assignments like `myIT = {...}` intentionally leak to global scope so
-    // that other scripts can access them directly (e.g., `myIT.GV_FamilyName`).
-    // We keep the original content as-is and expose bare assignments on the
-    // script object via getter/setter that reads/writes the global.
+/// The factory of a named XFA script object (XFA 3.3 §10 pp. 376-378): an
+/// expression for a function that runs `content` and returns the script
+/// object, every top-level `var` and bare assignment a property and every
+/// top-level function a method. The engine calls it on the first reference
+/// to the object (see `js_helpers::XFA_SCRIPT_OBJECTS`).
+///
+/// Declarations are read from the code alone (comments and strings
+/// blanked), and a function is exported only when it really is defined, so
+/// a nested or commented-out declaration never breaks the object.
+pub fn script_object_factory(content: &str) -> String {
+    let code = blank_comments_and_strings(content);
+    let function_names = extract_function_names(&code);
+    let var_names = extract_var_names(&code);
+    let bare_names = extract_bare_assignment_names(&code, &var_names, &function_names);
 
-    // `var` declarations need closure-scoped getter/setter
+    // Bare assignments like `myIT = {...}` stay globals, as in Acrobat: other
+    // scripts read them directly (`myIT.GV_FamilyName`). They are exposed on
+    // the object as well, through the global.
     let mut property_defs = String::new();
-    for var_name in &var_names {
+    for name in var_names.iter().chain(&bare_names) {
         property_defs.push_str(&format!(
             r#"
-                    Object.defineProperty(_obj, '{var_name}', {{
-                        get: function() {{ return {var_name}; }},
-                        set: function(_v) {{ {var_name} = _v; }},
+                    Object.defineProperty(_obj, '{name}', {{
+                        get: function() {{ return {name}; }},
+                        set: function(_v) {{ {name} = _v; }},
                         enumerable: true,
                         configurable: true
                     }});"#,
         ));
     }
 
-    // Bare assignments are globals — expose them on the object via global read/write.
-    // This allows both `myIT.GV_X` (global) and `soObj.myIT.GV_X` (property) to work.
-    for bare_name in &bare_names {
-        property_defs.push_str(&format!(
-            r#"
-                    Object.defineProperty(_obj, '{bare_name}', {{
-                        get: function() {{ return {bare_name}; }},
-                        set: function(_v) {{ {bare_name} = _v; }},
-                        enumerable: true,
-                        configurable: true
-                    }});"#,
-        ));
-    }
-
-    // Build function assignments (assigning as method makes `this` === `_obj` when called as _obj.fn())
+    // Assigned as methods, so `this` is the object when called as `so.fn()`.
     let mut func_assigns = String::new();
-    for func_name in &function_names {
+    for name in &function_names {
         func_assigns.push_str(&format!(
-            "\n                    _obj.{func_name} = {func_name};",
+            "\n                    if (typeof {name} === 'function') _obj.{name} = {name};",
         ));
     }
-
-    // Build the IIFE wrapper
-    let assignment = if use_global_this {
-        format!("globalThis.{name}")
-    } else {
-        format!("var {name}")
-    };
 
     format!(
-        r#"
-                {assignment} = (function() {{
+        r#"(function() {{
                     {content}
                     var _obj = {{}};{property_defs}{func_assigns}
                     return _obj;
-                }})();
-                "#,
+                }})"#,
     )
 }
 
@@ -279,7 +368,7 @@ if (true) { x = 1; }
     }
 
     #[test]
-    fn test_wrap_script_object_xfa_spec_example() {
+    fn the_factory_exposes_vars_and_methods_of_the_spec_example() {
         // XFA 3.3 §10 p.377 example
         let content = r#"
 var a = 0;
@@ -290,53 +379,40 @@ function sum(val1, val2) {
     return s;
 }
         "#;
-        let wrapped = wrap_script_object("foo", content, false);
-
-        // Should contain the assignment
-        assert!(wrapped.contains("var foo = (function()"));
-        // Should contain getter/setter for a, b, factor
-        assert!(wrapped.contains("Object.defineProperty(_obj, 'a'"));
-        assert!(wrapped.contains("Object.defineProperty(_obj, 'b'"));
-        assert!(wrapped.contains("Object.defineProperty(_obj, 'factor'"));
-        // Should assign sum as method
-        assert!(wrapped.contains("_obj.sum = sum"));
-        // Should NOT contain any hardcoded event names
-        assert!(!wrapped.contains("setupVariables"));
-        assert!(!wrapped.contains("calculate"));
-        assert!(!wrapped.contains("validate"));
+        let factory = script_object_factory(content);
+        assert!(factory.starts_with("(function() {"));
+        assert!(factory.contains("Object.defineProperty(_obj, 'a'"));
+        assert!(factory.contains("Object.defineProperty(_obj, 'factor'"));
+        assert!(factory.contains("if (typeof sum === 'function') _obj.sum = sum;"));
     }
 
     #[test]
-    fn test_wrap_script_object_bare_assignments() {
-        let content = r#"
-myEN = { key: "value" };
-showBarcode = true;
-function getPagination(cp, tp) { return cp + "/" + tp; }
-        "#;
-        let wrapped = wrap_script_object("soGlobal", content, false);
-
-        // Bare assignments should remain as-is (global scope), NOT converted to var
-        // This is critical: other scripts access them directly (e.g., `myIT.GV_X`)
-        assert!(wrapped.contains("myEN = { key: \"value\" };"));
-        assert!(!wrapped.contains("var myEN"));
-        // Should have getter/setter for both on the object
-        assert!(wrapped.contains("Object.defineProperty(_obj, 'myEN'"));
-        assert!(wrapped.contains("Object.defineProperty(_obj, 'showBarcode'"));
-        // Should assign function
-        assert!(wrapped.contains("_obj.getPagination = getPagination"));
+    fn bare_assignments_stay_globals_and_are_exposed() {
+        let content = "myEN = { key: \"value\" };\nshowBarcode = true;\n";
+        let factory = script_object_factory(content);
+        assert!(factory.contains("myEN = { key: \"value\" };"));
+        assert!(!factory.contains("var myEN"));
+        assert!(factory.contains("Object.defineProperty(_obj, 'myEN'"));
     }
 
     #[test]
-    fn test_wrap_script_object_global_this() {
-        let content = "var x = 1;";
-        let wrapped = wrap_script_object("myObj", content, true);
-        assert!(wrapped.contains("globalThis.myObj = (function()"));
+    fn a_function_in_a_block_comment_or_a_string_is_not_exported() {
+        let content = "/*my66378D = {};\nfunction setupVariables()\n{\n}*/\nvar s = \"\nfunction quoted(\";\nfunction real() {}\n";
+        let factory = script_object_factory(content);
+        assert!(!factory.contains("_obj.setupVariables"), "{factory}");
+        assert!(!factory.contains("_obj.quoted"));
+        assert!(!factory.contains("'my66378D'"));
+        assert!(factory.contains("_obj.real = real"));
     }
 
     #[test]
-    fn test_wrap_script_object_empty_content() {
-        let wrapped = wrap_script_object("empty", "", false);
-        assert!(wrapped.contains("var empty = (function()"));
-        assert!(wrapped.contains("return _obj;"));
+    fn blanking_keeps_offsets_lines_and_division() {
+        let src = "a = b / c; // x\nr = /\\/[/]/g; s = 'it''s'; /* y\n z */ t = 1;";
+        let blank = blank_comments_and_strings(src);
+        assert_eq!(blank.chars().count(), src.chars().count());
+        assert_eq!(blank.lines().count(), src.lines().count());
+        assert!(blank.starts_with("a = b / c;"), "{blank}");
+        assert!(blank.contains("t = 1;"));
+        assert!(!blank.contains('x') && !blank.contains('y'));
     }
 }

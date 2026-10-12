@@ -403,8 +403,23 @@ impl Lower<'_> {
         attrs.css.clone().filter(|css| !css.is_empty()).unwrap_or_else(|| self.var(fallback))
     }
 
+    /// A panel's children. The DoR header slot draws right after the banking
+    /// relationship are written inside its wrapper, under the fragment, the
+    /// shape the issued forms carry them in.
     fn children(&self, children: &[AemNode]) -> Result<Vec<Node>, LowerError> {
-        children.iter().map(|c| self.node(c)).collect()
+        let mut out = Vec::with_capacity(children.len());
+        let mut rest = children;
+        while let Some((node, tail)) = rest.split_first() {
+            if matches!(node, AemNode::Preface { .. }) {
+                let slots = tail.iter().take_while(|c| c.is_header_slot_draw()).count();
+                out.push(self.preface(node, &tail[..slots])?.node()?);
+                rest = &tail[slots..];
+            } else {
+                out.push(self.node(node)?);
+                rest = tail;
+            }
+        }
+        Ok(out)
     }
 
     fn node(&self, node: &AemNode) -> Result<Node, LowerError> {
@@ -668,7 +683,7 @@ impl Lower<'_> {
             }
             AemNode::Repeatable { .. } => self.repeatable(node)?,
             AemNode::Fragment { .. } => self.fragment(node)?,
-            AemNode::Preface { .. } => self.preface(node)?,
+            AemNode::Preface { .. } => self.preface(node, &[])?,
             AemNode::Root { .. } | AemNode::Panel { .. } => {
                 return Err(format!("`{tag}` is not a leaf"));
             }
@@ -703,7 +718,7 @@ impl Lower<'_> {
         for lang in self.config.expand_languages() {
             let markup = content
                 .get(&lang)
-                .or_else(|| content.get(&self.config.canonical_language(&lang)))
+                .or_else(|| self.config.language_family(&lang).iter().find_map(|l| content.get(l)))
                 .unwrap_or_else(|| content.master(&self.config.master_language));
             if markup.trim().is_empty() {
                 continue;
@@ -817,11 +832,17 @@ impl Lower<'_> {
     }
 
     /// A step's title panel: its heading, which on the first page is the
-    /// subtitle under the form title (PROBLEM-banking-subtitle), and the
+    /// subtitle under the form title (PROBLEM-subtitle-detector), and the
     /// jump-to-field button where the step has something to fill in and no
     /// rows of its own (PROBLEM-jump-to-field-button).
     fn step_title(&self, uuid: Uuid, name: &str, title: &str, children: &[AemNode]) -> Result<Node, LowerError> {
-        let first_page = children.iter().any(|c| matches!(c, AemNode::Preface { .. }));
+        // The first page's title is the configurator's own where that page is
+        // the configurator, and otherwise the subtitle under the form title,
+        // whether or not the page opens with the banking relationship: an h2
+        // step title prints as a ruled section heading in the DoR, which the
+        // subtitle under the source's title is not (BBTB_019 has no banking
+        // relationship and printed its subtitle as one).
+        let first_page = self.index.first_page == Some(uuid);
         let configurator = first_page && name.starts_with("PN_FormConfigurator");
         let subtitle = first_page && !configurator;
         let mut repeatables = HashSet::new();
@@ -1054,9 +1075,11 @@ impl Lower<'_> {
         self.carry(el, node, owned::FRAGMENT)
     }
 
-    /// The banking-relationship block every form opens with, and the DoR
-    /// header line under it where the source has one.
-    fn preface(&self, node: &AemNode) -> Result<El, LowerError> {
+    /// The banking-relationship block a form whose source has one opens with.
+    /// Its fragment fills the DoR's first header slot; the master-page lines
+    /// for the other two are the document's own slot draws, `slots`, written
+    /// under the fragment.
+    fn preface(&self, node: &AemNode, slots: &[AemNode]) -> Result<El, LowerError> {
         let AemNode::Preface { uuid, .. } = node else {
             return Err("not a preface".into());
         };
@@ -1088,26 +1111,7 @@ impl Lower<'_> {
             }
         }
         let mut items = vec![inner.node()?];
-        if let Some(text) = &self.config.header_slot_text {
-            // The header text arrives as it is written between an attribute's
-            // quotes (`&lt;b>`), so it is unescaped once here.
-            let text = quick_xml::escape::unescape(text).map_err(|e| format!("header text: {e}"))?;
-            items.push(
-                self.stamped(El::new(format!("textdraw_slot2_{uuid}"), "ST_HeaderSlot2"), CREATED)
-                    .attr("sling:resourceType", self.controls("textdraw"))
-                    .attr("_value", format!("<p>{text}</p>\n"))
-                    .attr("alwaysInPdf", "true")
-                    .attr("dorFieldStyling", self.var("dor_field_styling"))
-                    .attr("dorHeaderSlot", "slot2")
-                    .attr("guideNodeClass", "guideTextDraw")
-                    .attr("name", "ST_HeaderSlot2")
-                    .attr("showIfHidden", "true")
-                    .attr("summaryExclusion", "true")
-                    .attr("textIsRich", "true")
-                    .attr("visible", "{Boolean}false")
-                    .node()?,
-            );
-        }
+        items.extend(self.children(slots)?);
         let mut outer = self
             .stamped(El::new(format!("panel_{uuid}"), "PN_BR"), MODIFIED_LOCAL)
             .attr("sling:resourceType", self.controls("panel"))

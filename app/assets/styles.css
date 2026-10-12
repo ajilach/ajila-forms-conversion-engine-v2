@@ -622,6 +622,12 @@ body > div, #main {
     gap: var(--space-4);
 }
 
+.environment-banner-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+}
+
 .environment-banner ul {
     margin: var(--space-2) 0 0;
     padding-left: var(--space-4);

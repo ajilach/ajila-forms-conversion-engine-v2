@@ -120,21 +120,6 @@ pub enum DockerError {
         #[source]
         source: bollard::errors::Error,
     },
-    #[error("cannot wait for container {id:?} to exit: {source}")]
-    Wait {
-        id: String,
-        #[source]
-        source: bollard::errors::Error,
-    },
-    #[error("container {id:?} did not exit within {waited:?}")]
-    RunTimedOut { id: String, waited: Duration },
-    #[error("{command:?} in container {container:?} did not succeed within {waited:?}: {last}")]
-    ExecNotReady {
-        container: String,
-        command: String,
-        waited: Duration,
-        last: String,
-    },
     #[error("cannot remove network {name:?}: {source}")]
     RemoveNetwork {
         name: String,
@@ -216,12 +201,6 @@ impl RunningContainer {
 pub struct ExecOutput {
     pub exit_code: i64,
     pub output: String,
-}
-
-impl ExecOutput {
-    pub fn succeeded(&self) -> bool {
-        self.exit_code == 0
-    }
 }
 
 pub struct DockerLifecycle {
@@ -605,8 +584,7 @@ impl DockerLifecycle {
             })
     }
 
-    /// Runs `cmd` inside `container_id`'s own container, optionally piping
-    /// `stdin_data` to the process's stdin, and returns its combined
+    /// Runs `cmd` inside `container_id`'s own container and returns its combined
     /// stdout+stderr and exit code. General enough for any verifier that
     /// needs to run a one-off command inside a container it already
     /// booted, over the same daemon connection everything else in this
@@ -616,18 +594,15 @@ impl DockerLifecycle {
         &self,
         container_id: &str,
         cmd: Vec<String>,
-        stdin_data: Option<&[u8]>,
     ) -> Result<ExecOutput, DockerError> {
         use bollard::exec::{CreateExecOptions, StartExecResults};
         use futures::StreamExt;
-        use tokio::io::AsyncWriteExt;
 
         let created = self
             .docker
             .create_exec(
                 container_id,
                 CreateExecOptions {
-                    attach_stdin: Some(stdin_data.is_some()),
                     attach_stdout: Some(true),
                     attach_stderr: Some(true),
                     cmd: Some(cmd),
@@ -650,16 +625,7 @@ impl DockerLifecycle {
             })?;
 
         let mut output = String::new();
-        if let StartExecResults::Attached { output: mut stream, mut input } = started {
-            if let Some(data) = stdin_data {
-                // Errors writing/closing stdin are not fatal on their own --
-                // the process may already have exited (e.g. `psql` failed
-                // fast on a syntax error) -- the exit code inspected below
-                // is the authoritative signal either way.
-                let _ = input.write_all(data).await;
-                let _ = input.shutdown().await;
-            }
-            drop(input);
+        if let StartExecResults::Attached { output: mut stream, .. } = started {
             while let Some(chunk) = stream.next().await {
                 match chunk {
                     Ok(log) => output.push_str(&log.to_string()),
@@ -686,85 +652,6 @@ impl DockerLifecycle {
             exit_code: inspected.exit_code.unwrap_or(-1),
             output,
         })
-    }
-
-    /// Polls `cmd` inside `container` until `ready` accepts its result, or
-    /// gives up after `timeout` -- a readiness probe for a container whose
-    /// readiness only its own tools can check (`pg_isready`, a `curl`
-    /// against a port that is never published). Pass
-    /// [`ExecOutput::succeeded`] to wait for exit 0. The error carries the
-    /// last attempt's output.
-    pub async fn wait_for_exec(
-        &self,
-        container: &str,
-        cmd: &[&str],
-        ready: impl Fn(&ExecOutput) -> bool,
-        timeout: Duration,
-        poll_interval: Duration,
-    ) -> Result<(), DockerError> {
-        let deadline = tokio::time::Instant::now() + timeout;
-        let mut last = "never attempted".to_owned();
-        while tokio::time::Instant::now() < deadline {
-            match self
-                .exec(container, cmd.iter().map(|s| (*s).to_owned()).collect(), None)
-                .await
-            {
-                Ok(result) if ready(&result) => return Ok(()),
-                Ok(result) => last = format!("exit {}: {}", result.exit_code, result.output.trim()),
-                Err(err) => last = err.to_string(),
-            }
-            tokio::time::sleep(poll_interval).await;
-        }
-        Err(DockerError::ExecNotReady {
-            container: container.to_owned(),
-            command: cmd.join(" "),
-            waited: timeout,
-            last,
-        })
-    }
-
-    /// Runs a one-shot container to completion: starts it from `spec`,
-    /// waits up to `timeout` for it to exit, collects its combined
-    /// stdout+stderr, and removes it -- also when waiting failed. A
-    /// non-zero exit is an [`ExecOutput`], not an error: what it means is
-    /// the caller's business.
-    pub async fn run_to_completion(
-        &self,
-        spec: &ContainerSpec,
-        timeout: Duration,
-    ) -> Result<ExecOutput, DockerError> {
-        use bollard::query_parameters::LogsOptionsBuilder;
-        use futures::StreamExt;
-
-        let container = self.run(spec).await?;
-        let waited = tokio::time::timeout(timeout, async {
-            match self.docker.wait_container(&container.id, None).next().await {
-                Some(Ok(response)) => Ok(response.status_code),
-                Some(Err(bollard::errors::Error::DockerContainerWaitError { code, .. })) => Ok(code),
-                Some(Err(source)) => Err(DockerError::Wait {
-                    id: container.id.clone(),
-                    source,
-                }),
-                None => Ok(-1),
-            }
-        })
-        .await;
-
-        let logs_options = LogsOptionsBuilder::default().stdout(true).stderr(true).build();
-        let mut output = String::new();
-        let mut logs = self.docker.logs(&container.id, Some(logs_options));
-        while let Some(Ok(chunk)) = logs.next().await {
-            output.push_str(&chunk.to_string());
-        }
-        if let Err(err) = self.teardown(&container.id).await {
-            log::warn!("u2s-verify-core: could not remove one-shot container {}: {err}", container.id);
-        }
-
-        let exit_code = waited.map_err(|_| DockerError::RunTimedOut {
-            id: container.id.clone(),
-            waited: timeout,
-        })??;
-        Ok(ExecOutput { exit_code, output })
     }
 
     /// The content-addressable id of a local image, or `None` if it is not
@@ -949,7 +836,7 @@ mod tests {
     /// by design (see this module's own doc above). Uses `postgres:16-alpine`
     /// -- a public image whose default command keeps the container running
     /// (unlike a bare shell, which would exit before `exec` could reach
-    /// it) -- exactly the image `u2s-redacto-verify-core` boots for real.
+    /// it).
     #[tokio::test]
     #[ignore = "needs a real Docker daemon"]
     async fn networks_addresses_and_file_copies_work_against_a_real_daemon() {
@@ -1004,7 +891,6 @@ mod tests {
             .exec(
                 &on_network.id,
                 vec!["sh".to_owned(), "-c".to_owned(), "printf '%s' '%PDF-1.7 x' > /tmp/out.pdf".to_owned()],
-                None,
             )
             .await
             .expect("write a file");
@@ -1027,7 +913,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "needs a real Docker daemon"]
-    async fn exec_pipes_stdin_and_reports_the_real_exit_code() {
+    async fn exec_reports_output_and_the_real_exit_code() {
         let lifecycle = DockerLifecycle::connect().await.expect("a real Docker daemon");
         lifecycle
             .ensure_image("postgres:16-alpine", "", None)
@@ -1056,55 +942,19 @@ mod tests {
         let running = lifecycle.run(&spec).await.expect("the container starts");
 
         let result = lifecycle
-            .exec(&running.id, vec!["cat".to_owned()], Some(b"hello from stdin"))
+            .exec(&running.id, vec!["echo".to_owned(), "hello".to_owned()])
             .await
             .expect("exec must reach the daemon");
-
-        assert!(result.succeeded(), "cat must exit 0: {result:?}");
-        assert!(result.output.contains("hello from stdin"), "{result:?}");
+        assert_eq!(result.exit_code, 0, "echo must exit 0: {result:?}");
+        assert!(result.output.contains("hello"), "{result:?}");
 
         let exit_status = lifecycle
-            .exec(&running.id, vec!["false".to_owned()], None)
+            .exec(&running.id, vec!["false".to_owned()])
             .await
             .expect("exec must reach the daemon");
-        assert!(!exit_status.succeeded(), "`false` must report a non-zero exit code");
-
-        lifecycle
-            .wait_for_exec(
-                &running.id,
-                &["pg_isready", "-U", "postgres"],
-                ExecOutput::succeeded,
-                Duration::from_secs(60),
-                Duration::from_millis(500),
-            )
-            .await
-            .expect("postgres becomes ready");
-        let never = lifecycle
-            .wait_for_exec(
-                &running.id,
-                &["false"],
-                ExecOutput::succeeded,
-                Duration::from_secs(2),
-                Duration::from_millis(500),
-            )
-            .await;
-        assert!(matches!(never, Err(DockerError::ExecNotReady { .. })), "{never:?}");
+        assert_ne!(exit_status.exit_code, 0, "`false` must report a non-zero exit code");
 
         let _ = lifecycle.teardown(&running.id).await;
-
-        // Without a password the image refuses to initialize and exits 1,
-        // explaining why: a one-shot container with no command override.
-        let one_shot = ContainerSpec {
-            name: format!("{}-oneshot", spec.name),
-            env: Vec::new(),
-            ..spec
-        };
-        let result = lifecycle
-            .run_to_completion(&one_shot, Duration::from_secs(60))
-            .await
-            .expect("the container runs and exits");
-        assert_eq!(result.exit_code, 1, "{result:?}");
-        assert!(result.output.contains("POSTGRES_PASSWORD"), "{result:?}");
     }
 
     /// Real registry coverage for [`DockerLifecycle::ensure_image`]'s

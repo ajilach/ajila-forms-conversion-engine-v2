@@ -22,6 +22,7 @@ fn synthetic_fixtures_travel_the_real_extraction_path() {
         support::repeat(),
         support::repeat_open(),
         support::access(),
+        support::dialogs(),
     ] {
         let bytes = std::fs::read(&p).expect("read");
         let packets = u2s_render_xfa::extract_xfa_from_pdf_bytes(&bytes)

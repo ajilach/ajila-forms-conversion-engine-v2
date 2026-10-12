@@ -38,11 +38,15 @@ pub fn page_texts(flat: &Flattened, bands: &[Band]) -> Vec<String> {
         let Some(index) = band_index(bands, y) else {
             continue;
         };
+        // A field reads as the form shows it, through its format picture.
+        let shown = node.shown_value();
         let content = match &node.kind {
             FlattenedNodeKind::Text { content, .. } => content.trim(),
-            FlattenedNodeKind::Field { value, .. } => value.trim(),
+            FlattenedNodeKind::Field { .. } => shown.as_deref().unwrap_or_default().trim(),
             // An image says nothing readable; a page of logos is an empty page.
             FlattenedNodeKind::Image(_) => "",
+            // Nor does a rule or a box.
+            FlattenedNodeKind::Shape(_) => "",
         };
         if !content.is_empty() {
             buckets[index].push((y, to_f32(node.x), content.to_string()));

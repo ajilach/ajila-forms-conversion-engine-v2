@@ -23,6 +23,9 @@ checkbox label left to its options) is fine and is not reported.
 Fix a missing or empty entry with `add` or `replace` on the pointer the finding names, using the
 source's own wording for that language: read that language's PDF (xfa_search, xfa_page_text), pair
 the text by meaning and layout position, and never copy the master text or invent a translation.
+The one exception is content that a language's source lacks altogether: it is gated by a language
+script (ubs-aem-language-specific-content), and that language's key carries the wording of a
+language that has it.
 For a key that is not in `languages`, delete it, unless the language belongs in the form, in which
 case it is a source language that was left out of `languages` (add it there and write the form in
 it).

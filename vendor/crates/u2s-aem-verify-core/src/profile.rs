@@ -66,12 +66,12 @@ pub struct Profile {
     pub chromium_image: String,
     pub platform: String,
     pub boot_timeout: Duration,
-    /// How long a session may go with no interaction -- a `verify_run`
+    /// How long an instance may go with no interaction -- a `verify_run`
     /// call, or any `verify_open`/`verify_controls`/`verify_set`/`verify_next`/
     /// `verify_prev`/`verify_reset`/`verify_screenshot`/`verify_submit`/
-    /// `verify_close` call touching it -- before the persistent session
-    /// (`crate::session`) tears itself down. Not a per-run timeout -- a
-    /// forgotten dev environment safety net, since the session otherwise
+    /// `verify_close` call touching it -- before the persistent instance
+    /// (`crate::instance`) tears itself down. Not a per-run timeout -- a
+    /// forgotten dev environment safety net, since the instance otherwise
     /// runs until the process exits.
     pub idle_timeout: Duration,
     pub keep_on_failure: bool,
@@ -97,10 +97,10 @@ pub struct Profile {
     /// state.
     pub aem_data_volume: String,
     /// `U2S_VERIFY_SELF_CONTAINER`: the name of the container this process
-    /// runs in, when it runs in one. Set, each session's network is joined
+    /// runs in, when it runs in one. Set, each instance's network is joined
     /// and siblings are reached by container address
-    /// ([`crate::session::Reach::SessionNetwork`]); unset, through ports
-    /// published on this host's loopback ([`crate::session::Reach::Published`]).
+    /// ([`crate::instance::Reach::InstanceNetwork`]); unset, through ports
+    /// published on this host's loopback ([`crate::instance::Reach::Published`]).
     pub self_container: Option<String>,
     /// The port AEM listens on *inside* its own container -- not
     /// necessarily 4502. A vanilla Adobe quickstart jar defaults to 4502,
@@ -156,7 +156,7 @@ const DEFAULT_PLATFORM: &str = "";
 const DEFAULT_BOOT_TIMEOUT_SECS: u64 = 900;
 /// 30 minutes: long enough that a developer stepping away between calls
 /// during a debugging session does not eat a cold reboot, short enough that
-/// a forgotten session does not occupy AEM's fairly heavy memory footprint
+/// a forgotten instance does not occupy AEM's fairly heavy memory footprint
 /// indefinitely.
 const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 1800;
 /// A vanilla Adobe AEM quickstart jar's own default port -- what a profile
@@ -288,14 +288,14 @@ impl Profile {
     /// format alone. `crate::flow::acquire` writes the label this matches
     /// against via [`Self::owner_labels`], so the two cannot drift apart.
     pub fn owner_label(&self) -> String {
-        u2s_verify_core::session::owner_label(&self.format)
+        u2s_verify_core::instance::owner_label(&self.format)
     }
 
     /// The label(s) every container and network this profile creates
     /// carries -- the write side of [`Self::owner_label`]'s read-side
     /// filter.
     pub fn owner_labels(&self) -> std::collections::HashMap<String, String> {
-        u2s_verify_core::session::owner_labels(&self.format)
+        u2s_verify_core::instance::owner_labels(&self.format)
     }
 }
 
