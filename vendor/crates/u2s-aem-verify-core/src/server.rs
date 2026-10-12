@@ -104,6 +104,20 @@ impl AemVerifyServer {
         Ok(())
     }
 
+    /// Boots the AEM session `session_id` (the default one when `None`) in
+    /// advance -- see [`crate::session::warm_up`]. Not an MCP tool: an
+    /// in-process host calls it when it knows a form will be opened soon,
+    /// so the boot overlaps work it does anyway.
+    pub async fn warm_up(&self, session_id: Option<&str>) -> Result<(), String> {
+        let key = session_id
+            .filter(|id| !id.is_empty())
+            .unwrap_or(crate::session::DEFAULT_SESSION_KEY);
+        crate::session::warm_up(&self.session, key, &self.profile)
+            .await
+            .map(|_findings| ())
+            .map_err(|err| err.to_string())
+    }
+
     pub async fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, String> {
         match name {
             "verify_status" => self.verify_status(args).await,
@@ -277,6 +291,24 @@ impl AemVerifyServer {
     async fn verify_set(&self, args: &Value) -> Result<CallToolResult, String> {
         let form = require_str(args, "form")?;
         let expected_revision = require_u64(args, "expected_revision")?;
+        if let Some(fields) = args.get("fields").filter(|v| !v.is_null()) {
+            if args.get("field").is_some_and(|v| !v.is_null()) {
+                return Err("pass either `field`/`value` or `fields`, not both".to_owned());
+            }
+            let requests = parse_set_requests(fields)?;
+            let session_id = Self::session_id(args);
+            let result = interactive::set_many(
+                &self.session,
+                self.config.driver.as_ref(),
+                &session_id,
+                form,
+                expected_revision,
+                &requests,
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            return Ok(CallToolResult::structured(to_structured(&result)?));
+        }
         let field = require_str(args, "field")?;
         let value = args
             .get("value")
@@ -350,9 +382,19 @@ impl AemVerifyServer {
         let revision = require_u64(args, "revision")?;
         let format = parse_image_format(args)?;
         let field = args.get("field").and_then(Value::as_str);
+        let from_y = match args.get("from_y") {
+            None | Some(Value::Null) => None,
+            Some(value) => Some(
+                value
+                    .as_u64()
+                    .and_then(|y| u32::try_from(y).ok())
+                    .ok_or_else(|| "from_y must be a non-negative integer".to_owned())?,
+            ),
+        };
         let session_id = Self::session_id(args);
-        let result = interactive::screenshot(&self.session, &session_id, form, revision, format, field)
-            .await
+        let result =
+            interactive::screenshot(&self.session, &session_id, form, revision, format, field, from_y)
+                .await
             .map_err(|err| err.to_string())?;
         self.screenshot_content(result)
     }
@@ -384,57 +426,69 @@ impl AemVerifyServer {
         Ok(CallToolResult::structured(json!({ "closed": true })))
     }
 
-    /// Builds `verify_screenshot`'s tool result: an inline image under
-    /// `profile.max_inline_bytes`, or a blob handle plus a text block
-    /// otherwise -- the same `xfa_render_page` convention
+    /// Builds `verify_screenshot`'s tool result: one block per tile, each an
+    /// inline image under `profile.max_inline_bytes` or a text block naming
+    /// its blob handle otherwise -- the same `xfa_render_page` convention
     /// `u2s-render-xfa-mcp` already uses (see that server's own
     /// `page_content`), applied here to a live browser screenshot instead
-    /// of a rendered document page.
+    /// of a rendered document page. The structured part lists every tile
+    /// with where it sits, and `next_from_y` when tiles were left out.
     fn screenshot_content(
         &self,
         result: interactive::ScreenshotResult,
     ) -> Result<CallToolResult, String> {
-        let byte_len = result.bytes.len();
-        if byte_len <= self.profile.max_inline_bytes {
-            let data = BASE64.encode(&result.bytes);
-            let meta = json!({
-                "width_px": result.width_px,
-                "height_px": result.height_px,
-                "mime": result.mime,
+        let count = result.tiles.len();
+        let mut blocks = Vec::with_capacity(count);
+        let mut tiles = Vec::with_capacity(count);
+        for (index, tile) in result.tiles.into_iter().enumerate() {
+            let byte_len = tile.bytes.len();
+            let mut meta = json!({
+                "index": index,
+                "x": tile.x,
+                "y": tile.y,
+                "width_px": tile.width_px,
+                "height_px": tile.height_px,
                 "byte_len": byte_len,
-                "inline": true,
             });
-            Ok(with_structured(
-                CallToolResult::success(vec![ContentBlock::image(data, result.mime)]),
-                meta,
-            ))
-        } else {
-            let blob = self
-                .blobs
-                .put(&result.bytes, result.mime, result.ext)
-                .map_err(|err| format!("storing the screenshot: {err}"))?;
-            let text = format!(
-                "screenshot rendered to blob {} ({byte_len} bytes, {}) -- too large to inline",
-                blob.handle, result.mime
-            );
-            let meta = json!({
-                "width_px": result.width_px,
-                "height_px": result.height_px,
-                "mime": result.mime,
-                "byte_len": byte_len,
-                "inline": false,
-                "blob": {
+            if byte_len <= self.profile.max_inline_bytes {
+                blocks.push(ContentBlock::image(BASE64.encode(&tile.bytes), result.mime));
+                meta["inline"] = json!(true);
+            } else {
+                let blob = self
+                    .blobs
+                    .put(&tile.bytes, result.mime, result.ext)
+                    .map_err(|err| format!("storing the screenshot: {err}"))?;
+                blocks.push(ContentBlock::text(format!(
+                    "screenshot tile {} of {count} rendered to blob {} ({byte_len} bytes, {}) -- \
+                     too large to inline",
+                    index + 1,
+                    blob.handle,
+                    result.mime
+                )));
+                meta["inline"] = json!(false);
+                meta["blob"] = json!({
                     "handle": blob.handle,
                     "media_type": blob.media_type,
                     "byte_len": blob.byte_len,
                     "digest": blob.digest,
-                },
-            });
-            Ok(with_structured(
-                CallToolResult::success(vec![ContentBlock::text(text)]),
-                meta,
-            ))
+                });
+            }
+            tiles.push(meta);
         }
+        if let Some(next) = result.next_from_y {
+            blocks.push(ContentBlock::text(format!(
+                "{count} tile(s) shown; the area continues below -- call verify_screenshot \
+                 again with from_y={next} for the rest"
+            )));
+        }
+        let meta = json!({
+            "width_px": result.width_px,
+            "height_px": result.height_px,
+            "mime": result.mime,
+            "tiles": tiles,
+            "next_from_y": result.next_from_y,
+        });
+        Ok(with_structured(CallToolResult::success(blocks), meta))
     }
 
     fn read_package(&self, args: &Value) -> Result<Vec<u8>, String> {
@@ -472,6 +526,41 @@ fn with_structured(mut result: CallToolResult, value: Value) -> CallToolResult {
 /// serialize would only ever mean a bug in this crate's own result types,
 /// never bad caller input, but this still reports it as a tool error
 /// rather than panicking.
+/// `verify_set`'s `fields`: a non-empty array of `{field, value}` objects,
+/// at most [`MAX_SETS_PER_CALL`] of them.
+fn parse_set_requests(fields: &Value) -> Result<Vec<interactive::SetRequest>, String> {
+    let entries = fields
+        .as_array()
+        .ok_or_else(|| "fields must be an array of {field, value} objects".to_owned())?;
+    if entries.is_empty() {
+        return Err("fields must name at least one control".to_owned());
+    }
+    if entries.len() > MAX_SETS_PER_CALL {
+        return Err(format!(
+            "fields names {} controls; set at most {MAX_SETS_PER_CALL} per call",
+            entries.len()
+        ));
+    }
+    entries
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| {
+            let field = entry
+                .get("field")
+                .and_then(Value::as_str)
+                .filter(|f| !f.is_empty())
+                .ok_or_else(|| format!("fields[{index}] has no `field`"))?;
+            let value = entry
+                .get("value")
+                .ok_or_else(|| format!("fields[{index}] ({field}) has no `value`"))?;
+            Ok(interactive::SetRequest { field: field.to_owned(), value: value.clone() })
+        })
+        .collect()
+}
+
+/// How many controls one batched `verify_set` may set.
+const MAX_SETS_PER_CALL: usize = 25;
+
 fn to_structured(value: &impl serde::Serialize) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|err| format!("could not serialize the result: {err}"))
 }

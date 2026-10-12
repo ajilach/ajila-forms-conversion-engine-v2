@@ -110,7 +110,12 @@ pub fn tool_specs() -> Vec<Value> {
              -- a value that is not one of a choice control's own options is refused naming the \
              real ones, never silently coerced. Returns the new `revision` plus what happened: \
              which other fields changed as a side effect, which controls appeared or disappeared, \
-             and the driver's own navigation signals. Side-effecting.",
+             and the driver's own navigation signals. To fill several controls at once, pass \
+             `fields` (up to 25 `{field, value}` pairs) instead of `field`/`value`: they are set \
+             in order, each one's scripts running before the next. The batch stops at the first \
+             refused set: the first one refused fails the call as a single set would, a later \
+             one is reported under `failed` while the sets before it stay applied and \
+             `revision` is the revision after the last of them. Side-effecting.",
             json!({
                 "type": "object",
                 "properties": {
@@ -124,6 +129,25 @@ pub fn tool_specs() -> Vec<Value> {
                         "description":
                             "What to set it to -- one of the control's own option values (an \
                              array for a multi-select checkbox), or free text/a number."
+                    },
+                    "fields": {
+                        "type": "array",
+                        "minItems": 1,
+                        "maxItems": 25,
+                        "description": "Several controls to set in order, instead of `field`/`value`.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "field": {
+                                    "type": "string",
+                                    "description": "A control's own name, from verify_controls."
+                                },
+                                "value": {
+                                    "description": "What to set it to, as `value` above."
+                                }
+                            },
+                            "required": ["field", "value"]
+                        }
                     },
                     "session_id": session_id_prop(),
                 }
@@ -178,9 +202,11 @@ pub fn tool_specs() -> Vec<Value> {
             "Renders the open form as an image: the whole page, or -- when `field` is given -- \
              just that control's own on-screen rectangle (from verify_controls' own `position`; \
              refused if the control is not currently visible, since there is nothing to crop). \
-             Returns the image inline when it is small enough, otherwise a blob handle the \
-             caller dereferences out of band. A read: `revision` must match exactly, but this \
-             call never advances it.",
+             The area comes back as tiles of at most 1800 px a side, top to bottom, at most 4 \
+             per call; when a long form needs more, the reply says so and gives `from_y` to \
+             continue from. Each tile is inline when it is small enough, otherwise a blob \
+             handle the caller dereferences out of band. A read: `revision` must match \
+             exactly, but this call never advances it.",
             json!({
                 "type": "object",
                 "properties": {
@@ -194,6 +220,11 @@ pub fn tool_specs() -> Vec<Value> {
                     "field": {
                         "type": "string",
                         "description": "A control's own name, to crop the screenshot to just that control; omit for the whole page."
+                    },
+                    "from_y": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "description": "Document y (CSS px) to start from, as a previous call's `next_from_y` gave it; omit to start at the top."
                     },
                     "session_id": session_id_prop(),
                 }

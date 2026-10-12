@@ -312,15 +312,93 @@ pub struct SubmitResult {
     pub findings: Vec<Finding>,
 }
 
-/// `verify_screenshot`'s result -- the raw bytes plus enough to build the
-/// inline-or-blob tool result; `crate::server` owns that decision (same
-/// `max_inline_bytes` threshold every screenshot in this crate uses).
+/// `verify_screenshot`'s result: the page (or one control's rectangle) as
+/// one or more tiles, top to bottom then left to right, plus enough to
+/// build the inline-or-blob tool result; `crate::server` owns that
+/// decision (same `max_inline_bytes` threshold every screenshot in this
+/// crate uses).
+///
+/// A whole-page screenshot of a long form is several thousand pixels tall
+/// (a 900x6803 one was seen live). Vision APIs refuse an image with a side
+/// over a few thousand pixels once a conversation holds many images, and a
+/// downscaled strip that tall is unreadable anyway, so the area is cut into
+/// tiles no larger than [`MAX_TILE_EDGE_PX`] a side, at most
+/// [`MAX_TILES_PER_CALL`] per call; `next_from_y` says where to resume.
 pub struct ScreenshotResult {
-    pub bytes: Vec<u8>,
+    pub tiles: Vec<ScreenshotTile>,
+    /// The whole captured area, in device pixels.
     pub width_px: u32,
     pub height_px: u32,
+    /// The document y (CSS pixels) to pass as `from_y` for the tiles this
+    /// call did not return, or `None` when it returned all of them.
+    pub next_from_y: Option<u32>,
     pub mime: &'static str,
     pub ext: &'static str,
+}
+
+/// One tile of a [`ScreenshotResult`]: its encoded bytes and where it sits
+/// in the document (CSS pixels for `x`/`y`, device pixels for the size).
+pub struct ScreenshotTile {
+    pub bytes: Vec<u8>,
+    pub x: u32,
+    pub y: u32,
+    pub width_px: u32,
+    pub height_px: u32,
+}
+
+/// The longest side a screenshot tile may have, in device pixels. Below
+/// the 2000 px limit the Anthropic API applies to every image once a
+/// request carries more than 20, with room to spare.
+pub const MAX_TILE_EDGE_PX: u32 = 1800;
+
+/// Tiles one `verify_screenshot` call returns at most. Four tiles cover a
+/// 7200 px tall form; a longer one is continued with `from_y`.
+pub const MAX_TILES_PER_CALL: usize = 4;
+
+/// Cuts `area` (CSS pixels, document coordinates) into tiles whose sides
+/// are at most `max_edge_px` device pixels at `device_pixel_ratio`,
+/// starting at document y `from_y`, row by row; returns at most
+/// `max_tiles` of them and the y of the first row left out. Pure.
+/// Unit-tested.
+pub(crate) fn plan_tiles(
+    area: browser::ClipRect,
+    device_pixel_ratio: f64,
+    max_edge_px: u32,
+    from_y: f64,
+    max_tiles: usize,
+) -> (Vec<browser::ClipRect>, Option<f64>) {
+    let ratio = if device_pixel_ratio.is_finite() && device_pixel_ratio > 0.0 {
+        device_pixel_ratio
+    } else {
+        1.0
+    };
+    let step = (f64::from(max_edge_px) / ratio).floor().max(1.0);
+    let bottom = area.y + area.height;
+    let right = area.x + area.width;
+    let mut y = area.y.max(from_y.min(bottom));
+    let mut tiles = Vec::new();
+    while y < bottom {
+        let height = step.min(bottom - y);
+        let row: Vec<browser::ClipRect> = {
+            let mut row = Vec::new();
+            let mut x = area.x;
+            loop {
+                let width = step.min(right - x).max(0.0);
+                row.push(browser::ClipRect { x, y, width, height });
+                x += step;
+                if x >= right {
+                    break;
+                }
+            }
+            row
+        };
+        if !tiles.is_empty() && tiles.len() + row.len() > max_tiles {
+            return (tiles, Some(y));
+        }
+        tiles.extend(row);
+        y += height;
+    }
+    (tiles, None)
 }
 
 /// The JS `crate::interactive` evaluates against the page -- kept apart
@@ -914,6 +992,143 @@ pub async fn set(
     Ok(interaction)
 }
 
+/// One entry of a `verify_set` batch: a control's name and the value to
+/// give it, exactly as a single `verify_set` takes them.
+#[derive(Debug, Clone)]
+pub struct SetRequest {
+    pub field: String,
+    pub value: Value,
+}
+
+/// What one set of a batch did -- [`Interaction`] without the navigation
+/// and console state, which [`BatchInteraction`] reports once for the
+/// whole batch.
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchStep {
+    pub revision: u64,
+    pub field: String,
+    pub value: Value,
+    pub values_changed: bool,
+    pub side_effects: Vec<FieldChange>,
+    pub appeared: Vec<String>,
+    pub disappeared: Vec<String>,
+}
+
+/// The set of a batch that was refused: its position, its field and why.
+/// The sets before it were applied and stay applied.
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchFailure {
+    pub index: usize,
+    pub field: String,
+    pub error: String,
+}
+
+/// `verify_set`'s result for a batch: every set applied in order, the
+/// first refused one (the batch stops there), and the form as it stands
+/// afterwards. `revision` is the form's revision after the last applied
+/// set -- one revision per set, as if each had been its own call.
+#[derive(Debug, Clone, Serialize)]
+pub struct BatchInteraction {
+    pub revision: u64,
+    pub applied: Vec<BatchStep>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub failed: Option<BatchFailure>,
+    pub panel: Value,
+    pub has_next: bool,
+    pub is_terminal: bool,
+    pub console_errors: Vec<String>,
+    pub failed_requests: Vec<FailedRequest>,
+}
+
+/// Sets several controls in one call, in order, each exactly as [`set`]
+/// would (so each one's scripts run before the next is set), stopping at
+/// the first refusal. Only `expected_revision` is checked against the
+/// caller; every later set is based on the revision the previous one left.
+/// A refused set is reported in the result, not as an error, because the
+/// sets before it already changed the form and advanced its revision. A
+/// batch whose first set is refused changed nothing and is an error, like
+/// a refused single set.
+pub async fn set_many(
+    pool: &SessionPool,
+    driver: &dyn FormDriver,
+    session_id: &str,
+    form: &str,
+    expected_revision: u64,
+    requests: &[SetRequest],
+) -> Result<BatchInteraction, InteractionError> {
+    let mut guard = pool.lock(session_id).await;
+    let state = guard.as_mut().ok_or_else(|| InteractionError::UnknownForm {
+        handle: form.to_owned(),
+    })?;
+    let mut open_form = take_form(state, form)?;
+    if let Err(err) = check_revision(&open_form.handle, open_form.revision, expected_revision) {
+        state.open_form = Some(open_form);
+        return Err(err);
+    }
+
+    let mut applied = Vec::with_capacity(requests.len());
+    let mut failed = None;
+    let mut last: Option<Interaction> = None;
+    for (index, request) in requests.iter().enumerate() {
+        let based_on = open_form.revision;
+        match set_inner(&open_form, driver, based_on, &request.field, &request.value).await {
+            Ok(interaction) => {
+                open_form.revision += 1;
+                applied.push(BatchStep {
+                    revision: open_form.revision,
+                    field: request.field.clone(),
+                    value: interaction.value.clone(),
+                    values_changed: interaction.values_changed,
+                    side_effects: interaction.side_effects.clone(),
+                    appeared: interaction.appeared.clone(),
+                    disappeared: interaction.disappeared.clone(),
+                });
+                last = Some(interaction);
+            }
+            Err(err) if index == 0 => {
+                state.open_form = Some(open_form);
+                return Err(err);
+            }
+            Err(err) => {
+                failed = Some(BatchFailure {
+                    index,
+                    field: request.field.clone(),
+                    error: err.to_string(),
+                });
+                break;
+            }
+        }
+    }
+
+    let page = &open_form.live.page;
+    let (panel, has_next, is_terminal) = match last {
+        Some(interaction) => (interaction.panel, interaction.has_next, interaction.is_terminal),
+        None => {
+            let panel = current_panel(page).await;
+            let nav = flow::wait_for_navigation_controls(
+                page,
+                &driver.has_next_js(),
+                &driver.terminal_panel_js(),
+            )
+            .await;
+            (panel, nav.has_next, nav.is_terminal)
+        }
+    };
+    let result = BatchInteraction {
+        revision: open_form.revision,
+        applied,
+        failed,
+        panel,
+        has_next,
+        is_terminal,
+        console_errors: page.console_errors(),
+        failed_requests: page.failed_requests(),
+    };
+    state.open_form = Some(open_form);
+    state.touch();
+    Ok(result)
+}
+
 async fn set_inner(
     open_form: &OpenForm,
     driver: &dyn FormDriver,
@@ -1173,6 +1388,7 @@ pub async fn screenshot(
     revision: u64,
     format: browser::ImageFormat,
     field: Option<&str>,
+    from_y: Option<u32>,
 ) -> Result<ScreenshotResult, InteractionError> {
     let mut guard = pool.lock(session_id).await;
     let state = guard.as_mut().ok_or_else(|| InteractionError::UnknownForm {
@@ -1180,7 +1396,7 @@ pub async fn screenshot(
     })?;
     let open_form = take_form(state, form)?;
 
-    let outcome = screenshot_inner(&open_form, revision, format, field).await;
+    let outcome = screenshot_inner(&open_form, revision, format, field, from_y).await;
 
     state.open_form = Some(open_form);
     let result = outcome?;
@@ -1193,12 +1409,28 @@ async fn screenshot_inner(
     revision: u64,
     format: browser::ImageFormat,
     field: Option<&str>,
+    from_y: Option<u32>,
 ) -> Result<ScreenshotResult, InteractionError> {
     check_revision(&open_form.handle, open_form.revision, revision)?;
     let page = &open_form.live.page;
 
+    let raw = page
+        .evaluate_string(
+            "JSON.stringify({w: document.documentElement.scrollWidth, \
+             h: document.documentElement.scrollHeight, r: window.devicePixelRatio || 1})",
+        )
+        .await
+        .unwrap_or_default();
+    let parsed: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
+    let ratio = parsed.get("r").and_then(Value::as_f64).unwrap_or(1.0);
+
     let area = match field {
-        None => browser::ScreenshotArea::FullPage,
+        None => browser::ClipRect {
+            x: 0.0,
+            y: 0.0,
+            width: parsed.get("w").and_then(Value::as_f64).unwrap_or(0.0),
+            height: parsed.get("h").and_then(Value::as_f64).unwrap_or(0.0),
+        },
         Some(name) => {
             let raw = page.evaluate_string(control_js::INVENTORY).await.unwrap_or_default();
             let controls = parse_controls(&raw)?;
@@ -1214,44 +1446,64 @@ async fn screenshot_inner(
                 .ok_or_else(|| InteractionError::ControlNotVisible {
                     field: name.to_owned(),
                 })?;
-            browser::ScreenshotArea::Clip(browser::ClipRect {
+            browser::ClipRect {
                 x: position.x,
                 y: position.y,
                 width: position.width,
                 height: position.height,
-            })
+            }
         }
     };
 
-    let (width_px, height_px) = match &area {
-        browser::ScreenshotArea::FullPage => {
-            let raw = page
-                .evaluate_string(
-                    "JSON.stringify({w: document.documentElement.scrollWidth, \
-                     h: document.documentElement.scrollHeight})",
-                )
-                .await
-                .unwrap_or_default();
-            let parsed: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-            (
-                parsed.get("w").and_then(Value::as_u64).unwrap_or(0) as u32,
-                parsed.get("h").and_then(Value::as_u64).unwrap_or(0) as u32,
-            )
-        }
-        browser::ScreenshotArea::Clip(rect) => {
-            (rect.width.round() as u32, rect.height.round() as u32)
-        }
+    let device = |css: f64| (css * ratio).round().max(0.0) as u32;
+    let (rects, next_from_y) = if area.width > 0.0 && area.height > 0.0 {
+        plan_tiles(
+            area,
+            ratio,
+            MAX_TILE_EDGE_PX,
+            f64::from(from_y.unwrap_or(0)),
+            MAX_TILES_PER_CALL,
+        )
+    } else {
+        (Vec::new(), None)
     };
 
-    let bytes = page
-        .screenshot(area, format)
-        .await
-        .map_err(|err| InteractionError::Screenshot(err.to_string()))?;
+    if rects.is_empty() && area.width > 0.0 && area.height > 0.0 {
+        return Err(InteractionError::Screenshot(format!(
+            "from_y {} is past the end of the captured area ({} CSS px tall)",
+            from_y.unwrap_or(0),
+            (area.y + area.height).round()
+        )));
+    }
+    let mut tiles = Vec::with_capacity(rects.len().max(1));
+    if rects.is_empty() {
+        // The page reported no size (or the control has none): fall back to
+        // one viewport-sized capture rather than returning nothing.
+        let bytes = page
+            .screenshot(browser::ScreenshotArea::FullPage, format)
+            .await
+            .map_err(|err| InteractionError::Screenshot(err.to_string()))?;
+        tiles.push(ScreenshotTile { bytes, x: 0, y: 0, width_px: 0, height_px: 0 });
+    }
+    for rect in rects {
+        let bytes = page
+            .screenshot(browser::ScreenshotArea::Clip(rect), format)
+            .await
+            .map_err(|err| InteractionError::Screenshot(err.to_string()))?;
+        tiles.push(ScreenshotTile {
+            bytes,
+            x: rect.x.round() as u32,
+            y: rect.y.round() as u32,
+            width_px: device(rect.width),
+            height_px: device(rect.height),
+        });
+    }
 
     Ok(ScreenshotResult {
-        bytes,
-        width_px,
-        height_px,
+        tiles,
+        width_px: device(area.width),
+        height_px: device(area.height),
+        next_from_y: next_from_y.map(|y| y.round() as u32),
         mime: format.mime(),
         ext: format.ext(),
     })
@@ -1378,6 +1630,56 @@ pub async fn close(
 
 #[cfg(test)]
 mod tests {
+
+    fn rect(x: f64, y: f64, width: f64, height: f64) -> browser::ClipRect {
+        browser::ClipRect { x, y, width, height }
+    }
+
+    #[test]
+    fn a_long_page_is_cut_into_rows_no_taller_than_the_limit() {
+        // The 900x6803 whole-page screenshot a live run sent the model.
+        let (tiles, next) = plan_tiles(rect(0.0, 0.0, 900.0, 6803.0), 1.0, 1800, 0.0, 4);
+        assert_eq!(next, None);
+        assert_eq!(tiles.len(), 4);
+        assert!(tiles.iter().all(|t| t.width == 900.0 && t.height <= 1800.0));
+        assert_eq!(tiles[3].y, 5400.0);
+        assert_eq!(tiles[3].height, 1403.0);
+    }
+
+    #[test]
+    fn tiles_beyond_the_per_call_cap_are_left_for_from_y() {
+        let (tiles, next) = plan_tiles(rect(0.0, 0.0, 900.0, 10_000.0), 1.0, 1800, 0.0, 4);
+        assert_eq!(tiles.len(), 4);
+        assert_eq!(next, Some(7200.0));
+        let (rest, next) = plan_tiles(rect(0.0, 0.0, 900.0, 10_000.0), 1.0, 1800, 7200.0, 4);
+        assert_eq!(rest.len(), 2);
+        assert_eq!(rest[0].y, 7200.0);
+        assert_eq!(next, None);
+    }
+
+    #[test]
+    fn the_limit_is_in_device_pixels() {
+        let (tiles, _) = plan_tiles(rect(0.0, 0.0, 900.0, 2000.0), 2.0, 1800, 0.0, 8);
+        // 900 CSS px wide at ratio 2 is 1800 device px: one column.
+        assert!(tiles.iter().all(|t| t.width * 2.0 <= 1800.0 && t.height * 2.0 <= 1800.0));
+        assert_eq!(tiles.len(), 3);
+    }
+
+    #[test]
+    fn a_wide_area_is_cut_into_columns_too() {
+        let (tiles, next) = plan_tiles(rect(0.0, 0.0, 2500.0, 1000.0), 1.0, 1800, 0.0, 4);
+        assert_eq!(next, None);
+        assert_eq!(tiles.len(), 2);
+        assert_eq!((tiles[1].x, tiles[1].width), (1800.0, 700.0));
+    }
+
+    #[test]
+    fn a_small_control_is_one_tile() {
+        let (tiles, next) = plan_tiles(rect(10.0, 120.0, 300.0, 40.0), 1.0, 1800, 0.0, 4);
+        assert_eq!(tiles, vec![rect(10.0, 120.0, 300.0, 40.0)]);
+        assert_eq!(next, None);
+    }
+
     use super::*;
     use serde_json::json;
 
