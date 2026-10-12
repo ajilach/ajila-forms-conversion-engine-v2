@@ -52,6 +52,11 @@ jobs:
     # different dependency set can pass here and fail for everyone else.
     - name: Build
       run: cargo build --verbose --release --locked --workspace
+    # The agent tests start the rule sandbox from the standalone worker binary,
+    # which lives in the u2s-rules-host dependency and so is not built by
+    # `--workspace`. It must sit at target/release/u2s-rules-worker.
+    - name: Build rule sandbox worker
+      run: cargo build --verbose --release --locked -p u2s-rules-host --bin u2s-rules-worker
     - name: Run tests
       run: cargo test --verbose --release --locked --workspace
 
