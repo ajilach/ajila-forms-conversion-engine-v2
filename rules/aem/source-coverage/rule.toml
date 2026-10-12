@@ -62,4 +62,4 @@ source's text in every language, `title/en` included.
 
 [judge]
 # Walks every page of the source in every language.
-max_turns = 16
+max_turns = 80

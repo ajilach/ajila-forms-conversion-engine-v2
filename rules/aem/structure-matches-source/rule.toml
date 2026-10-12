@@ -27,4 +27,4 @@ them (ubs-aem-account-holder-cluster). Neither is a break.
 
 [judge]
 # Walks every page of the source in every language.
-max_turns = 16
+max_turns = 80

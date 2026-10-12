@@ -106,7 +106,7 @@ struct RuleToml {
 /// pointers = ["/variables"]       # parts of the document, by JSON Pointer
 /// node_types = ["Repeatable"]     # every node of these `type`s, wherever it sits
 /// source = "first_page"           # "tools" (default), "first_page" or "none"
-/// max_turns = 12                  # the judge's turn budget, when not the default
+/// max_turns = 80                  # the judge's turn budget, when not the default
 /// ```
 ///
 /// A scope is a promise that the rule reads nothing else of the document:

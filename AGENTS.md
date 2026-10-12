@@ -38,7 +38,7 @@
   rule's `rule.toml` may carry a `[judge]` block (`agent::rules::JudgeScope`): the `pointers` and `node_types` of the
   document it reads, which its judge is handed in the prompt and which its verdict is cached for (an edit elsewhere
   keeps the verdict, so name everything the rule reads), what it needs of the source (`source = "tools" | "first_page"
-  | "none"`) and a `max_turns` above the judges' default of 8. A judge's verdict is kept for the run while its view is
+  | "none"`) and a `max_turns` above the judges' default of 40. A judge's verdict is kept for the run while its view is
   unchanged (`ConversionAgent::judge_view`). Rules are not written into the prompts: the agent reads the index with
   `rule_list` and the descriptions with `rule_get`.
 - Three of those rules are about a node's position among its siblings, so lowering one node at a time cannot satisfy
