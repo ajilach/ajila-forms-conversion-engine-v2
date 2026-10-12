@@ -11,13 +11,14 @@ use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as BASE64;
 use image::{DynamicImage, GenericImageView as _, ImageFormat, ImageReader};
 
-/// The longest side, in pixels, the model API accepts for an image.
-pub const MAX_IMAGE_SIDE: u32 = 8000;
+/// The longest side, in pixels, the model API accepts for an image in a
+/// request that carries many images, which a stage's history does after its
+/// first renders (a lone image may have 8000 px a side).
+pub const MAX_IMAGE_SIDE: u32 = 3000;
 
-/// The longest side of a part an oversized image is cut into. The API takes
-/// at most 2000 px a side once a request carries more than 20 images, which a
-/// long stage's history does, and it scales every image down to about 1.15
-/// megapixels, so a taller part would arrive too small to read.
+/// The longest side of a part an oversized image is cut into: the API scales
+/// every image down to about 1.15 megapixels, so a taller part would arrive
+/// too small to read.
 pub const PART_SIDE: u32 = 2000;
 
 /// How much of the base64 [`dimensions`] decodes first: enough for a PNG's or
@@ -174,6 +175,16 @@ mod tests {
         let sizes: Vec<_> = fitted.parts.iter().map(|part| decoded_dimensions(part)).collect();
         assert_eq!(sizes, vec![(PART_SIDE, 1001)]);
         assert!(fitted.note.contains("scaled down"), "{}", fitted.note);
+    }
+
+    /// A 900x4000 screenshot fails a request that already carries many images
+    /// ("max allowed size for many-image requests: 3000 pixels").
+    #[test]
+    fn an_image_over_the_many_image_limit_is_cut_too() {
+        let tall = encoded(DynamicImage::ImageLuma8(image::GrayImage::new(900, 4000)), ImageFormat::Png);
+        let fitted = fit(&tall).expect("over the many-image limit");
+        let sizes: Vec<_> = fitted.parts.iter().map(|part| decoded_dimensions(part)).collect();
+        assert_eq!(sizes, vec![(900, 2000), (900, 2000)]);
     }
 
     #[test]
