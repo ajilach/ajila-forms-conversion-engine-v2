@@ -121,6 +121,12 @@ jobs:
             content_type: application/octet-stream
 
     steps:
+      - name: Enable long paths for Git on Windows
+        # The vendored UBS profile holds AEM fragment paths over Windows'
+        # 260-character limit, which fails the checkout without this.
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -263,6 +269,12 @@ jobs:
             content_type: application/zip
 
     steps:
+      - name: Enable long paths for Git on Windows
+        # The vendored UBS profile holds AEM fragment paths over Windows'
+        # 260-character limit, which fails the checkout without this.
+        if: runner.os == 'Windows'
+        run: git config --system core.longpaths true
+
       - name: Checkout code
         uses: actions/checkout@v4
         with:

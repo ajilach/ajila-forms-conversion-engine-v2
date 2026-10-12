@@ -17,5 +17,7 @@ text between tags counts, with `&quot;` read as `"`.
 Reported: such a text with any of `"`, `“`, `”` or `„` in it. An odd number of them cannot be
 paired by position, so look at the sentence before rewriting it.
 
-Rewrite each straight-quoted run as `«…»` in that language's text, and nothing else.
+Rewrite each straight-quoted run as `«…»` in that language's text, and nothing else. This wins over
+the source's own quotation marks (ubs-aem-verbatim-source-text): guillemets are written even where
+that language's PDF prints straight quotes.
 """

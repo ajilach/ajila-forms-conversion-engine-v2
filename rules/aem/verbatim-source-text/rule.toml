@@ -22,6 +22,9 @@ shortened.
 Fix: replace the text with the source's wording, or delete the node if the source has none.
 
 Precedence:
+- ubs-aem-guillemet-quotes wins over the source's quotation marks: a German, Italian or Spanish
+  text quotes with `«…»` where its source PDF prints straight, curly or low quotes. Those guillemets
+  are the source's text and not a break; the words between them still are the source's own.
 - ubs-aem-input-labels wins where the source gives an input no caption. The input still needs a
   label, so it takes the nearest source text that names it, the caption of its group or the text
   of its option, verbatim in that language, with any surrounding brackets dropped (`(s. unten
