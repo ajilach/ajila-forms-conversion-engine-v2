@@ -20,7 +20,11 @@ several of the feedback guard's detectors skip the form silently, which reads as
 
 They come from the source form's template variables; keep them as the source has them and do not
 shorten, lower-case or pad them. `variables` name the form, its repository path and its metadata,
-and are already filled in from the source, so leave them as they are. The hidden metadata control's
+and are already filled in from the source, so leave them as they are. A form with several language
+sources takes them from its English source (otherwise its first), all of them together: the
+release date, version and footer language included, even where another language's source carries
+a newer release date or the Document of Record prints in another language. Never replace them with
+another source's values; a different date between the language sources is not a defect. The hidden metadata control's
 `formrange_language` and `formrange_afmasterlanguage` are template output: the first lists the
 source languages under the codes the platform files them by (Spanish as `sp`), and the second is
 the language the form was ISSUED in for its market (Germany `DE`, Italy `IT`, elsewhere `EN`),
