@@ -53,11 +53,16 @@ package's own metadata, so there is nothing to add). Then aem_verify_open instal
 form, and aem_verify_controls lists every control with its options, visibility, required state and \
 position. Walk EVERY wizard page with aem_verify_next, entering a plausible value in every field \
 type on the way with aem_verify_set; switch each conditional choice as in (c) so its gated panel \
-appears; add an instance to each repeatable; and look at each page with aem_verify_screenshot (its \
-`field` argument zooms in on one control). On the last page, aem_verify_submit submits through \
+appears; add an instance to each repeatable with aem_verify_click on its add button; and look at \
+each page with aem_verify_screenshot (its `field` argument zooms in on one control). \
+aem_verify_field re-reads one control, and aem_verify_goto jumps to a panel to recheck it. On the \
+last page, aem_verify_submit submits through \
 UBS's own routine and returns the PDF the submission produces, the Document of Record the UBS \
 platform renders from the summary data. Read it with pdf_info and pdf_render_pages, passing the \
 `doc_path` from the reply (gated): it must show the values entered. Then aem_verify_close. \
+aem_verify_open always opens the latest build: after a rebuild, open the form again, and \
+the sessions still showing an older build are closed for you (the reply names them); \
+aem_verify_run closes every open session first. \
 aem_verify_run does the whole walk in one call (`fill` gives field values) and suits a quick \
 re-check, but it does not count as the walk. The form opens in the language its metadata resolves \
 to, so check the other languages' wording in the document against each language's PDF instead. \

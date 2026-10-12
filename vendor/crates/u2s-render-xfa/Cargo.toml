@@ -48,6 +48,10 @@ name = "fixtures_gen"
 path = "tests/fixtures_gen.rs"
 
 [[test]]
+name = "host"
+path = "tests/host.rs"
+
+[[test]]
 name = "interaction"
 path = "tests/interaction.rs"
 

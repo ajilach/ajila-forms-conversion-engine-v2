@@ -5,6 +5,9 @@
 //! content is on every page, chosen by `pagePosition` -- plus the page-
 //! dependent scripts that can only be answered once the page count is known.
 
+mod support;
+
+use support::dark_pixels;
 use u2s_xfa::{Flattened, FlattenedNode, FlattenedNodeKind, XfaNode, fonts, prepare_default};
 
 /// Fonts are committed (see `u2s_test_assets::font_dir`); a machine missing
@@ -84,7 +87,7 @@ fn texts_by_page(flat: &Flattened) -> Vec<Vec<String>> {
         let content = match &node.kind {
             FlattenedNodeKind::Text { content, .. } => content.trim(),
             FlattenedNodeKind::Field { value, .. } => value.trim(),
-            FlattenedNodeKind::Image(_) => "",
+            FlattenedNodeKind::Image(_) | FlattenedNodeKind::Shape(_) => "",
         };
         if !content.is_empty() {
             bucket.push(content.to_string());
@@ -467,25 +470,6 @@ fn breakbefore_only_forces_a_page_start_with_an_explicit_target_type() {
 
 // ── page furniture: images, barcodes, round radios ──────────────────────────
 
-/// Count the dark pixels in a rectangle of a rendered page, in points.
-fn dark_pixels(flat: &Flattened, x: f64, y: f64, w: f64, h: f64) -> usize {
-    let img = flat.render_to_image_buffer_plain(1.0).expect("render");
-    let (x0, y0) = (x.max(0.0) as u32, y.max(0.0) as u32);
-    let (x1, y1) = (
-        ((x + w) as u32).min(img.width()),
-        ((y + h) as u32).min(img.height()),
-    );
-    let mut dark = 0;
-    for py in y0..y1 {
-        for px in x0..x1 {
-            let p = img.get_pixel(px, py).0;
-            if p[0] < 200 && p[1] < 200 && p[2] < 200 {
-                dark += 1;
-            }
-        }
-    }
-    dark
-}
 
 /// A 2x2 all-black PNG, base64, as a template would carry it.
 fn black_png_base64() -> String {
@@ -514,6 +498,222 @@ fn an_embedded_image_is_drawn() {
     // A black square fitted into a 60x24pt box fills a 24x24pt square of it.
     let dark = dark_pixels(&flat, 49.0, 57.0, 62.0, 23.0);
     assert!(dark > 400, "the image box has only {dark} dark pixels");
+}
+
+// ── shapes: <line>, <rectangle>, <arc> (XFA 3.3 Chapter 17) ─────────────────
+//
+// Each is a master-page draw at 17.5mm, 20mm (about 49.6pt, 56.7pt), below
+// the master's own header and above the body's first row (at 85pt), so the
+// ink measured is the shape's alone.
+
+fn shape_draw(w: &str, h: &str, value: &str) -> String {
+    format!(
+        r#"<draw name="Shape" x="17.5mm" y="20mm" w="{w}" h="{h}"><value>{value}</value></draw>"#
+    )
+}
+
+/// A zero-height `<line>` is a horizontal rule across its box; Designer
+/// writes its height as `=0mm`.
+#[test]
+fn a_zero_height_line_is_drawn_as_a_rule() {
+    require_fonts!();
+    let master = shape_draw("200pt", "=0mm", r#"<line><edge thickness="1pt"/></line>"#);
+    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
+
+    let rule = dark_pixels(&flat, 50.0, 55.0, 199.0, 4.0);
+    assert!(rule >= 199, "the rule has only {rule} dark pixels");
+    assert_eq!(dark_pixels(&flat, 50.0, 60.0, 199.0, 6.0), 0, "nothing below it");
+}
+
+/// `slope="/"` runs from the bottom-left corner to the top-right one.
+#[test]
+fn a_rising_line_runs_bottom_left_to_top_right() {
+    require_fonts!();
+    let master = shape_draw("40pt", "40pt", r#"<line slope="/"><edge thickness="1pt"/></line>"#);
+    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
+
+    assert!(dark_pixels(&flat, 49.0, 92.0, 4.0, 4.0) > 0, "bottom-left");
+    assert!(dark_pixels(&flat, 86.0, 56.0, 4.0, 4.0) > 0, "top-right");
+    assert_eq!(dark_pixels(&flat, 49.0, 56.0, 4.0, 4.0), 0, "not top-left");
+}
+
+/// A `<rectangle>` with a visible edge is a box. Its corner has a radius
+/// but the default `join="square"`, so the corner stays square: the radius
+/// only rounds a corner whose join is round (XFA 3.3 "The corner element").
+#[test]
+fn a_rectangle_is_drawn_with_square_corners() {
+    require_fonts!();
+    let master = shape_draw(
+        "100pt",
+        "20pt",
+        r#"<rectangle><corner thickness="1pt" radius="5mm"/><edge thickness="1pt"/></rectangle>"#,
+    );
+    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
+
+    assert!(dark_pixels(&flat, 90.0, 55.0, 20.0, 4.0) > 0, "top edge");
+    assert!(dark_pixels(&flat, 90.0, 74.0, 20.0, 4.0) > 0, "bottom edge");
+    assert!(dark_pixels(&flat, 48.0, 62.0, 4.0, 8.0) > 0, "left edge");
+    assert!(dark_pixels(&flat, 148.0, 62.0, 4.0, 8.0) > 0, "right edge");
+    assert!(dark_pixels(&flat, 48.0, 55.0, 3.0, 3.0) > 0, "square top-left corner");
+    assert_eq!(dark_pixels(&flat, 60.0, 61.0, 80.0, 11.0), 0, "an empty inside");
+}
+
+/// The UBS spacer: a rectangle whose edges and corners are all hidden draws
+/// nothing at all.
+#[test]
+fn a_rectangle_with_hidden_edges_draws_nothing() {
+    require_fonts!();
+    let master = shape_draw(
+        "100pt",
+        "20pt",
+        r#"<rectangle><corner radius="5.08mm" presence="hidden"/><edge presence="hidden"/></rectangle>"#,
+    );
+    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
+    assert_eq!(dark_pixels(&flat, 45.0, 52.0, 110.0, 30.0), 0);
+}
+
+/// A filled circular `<arc>` is a disc centred in its box.
+#[test]
+fn a_filled_circular_arc_is_a_disc() {
+    require_fonts!();
+    let master = shape_draw(
+        "80pt",
+        "40pt",
+        r#"<arc circular="1"><fill><color value="0,0,0"/></fill></arc>"#,
+    );
+    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
+
+    assert!(dark_pixels(&flat, 87.0, 74.0, 4.0, 4.0) >= 16, "the centre is filled");
+    assert_eq!(dark_pixels(&flat, 52.0, 74.0, 4.0, 4.0), 0, "the box beside the circle is not");
+}
+
+// ── text decoration (XFA 3.3 "Underline and Strikethrough") ──────────────────
+
+/// Ink in the band just below a draw's text that an underline would fill,
+/// for a 12pt draw at 17.5mm, 20mm (49.6pt, 56.7pt): its glyphs end at about
+/// 66pt (with a stray antialiased pixel below), so the band from 68pt to
+/// 70pt is empty without an underline.
+fn underline_band_ink(value: &str, font_attrs: &str) -> usize {
+    let master = format!(
+        r#"<draw name="Deco" x="17.5mm" y="20mm" w="200pt" h="20pt"><font typeface="Helvetica" size="12pt"{font_attrs}/><value>{value}</value></draw>"#
+    );
+    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
+    dark_pixels(&flat, 50.0, 68.0, 60.0, 2.0)
+}
+
+#[test]
+fn a_font_underline_draws_a_line_under_the_text() {
+    require_fonts!();
+    let plain = underline_band_ink("<text>Hello world</text>", "");
+    let underlined = underline_band_ink("<text>Hello world</text>", r#" underline="1""#);
+    assert_eq!(plain, 0, "no ink under undecorated text");
+    assert!(underlined >= 50, "the underline has only {underlined} dark pixels");
+}
+
+#[test]
+fn a_css_underline_on_a_span_draws_a_line_under_it() {
+    require_fonts!();
+    let html = |style: &str| {
+        format!(
+            r#"<exData contentType="text/html"><body xmlns="http://www.w3.org/1999/xhtml"><p><span style="{style}">Hello world</span></p></body></exData>"#
+        )
+    };
+    assert_eq!(underline_band_ink(&html("letter-spacing:0in"), ""), 0);
+    let ink = underline_band_ink(&html("text-decoration:underline"), "");
+    assert!(ink >= 50, "the underline has only {ink} dark pixels");
+}
+
+// ── fills and corners (XFA 3.3 "The linear element", "The corner element") ──
+
+/// A master draw at 17.5mm, 20mm (about 49.6pt, 56.7pt), 100x24pt, with
+/// `border` and no text.
+fn bordered_draw(border: &str) -> Flattened {
+    let master = format!(
+        r#"<draw name="Box" x="17.5mm" y="20mm" w="100pt" h="24pt"><border>{border}</border><value><text></text></value></draw>"#
+    );
+    flatten(&template(&draw("Only", "One row", 24), &master))
+}
+
+#[test]
+fn a_linear_fill_runs_from_its_color_to_its_end_color() {
+    require_fonts!();
+    let flat = bordered_draw(
+        r#"<edge presence="hidden"/><fill><color value="255,255,255"/><linear type="toBottom"><color value="0,0,0"/></linear></fill>"#,
+    );
+    assert_eq!(dark_pixels(&flat, 52.0, 57.0, 90.0, 3.0), 0, "light at the top");
+    assert!(dark_pixels(&flat, 52.0, 77.0, 90.0, 3.0) >= 200, "dark at the bottom");
+}
+
+#[test]
+fn a_round_corner_rounds_the_fill_and_the_edges() {
+    require_fonts!();
+    let flat = bordered_draw(
+        r#"<corner join="round" radius="8pt" thickness="1pt"/><edge thickness="1pt"/><fill><color value="0,0,0"/></fill>"#,
+    );
+    // The box spans about 49.6..149.6 x 56.7..80.7.
+    assert!(dark_pixels(&flat, 95.0, 66.0, 10.0, 5.0) >= 50, "a filled middle");
+    // The extreme corner pixels; the arc itself passes a pixel or two inside.
+    assert_eq!(dark_pixels(&flat, 50.0, 57.0, 1.0, 1.0), 0, "a cut-out top-left corner");
+    assert_eq!(dark_pixels(&flat, 148.0, 79.0, 1.0, 1.0), 0, "a cut-out bottom-right corner");
+
+    let outline = bordered_draw(r#"<corner join="round" radius="8pt" thickness="1pt"/><edge thickness="1pt"/>"#);
+    assert!(dark_pixels(&outline, 95.0, 56.0, 10.0, 2.0) > 0, "the top edge");
+    assert_eq!(dark_pixels(&outline, 50.0, 57.0, 1.0, 1.0), 0, "no square corner");
+    assert!(
+        dark_pixels(&outline, 50.0, 57.0, 8.0, 8.0) > 0,
+        "the quarter circle bends through the corner region"
+    );
+}
+
+// ── captions (XFA 3.3 "The caption element") ─────────────────────────────────
+
+/// A caption with a 60pt reserve on the left is drawn there, and the
+/// field's value is drawn after it rather than across it.
+#[test]
+fn a_left_caption_takes_its_reserve_and_the_value_follows() {
+    require_fonts!();
+    let field = |caption: &str| {
+        format!(
+            r#"<field name="F" x="17.5mm" y="20mm" w="200pt" h="20pt" access="readOnly"><font typeface="Helvetica" size="11pt"/><ui><textEdit/></ui>{caption}<value><text>Ada</text></value></field>"#
+        )
+    };
+    let plain = flatten(&template(&draw("Only", "One row", 24), &field("")));
+    let captioned = flatten(&template(
+        &draw("Only", "One row", 24),
+        &field(r#"<caption reserve="60pt"><value><text>Name</text></value></caption>"#),
+    ));
+    let texts: Vec<String> = captioned
+        .iter_nodes()
+        .filter_map(|n| match &n.kind {
+            FlattenedNodeKind::Text { content, .. } => Some(content.clone()),
+            _ => None,
+        })
+        .collect();
+    assert!(texts.contains(&"Name".to_string()), "{texts:?}");
+    // The box starts at 49.6pt. Without a caption "Ada" starts there; with
+    // one, "Name" does, and "Ada" starts 60pt later.
+    assert!(dark_pixels(&plain, 50.0, 57.0, 20.0, 18.0) > 0, "the value at the left edge");
+    assert!(dark_pixels(&captioned, 50.0, 57.0, 20.0, 18.0) > 0, "the caption at the left edge");
+    assert_eq!(dark_pixels(&plain, 110.0, 57.0, 25.0, 18.0), 0, "nothing past the value");
+    assert!(dark_pixels(&captioned, 110.0, 57.0, 25.0, 18.0) > 0, "the value after the reserve");
+}
+
+/// A FormCalc page number on the master page, the way ACAV_001_DE writes
+/// it: a field directly in the pageArea computes `$ = $.parent.index + 1`,
+/// and its parent is the pageArea, whose index is the page being laid out.
+#[test]
+fn a_formcalc_page_number_on_the_master_page_counts_the_pages() {
+    require_fonts!();
+    let rows: String = (1..=75).map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24)).collect();
+    let page_no = r#"<field name="PageNo" x="17.5mm" y="290mm" w="60pt" h="10pt"><font typeface="Helvetica" size="8pt"/><ui><textEdit/></ui><calculate><script>$ = $.parent.index + 1</script></calculate></field>"#;
+    let flat = flatten(&template(&rows, page_no));
+    assert_eq!(flat.page.page_count, 3);
+    let pages = texts_by_page(&flat);
+    for (i, page) in pages.iter().enumerate() {
+        // FormCalc's `+` is numeric; the field shows the bare number.
+        let label = (i + 1).to_string();
+        assert!(page.contains(&label), "page {} lacks {label}: {page:?}", i + 1);
+    }
 }
 
 /// A barcode field draws bars, not the digits of its value.

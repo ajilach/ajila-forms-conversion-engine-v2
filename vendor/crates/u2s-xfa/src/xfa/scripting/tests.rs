@@ -3058,3 +3058,572 @@ fn a_new_instance_is_addressable_in_the_same_script_and_starts_empty() {
         Some("true,1,first,second,true")
     );
 }
+
+// =============================================================================
+// Host methods outside XFA 3.3: app, util, xfa.host (see `acrobat.rs`)
+// =============================================================================
+
+#[test]
+fn an_alert_is_reported_and_the_handler_carries_on() {
+    let mut form = form_with(&format!(
+        r#"<field name="Out" w="40pt" h="20pt"/>{}"#,
+        click_script(
+            "Btn",
+            "var answer = app.alert('Bitte Adresse angeben'); this.parent.Out.rawValue = 'after ' + answer;"
+        )
+    ));
+    form.take_script_report();
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("after 1"));
+    let report = form.take_script_report();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(
+        report.messages,
+        vec![HostMessage {
+            source: "app.alert".to_string(),
+            text: "Bitte Adresse angeben".to_string(),
+            title: String::new(),
+            answer: 1,
+        }]
+    );
+}
+
+#[test]
+fn a_yes_no_dialog_is_answered_yes() {
+    let mut form = form_with(&format!(
+        r#"<field name="Out" w="40pt" h="20pt"/>{}"#,
+        click_script(
+            "Btn",
+            "this.parent.Out.rawValue = xfa.host.messageBox('Delete?', 'Confirm', 2, 2) + '/' + app.alert({cMsg: 'Sure?', nType: 3});"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("4/4"));
+    let report = form.take_script_report();
+    assert_eq!(report.messages.len(), 2);
+    assert_eq!(report.messages[0].source, "xfa.host.messageBox");
+    assert_eq!(report.messages[0].title, "Confirm");
+}
+
+#[test]
+fn printd_formats_a_script_date() {
+    let mut form = form_with(&format!(
+        r#"<field name="Out" w="40pt" h="20pt"/>{}"#,
+        click_script(
+            "Btn",
+            "this.parent.Out.rawValue = util.printd('dd.mm.yyyy', new Date(2024, 0, 5)) + ' ' + util.printd(2, new Date(2024, 0, 5, 9, 8, 7));"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("05.01.2024 2024/01/05 09:08:07")
+    );
+}
+
+#[test]
+fn reset_data_restores_the_template_defaults_of_the_named_section_only() {
+    let mut form = form_with(&format!(
+        r#"<subform name="S" layout="tb"><field name="A" w="40pt" h="20pt"><value><text>default</text></value></field><field name="B" w="40pt" h="20pt"/></subform><field name="C" w="40pt" h="20pt"/>{}"#,
+        click_script("Btn", "xfa.host.resetData('Root.S'); this.parent.S.B.rawValue = 'refilled';")
+    ));
+    form.set_value_as_user("Root.S.A", "typed").expect("set A");
+    form.set_value_as_user("Root.C", "kept").expect("set C");
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.S.A").as_deref(), Some("default"));
+    assert_eq!(
+        value_of(&mut form, "Root.S.B").as_deref(),
+        Some("refilled"),
+        "a write after the reset in the same script survives it"
+    );
+    assert_eq!(value_of(&mut form, "Root.C").as_deref(), Some("kept"));
+}
+
+#[test]
+fn reset_data_without_a_list_resets_every_field() {
+    let mut form = form_with(&format!(
+        r#"<field name="A" w="40pt" h="20pt"><value><text>d</text></value></field>{}"#,
+        click_script("Btn", "xfa.host.resetData();")
+    ));
+    form.set_value_as_user("Root.A", "typed").expect("set");
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.A").as_deref(), Some("d"));
+}
+
+#[test]
+fn reset_data_naming_nothing_is_skipped_and_reported() {
+    let mut form = form_with(&format!(
+        r#"<field name="A" w="40pt" h="20pt"/>{}"#,
+        click_script("Btn", "xfa.host.resetData('Root.Nowhere'); this.parent.A.rawValue = 'ran';")
+    ));
+    form.take_script_report();
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.A").as_deref(), Some("ran"));
+    let report = form.take_script_report();
+    let errors: Vec<String> = report.errors.iter().map(|e| e.to_string()).collect();
+    assert_eq!(
+        errors,
+        vec!["xfa.host.resetData: Root.Nowhere names no node; skipped".to_string()]
+    );
+}
+
+#[test]
+fn a_failing_script_is_reported_with_its_owner() {
+    let mut form = form_with(&click_script("Btn", "undefinedThing.call();"));
+    form.take_script_report();
+    form.click("Root.Btn").expect("a failing script does not fail the click");
+    let report = form.take_script_report();
+    assert_eq!(report.errors.len(), 1, "{:?}", report.errors);
+    assert!(
+        report.errors[0]
+            .to_string()
+            .starts_with("click script on Root.Btn: JavaScript error: ReferenceError"),
+        "{:?}",
+        report.errors
+    );
+    assert!(form.take_script_report().errors.is_empty(), "taking the report drains it");
+}
+
+#[test]
+fn a_load_time_failure_is_in_the_first_report() {
+    let mut form = form_with(
+        r#"<field name="A" w="40pt" h="20pt"><event activity="initialize"><script contentType="application/x-javascript">missing.value = 1;</script></event></field>"#,
+    );
+    let report = form.take_script_report();
+    assert!(
+        report
+            .errors
+            .iter()
+            .any(|e| e.to_string().starts_with("initialize script on Root.A:")),
+        "{:?}",
+        report.errors
+    );
+}
+
+// =============================================================================
+// Picture clauses: formattedValue, typed input, control metadata
+// =============================================================================
+
+const DATE_FIELD: &str = r#"<field name="D" w="80pt" h="20pt"><ui><dateTimeEdit/><picture>date{DD.MM.YYYY}</picture></ui><value><date>2024-01-05</date></value><format><picture>date{EEE D MMM YYYY}</picture></format><assist><toolTip>Datum</toolTip></assist><validate nullTest="error"/></field>"#;
+
+#[test]
+fn formatted_and_edit_values_go_through_their_pictures() {
+    let mut form = form_with(&format!(
+        r#"{DATE_FIELD}<field name="Out" w="80pt" h="20pt"/>{}"#,
+        click_script(
+            "Btn",
+            "var d = this.parent.D; this.parent.Out.rawValue = d.formattedValue + '|' + d.editValue; d.editValue = '06.02.2024';"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("Fri 5 Jan 2024|05.01.2024")
+    );
+    assert_eq!(
+        value_of(&mut form, "Root.D").as_deref(),
+        Some("2024-02-06"),
+        "an assigned editValue is read back into rawValue"
+    );
+}
+
+#[test]
+fn a_value_typed_in_the_fields_format_is_stored_canonically() {
+    let mut form = form_with(DATE_FIELD);
+    form.interact("Root.D", "24.12.2024").expect("set");
+    assert_eq!(value_of(&mut form, "Root.D").as_deref(), Some("2024-12-24"));
+    form.interact("Root.D", "2025-01-31").expect("set canonically");
+    assert_eq!(value_of(&mut form, "Root.D").as_deref(), Some("2025-01-31"));
+}
+
+#[test]
+fn a_control_reports_its_format_shown_value_tooltip_and_null_test() {
+    let mut form = form_with(&format!(
+        r#"{DATE_FIELD}<field name="Notes" w="80pt" h="40pt"><ui><textEdit multiLine="1"/></ui><value><text maxChars="4"/></value></field>"#
+    ));
+    let controls = crate::states::controls_of_form(&mut form).expect("controls");
+    let date = controls.controls.iter().find(|c| c.field == "Root.D").expect("D");
+    assert_eq!(date.format.as_deref(), Some("date{EEE D MMM YYYY}"));
+    assert_eq!(date.value.as_deref(), Some("2024-01-05"));
+    assert_eq!(date.shown.as_deref(), Some("Fri 5 Jan 2024"));
+    assert_eq!(date.tooltip.as_deref(), Some("Datum"));
+    assert!(date.mandatory);
+    let notes = controls.controls.iter().find(|c| c.field == "Root.Notes").expect("Notes");
+    assert_eq!(notes.max_chars, Some(4));
+    assert!(notes.multiline);
+    assert!(!notes.mandatory);
+    assert_eq!(notes.format, None);
+}
+
+/// A field's template `<value>` is its initial value (XFA 3.3 §4, an empty
+/// merge): scripts read it, and so does the control listing. The load pass
+/// used to seed every field with "" unless it carried a `rawValue`.
+#[test]
+fn a_template_default_is_the_value_scripts_and_controls_see() {
+    let mut form = form_with(&format!(
+        r#"<field name="T" w="80pt" h="20pt"><value><text>abc</text></value></field><field name="N" w="80pt" h="20pt"><value><integer>7</integer></value></field><field name="Out" w="80pt" h="20pt"/>{}"#,
+        click_script("Btn", "this.parent.Out.rawValue = this.parent.T.rawValue + '/' + this.parent.N.rawValue;")
+    ));
+    assert_eq!(value_of(&mut form, "Root.T").as_deref(), Some("abc"));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("abc/7"));
+}
+
+// =============================================================================
+// Presses: mouseDown/mouseUp around radios, checkboxes and buttons; validate
+// =============================================================================
+
+/// A UBS radio pair, scripts verbatim from AAAA_019_DE: `mouseDown` stores
+/// the value before the press, `mouseUp` empties it when the press did not
+/// change it.
+fn ubs_radio(name: &str, on: &str) -> String {
+    format!(
+        r#"<field name="{name}" w="20pt" h="20pt"><ui><checkButton shape="round"/></ui><items><text>{on}</text></items><event name="event__mouseUp" activity="mouseUp"><script contentType="application/x-javascript">this.rawValue = soGlobal.checkRadioButton(this.rawValue);</script></event><event name="event__mouseDown" activity="mouseDown"><script contentType="application/x-javascript">soGlobal.rbValue = this.rawValue;</script></event></field>"#
+    )
+}
+
+const SO_GLOBAL: &str = r#"<variables><script name="soGlobal" contentType="application/x-javascript">var rbValue = null;
+function checkRadioButton(value)
+{
+	return (rbValue == value) ? null : value;
+}</script></variables>"#;
+
+#[test]
+fn pressing_a_selected_ubs_radio_again_deselects_its_group() {
+    let mut form = form_with(&format!(
+        r#"{SO_GLOBAL}<exclGroup name="G" layout="tb">{}{}</exclGroup>"#,
+        ubs_radio("RB_1", "1"),
+        ubs_radio("RB_2", "2")
+    ));
+    form.click("Root.G.RB_1").expect("first press");
+    assert_eq!(value_of(&mut form, "Root.G").as_deref(), Some("1"), "selected");
+    form.click("Root.G.RB_2").expect("press the other");
+    assert_eq!(value_of(&mut form, "Root.G").as_deref(), Some("2"));
+    let second = form.click("Root.G.RB_2").expect("second press");
+    assert_eq!(value_of(&mut form, "Root.G").as_deref(), Some(""), "deselected");
+    assert!(second.values_changed);
+    form.click("Root.G.RB_2").expect("third press");
+    assert_eq!(value_of(&mut form, "Root.G").as_deref(), Some("2"), "selected again");
+}
+
+#[test]
+fn setting_a_radio_stays_a_set_without_mouse_events() {
+    let mut form = form_with(&format!(
+        r#"{SO_GLOBAL}<exclGroup name="G" layout="tb">{}</exclGroup>"#,
+        ubs_radio("RB_1", "1")
+    ));
+    form.interact("Root.G.RB_1", "1").expect("set");
+    form.interact("Root.G.RB_1", "1").expect("set again");
+    assert_eq!(value_of(&mut form, "Root.G").as_deref(), Some("1"));
+}
+
+#[test]
+fn pressing_a_checkbox_toggles_it() {
+    let mut form = form_with(
+        r#"<field name="CB" w="20pt" h="20pt"><ui><checkButton/></ui><items><text>on</text><text>off</text></items></field>"#,
+    );
+    form.click("Root.CB").expect("press");
+    assert_eq!(value_of(&mut form, "Root.CB").as_deref(), Some("on"));
+    form.click("Root.CB").expect("press again");
+    assert_eq!(value_of(&mut form, "Root.CB").as_deref(), Some("off"));
+}
+
+#[test]
+fn a_button_press_fires_mouse_down_mouse_up_then_click() {
+    let event = |activity: &str| {
+        format!(
+            r#"<event activity="{activity}"><script contentType="application/x-javascript">this.parent.Out.rawValue = (this.parent.Out.rawValue || '') + '{activity};';</script></event>"#
+        )
+    };
+    let mut form = form_with(&format!(
+        r#"<field name="Out" w="80pt" h="20pt"/><field name="B" w="40pt" h="20pt"><ui><button/></ui>{}{}{}</field>"#,
+        event("click"),
+        event("mouseUp"),
+        event("mouseDown")
+    ));
+    form.click("Root.B").expect("press");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("mouseDown;mouseUp;click;")
+    );
+}
+
+#[test]
+fn a_set_reports_the_fields_failed_validation() {
+    let mut form = form_with(
+        r#"<field name="Short" w="80pt" h="20pt"><ui><textEdit/></ui><validate><script contentType="application/x-javascript">this.rawValue.length &lt;= 3</script></validate></field><field name="Must" w="80pt" h="20pt"><ui><textEdit/></ui><value><text>x</text></value><validate nullTest="error"/></field>"#,
+    );
+    assert!(form.interact("Root.Short", "abc").expect("set").validation_failures.is_empty());
+    let long = form.interact("Root.Short", "abcd").expect("set");
+    assert_eq!(long.validation_failures.len(), 1, "{:?}", long.validation_failures);
+    assert!(long.validation_failures[0].contains("validate script rejects"));
+    assert_eq!(value_of(&mut form, "Root.Short").as_deref(), Some("abcd"), "the value is kept");
+    let empty = form.interact("Root.Must", "").expect("set");
+    assert_eq!(
+        empty.validation_failures,
+        vec!["Root.Must requires a value and was left empty".to_string()]
+    );
+}
+
+// =============================================================================
+// Unqualified names: the XFA 3.3 §3 scope walk
+// =============================================================================
+
+const OUT: &str = r#"<field name="Out" w="80pt" h="20pt"/>"#;
+
+#[test]
+fn an_unqualified_name_finds_the_nearest_node_not_the_first_of_that_name() {
+    // `Signature` the field comes first in the form, so it is the global of
+    // that name; from inside `Sec`, `Signature` is the sibling subform.
+    let mut form = form_with(&format!(
+        r#"<field name="Signature" w="80pt" h="20pt"/><subform name="Sec" layout="tb"><subform name="Signature" layout="tb"><field name="FullName" w="80pt" h="20pt"/></subform><subform name="Calc" layout="tb">{}</subform></subform>"#,
+        click_script("B", "Signature.FullName.rawValue = 'x';")
+    ));
+    form.click("Root.Sec.Calc.B").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Sec.Signature.FullName").as_deref(), Some("x"));
+    assert!(form.take_script_report().errors.is_empty());
+}
+
+#[test]
+fn a_bare_parent_is_the_scripts_own_containers_parent() {
+    let mut form = form_with(
+        r#"<subform name="Row" layout="tb"><occur min="2" max="2" initial="2"/><field name="N" w="40pt" h="20pt"><event activity="initialize"><script contentType="application/x-javascript">this.rawValue = parent.index + 1;</script></event></field></subform>"#,
+    );
+    assert_eq!(value_of(&mut form, "Root.Row.N").as_deref(), Some("1"));
+    assert_eq!(value_of(&mut form, "Root.Row[1].N").as_deref(), Some("2"));
+}
+
+#[test]
+fn a_local_variable_shadows_a_form_node_of_the_same_name() {
+    let mut form = form_with(&format!(
+        "{OUT}{}",
+        click_script("B", "var Out = 'local'; this.parent.Out.rawValue = Out;")
+    ));
+    form.click("Root.B").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("local"));
+}
+
+#[test]
+fn an_unknown_unqualified_name_is_still_a_reference_error() {
+    let mut form = form_with(&format!(
+        "{OUT}{}",
+        click_script(
+            "B",
+            "try { nope; Out.rawValue = 'no'; } catch (e) { Out.rawValue = e.name; }"
+        )
+    ));
+    form.click("Root.B").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("ReferenceError"));
+}
+
+#[test]
+fn assigning_to_a_form_node_by_name_is_a_reported_failure() {
+    let mut form = form_with(&format!("{OUT}{}", click_script("B", "Out = 1;")));
+    form.take_script_report();
+    form.click("Root.B").expect("click");
+    let report = form.take_script_report();
+    assert!(
+        report.errors.iter().any(|e| e.error.contains("assignment to the form node 'Out'")),
+        "{:?}",
+        report.errors
+    );
+}
+
+#[test]
+fn a_javascript_builtin_wins_over_a_field_of_the_same_name() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<field name="Date" w="80pt" h="20pt"/>{}"#,
+        click_script("B", "Out.rawValue = typeof new Date().getTime();")
+    ));
+    form.take_script_report();
+    form.click("Root.B").expect("click");
+    let report = form.take_script_report();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("number"));
+}
+
+#[test]
+fn resolving_this_gives_the_scripts_own_container() {
+    let mut form = form_with(&click_script("B", "xfa.resolveNode('this').rawValue = 'me';"));
+    form.click("Root.B").expect("click");
+    assert_eq!(value_of(&mut form, "Root.B").as_deref(), Some("me"));
+}
+
+/// The load pass resolves `this` too: AAKO_019_DE's name field asks
+/// `xfa.resolveNode("this")` in its initialize script, inside a repeatable.
+#[test]
+fn resolving_this_works_in_an_initialize_script_inside_a_repeatable() {
+    let mut form = form_with(
+        r#"<subform name="Dear" layout="tb"><subform name="DYN" layout="tb"><occur min="1" max="-1"/><field name="TF" w="40pt" h="20pt"><event activity="initialize"><script contentType="application/x-javascript">this.rawValue = xfa.resolveNode("this") === this ? "self" : "other";</script></event></field></subform></subform>"#,
+    );
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.Dear.DYN.TF").as_deref(), Some("self"));
+}
+
+// =============================================================================
+// getDeltas (LiveCycle Designer Scripting Reference)
+// =============================================================================
+
+#[test]
+fn get_deltas_lists_each_changed_field_and_restore_undoes_it() {
+    let mut form = form_with(&format!(
+        r#"<subform name="S" layout="tb"><field name="A" w="40pt" h="20pt"><value><text>a</text></value></field><field name="B" w="40pt" h="20pt"/></subform>{OUT}{}"#,
+        click_script(
+            "Btn",
+            "S.A.rawValue = 'x'; var d = S.getDeltas(); Out.rawValue = d.length + ':' + d.item(0).target.name + ':' + d.item(0).savedValue + ':' + d.item(0).currentValue; d.item(0).restore(); Out.rawValue += ':' + S.A.rawValue;"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("1:A:a:x:a"));
+}
+
+#[test]
+fn a_freshly_opened_form_has_no_deltas() {
+    let mut form = form_with(&format!(
+        r#"<subform name="S" layout="tb"><field name="A" w="40pt" h="20pt"><value><text>a</text></value></field></subform>{OUT}<field name="N" w="40pt" h="20pt"><event activity="initialize"><script contentType="application/x-javascript">this.rawValue = String(S.getDeltas().length);</script></event></field>"#
+    ));
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.N").as_deref(), Some("0"));
+}
+
+// =============================================================================
+// Named script objects, built on first reference (XFA 3.3 §10)
+// =============================================================================
+
+fn script_object(name: &str, body: &str) -> String {
+    format!(
+        r#"<variables><script name="{name}" contentType="application/x-javascript">{body}</script></variables>"#
+    )
+}
+
+#[test]
+fn a_script_object_can_reference_one_declared_after_it() {
+    // The UBS idiom: referencing the later object is what makes it exist.
+    let mut form = form_with(&format!(
+        "{}{}{OUT}{}",
+        script_object("soA", "try { made; } catch (e) { soB; }\nfunction kind() { return typeof made; }"),
+        script_object("soB", "made = 1;"),
+        click_script("Btn", "Out.rawValue = soA.kind();")
+    ));
+    assert!(form.take_script_report().errors.is_empty());
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("number"));
+}
+
+#[test]
+fn a_script_objects_functions_resolve_names_from_the_subform_declaring_it() {
+    let mut form = form_with(&format!(
+        r#"<subform name="Sec" layout="tb">{}<field name="X" w="40pt" h="20pt"/></subform><field name="X" w="40pt" h="20pt"/>{}"#,
+        script_object("soL", "function set() { X.rawValue = 'owner'; }"),
+        click_script("Btn", "soL.set();")
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Sec.X").as_deref(), Some("owner"));
+    assert_eq!(value_of(&mut form, "Root.X").as_deref(), Some(""));
+}
+
+#[test]
+fn the_first_of_two_same_named_script_objects_owns_the_bare_name() {
+    let mut form = form_with(&format!(
+        r#"<subform name="A" layout="tb">{}</subform><subform name="B" layout="tb">{}{}</subform>{OUT}{}"#,
+        script_object("soLocal", "function who() { return 'a'; }"),
+        script_object("soLocal", "function who() { return 'b'; }"),
+        click_script("Inner", "Out.rawValue = soLocal.who();"),
+        click_script("Outer", "Out.rawValue = soLocal.who();")
+    ));
+    form.click("Root.Outer").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("a"));
+    form.click("Root.B.Inner").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("b"), "the owner's own");
+}
+
+#[test]
+fn a_broken_script_object_fails_every_reference_the_same_way() {
+    let mut form = form_with(&format!(
+        "{}{OUT}{}",
+        script_object("soBad", "throw new Error('broken object');"),
+        click_script(
+            "Btn",
+            "var m = []; for (var i = 0; i &lt; 2; i++) { try { soBad; } catch (e) { m.push(e.message); } } Out.rawValue = m.join('|');"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("broken object|broken object")
+    );
+}
+
+// =============================================================================
+// FormCalc (XFA 3.3 Chapter 25)
+// =============================================================================
+
+#[test]
+fn a_script_without_content_type_is_formcalc_and_assigns_its_container() {
+    let mut form = form_with(
+        r#"<subform name="Row" layout="tb"><occur min="2" max="2" initial="2"/><field name="N" w="40pt" h="20pt"><calculate><script>$ = $.parent.index + 1</script></calculate></field></subform>"#,
+    );
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.Row.N").as_deref(), Some("1"));
+    assert_eq!(value_of(&mut form, "Root.Row[1].N").as_deref(), Some("2"));
+}
+
+#[test]
+fn a_formcalc_expression_is_the_fields_value() {
+    let mut form = form_with(
+        r#"<field name="A" w="40pt" h="20pt"><value><integer>2</integer></value></field><field name="B" w="40pt" h="20pt"><value><integer>3</integer></value></field><field name="Sum" w="40pt" h="20pt"><calculate><script contentType="application/x-formcalc">A + B</script></calculate></field><field name="Big" w="40pt" h="20pt"><calculate><script>if (Sum > 4) then "big" else "small" endif</script></calculate></field>"#,
+    );
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.Sum").as_deref(), Some("5"));
+    assert_eq!(value_of(&mut form, "Root.Big").as_deref(), Some("big"));
+}
+
+#[test]
+fn an_untranslatable_formcalc_script_is_reported_with_its_line() {
+    let mut form = form_with(
+        r#"<field name="T" w="40pt" h="20pt"><calculate><script>; total
+Sum(A[*])</script></calculate></field>"#,
+    );
+    let errors: Vec<String> = form.take_script_report().errors.iter().map(|e| e.to_string()).collect();
+    assert!(
+        errors.iter().any(|e| e.starts_with("calculate script on Root.T: FormCalc, line 2:")),
+        "{errors:?}"
+    );
+}
+
+// =============================================================================
+// Reading what a form node does not have throws, as in Acrobat
+// =============================================================================
+
+#[test]
+fn reading_a_missing_child_throws_like_acrobat() {
+    let mut form = form_with(&format!(
+        "{OUT}{}",
+        click_script(
+            "Btn",
+            "try { var x = this.parent.Nowhere; Out.rawValue = 'no'; } catch (e) { Out.rawValue = e.message; }"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("Invalid property get operation; Root doesn't have property 'Nowhere'")
+    );
+}
+
+#[test]
+fn xfa_property_names_object_methods_and_membership_still_answer() {
+    let mut form = form_with(&format!(
+        "{OUT}{}",
+        click_script(
+            "Btn",
+            "Out.rawValue = [typeof this.mandatory, typeof this._nothing, this.hasOwnProperty('rawValue'), 'Nowhere' in this.parent, String(this) !== '', typeof this.toString].join(',');"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("undefined,undefined,true,false,true,function")
+    );
+}

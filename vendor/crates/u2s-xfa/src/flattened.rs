@@ -334,6 +334,10 @@ pub enum FlattenedNodeKind {
     /// An embedded raster image: a `<draw>` whose value is an `<image>`, such
     /// as a logo on the master page.
     Image(EmbeddedImage),
+
+    /// A `<draw>` whose value is a `<line>`, `<rectangle>` or `<arc>`: a
+    /// rule, a box, an ellipse, drawn in the node's box.
+    Shape(crate::xfa::shapes::Shape),
 }
 
 /// An image embedded in the template, decoded from base64 once at flatten time
@@ -482,6 +486,10 @@ pub struct DropdownInfo<'a> {
 /// Multiple hints can be attached to a single node; they are deduplicated by discriminant.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Hint {
+    /// A field's pictures, length and the rest of its value metadata (see
+    /// [`crate::xfa::field_meta`]): how its value is shown is computed from
+    /// this when it is drawn or read, so it always matches the value.
+    ValueFormat(Arc<crate::xfa::field_meta::FieldMeta>),
     /// Accessibility information
     Accessibility {
         /// Semantic role (e.g., "TH" for table header, "TR" for table row)
@@ -523,6 +531,9 @@ pub enum Hint {
         placement: CaptionPlacement,
         /// Caption text content
         text: Option<String>,
+        /// The space the caption takes along its side, in points: the
+        /// value is drawn in the rest of the field's box.
+        reserve: Num,
     },
 
     /// Layout break hints
@@ -616,6 +627,7 @@ impl Hint {
             Hint::BarcodeSymbology(_) => "BarcodeSymbology",
             Hint::ExclGroupSomPath(_) => "ExclGroupSomPath",
             Hint::Dropdown { .. } => "Dropdown",
+            Hint::ValueFormat(_) => "ValueFormat",
         }
     }
 }
@@ -728,6 +740,91 @@ pub struct RichRun {
     pub superscript: bool,
     /// Per-run CSS letter-spacing override (in pt). From `<span style="letter-spacing:...">`
     pub letter_spacing: Option<f32>,
+    /// Strikethrough
+    pub line_through: bool,
+}
+
+impl RichRun {
+    /// The run's underline and strikethrough.
+    pub fn decoration(&self) -> Decoration {
+        Decoration {
+            underline: self.underline,
+            line_through: self.line_through,
+        }
+    }
+}
+
+/// A run's lines: underline and strikethrough (XFA 3.3 "Underline and
+/// Strikethrough"; the font element's `underline`/`lineThrough`, rich
+/// text's CSS `text-decoration`). Inherited by nested text like bold and
+/// italic.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Decoration {
+    pub underline: bool,
+    pub line_through: bool,
+}
+
+impl Decoration {
+    /// The rectangles (x, y, width, height in pixels) of this decoration's
+    /// lines under or through a run of text `width` wide whose line box
+    /// starts at `top`, for a font with `ascent` and `descent` (positive) at
+    /// `font_px` pixels: the underline a third of the descent below the
+    /// baseline, the strikethrough at a third of the ascent above it, each
+    /// a fourteenth of the font size thick and at least a pixel.
+    pub fn line_rects(
+        self,
+        x: f32,
+        top: f32,
+        width: f32,
+        ascent: f32,
+        descent: f32,
+        font_px: f32,
+    ) -> Vec<(i32, i32, i32, i32)> {
+        let thickness = (font_px / 14.0).round().max(1.0) as i32;
+        let baseline = top + ascent;
+        let mut rects = Vec::new();
+        let mut line_at = |y: f32| {
+            rects.push((x.round() as i32, y.round() as i32, width.round().max(1.0) as i32, thickness));
+        };
+        if self.underline {
+            line_at(baseline + descent / 3.0);
+        }
+        if self.line_through {
+            line_at(baseline - ascent / 3.0);
+        }
+        rects
+    }
+
+    /// The decoration a `<font>` sets: a nonzero `underline`/`lineThrough`
+    /// (1 single, 2 double; drawn as single here).
+    pub fn of_font(font: Option<&crate::xfa::Font>) -> Self {
+        font.map(|f| Decoration {
+            underline: f.underline,
+            line_through: f.line_through,
+        })
+        .unwrap_or_default()
+    }
+
+    /// This decoration as an element's CSS `style` changes it. Only a
+    /// `text-decoration` declaration does: `none` clears both lines, and
+    /// `underline`/`line-through` (alone or together) set exactly those.
+    /// The rich text reference's `text-decoration` extensions for word and
+    /// double underlines are drawn as a single underline.
+    pub fn with_css(self, style: &str) -> Self {
+        let Some(value) = style.split(';').find_map(|decl| {
+            let (name, value) = decl.split_once(':')?;
+            (name.trim() == "text-decoration").then(|| value.trim().to_ascii_lowercase())
+        }) else {
+            return self;
+        };
+        if value == "none" {
+            return Decoration::default();
+        }
+        Decoration {
+            underline: value.contains("underline"),
+            line_through: value.contains("line-through"),
+        }
+    }
 }
 
 /// A positioned word/token ready for rendering.
@@ -744,6 +841,8 @@ pub struct RenderedWord {
     pub bold: bool,
     /// Whether this word should be rendered italic
     pub italic: bool,
+    /// Underline and strikethrough to draw with this word.
+    pub decoration: Decoration,
 }
 
 /// A line of text ready for rendering, with positioning info.
@@ -780,6 +879,9 @@ pub struct LayoutToken {
     pub bold: bool,
     /// Whether this token should be rendered italic
     pub italic: bool,
+    /// Underline and strikethrough. A token merged from two runs keeps the
+    /// first one's, as it keeps its bold and italic.
+    pub decoration: Decoration,
 }
 
 /// The font variants a rich-text run can be measured and rendered with.
@@ -936,6 +1038,12 @@ impl FlattenedNodeBuilder {
     /// Configure as an embedded image node
     pub fn image(mut self, image: EmbeddedImage) -> Self {
         self.kind = Some(FlattenedNodeKind::Image(image));
+        self
+    }
+
+    /// Configure as a shape node
+    pub fn shape(mut self, shape: crate::xfa::shapes::Shape) -> Self {
+        self.kind = Some(FlattenedNodeKind::Shape(shape));
         self
     }
 
@@ -1313,6 +1421,48 @@ impl FlattenedNode {
         self.field_behavior()
             .map(|(access, _, _, _)| access.is_interactive())
             .unwrap_or(true) // Default to interactive if no hint
+    }
+
+    /// The field's value metadata, when its template gave any.
+    pub fn value_format(&self) -> Option<&crate::xfa::field_meta::FieldMeta> {
+        self.hints.iter().find_map(|h| match h {
+            Hint::ValueFormat(meta) => Some(meta.as_ref()),
+            _ => None,
+        })
+    }
+
+    /// A field's value as the form shows it: through its format picture
+    /// (XFA 3.3 "The format element"), or as it is when it has none or the
+    /// value does not fit it. `None` for a node that is not a field.
+    pub fn shown_value(&self) -> Option<String> {
+        let FlattenedNodeKind::Field { value, .. } = &self.kind else {
+            return None;
+        };
+        Some(
+            self.value_format()
+                .and_then(|meta| meta.display(value))
+                .unwrap_or_else(|| value.clone()),
+        )
+    }
+
+    /// The part of the box (`x`, `y`, `w`, `h`, device pixels at `scale`
+    /// per point) that a field's value is drawn in: all of it, less what
+    /// its caption reserves.
+    pub fn value_box(&self, x: i32, y: i32, w: i32, h: i32, scale: f32) -> (i32, i32, i32, i32) {
+        let Some((placement, reserve)) = self.hints.iter().find_map(|hint| match hint {
+            Hint::Caption {
+                placement, reserve, ..
+            } => Some((*placement, *reserve)),
+            _ => None,
+        }) else {
+            return (x, y, w, h);
+        };
+        let (_, (vx, vy, vw, vh)) = crate::xfa::caption::split_caption_box(
+            (x as f32, y as f32, w as f32, h as f32),
+            placement,
+            reserve.to_f32().unwrap_or(0.0) * scale,
+        );
+        (vx.round() as i32, vy.round() as i32, vw.round() as i32, vh.round() as i32)
     }
 
     /// Get the SOM path hint if present
@@ -3393,8 +3543,9 @@ impl Flattened {
                                 *content = computed.clone();
                             }
                         }
-                        // An image's bytes come from the template, not from a script.
-                        FlattenedNodeKind::Image(_) => {}
+                        // An image's bytes and a shape's geometry come from
+                        // the template, not from a script.
+                        FlattenedNodeKind::Image(_) | FlattenedNodeKind::Shape(_) => {}
                     }
                 }
                 FlattenedKind::Group { children, .. } => {
@@ -4155,7 +4306,7 @@ impl Flattened {
                 // An image draw carries pixels rather than text; the whole text
                 // pipeline below has nothing to do with it.
                 let som_path = node.name.as_deref().map(|n| ctx.get_full_path(n, index));
-                if let Some(image_node) = Self::flatten_image_draw(node, som_path, pos, ctx)? {
+                if let Some(image_node) = Self::flatten_value_draw(node, som_path, pos, ctx)? {
                     flattened_children.push(FlattenedKind::Node(image_node));
                     return Ok(());
                 }
@@ -4221,6 +4372,7 @@ impl Flattened {
                     Some(ctx.id_to_field),
                     default_bold,
                     default_italic,
+                    Decoration::of_font(node.font.as_ref()),
                 );
 
                 let draw_node = FlattenedNode::new_text_with_rich_text(
@@ -4283,13 +4435,10 @@ impl Flattened {
                 if let Some(ref exclgroup_path) = ctx.parent_exclgroup_som_path {
                     field_node.add_hint(Hint::ExclGroupSomPath(exclgroup_path.clone()));
                 }
-                // Add FieldBehavior hint with access level
-                field_node.add_hint(Hint::FieldBehavior {
-                    access,
-                    multiline: false,
-                    max_length: None,
-                    comb_cells: None,
-                });
+                // Access, length and lines, and how the value is shown.
+                Self::add_field_value_hints(&mut field_node, node, access);
+                // Its caption, beside, above or below the value.
+                let caption_node = Self::caption_node(node, &mut field_node);
                 // Add WidgetType hint if extracted
                 if let Some(kind) = Self::extract_widget_kind(node) {
                     if kind == WidgetKind::Barcode
@@ -4304,6 +4453,9 @@ impl Flattened {
                     field_node.add_hint(Hint::NoPrint);
                 }
                 flattened_children.push(FlattenedKind::Node(field_node));
+                if let Some(caption) = caption_node {
+                    flattened_children.push(FlattenedKind::Node(caption));
+                }
             }
             XfaNodeKind::Subform | XfaNodeKind::ExclGroup | XfaNodeKind::Element { .. } => {
                 // A subform (or exclGroup) that declares a flow layout ("tb",
@@ -4535,6 +4687,78 @@ impl Flattened {
 
     /// Extract field access level from an XFA node's attributes.
     /// Defaults to Open if no access attribute is specified.
+    /// The text node of `node`'s caption, when it has one to draw, with the
+    /// `Caption` hint on `field_node` that keeps its value out of the
+    /// caption's region (XFA 3.3 "The caption element"). The caption takes
+    /// its `reserve`, or what its text needs when it gives none; a button's
+    /// caption is its face, so it covers the whole button.
+    fn caption_node(node: &XfaNode, field_node: &mut FlattenedNode) -> Option<FlattenedNode> {
+        let caption = crate::xfa::caption::Caption::of(node)?;
+        let is_button = matches!(Self::extract_widget_kind(node), Some(WidgetKind::Button));
+        let font = caption.font.clone().or_else(|| node.font.clone());
+        let bounds = (
+            field_node.x.to_f32().unwrap_or(0.0),
+            field_node.y.to_f32().unwrap_or(0.0),
+            field_node.width.to_f32().unwrap_or(0.0),
+            field_node.height.to_f32().unwrap_or(0.0),
+        );
+        let caption_box = if is_button {
+            bounds
+        } else {
+            let reserve = caption.reserve.unwrap_or_else(|| match caption.placement {
+                CaptionPlacement::Top | CaptionPlacement::Bottom => {
+                    font.as_ref().map(|f| f.size).unwrap_or_else(|| num(10.0)) * num(1.2)
+                }
+                _ => Self::calculate_natural_text_width(&caption.text, &font) + num(2.0),
+            });
+            field_node.add_hint(Hint::Caption {
+                placement: caption.placement,
+                text: Some(caption.text.clone()),
+                reserve,
+            });
+            crate::xfa::caption::split_caption_box(bounds, caption.placement, reserve.to_f32().unwrap_or(0.0)).0
+        };
+        if !caption.drawn {
+            return None;
+        }
+        let (font_size, font_name) = (
+            font.as_ref().map(|f| f.size).unwrap_or_else(|| num(10.0)),
+            font.as_ref()
+                .map(|f| f.typeface.clone())
+                .unwrap_or_else(|| "Courier".to_string()),
+        );
+        let mut text_node = FlattenedNode::builder()
+            .bounds(num(caption_box.0 as f64), num(caption_box.1 as f64), num(caption_box.2 as f64), num(caption_box.3 as f64))
+            .style(RenderStyle {
+                border: None,
+                font,
+                para: caption.para.clone(),
+            })
+            .rotate(node.rotate)
+            .text(caption.text, font_size, font_name)
+            .build();
+        for hint in field_node.hints.iter().filter(|h| matches!(h, Hint::NoPrint)) {
+            text_node.add_hint(hint.clone());
+        }
+        Some(text_node)
+    }
+
+    /// A field node's `FieldBehavior` (its access, and from its template
+    /// whether it takes several lines and how many characters) and, when
+    /// the template describes its value, the `ValueFormat` that shows it.
+    fn add_field_value_hints(field_node: &mut FlattenedNode, node: &XfaNode, access: FieldAccess) {
+        let meta = node.field_meta.as_deref();
+        field_node.add_hint(Hint::FieldBehavior {
+            access,
+            multiline: meta.is_some_and(|m| m.multiline),
+            max_length: meta.and_then(|m| m.max_chars),
+            comb_cells: None,
+        });
+        if let Some(meta) = meta {
+            field_node.add_hint(Hint::ValueFormat(Arc::new(meta.clone())));
+        }
+    }
+
     fn extract_field_access(node: &XfaNode) -> FieldAccess {
         node.attributes
             .get("access")
@@ -5005,6 +5229,7 @@ impl Flattened {
         id_to_field: Option<&HashMap<String, String>>,
         default_bold: bool,
         default_italic: bool,
+        default_decoration: Decoration,
     ) -> Option<RichText> {
         for child in children {
             // Check for XfaNodeKind::Value
@@ -5024,6 +5249,7 @@ impl Flattened {
                             return Some(Self::create_rich_text_from_plain_with_separators(
                                 text,
                                 default_h_align,
+                                default_decoration,
                             ));
                         }
 
@@ -5044,6 +5270,7 @@ impl Flattened {
                                         id_to_field,
                                         default_bold,
                                         default_italic,
+                                        default_decoration,
                                     ));
                                 }
                             }
@@ -5069,6 +5296,7 @@ impl Flattened {
                             return Some(Self::create_rich_text_from_plain_with_separators(
                                 text,
                                 default_h_align,
+                                default_decoration,
                             ));
                         }
 
@@ -5086,6 +5314,7 @@ impl Flattened {
                                         id_to_field,
                                         default_bold,
                                         default_italic,
+                                        default_decoration,
                                     ));
                                 }
                             }
@@ -5102,6 +5331,7 @@ impl Flattened {
     fn create_rich_text_from_plain_with_separators(
         text: &str,
         default_h_align: HAlign,
+        decoration: Decoration,
     ) -> RichText {
         let segments: Vec<&str> = text.split('\u{2029}').collect();
         let mut paragraphs = Vec::new();
@@ -5121,7 +5351,8 @@ impl Flattened {
                     preserve_spaces: false,
                     bold: false,
                     italic: false,
-                    underline: false,
+                    underline: decoration.underline,
+                    line_through: decoration.line_through,
                     superscript: false,
                     letter_spacing: None,
                 });
@@ -5452,13 +5683,10 @@ impl Flattened {
                         if let Some(ref exclgroup_path) = child_ctx.parent_exclgroup_som_path {
                             field_node.add_hint(Hint::ExclGroupSomPath(exclgroup_path.clone()));
                         }
-                        // Add FieldBehavior hint with access level
-                        field_node.add_hint(Hint::FieldBehavior {
-                            access,
-                            multiline: false,
-                            max_length: None,
-                            comb_cells: None,
-                        });
+                        // Access, length and lines, and how the value is shown.
+                        Self::add_field_value_hints(&mut field_node, node, access);
+                        // Its caption, beside, above or below the value.
+                        let caption_node = Self::caption_node(node, &mut field_node);
                         // Add WidgetType hint if extracted
                         if let Some(kind) = widget_kind {
                             // Add Dropdown hint with options if this is a dropdown
@@ -5479,6 +5707,9 @@ impl Flattened {
                             field_node.add_hint(Hint::NoPrint);
                         }
                         flattened_children.push(FlattenedKind::Node(field_node));
+                        if let Some(caption) = caption_node {
+                            flattened_children.push(FlattenedKind::Node(caption));
+                        }
                     }
 
                     // Don't recurse into field children for positioning
@@ -5515,7 +5746,7 @@ impl Flattened {
                     // Only add to output if not hidden
                     if !skip_render {
                         // An image draw carries pixels rather than text.
-                        if let Some(image_node) = Self::flatten_image_draw(
+                        if let Some(image_node) = Self::flatten_value_draw(
                             node,
                             node.name.as_ref().map(|_| child_ctx.current_path.clone()),
                             content_pos,
@@ -5588,6 +5819,7 @@ impl Flattened {
                             Some(ctx.id_to_field),
                             default_bold,
                             default_italic,
+                            Decoration::of_font(node.font.as_ref()),
                         );
 
                         let draw_node = FlattenedNode::new_text_with_rich_text(
@@ -5861,13 +6093,10 @@ impl Flattened {
                                     field_node
                                         .add_hint(Hint::ExclGroupSomPath(exclgroup_path.clone()));
                                 }
-                                // Add FieldBehavior hint with access level
-                                field_node.add_hint(Hint::FieldBehavior {
-                                    access,
-                                    multiline: false,
-                                    max_length: None,
-                                    comb_cells: None,
-                                });
+                                // Access, length and lines, and how the value is shown.
+                                Self::add_field_value_hints(&mut field_node, node, access);
+                                // Its caption, beside, above or below the value.
+                                let caption_node = Self::caption_node(node, &mut field_node);
                                 // Add WidgetType hint if we could determine it
                                 if let Some(widget_kind) = widget_kind {
                                     // Add Dropdown hint with options if this is a dropdown
@@ -5891,6 +6120,9 @@ impl Flattened {
                                     field_node.add_hint(Hint::NoPrint);
                                 }
                                 flattened_children.push(FlattenedKind::Node(field_node));
+                                if let Some(caption) = caption_node {
+                                    flattened_children.push(FlattenedKind::Node(caption));
+                                }
                             }
                         }
                         "draw" => {
@@ -5917,7 +6149,7 @@ impl Flattened {
                             // Only add to output if not hidden
                             if !skip_render {
                                 // An image draw carries pixels rather than text.
-                                if let Some(image_node) = Self::flatten_image_draw(
+                                if let Some(image_node) = Self::flatten_value_draw(
                                     node,
                                     node.name.as_ref().map(|_| child_ctx.current_path.clone()),
                                     content_pos,
@@ -5989,6 +6221,7 @@ impl Flattened {
                                     Some(ctx.id_to_field),
                                     default_bold,
                                     default_italic,
+                                    Decoration::of_font(node.font.as_ref()),
                                 );
 
                                 let draw_node = FlattenedNode::new_text_with_rich_text(
@@ -7170,6 +7403,7 @@ impl Flattened {
             Some(id_to_field),
             default_bold,
             default_italic,
+            Decoration::of_font(node_font.as_ref()),
         )?;
 
         if rich_text.paragraphs.len() <= 1 {
@@ -7530,26 +7764,47 @@ impl Flattened {
         Ok(None)
     }
 
-    /// A `<draw>` whose value is an embedded image becomes one image node.
+    /// The shape a draw's `<value>` holds, if it holds a `<line>`,
+    /// `<rectangle>` or `<arc>`.
+    fn extract_value_shape(node: &XfaNode) -> Result<Option<crate::xfa::shapes::Shape>, String> {
+        for child in &node.children {
+            if !matches!(child.kind, XfaNodeKind::Value) {
+                continue;
+            }
+            for value_child in &child.children {
+                if let Some(shape) = crate::xfa::shapes::Shape::parse(value_child).map_err(|e| {
+                    format!("draw {}: {e}", node.name.as_deref().unwrap_or("<unnamed>"))
+                })? {
+                    return Ok(Some(shape));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// A `<draw>` whose value is an embedded image or a shape becomes one
+    /// image or shape node.
     ///
     /// Returns `Ok(None)` for an ordinary text draw, so a caller can fall
     /// through to the text path.
-    fn flatten_image_draw(
+    fn flatten_value_draw(
         node: &XfaNode,
         som_path: Option<String>,
         pos: Position,
         ctx: &FlattenContext,
     ) -> Result<Option<FlattenedNode>, String> {
-        let Some(image) = Self::extract_value_image(node)? else {
-            return Ok(None);
-        };
-
-        let mut image_node = FlattenedNode::builder()
+        let builder = FlattenedNode::builder()
             .bounds(pos.x, pos.y, pos.width, pos.height)
             .style(Self::extract_style(node))
-            .rotate(node.rotate)
-            .image(image)
-            .build();
+            .rotate(node.rotate);
+        let builder = if let Some(image) = Self::extract_value_image(node)? {
+            builder.image(image)
+        } else if let Some(shape) = Self::extract_value_shape(node)? {
+            builder.shape(shape)
+        } else {
+            return Ok(None);
+        };
+        let mut image_node = builder.build();
 
         if Self::is_no_print(node) || ctx.has_inherited_hint(&Hint::NoPrint) {
             image_node.add_hint(Hint::NoPrint);
@@ -7925,6 +8180,7 @@ impl Flattened {
                 FlattenedNodeKind::Field { name, .. } => name.clone(),
                 FlattenedNodeKind::Text { .. } => "Text".to_string(),
                 FlattenedNodeKind::Image(_) => "Image".to_string(),
+                FlattenedNodeKind::Shape(_) => "Shape".to_string(),
             };
 
             let debug_font_size = (8.0 * scale).max(6.0);
@@ -8042,8 +8298,14 @@ impl Flattened {
                 scale_dec,
             );
 
-            // Skip nodes outside the visible area or with invalid dimensions
-            if x < 0 || y < 0 || w <= 0 || h <= 0 {
+            // Skip nodes outside the visible area or with invalid dimensions.
+            // A shape may have one zero dimension: a zero-height `<line>` is
+            // a horizontal rule.
+            let is_shape = matches!(node.kind, FlattenedNodeKind::Shape(_));
+            if x < 0 || y < 0 || w < 0 || h < 0 || (w == 0 && h == 0) {
+                continue;
+            }
+            if !is_shape && (w == 0 || h == 0) {
                 continue;
             }
 
@@ -8056,11 +8318,18 @@ impl Flattened {
                 && let Some(fill) = &border.fill
                 && fill.presence != "hidden"
                 && fill.presence != "inactive"
-                && let Some((r, g, b)) = fill.color
+                && fill.color.is_some()
             {
                 let (fx, fy, fw, fh) =
                     Self::resolve_border_render_bounds(border, x, y, w, h, scale_dec);
-                Self::fill_rect(&mut img, fx, fy, fw, fh, Rgba([r, g, b, 255u8]));
+                let fill_box = crate::xfa::shapes::PixelBox {
+                    x: fx as f32,
+                    y: fy as f32,
+                    w: fw as f32,
+                    h: fh as f32,
+                };
+                let radii = crate::xfa::shapes::rounded_corner_radii(border, fill_box, scale);
+                Self::fill_area(&mut img, fill, fx, fy, fw, fh, radii);
             }
 
             // Draw border if present and visible
@@ -8074,6 +8343,8 @@ impl Flattened {
                 FlattenedNodeKind::Field {
                     value, is_checked, ..
                 } => {
+                    // The value is drawn beside its caption, not under it.
+                    let (x, y, w, h) = node.value_box(x, y, w, h, scale);
                     // Determine widget type from hints
                     let widget = node.widget_type();
                     let is_radio = matches!(widget, Some(WidgetKind::Radio));
@@ -8159,7 +8430,10 @@ impl Flattened {
                             Flattened::fill_rect(&mut img, x, line_y, w, 1, underline_color);
                         }
 
-                        // Only draw field VALUE (not name) in black if present
+                        // Only draw field VALUE (not name) in black if present,
+                        // as its format picture shows it.
+                        let shown = node.shown_value().unwrap_or_default();
+                        let value = &shown;
                         if !value.is_empty() {
                             // Get font style from node, or use XFA defaults
                             let xfa_font = node.style.font.clone().unwrap_or_default();
@@ -8246,6 +8520,17 @@ impl Flattened {
                                 text_scale,
                                 &render_font,
                                 value,
+                            );
+                            Self::draw_decoration(
+                                &mut img,
+                                Decoration::of_font(node.style.font.as_ref()),
+                                value,
+                                text_x,
+                                text_y,
+                                scaled_font_size,
+                                &render_font,
+                                0.0,
+                                text_color,
                             );
                         }
                     }
@@ -8513,6 +8798,17 @@ impl Flattened {
                                         &render_font,
                                         line,
                                     );
+                                    Self::draw_decoration(
+                                        &mut img,
+                                        Decoration::of_font(node.style.font.as_ref()),
+                                        line,
+                                        line_x,
+                                        line_y,
+                                        scaled_font_size,
+                                        &render_font,
+                                        letter_spacing,
+                                        text_color,
+                                    );
                                 }
                             }
                         }
@@ -8522,10 +8818,142 @@ impl Flattened {
                 FlattenedNodeKind::Image(embedded) => {
                     Self::draw_embedded_image(&mut img, embedded, x, y, w, h);
                 }
+
+                FlattenedNodeKind::Shape(shape) => {
+                    Self::draw_shape(&mut img, shape, x, y, w, h, scale);
+                }
             }
         }
 
         Ok(img)
+    }
+
+    /// Draw `decoration`'s lines under or through one line of plain text
+    /// drawn at (`x`, `top`), the way the rich-text path draws them per word.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_decoration(
+        img: &mut RgbaImage,
+        decoration: Decoration,
+        text: &str,
+        x: i32,
+        top: i32,
+        font_px: f32,
+        font: &FontRef<'_>,
+        letter_spacing: f32,
+        color: Rgba<u8>,
+    ) {
+        if decoration == Decoration::default() || text.trim().is_empty() {
+            return;
+        }
+        let scaled = font.as_scaled(xfa_px_scale(font, font_px));
+        let width = Self::measure_text_width(text, font_px, font, letter_spacing);
+        for (rx, ry, rw, rh) in decoration.line_rects(
+            x as f32,
+            top as f32,
+            width,
+            scaled.ascent(),
+            scaled.descent().abs(),
+            font_px,
+        ) {
+            Self::fill_rect(img, rx, ry, rw, rh, color);
+        }
+    }
+
+    /// Draw a `<line>`, `<rectangle>` or `<arc>` in its node's box (device
+    /// pixels). The geometry is [`crate::xfa::shapes`]'; a rectangle's edges
+    /// are drawn by the same code as a border's.
+    fn draw_shape(
+        img: &mut RgbaImage,
+        shape: &crate::xfa::shapes::Shape,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        scale: f32,
+    ) {
+        use crate::xfa::shapes::{self, PixelBox, Shape};
+        let edge_color = |edge: &crate::xfa::Edge| {
+            edge.color
+                .map(|(r, g, b)| Rgba([r, g, b, 255u8]))
+                .unwrap_or(Rgba([0u8, 0u8, 0u8, 255u8]))
+        };
+
+        let bx = PixelBox {
+            x: x as f32,
+            y: y as f32,
+            w: w as f32,
+            h: h as f32,
+        };
+        match shape {
+            Shape::Line(line) => {
+                if !shapes::is_drawn(&line.edge.presence) {
+                    return;
+                }
+                let t = shapes::thickness_px(line.edge.thickness, scale);
+                let Some([a, b]) = shapes::line_centre(line.slope, line.hand, bx, t) else {
+                    return;
+                };
+                let color = edge_color(&line.edge);
+                for r in shapes::stroke_segment(a, b, t) {
+                    Self::fill_rect(img, r.x, r.y, r.w, r.h, color);
+                }
+            }
+            Shape::Rectangle(rect) => {
+                let border = Border {
+                    edges: rect.edges.clone(),
+                    corners: rect.corners.clone(),
+                    presence: "visible".to_string(),
+                    ..Border::default()
+                };
+                if let Some(fill) = rect.fill.as_ref().filter(|f| shapes::is_drawn(&f.presence)) {
+                    let radii = shapes::rounded_corner_radii(&border, bx, scale);
+                    Self::fill_area(img, fill, x, y, w, h, radii);
+                }
+                let t = shapes::thickness_px(rect.edges[0].thickness, scale);
+                let sb = shapes::rectangle_stroke_box(rect.hand, bx, t);
+                Self::draw_border(
+                    img,
+                    sb.x.round() as i32,
+                    sb.y.round() as i32,
+                    sb.w.round() as i32,
+                    sb.h.round() as i32,
+                    &border,
+                    scale,
+                );
+            }
+            Shape::Arc(arc) => {
+                if arc.sweep_angle.abs() >= 360.0
+                    && let Some(fill) = arc.fill.as_ref().filter(|f| shapes::is_drawn(&f.presence))
+                {
+                    for py in y..=y + h {
+                        for px in x..=x + w {
+                            let (cx, cy) = (px as f32 + 0.5, py as f32 + 0.5);
+                            if shapes::inside_ellipse(bx, arc.circular, cx, cy)
+                                && px >= 0
+                                && py >= 0
+                                && (px as u32) < img.width()
+                                && (py as u32) < img.height()
+                            {
+                                let (r, g, b) = shapes::fill_color_at(fill, bx, cx, cy);
+                                img.put_pixel(px as u32, py as u32, Rgba([r, g, b, 255u8]));
+                            }
+                        }
+                    }
+                }
+                if !shapes::is_drawn(&arc.edge.presence) {
+                    return;
+                }
+                let t = shapes::thickness_px(arc.edge.thickness, scale);
+                let path = shapes::arc_stroke_box(arc.hand, bx, t);
+                let points = shapes::arc_points(path, arc.circular, arc.start_angle, arc.sweep_angle);
+                let color = edge_color(&arc.edge);
+                for pair in points.windows(2) {
+                    for r in shapes::stroke_segment(pair[0], pair[1], t) {
+                        Self::fill_rect(img, r.x, r.y, r.w, r.h, color);
+                    }
+                }
+            }
+        }
     }
 
     /// Draw an embedded image into its box.
@@ -8736,6 +9164,24 @@ impl Flattened {
         let (render_x, render_y, render_w, render_h) =
             Self::resolve_border_render_bounds(border, x, y, w, h, scale_dec);
 
+        // A rounded corner trims the edges it joins by its radius and draws
+        // the quarter circle between them (XFA 3.3 "The corner element").
+        let border_box = crate::xfa::shapes::PixelBox {
+            x: render_x as f32,
+            y: render_y as f32,
+            w: render_w as f32,
+            h: render_h as f32,
+        };
+        let radii = crate::xfa::shapes::rounded_corner_radii(border, border_box, scale);
+        // Each edge's (start, end) trim: the corners at its two ends, top and
+        // bottom running left to right, left and right top to bottom.
+        let trims = [
+            (radii[0], radii[1]),
+            (radii[1], radii[2]),
+            (radii[3], radii[2]),
+            (radii[0], radii[3]),
+        ];
+
         // Get edges (0=top, 1=right, 2=bottom, 3=left)
         // Per XFA spec: if fewer than 4 edges, reuse the last one
         for edge_idx in 0..4 {
@@ -8759,8 +9205,17 @@ impl Flattened {
                     .map(|(r, g, b)| Rgba([r, g, b, 255u8]))
                     .unwrap_or(Rgba([0u8, 0u8, 0u8, 255u8]));
 
-                // Use render bounds for all edges when available
-                let (edge_x, edge_y, edge_w, edge_h) = (render_x, render_y, render_w, render_h);
+                // Use render bounds for all edges when available, trimmed at
+                // rounded corners along the edge's own direction.
+                let (start, end) = (
+                    trims[edge_idx].0.round() as i32,
+                    trims[edge_idx].1.round() as i32,
+                );
+                let (edge_x, edge_y, edge_w, edge_h) = if edge_idx % 2 == 0 {
+                    (render_x + start, render_y, render_w - start - end, render_h)
+                } else {
+                    (render_x, render_y + start, render_w, render_h - start - end)
+                };
 
                 // Draw based on stroke style
                 match edge.stroke {
@@ -8858,6 +9313,37 @@ impl Flattened {
                             img_height,
                         );
                     }
+                }
+            }
+        }
+
+        // The quarter circles of the rounded corners, drawn inside the box
+        // like the edges, in the color of the edge that starts at each.
+        for (corner_idx, radius) in radii.iter().enumerate() {
+            let Some(corner) = border.get_corner(corner_idx) else {
+                continue;
+            };
+            if *radius <= 0.0 || !crate::xfa::shapes::is_drawn(&corner.presence) {
+                continue;
+            }
+            let thickness = crate::xfa::shapes::thickness_px(corner.thickness, scale);
+            let inset = crate::xfa::shapes::PixelBox {
+                x: border_box.x + thickness / 2.0,
+                y: border_box.y + thickness / 2.0,
+                w: border_box.w - thickness,
+                h: border_box.h - thickness,
+            };
+            let (circle, start, sweep) =
+                crate::xfa::shapes::corner_arc(inset, corner_idx, (radius - thickness / 2.0).max(0.5));
+            let color = border
+                .get_edge(corner_idx)
+                .and_then(|e| e.color)
+                .map(|(r, g, b)| Rgba([r, g, b, 255u8]))
+                .unwrap_or(Rgba([0u8, 0u8, 0u8, 255u8]));
+            let points = crate::xfa::shapes::arc_points(circle, false, start, sweep);
+            for pair in points.windows(2) {
+                for r in crate::xfa::shapes::stroke_segment(pair[0], pair[1], thickness) {
+                    Self::fill_rect(img, r.x, r.y, r.w, r.h, color);
                 }
             }
         }
@@ -9036,6 +9522,43 @@ impl Flattened {
     }
 
     /// Fill a rectangle with a solid color
+    /// Paint `fill` over the box (`x`, `y`, `w`, `h`), in device pixels: its
+    /// solid color or `<linear>` gradient, clipped to the box's rounded
+    /// corners (`radii`, see [`crate::xfa::shapes::rounded_corner_radii`]).
+    fn fill_area(
+        img: &mut RgbaImage,
+        fill: &crate::xfa::Fill,
+        x: i32,
+        y: i32,
+        w: i32,
+        h: i32,
+        radii: [f32; 4],
+    ) {
+        use crate::xfa::shapes::{PixelBox, fill_color_at, inside_rounded_box};
+        let bx = PixelBox {
+            x: x as f32,
+            y: y as f32,
+            w: w as f32,
+            h: h as f32,
+        };
+        let plain = fill.linear.is_none() && radii.iter().all(|r| *r <= 0.0);
+        if plain {
+            let (r, g, b) = fill_color_at(fill, bx, 0.0, 0.0);
+            Self::fill_rect(img, x, y, w, h, Rgba([r, g, b, 255u8]));
+            return;
+        }
+        let (img_w, img_h) = (img.width() as i32, img.height() as i32);
+        for py in y.max(0)..(y + h).min(img_h) {
+            for px in x.max(0)..(x + w).min(img_w) {
+                let (cx, cy) = (px as f32 + 0.5, py as f32 + 0.5);
+                if inside_rounded_box(bx, radii, cx, cy) {
+                    let (r, g, b) = fill_color_at(fill, bx, cx - 0.5, cy - 0.5);
+                    img.put_pixel(px as u32, py as u32, Rgba([r, g, b, 255u8]));
+                }
+            }
+        }
+    }
+
     pub fn fill_rect(img: &mut RgbaImage, x: i32, y: i32, w: i32, h: i32, color: Rgba<u8>) {
         let img_width = img.width() as i32;
         let img_height = img.height() as i32;
@@ -9433,6 +9956,7 @@ impl Flattened {
         id_to_field: Option<&std::collections::HashMap<String, String>>,
         default_bold: bool,
         default_italic: bool,
+        default_decoration: Decoration,
     ) -> RichText {
         let mut paragraphs = Vec::new();
         Self::parse_html_nodes_to_rich_text(
@@ -9445,6 +9969,7 @@ impl Flattened {
             computed_values,
             id_to_field,
             None,
+            default_decoration,
         );
 
         // If no paragraphs were created but we have content, create a single paragraph
@@ -9469,6 +9994,7 @@ impl Flattened {
         computed_values: Option<&std::collections::HashMap<SomPath, String>>,
         id_to_field: Option<&std::collections::HashMap<String, String>>,
         run_letter_spacing: Option<f32>,
+        decoration: Decoration,
     ) {
         for child in children {
             match &child.kind {
@@ -9528,7 +10054,8 @@ impl Flattened {
                                 preserve_spaces,
                                 bold,
                                 italic,
-                                underline: false,
+                                underline: decoration.underline,
+                                        line_through: decoration.line_through,
                                 superscript: false,
                                 letter_spacing: run_letter_spacing,
                             });
@@ -9558,6 +10085,12 @@ impl Flattened {
                     text_content,
                 } => {
                     let tag_lower = tag_name.to_lowercase();
+                    // An element's own `text-decoration` applies to it and
+                    // everything inside it.
+                    let decoration = child
+                        .attributes
+                        .get("style")
+                        .map_or(decoration, |style| decoration.with_css(style));
 
                     match tag_lower.as_str() {
                         "body" => {
@@ -9572,6 +10105,7 @@ impl Flattened {
                                 computed_values,
                                 id_to_field,
                                 run_letter_spacing,
+                                decoration,
                             );
                         }
                         "p" => {
@@ -9651,6 +10185,7 @@ impl Flattened {
                                         italic,
                                         default_h_align,
                                         None,
+                                        decoration,
                                     );
                                 }
                             }
@@ -9670,6 +10205,7 @@ impl Flattened {
                                 computed_values,
                                 id_to_field,
                                 None,
+                                decoration,
                             );
 
                             // Check if paragraph ended up empty (only whitespace spans)
@@ -9699,7 +10235,8 @@ impl Flattened {
                                         preserve_spaces: false,
                                         bold,
                                         italic,
-                                        underline: false,
+                                        underline: decoration.underline,
+                                        line_through: decoration.line_through,
                                         superscript: false,
                                         letter_spacing: run_letter_spacing,
                                     });
@@ -9790,6 +10327,7 @@ impl Flattened {
                                         span_italic,
                                         default_h_align,
                                         span_letter_spacing,
+                                        decoration,
                                     );
                                 }
                             }
@@ -9805,6 +10343,7 @@ impl Flattened {
                                 computed_values,
                                 id_to_field,
                                 span_letter_spacing,
+                                decoration,
                             );
 
                             // Mark newly added runs as superscript if vertical-align was positive
@@ -9839,6 +10378,7 @@ impl Flattened {
                                     italic,
                                     default_h_align,
                                     run_letter_spacing,
+                                    decoration,
                                 );
                             }
                             Self::parse_html_nodes_to_rich_text(
@@ -9851,6 +10391,7 @@ impl Flattened {
                                 computed_values,
                                 id_to_field,
                                 run_letter_spacing,
+                                decoration,
                             );
                         }
                         "i" | "em" => {
@@ -9864,6 +10405,7 @@ impl Flattened {
                                     true,
                                     default_h_align,
                                     run_letter_spacing,
+                                    decoration,
                                 );
                             }
                             Self::parse_html_nodes_to_rich_text(
@@ -9876,6 +10418,7 @@ impl Flattened {
                                 computed_values,
                                 id_to_field,
                                 run_letter_spacing,
+                                decoration,
                             );
                         }
                         "br" => {
@@ -9937,6 +10480,7 @@ impl Flattened {
                                     italic,
                                     default_h_align,
                                     run_letter_spacing,
+                                    decoration,
                                 );
                             }
                             Self::parse_html_nodes_to_rich_text(
@@ -9949,6 +10493,7 @@ impl Flattened {
                                 computed_values,
                                 id_to_field,
                                 run_letter_spacing,
+                                decoration,
                             );
                         }
                     }
@@ -9965,6 +10510,7 @@ impl Flattened {
                         computed_values,
                         id_to_field,
                         run_letter_spacing,
+                        decoration,
                     );
                 }
             }
@@ -9981,6 +10527,7 @@ impl Flattened {
         italic: bool,
         default_h_align: HAlign,
         run_letter_spacing: Option<f32>,
+        decoration: Decoration,
     ) {
         // Split on U+2029 paragraph separator
         let segments: Vec<&str> = text.split('\u{2029}').collect();
@@ -10016,7 +10563,8 @@ impl Flattened {
                     preserve_spaces,
                     bold,
                     italic,
-                    underline: false,
+                    underline: decoration.underline,
+                    line_through: decoration.line_through,
                     superscript: false,
                     letter_spacing: run_letter_spacing,
                 });
@@ -10428,6 +10976,7 @@ impl Flattened {
                         preserve_spaces: t.preserve_spaces,
                         bold: t.bold,
                         italic: t.italic,
+                        decoration: t.decoration,
                     })
                     .collect();
 
@@ -10481,6 +11030,7 @@ impl Flattened {
                         preserve_spaces: true,
                         bold: run.bold,
                         italic: run.italic,
+                        decoration: run.decoration(),
                     });
                     // A preserved-space run that is only whitespace IS a word boundary.
                     // This prevents the next run from merging its first word into this space.
@@ -10527,6 +11077,7 @@ impl Flattened {
                                     preserve_spaces: false,
                                     bold: run.bold,
                                     italic: run.italic,
+                                    decoration: run.decoration(),
                                 });
                             }
                             current_word.clear();
@@ -10567,6 +11118,7 @@ impl Flattened {
                             preserve_spaces: false,
                             bold: run.bold,
                             italic: run.italic,
+                            decoration: run.decoration(),
                         });
                     }
                     // We added a word, so clear the word boundary flag
@@ -10742,6 +11294,7 @@ impl Flattened {
                             preserve_spaces: token.preserve_spaces,
                             bold: token.bold,
                             italic: token.italic,
+                            decoration: token.decoration,
                         },
                         LayoutToken {
                             text: second_part.to_string(),
@@ -10749,6 +11302,7 @@ impl Flattened {
                             preserve_spaces: token.preserve_spaces,
                             bold: token.bold,
                             italic: token.italic,
+                            decoration: token.decoration,
                         },
                     ));
                 }
@@ -11555,6 +12109,23 @@ impl Flattened {
                 // Advance position (word width already includes letter spacing)
                 let word_width =
                     Self::measure_text_width(&word.text, font_size, word_font, letter_spacing);
+
+                // A decorated word's line runs on under the space after it
+                // when the next word is decorated the same way, so an
+                // underlined phrase is one line rather than one per word.
+                if word.decoration != Decoration::default() {
+                    let continues = line
+                        .words
+                        .get(word_idx + 1)
+                        .is_some_and(|next| next.decoration == word.decoration);
+                    let span = word_width + if continues { space_width + extra_space } else { 0.0 };
+                    for (rx, ry, rw, rh) in
+                        word.decoration
+                            .line_rects(x, line_y, span, ascent, descent, font_size)
+                    {
+                        Self::fill_rect(img, rx, ry, rw, rh, color);
+                    }
+                }
                 x += word_width;
 
                 // Add space between words (space_width already includes letter_spacing)
@@ -11631,6 +12202,7 @@ impl Flattened {
                     None,
                     false,
                     false,
+                    Decoration::default(),
                 ));
             }
             // Recurse into children
@@ -11695,6 +12267,32 @@ impl Flattened {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn css_text_decoration_sets_clears_and_leaves_lines() {
+        let none = Decoration::default();
+        let under = Decoration { underline: true, line_through: false };
+        assert_eq!(none.with_css("text-decoration:underline"), under);
+        assert_eq!(
+            none.with_css("margin-left:2pt; text-decoration: underline line-through"),
+            Decoration { underline: true, line_through: true }
+        );
+        assert_eq!(under.with_css("text-decoration:none"), none, "none clears");
+        assert_eq!(under.with_css("letter-spacing:0in"), under, "no declaration inherits");
+        assert_eq!(
+            none.with_css("text-decoration:line-through"),
+            Decoration { underline: false, line_through: true }
+        );
+    }
+
+    #[test]
+    fn decoration_lines_sit_below_and_across_the_baseline() {
+        let both = Decoration { underline: true, line_through: true };
+        // A 28px font with ascent 21 and descent 6, its line box at y=100.
+        let rects = both.line_rects(10.0, 100.0, 50.0, 21.0, 6.0, 28.0);
+        assert_eq!(rects, vec![(10, 123, 50, 2), (10, 114, 50, 2)]);
+        assert!(Decoration::default().line_rects(0.0, 0.0, 9.0, 9.0, 3.0, 12.0).is_empty());
+    }
     use crate::xfa::font_manager::get_font_manager;
     use crate::xfa::{HAlign, Para, VAlign, XfaNode, XfaNodeKind, num};
 
@@ -11878,7 +12476,7 @@ mod tests {
         };
 
         let rich =
-            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false);
+            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default());
 
         let text: String = rich
             .paragraphs
@@ -11954,6 +12552,7 @@ mod tests {
             None,
             false, // default_bold = false
             false,
+            Decoration::default(),
         );
 
         assert_eq!(rich.paragraphs.len(), 2, "Should have 2 paragraphs");
@@ -12034,7 +12633,7 @@ mod tests {
         };
 
         let rich =
-            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false);
+            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default());
 
         assert_eq!(rich.paragraphs.len(), 1);
         let runs = &rich.paragraphs[0].runs;
@@ -12112,7 +12711,7 @@ mod tests {
         };
 
         let rich =
-            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false);
+            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default());
 
         assert_eq!(rich.paragraphs.len(), 1);
         let joined: String = rich.paragraphs[0]
@@ -12150,6 +12749,7 @@ mod tests {
                 superscript: false,
                 preserve_spaces: false,
                 letter_spacing: None,
+                line_through: false,
             },
             RichRun {
                 text: " ".to_string(), // Space-only run
@@ -12159,6 +12759,7 @@ mod tests {
                 superscript: false,
                 preserve_spaces: false,
                 letter_spacing: None,
+                line_through: false,
             },
             RichRun {
                 text: "bold ".to_string(),
@@ -12168,6 +12769,7 @@ mod tests {
                 superscript: false,
                 preserve_spaces: false,
                 letter_spacing: None,
+                line_through: false,
             },
             RichRun {
                 text: "suffix".to_string(),
@@ -12177,6 +12779,7 @@ mod tests {
                 superscript: false,
                 preserve_spaces: false,
                 letter_spacing: None,
+                line_through: false,
             },
         ];
 
@@ -12247,6 +12850,7 @@ mod tests {
                 superscript: false,
                 preserve_spaces: false,
                 letter_spacing: None,
+                line_through: false,
             }]
         };
         let fonts = RunFonts {
@@ -12341,6 +12945,7 @@ mod tests {
             superscript: false,
             preserve_spaces: false,
             letter_spacing: None,
+            line_through: false,
         }
     }
 

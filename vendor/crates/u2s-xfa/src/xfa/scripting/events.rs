@@ -41,6 +41,12 @@ pub enum EventActivity {
     PostSubmit,
     DocReady,
     IndexChange,
+    /// The pointer pressed on the field (XFA 3.3 §10 "mouseDown").
+    MouseDown,
+    /// The pointer released on the field ("mouseUp").
+    MouseUp,
+    MouseEnter,
+    MouseExit,
     Other(String),
 }
 
@@ -61,6 +67,10 @@ impl FromStr for EventActivity {
             "postSubmit" => EventActivity::PostSubmit,
             "docReady" => EventActivity::DocReady,
             "indexChange" => EventActivity::IndexChange,
+            "mouseDown" => EventActivity::MouseDown,
+            "mouseUp" => EventActivity::MouseUp,
+            "mouseEnter" => EventActivity::MouseEnter,
+            "mouseExit" => EventActivity::MouseExit,
             _ => EventActivity::Other(s.to_string()),
         })
     }
@@ -83,6 +93,10 @@ impl EventActivity {
             EventActivity::PostSubmit => "postSubmit",
             EventActivity::DocReady => "docReady",
             EventActivity::IndexChange => "indexChange",
+            EventActivity::MouseDown => "mouseDown",
+            EventActivity::MouseUp => "mouseUp",
+            EventActivity::MouseEnter => "mouseEnter",
+            EventActivity::MouseExit => "mouseExit",
             EventActivity::Other(s) => s.as_str(),
         }
     }
@@ -242,7 +256,8 @@ fn parse_event_element(event_node: &XfaNode) -> Option<XfaScript> {
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_default();
 
-            let source = text_content.clone().unwrap_or_default();
+            let (content_type, source) =
+                executable(content_type, text_content.clone().unwrap_or_default());
 
             if !source.trim().is_empty() {
                 return Some(XfaScript {
@@ -259,6 +274,19 @@ fn parse_event_element(event_node: &XfaNode) -> Option<XfaScript> {
     }
 
     None
+}
+
+/// A script as the engine runs it: a FormCalc script that translates
+/// (`formcalc::transpile`) is JavaScript from here on; one that does not
+/// stays FormCalc, and running it reports why (`execute_script`).
+fn executable(content_type: ScriptContentType, source: String) -> (ScriptContentType, String) {
+    if content_type != ScriptContentType::FormCalc {
+        return (content_type, source);
+    }
+    match super::formcalc::transpile(&source) {
+        Ok(js) => (ScriptContentType::JavaScript, js),
+        Err(_) => (ScriptContentType::FormCalc, source),
+    }
 }
 
 /// Parse a shorthand `<calculate>` or `<validate>` element into an [`XfaScript`].
@@ -292,7 +320,8 @@ fn parse_shorthand_element(node: &XfaNode, tag_name: &str) -> Option<XfaScript> 
                 .and_then(|s| s.parse().ok())
                 .unwrap_or_default();
 
-            let source = text_content.clone().unwrap_or_default();
+            let (content_type, source) =
+                executable(content_type, text_content.clone().unwrap_or_default());
 
             if !source.trim().is_empty() {
                 return Some(XfaScript {

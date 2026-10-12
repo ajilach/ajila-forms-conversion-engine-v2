@@ -105,7 +105,7 @@ impl FormDriver for GenericDriver {
 
     fn terminal_panel_js(&self) -> String {
         // The submit button is server-rendered `name="submit"`
-        // (`specs/AEM.md` §6.11) but, like the next button, loses that
+        // (`specs/aem/aem-xml-spec.md` §6.11) but, like the next button, loses that
         // attribute once `guideRuntime.js` initialises the page -- see
         // `crate::flow::wizard_js::HAS_VISIBLE_NEXT`'s doc for why this
         // selects on the (server-rendered, and so far still present at
@@ -130,7 +130,7 @@ impl FormDriver for GenericDriver {
     }
 
     fn submit_js(&self) -> String {
-        "guideBridge.submit(); true".to_owned()
+        concat!(crate::capture_submit_error_js!(), " guideBridge.submit(); true").to_owned()
     }
 
     fn submit_failed_message(&self) -> &'static str {
@@ -176,5 +176,15 @@ mod tests {
             GenericDriver.package_summary_extension(&inspection()),
             json!({})
         );
+    }
+
+    /// The generic submit records a refusal through the shared wrapper, and
+    /// the wrapper's whitespace regex reaches the page as `\s+`.
+    #[test]
+    fn generic_submit_js_captures_the_servers_refusal() {
+        let js = GenericDriver.submit_js();
+        assert!(js.starts_with(crate::capture_submit_error_js!()), "{js}");
+        assert!(js.ends_with("guideBridge.submit(); true"), "{js}");
+        assert!(js.contains(r"replace(/\s+/g, ' ')"), "{js}");
     }
 }

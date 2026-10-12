@@ -1,21 +1,21 @@
-//! Persistent per-`session_id` verification sessions, shared by every
+//! Persistent per-`instance_id` verification instances, shared by every
 //! verifier that boots its own containers (`u2s-aem-verify-core`'s AEM +
-//! Chromium, `u2s-redacto-verify-core`'s Redacto platform).
+//! Chromium).
 //!
-//! **One session per `session_id`.** AGENTS.md requires every MCP to support
-//! multiple agents running at once without interference, so [`SessionPool`]
-//! keys a separate session per `session_id` (the tool argument a caller
+//! **One instance per `instance_id`.** AGENTS.md requires every MCP to support
+//! multiple agents running at once without interference, so [`InstancePool`]
+//! keys a separate instance per `instance_id` (the tool argument a caller
 //! populates, `u2s-server`'s own conversion run id in practice), each
 //! independently booted, reused, and idle-swept. A caller that omits
-//! `session_id` gets [`DEFAULT_SESSION_KEY`].
+//! `instance_id` gets [`DEFAULT_INSTANCE_KEY`].
 //!
-//! **Interior mutability, documented.** Each session lives behind its own
-//! `Arc<tokio::sync::Mutex<Option<S>>>`; [`SessionPool::ensure`] hands the
+//! **Interior mutability, documented.** Each instance lives behind its own
+//! `Arc<tokio::sync::Mutex<Option<S>>>`; [`InstancePool::ensure`] hands the
 //! caller an owned guard for the whole duration of one call. The lock *is*
-//! the serialization point a session needs (one call at a time against one
-//! booted instance), scoped per session so it never blocks a different
-//! `session_id`. The pool's outer map sits behind a second, short-lived
-//! `tokio::sync::Mutex` guarding only which sessions exist, never held
+//! the serialization point an instance needs (one call at a time against one
+//! booted instance), scoped per instance so it never blocks a different
+//! `instance_id`. The pool's outer map sits behind a second, short-lived
+//! `tokio::sync::Mutex` guarding only which instances exist, never held
 //! across a boot or a call.
 //!
 //! Also here: how this process reaches the containers it boots ([`Reach`]),
@@ -30,10 +30,10 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 
 use crate::docker::DockerLifecycle;
 
-const LOG_PREFIX: &str = "u2s-verify-core";
+use crate::LOG_PREFIX;
 
-/// The `session_id` a caller that omits one gets.
-pub const DEFAULT_SESSION_KEY: &str = "default";
+/// The `instance_id` a caller that omits one gets.
+pub const DEFAULT_INSTANCE_KEY: &str = "default";
 
 /// The Docker label key naming which verifier profile a container or
 /// network belongs to. One constant for the writer ([`owner_labels`]) and
@@ -53,24 +53,24 @@ pub fn owner_labels(owner: &str) -> HashMap<String, String> {
     HashMap::from([(OWNER_LABEL_KEY.to_owned(), owner.to_owned())])
 }
 
-/// How this process reaches the containers a session boots.
+/// How this process reaches the containers an instance boots.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Reach {
     /// This process runs on the Docker host itself (`cargo run`): through
     /// ports published on `127.0.0.1`.
     Published,
     /// This process runs in the container `self_container`: it joins each
-    /// session's network and addresses the siblings there directly, so no
+    /// instance's network and addresses the siblings there directly, so no
     /// port is published and nothing depends on sharing the host's network.
-    SessionNetwork { self_container: String },
+    InstanceNetwork { self_container: String },
 }
 
 impl Reach {
     /// `U2S_VERIFY_SELF_CONTAINER`'s value: set and non-empty means
-    /// [`Reach::SessionNetwork`].
+    /// [`Reach::InstanceNetwork`].
     pub fn from_self_container(self_container: Option<&str>) -> Self {
         match self_container.filter(|name| !name.is_empty()) {
-            Some(name) => Self::SessionNetwork {
+            Some(name) => Self::InstanceNetwork {
                 self_container: name.to_owned(),
             },
             None => Self::Published,
@@ -90,16 +90,16 @@ pub const DNS_LABEL_MAX: usize = 63;
 
 /// A fresh id for one boot's network and container names: 12 hex digits,
 /// short enough that `u2s-verify-<part>-<id>` stays one DNS label
-/// ([`DNS_LABEL_MAX`]). The session id never goes into a name, since a
+/// ([`DNS_LABEL_MAX`]). The instance id never goes into a name, since a
 /// caller's id (a run UUID, typically) alone would use up most of the
-/// label; it is a container label (`u2s.verify.session_id`) instead.
+/// label; it is a container label (`u2s.verify.instance_id`) instead.
 pub fn new_boot_id() -> String {
     uuid::Uuid::new_v4().simple().to_string()[..12].to_owned()
 }
 
 /// Leaves `network` (when this process joined it) and removes it.
-pub async fn remove_session_network(docker: &DockerLifecycle, network: &str, reach: &Reach) {
-    if let Reach::SessionNetwork { self_container } = reach
+pub async fn remove_instance_network(docker: &DockerLifecycle, network: &str, reach: &Reach) {
+    if let Reach::InstanceNetwork { self_container } = reach
         && let Err(err) = docker.disconnect_network(network, self_container).await
     {
         log::warn!("{LOG_PREFIX}: could not leave network {network}: {err}");
@@ -110,7 +110,7 @@ pub async fn remove_session_network(docker: &DockerLifecycle, network: &str, rea
 }
 
 /// Tears down every container and network labelled for `owner`, found
-/// rather than tracked in memory. Run once at server startup: a session a
+/// rather than tracked in memory. Run once at server startup: an instance a
 /// crashed or restarted process booted is otherwise never noticed again.
 /// Best-effort: Docker being unreachable is logged, not a startup failure,
 /// since the server must still start and serve `verify_status`.
@@ -134,35 +134,35 @@ pub async fn remove_leftovers(owner: &str, reach: &Reach) {
         }
         Err(err) => log::warn!("{LOG_PREFIX}: could not list leftover containers: {err}"),
     }
-    // Session networks carry the same label. A network this process joined
+    // Instance networks carry the same label. A network this process joined
     // in a prior life must be left before it can go.
     match docker.find_networks_by_label(&label).await {
         Ok(networks) => {
             for network in networks {
-                remove_session_network(&docker, &network, reach).await;
+                remove_instance_network(&docker, &network, reach).await;
             }
         }
         Err(err) => log::warn!("{LOG_PREFIX}: could not list leftover networks: {err}"),
     }
 }
 
-/// One booted session a [`SessionPool`] holds.
-pub trait PooledSession: Send + 'static {
+/// One booted instance a [`InstancePool`] holds.
+pub trait PooledInstance: Send + 'static {
     /// What [`Self::teardown`] needs: [`DockerLifecycle`] in production,
     /// `()` in a unit test.
     type Ctx: Sync;
 
     fn last_used(&self) -> Instant;
 
-    /// Marks the session used right now, so the idle sweep measures "last
+    /// Marks the instance used right now, so the idle sweep measures "last
     /// interaction".
     fn touch(&mut self);
 
-    /// A quick liveness probe: `false` makes [`SessionPool::ensure`] tear
-    /// the session down and boot a new one.
+    /// A quick liveness probe: `false` makes [`InstancePool::ensure`] tear
+    /// the instance down and boot a new one.
     fn is_alive(&self) -> impl Future<Output = bool> + Send;
 
-    /// Releases everything the session holds. Best-effort: failures are
+    /// Releases everything the instance holds. Best-effort: failures are
     /// logged by the implementation, since there is nothing a caller could
     /// do about them.
     fn teardown(self, ctx: &Self::Ctx) -> impl Future<Output = ()> + Send;
@@ -170,19 +170,19 @@ pub trait PooledSession: Send + 'static {
 
 type Slot<S> = Arc<Mutex<Option<S>>>;
 
-/// The per-`session_id` sessions of one verifier process. See the module
+/// The per-`instance_id` instances of one verifier process. See the module
 /// doc for the locking.
-pub struct SessionPool<S> {
+pub struct InstancePool<S> {
     slots: Mutex<HashMap<String, Slot<S>>>,
 }
 
-impl<S: PooledSession> Default for SessionPool<S> {
+impl<S: PooledInstance> Default for InstancePool<S> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<S: PooledSession> SessionPool<S> {
+impl<S: PooledInstance> InstancePool<S> {
     pub fn new() -> Self {
         Self {
             slots: Mutex::new(HashMap::new()),
@@ -201,12 +201,12 @@ impl<S: PooledSession> SessionPool<S> {
     }
 
     /// Locks `key`'s slot without booting anything: `None` inside means no
-    /// session is up for this key.
+    /// instance is up for this key.
     pub async fn lock(&self, key: &str) -> OwnedMutexGuard<Option<S>> {
         self.slot(key).await.lock_owned().await
     }
 
-    /// How many `session_id`s currently have a booted session.
+    /// How many `instance_id`s currently have a booted instance.
     pub async fn active_count(&self) -> usize {
         let slots: Vec<Slot<S>> = self.slots.lock().await.values().cloned().collect();
         let mut count = 0;
@@ -218,9 +218,9 @@ impl<S: PooledSession> SessionPool<S> {
         count
     }
 
-    /// Hands back `key`'s session locked for the caller's whole call,
+    /// Hands back `key`'s instance locked for the caller's whole call,
     /// booting one first if none exists or the previous one no longer
-    /// answers ([`PooledSession::is_alive`]). The `bool` is `true` when this
+    /// answers ([`PooledInstance::is_alive`]). The `bool` is `true` when this
     /// call booted it.
     pub async fn ensure<E, F, Fut>(
         &self,
@@ -234,7 +234,7 @@ impl<S: PooledSession> SessionPool<S> {
     {
         let mut guard = self.lock(key).await;
         let alive = match guard.as_ref() {
-            Some(session) => session.is_alive().await,
+            Some(instance) => instance.is_alive().await,
             None => false,
         };
         if alive {
@@ -242,15 +242,15 @@ impl<S: PooledSession> SessionPool<S> {
             return Ok((guard, false));
         }
         if let Some(stale) = guard.take() {
-            log::warn!("{LOG_PREFIX}: session {key:?} no longer answers; rebooting");
+            log::warn!("{LOG_PREFIX}: instance {key:?} no longer answers; rebooting");
             stale.teardown(ctx).await;
         }
         *guard = Some(boot().await?);
         Ok((guard, true))
     }
 
-    /// Tears down every session unused for at least `idle_timeout`, and
-    /// forgets every slot that holds no session. Call periodically from a
+    /// Tears down every instance unused for at least `idle_timeout`, and
+    /// forgets every slot that holds no instance. Call periodically from a
     /// background task ([`idle_sweep_loop`]), never from inside a call.
     pub async fn sweep_idle(&self, ctx: &S::Ctx, idle_timeout: Duration) {
         let slots: Vec<(String, Slot<S>)> = self
@@ -264,15 +264,15 @@ impl<S: PooledSession> SessionPool<S> {
         for (key, slot) in &slots {
             let mut guard = slot.lock().await;
             let idle = match guard.as_ref() {
-                Some(session) => session.last_used().elapsed(),
+                Some(instance) => instance.last_used().elapsed(),
                 None => continue,
             };
             if idle < idle_timeout {
                 continue;
             }
-            log::info!("{LOG_PREFIX}: tearing down session {key:?} after {idle:?} idle");
-            if let Some(session) = guard.take() {
-                session.teardown(ctx).await;
+            log::info!("{LOG_PREFIX}: tearing down instance {key:?} after {idle:?} idle");
+            if let Some(instance) = guard.take() {
+                instance.teardown(ctx).await;
             }
         }
 
@@ -286,19 +286,19 @@ impl<S: PooledSession> SessionPool<S> {
     }
 }
 
-/// Runs forever: every minute, tears down `pool`'s sessions idle for at
+/// Runs forever: every minute, tears down `pool`'s instances idle for at
 /// least `idle_timeout`. Reconnects to Docker each tick, so a daemon that
 /// restarted is not a reason for the sweep itself to die.
-pub async fn idle_sweep_loop<S>(pool: Arc<SessionPool<S>>, idle_timeout: Duration)
+pub async fn idle_sweep_loop<S>(pool: Arc<InstancePool<S>>, idle_timeout: Duration)
 where
-    S: PooledSession<Ctx = DockerLifecycle>,
+    S: PooledInstance<Ctx = DockerLifecycle>,
 {
     loop {
         tokio::time::sleep(Duration::from_secs(60)).await;
         match DockerLifecycle::connect().await {
             Ok(docker) => pool.sweep_idle(&docker, idle_timeout).await,
             Err(err) => {
-                log::warn!("{LOG_PREFIX}: could not reach Docker for the idle-session sweep: {err}")
+                log::warn!("{LOG_PREFIX}: could not reach Docker for the idle-instance sweep: {err}")
             }
         }
     }
@@ -309,14 +309,14 @@ mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    /// A session with no containers: alive as configured, counting its
+    /// An instance with no containers: alive as configured, counting its
     /// teardowns in the shared context.
     struct Fake {
         alive: bool,
         last_used: Instant,
     }
 
-    impl PooledSession for Fake {
+    impl PooledInstance for Fake {
         type Ctx = AtomicUsize;
 
         fn last_used(&self) -> Instant {
@@ -357,7 +357,7 @@ mod tests {
         assert_eq!(Reach::from_self_container(Some("")), Reach::Published);
         assert_eq!(
             Reach::from_self_container(Some("u2s")),
-            Reach::SessionNetwork {
+            Reach::InstanceNetwork {
                 self_container: "u2s".to_owned()
             }
         );
@@ -365,14 +365,14 @@ mod tests {
 
     #[test]
     fn owner_label_and_owner_labels_agree() {
-        let labels = owner_labels("redacto-ubs");
+        let labels = owner_labels("aem-ubs");
         let (key, value) = labels.iter().next().unwrap();
-        assert_eq!(owner_label("redacto-ubs"), format!("{key}={value}"));
+        assert_eq!(owner_label("aem-ubs"), format!("{key}={value}"));
     }
 
     #[tokio::test]
-    async fn different_session_ids_get_independent_slots() {
-        let pool = SessionPool::<Fake>::new();
+    async fn different_instance_ids_get_independent_slots() {
+        let pool = InstancePool::<Fake>::new();
         let a = pool.slot("agent-a").await;
         let b = pool.slot("agent-b").await;
         assert!(!Arc::ptr_eq(&a, &b));
@@ -381,8 +381,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_live_session_is_reused_and_a_dead_one_rebooted() {
-        let pool = SessionPool::<Fake>::new();
+    async fn a_live_instance_is_reused_and_a_dead_one_rebooted() {
+        let pool = InstancePool::<Fake>::new();
         let teardowns = AtomicUsize::new(0);
 
         let (guard, booted) = pool
@@ -395,7 +395,7 @@ mod tests {
             .ensure("a", &teardowns, || async { Ok::<_, ()>(fresh(true)) })
             .await
             .unwrap();
-        assert!(!booted, "an alive session must be reused");
+        assert!(!booted, "an alive instance must be reused");
         drop(guard);
         assert_eq!(teardowns.load(Ordering::SeqCst), 0);
 
@@ -404,7 +404,7 @@ mod tests {
             .ensure("a", &teardowns, || async { Ok::<_, ()>(fresh(true)) })
             .await
             .unwrap();
-        assert!(booted, "a dead session must be rebooted");
+        assert!(booted, "a dead instance must be rebooted");
         assert_eq!(teardowns.load(Ordering::SeqCst), 1);
         drop(guard);
         assert_eq!(pool.active_count().await, 1);
@@ -412,7 +412,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_failed_boot_leaves_the_slot_empty() {
-        let pool = SessionPool::<Fake>::new();
+        let pool = InstancePool::<Fake>::new();
         let teardowns = AtomicUsize::new(0);
         let result = pool
             .ensure("a", &teardowns, || async { Err::<Fake, _>("boot failed") })
@@ -422,8 +422,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_idle_sweep_tears_down_only_stale_sessions() {
-        let pool = SessionPool::<Fake>::new();
+    async fn the_idle_sweep_tears_down_only_stale_instances() {
+        let pool = InstancePool::<Fake>::new();
         let teardowns = AtomicUsize::new(0);
         for key in ["stale", "recent"] {
             let (guard, _) = pool

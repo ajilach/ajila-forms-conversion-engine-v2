@@ -94,8 +94,8 @@ impl AemClient {
     /// [`crate::package_check::form_jcr_path`], not from anything the
     /// Package Manager echoes back. Returns the package's CRX path (e.g.
     /// `/etc/packages/.../x.zip`), which is what [`Self::uninstall`] later
-    /// needs to remove exactly this package from a persistent session
-    /// (`crate::session`) rather than whatever happened to be installed
+    /// needs to remove exactly this package from a persistent instance
+    /// (`crate::instance`) rather than whatever happened to be installed
     /// under that name before.
     pub async fn upload_and_install(
         &self,
@@ -140,7 +140,7 @@ impl AemClient {
 
     /// Uninstalls the package at `path` (as returned by
     /// [`Self::upload_and_install`]) via CRX Package Manager
-    /// `cmd=uninstall`, so a persistent session (`crate::session`) can
+    /// `cmd=uninstall`, so a persistent instance (`crate::instance`) can
     /// return to a clean baseline between calls instead of accumulating
     /// whatever each `verify_run` installed. Best-effort by design: CRX
     /// reports `success:false` for a package that is not currently
@@ -335,7 +335,7 @@ mod tests {
     /// [`parse_crx_response`]'s result, so this exercises that mapping
     /// directly rather than standing up a fixture HTTP server: a CRX
     /// failure message (e.g. "package not installed") must not become an
-    /// error a persistent session's cleanup has to handle specially.
+    /// error a persistent instance's cleanup has to handle specially.
     #[tokio::test]
     async fn a_crx_failure_on_uninstall_is_not_an_error() {
         let result = parse_crx_response(

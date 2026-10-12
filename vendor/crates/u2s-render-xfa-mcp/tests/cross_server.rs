@@ -68,6 +68,11 @@ async fn pdfium_renders_the_shim_while_this_engine_renders_the_real_form() {
         .find_map(|b| b.as_image().map(|i| i.data.clone()))
         .map(|b64| base64_decode(&b64))
         .expect("inline shim image");
+    assert_eq!(
+        structured(&pdf_info)["applicable"],
+        json!(false),
+        "pdfium must decline the normalizer's info probe for an XFA form"
+    );
     pdf_client.cancel().await.ok();
 
     // Our engine's side.
@@ -75,6 +80,13 @@ async fn pdfium_renders_the_shim_while_this_engine_renders_the_real_form() {
         .env("U2S_FONT_DIR", fonts)
         .env("U2S_BLOB_DIR", blob_dir("xfa").display().to_string());
     let xfa_client = xfa_server.connect().await;
+
+    let xfa_info = call(&xfa_client, "xfa_info", json!({ "doc_path": path })).await;
+    assert_eq!(
+        structured(&xfa_info)["applicable"],
+        json!(true),
+        "this engine must accept the normalizer's info probe that pdfium declines"
+    );
 
     let xfa_render = call(
         &xfa_client,

@@ -43,8 +43,7 @@ wrote at the same commit, and `feedback.txt` is the verdict of the
 `ajila-forms-conversion-feedback` CI guard on those: every enrolled rule clean.
 
 `known-dictionary-gaps.txt` lists the golden dictionary entries `encode` does not reproduce, and
-why none of them is read by the form. The Redacto dumps of the same forms are in
-`u2s-redacto-ubs-mcp/tests/fixtures/golden/`.
+why none of them is read by the form.
 
 Never regenerate these from this crate's own output.
 

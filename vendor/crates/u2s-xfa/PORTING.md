@@ -279,6 +279,64 @@ verified by auditing every `crate::` path in the copied files.
 
     Covered by `tests/access.rs` here and in `u2s-render-xfa`.
 
+22. **Host methods outside XFA 3.3 are provided, and script failures are
+    reported** (`xfa/scripting/acrobat.rs`, `report.rs`, `js_helpers.rs`
+    `XFA_HOST_EXTENSIONS`). Upstream defined neither `app` nor `util` nor
+    `xfa.host.resetData`, so `app.alert` (all 43 UBS forms) and
+    `util.printd` (21) threw and silently aborted the rest of their
+    handler. Dialogs take their default button and are reported as
+    `messages`; `resetData` restores template defaults at once. Every
+    script failure is recorded by the engine and named in the session's or
+    render's `warning`; a master-page script's failure in the document-wide
+    pass is left out, since the per-page pass re-runs it.
+23. **Fields start with their template value in the load pass**
+    (`XfaNode::template_value`). Upstream seeded the load-pass engine from a
+    `rawValue` attribute only, so a field's `<value>` default read as "" to
+    every script and to the control listing.
+24. **`<line>`, `<rectangle>` and `<arc>` draws are drawn** (`xfa/shapes.rs`),
+    and borders draw `join="round"` corners, `<linear>` gradient fills and
+    font or CSS underline/strikethrough. Designer's `h="=0mm"` is read as
+    0mm, and a self-closing element is kept under a bare `<template>` root
+    as it already was under `<xdp:xdp>`.
+25. **Picture clauses format and read field values** (`xfa/picture.rs`,
+    `locale.rs`, `field_meta.rs`): each field's pictures, locale (from the
+    `<localeSet>` packet), `maxChars`, `multiLine`, tooltip and `nullTest`
+    are read at parse time; the drawn and read value goes through the
+    format picture, typed input through the edit picture, and scripts get
+    `formattedValue`/`editValue`. Time zones, exponents, the global `?*+`
+    symbols and per-clause locales are refused, and such a field is shown
+    unformatted.
+26. **Presses fire mouse events, and interactions validate**
+    (`XfaForm::click`). A press on a button, radio or checkbox runs
+    `mouseDown`, the value change, `mouseUp`, `click`; a radio its own
+    scripts empty leaves its group unselected. After every set or press the
+    field's `nullTest` and validate scripts run, and failures are reported.
+27. **Captions are drawn** (`xfa/caption.rs`): a field's caption takes its
+    `reserve` (or what its text needs) on its side and the value is drawn
+    in the rest; a button's caption is its face.
+
+28. **Scripts resolve names, script objects and FormCalc as XFA 3.3 and
+    Acrobat do** (`js_helpers.rs`, `script_object.rs`, `formcalc.rs`).
+    Upstream ran scripts with every named node as a first-registered global;
+    every corpus form now loads without a failing script
+    (`tests/corpus_scripts.rs` holds that at zero):
+    - An unqualified name resolves by the §3 scope walk (`with` a scope
+      proxy around each script); bare `parent`, `index` and the like are the
+      container's own. Globals that are not form nodes (builtins such as
+      `Date`, `xfa`, script objects) keep their names.
+    - `xfa.resolveNode("this")` is the script's container; containers have
+      `getDeltas()` (LiveCycle), comparing each value with the merged one.
+    - Named script objects are built on first reference in their owner's
+      scope (§10), so `try{ myDE; } catch(e){ soCommonLabelDefinition; }`
+      works; declarations are read with comments and strings blanked.
+    - FormCalc (Chapter 25) is translated to JavaScript for the expression
+      core, assignment and `if`; anything else is reported, not skipped.
+      A field placed directly in a pageArea has the pageArea as `parent`,
+      and the load pass writes a calculate's result back to its field.
+    - Reading a name a form node has neither as a child nor as an XFA
+      property or method throws Acrobat's "Invalid property get operation",
+      which forms test for inside `try`.
+
 Not yet reached: `render_labelled` is not ported (it needs the excluded analysis
 pipeline).
 

@@ -8,9 +8,13 @@
 //!
 //! The verifier's tools are offered as `aem_verify_*` (upstream names them
 //! `verify_*`). They also lose the arguments this module supplies itself: the
-//! package to check (the run's latest build) and the session (one per agent).
+//! package to check (the run's latest build) and the instance (each agent has
+//! its own verifier server, so its one instance is the server's default). The
+//! `session` handles of the forms the agent opens are its own; this module only
+//! closes the ones that show an older build before the next open or run, which
+//! upstream would otherwise refuse.
 
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::fs::{File, TryLockError};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -28,7 +32,7 @@ use u2s_verify_core::docker::{DockerLifecycle, RegistryCredentials};
 use u2s_xfa_mcp::XfaDataServer;
 
 use crate::container_engine::ContainerEngine;
-use crate::conversion::ToolReply;
+use crate::conversion::{ReplyBlock, ToolReply};
 
 /// The server a u2s tool belongs to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,7 +55,7 @@ impl Family {
     /// Arguments this module supplies, so the model is never offered them.
     fn supplied_arguments(self) -> &'static [&'static str] {
         match self {
-            Family::AemVerify => &["package", "package_path", "session_id"],
+            Family::AemVerify => &["package", "package_path", "instance_id"],
             Family::XfaData | Family::XfaRender | Family::PdfRender => &[],
         }
     }
@@ -62,7 +66,7 @@ impl Family {
         match self {
             Family::AemVerify => {
                 " In this run the latest build_aem_package result is checked automatically and the \
-                 session is managed for you: pass no `package`, `package_path` or `session_id`."
+                 instance is managed for you: pass no `package`, `package_path` or `instance_id`."
             }
             Family::XfaData | Family::XfaRender | Family::PdfRender => "",
         }
@@ -154,6 +158,11 @@ fn to_entry(spec: &Value, family: Family, siblings: &[String]) -> Entry {
     if let Some(properties) = schema["properties"].as_object_mut() {
         for arg in family.supplied_arguments() {
             properties.remove(*arg);
+        }
+        for property in properties.values_mut() {
+            if let Some(description) = property["description"].as_str() {
+                property["description"] = Value::String(rename(description));
+            }
         }
     }
     if let Some(required) = schema["required"].as_array_mut() {
@@ -705,8 +714,10 @@ impl VerifyCall {
             "verify_status" | "verify_package_check" => Some(Self::Offline),
             "verify_run" | "verify_open" => Some(Self::Boots),
             "verify_submit" => Some(Self::Submit),
-            "verify_controls" | "verify_set" | "verify_next" | "verify_prev" | "verify_reset"
-            | "verify_screenshot" | "verify_close" => Some(Self::Step),
+            "verify_controls" | "verify_field" | "verify_set" | "verify_click" | "verify_next"
+            | "verify_prev" | "verify_goto" | "verify_reset" | "verify_screenshot" | "verify_close" => {
+                Some(Self::Step)
+            }
             _ => None,
         }
     }
@@ -720,6 +731,92 @@ impl VerifyCall {
             Self::Submit => Some(VERIFY_SUBMIT_DEADLINE),
             Self::Step => Some(VERIFY_STEP_DEADLINE),
         }
+    }
+}
+
+/// A verifier call that opens or closes a session, or needs the open ones out
+/// of its way, so [`U2sTools::call`] has to see it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SessionCall {
+    /// Opens the build in a new session: refused while a session shows another
+    /// build of the same form.
+    Open,
+    /// Walks the build in one call: refused while any session is open.
+    Run,
+    /// Closes one session.
+    Close,
+}
+
+impl SessionCall {
+    fn of(server_name: &str) -> Option<Self> {
+        match server_name {
+            "verify_open" => Some(Self::Open),
+            "verify_run" => Some(Self::Run),
+            "verify_close" => Some(Self::Close),
+            _ => None,
+        }
+    }
+}
+
+/// Identifies a build's bytes within this process, to tell which open
+/// sessions show the current build.
+fn fingerprint(bytes: &[u8]) -> u64 {
+    use std::hash::{DefaultHasher, Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The sessions in `open` (handle to build [`fingerprint`]) to close before
+/// `call` with the build `current`: for an open, those on another build; for a
+/// run, all of them; for a close, none.
+fn stale_sessions(open: &BTreeMap<String, u64>, call: SessionCall, current: u64) -> Vec<String> {
+    open.iter()
+        .filter(|(_, build)| match call {
+            SessionCall::Open => **build != current,
+            SessionCall::Run => true,
+            SessionCall::Close => false,
+        })
+        .map(|(session, _)| session.clone())
+        .collect()
+}
+
+/// The `session` handle a successful `verify_open` reply carries.
+pub(crate) fn opened_session(reply: &ToolReply) -> Option<String> {
+    let texts: Vec<&str> = match reply {
+        ToolReply::Text(text) => vec![text.as_str()],
+        ToolReply::Blocks(blocks) => blocks
+            .iter()
+            .filter_map(|b| match b {
+                ReplyBlock::Text(text) => Some(text.as_str()),
+                ReplyBlock::Image { .. } => None,
+            })
+            .collect(),
+        ToolReply::Error(_) => Vec::new(),
+    };
+    texts.into_iter().find_map(|text| {
+        serde_json::from_str::<Value>(text).ok()?.get("session")?.as_str().map(str::to_string)
+    })
+}
+
+/// `reply`, preceded by a line naming the sessions closed (or found gone)
+/// before the call.
+fn with_closed_note(reply: ToolReply, closed: &[String]) -> ToolReply {
+    if closed.is_empty() {
+        return reply;
+    }
+    let note = format!(
+        "Closed {} session(s) first, which the verifier requires before this call: {}.",
+        closed.len(),
+        closed.join(", ")
+    );
+    match reply {
+        ToolReply::Text(text) => ToolReply::Text(format!("{note}\n\n{text}")),
+        ToolReply::Blocks(mut blocks) => {
+            blocks.insert(0, ReplyBlock::Text(note));
+            ToolReply::Blocks(blocks)
+        }
+        ToolReply::Error(e) => ToolReply::Error(format!("{note}\n\n{e}")),
     }
 }
 
@@ -794,8 +891,8 @@ fn release(activity: &Mutex<Activity>) {
 /// Removes the containers a crashed run left behind, giving up after
 /// [`VERIFY_TEARDOWN_DEADLINE`]: Docker may be what went away, and the caller
 /// holds the agent.
-async fn remove_leftovers(owner: &str, reach: &u2s_verify_core::session::Reach) -> Result<(), String> {
-    tokio::time::timeout(VERIFY_TEARDOWN_DEADLINE, u2s_verify_core::session::remove_leftovers(owner, reach))
+async fn remove_leftovers(owner: &str, reach: &u2s_verify_core::instance::Reach) -> Result<(), String> {
+    tokio::time::timeout(VERIFY_TEARDOWN_DEADLINE, u2s_verify_core::instance::remove_leftovers(owner, reach))
         .await
         .map_err(|_| {
             format!(
@@ -824,6 +921,12 @@ pub struct U2sTools {
     /// Canonical paths a `doc_path` argument may name, besides the PDFs in the
     /// blob store (which only a verifier writes).
     documents: HashSet<PathBuf>,
+    /// The verifier sessions this agent opened and has not closed, each with
+    /// the [`fingerprint`] of the build it shows. Kept only by [`Self::call`],
+    /// which every verifier tool goes through. A session the verifier lost
+    /// (torn down idle or after a missed deadline) stays listed until the next
+    /// open or run tries to close it.
+    open_sessions: BTreeMap<String, u64>,
 }
 
 impl U2sTools {
@@ -847,6 +950,7 @@ impl U2sTools {
             })),
             watcher: None,
             documents: HashSet::new(),
+            open_sessions: BTreeMap::new(),
             dir,
         })
     }
@@ -904,7 +1008,7 @@ impl U2sTools {
                 return Err(format!("could not take the AEM verifier lock: {e}"));
             }
         }
-        remove_leftovers(&profile.format, &u2s_aem_verify_core::session::reach_of(profile)).await?;
+        remove_leftovers(&profile.format, &u2s_aem_verify_core::instance::reach_of(profile)).await?;
         self.activity.lock().map_err(poisoned)?.lock = Some(file);
         Ok(())
     }
@@ -957,18 +1061,81 @@ impl U2sTools {
 
     /// Runs `name`. `artifact` is the run's latest build (the package), handed
     /// to a verifier tool that checks one.
+    ///
+    /// Upstream refuses to open a build while a session still shows another
+    /// build of the same form, and to run while any session is open, so the
+    /// sessions [`stale_sessions`] names are closed first and the reply says
+    /// so.
     pub async fn call(&mut self, name: &str, input: &Value, artifact: Option<Artifact>) -> ToolReply {
-        match self.start(name, input, artifact).await {
+        let Some(call) = entry(name)
+            .filter(|e| e.family == Family::AemVerify)
+            .and_then(|e| SessionCall::of(&e.server_name))
+        else {
+            return self.run(name, input, artifact).await;
+        };
+        let build = artifact.as_ref().map(|a| fingerprint(&a.bytes));
+        let closed = match build {
+            Some(build) => self.close_sessions(stale_sessions(&self.open_sessions, call, build)).await,
+            None => Vec::new(),
+        };
+        let reply = self.run(name, input, artifact).await;
+        match call {
+            SessionCall::Open => {
+                if let (Some(session), Some(build)) = (opened_session(&reply), build) {
+                    self.open_sessions.insert(session, build);
+                }
+            }
+            SessionCall::Close => {
+                if let Some(session) = input.get("session").and_then(Value::as_str) {
+                    self.open_sessions.remove(session);
+                }
+            }
+            SessionCall::Run => {}
+        }
+        with_closed_note(reply, &closed)
+    }
+
+    async fn run(&mut self, name: &str, input: &Value, artifact: Option<Artifact>) -> ToolReply {
+        match self.prepare(name, input, artifact).await {
             Ok(work) => work.await,
             Err(refusal) => refusal,
         }
     }
 
+    /// Closes `sessions`, forgetting each whether or not the verifier still had
+    /// it, and returns one line per session for the reply.
+    async fn close_sessions(&mut self, sessions: Vec<String>) -> Vec<String> {
+        let mut closed = Vec::new();
+        for session in sessions {
+            let reply = self.run("aem_verify_close", &serde_json::json!({ "session": session }), None).await;
+            self.open_sessions.remove(&session);
+            closed.push(match reply {
+                ToolReply::Error(e) => format!("{session} (could not be closed, so it is forgotten: {e})"),
+                _ => session,
+            });
+        }
+        closed
+    }
+
     /// Everything [`Self::call`] needs from `self`, done now: the checks, the
     /// supplied arguments, the verifier lock, the server handle. What is left
     /// is the server's own work, which owns everything it touches, so a caller
-    /// may run it after letting go of the agent.
+    /// may run it after letting go of the agent. A tool that opens, closes or
+    /// runs a verifier session is refused here: it must go through
+    /// [`Self::call`], which keeps the agent's sessions.
     pub async fn start(
+        &mut self,
+        name: &str,
+        input: &Value,
+        artifact: Option<Artifact>,
+    ) -> Result<impl std::future::Future<Output = ToolReply> + Send + 'static, ToolReply> {
+        if entry(name).is_some_and(|e| e.family == Family::AemVerify && SessionCall::of(&e.server_name).is_some()) {
+            return Err(ToolReply::Error(format!("{name} runs only on its own, not beside other calls")));
+        }
+        self.prepare(name, input, artifact).await
+    }
+
+    async fn prepare(
         &mut self,
         name: &str,
         input: &Value,
@@ -1444,17 +1611,108 @@ mod tests {
         for name in ["aem_verify_run", "aem_verify_open"] {
             let spec = specs.iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name}"));
             let properties = spec["input_schema"]["properties"].as_object().cloned().unwrap_or_default();
-            for supplied in ["package", "package_path", "session_id"] {
+            for supplied in ["package", "package_path"] {
                 assert!(!properties.contains_key(supplied), "{name} still offers {supplied}");
             }
         }
+        for spec in specs.iter().filter(|s| s["name"].as_str().is_some_and(|n| n.starts_with("aem_verify_"))) {
+            let properties = &spec["input_schema"]["properties"];
+            assert!(properties.get("instance_id").is_none(), "{} still offers instance_id", spec["name"]);
+        }
+        let controls = specs.iter().find(|s| s["name"] == "aem_verify_controls").unwrap();
+        assert!(controls["input_schema"]["properties"].get("session").is_some(), "the session handle is the agent's own");
         assert!(!specs.iter().any(|s| s["name"] == "verify_run"));
         let open = specs.iter().find(|s| s["name"] == "aem_verify_open").unwrap();
         let description = open["description"].as_str().unwrap();
         assert!(description.contains("aem_verify_controls"), "{description}");
         assert!(!description.contains(" verify_controls"), "{description}");
+        let set = specs.iter().find(|s| s["name"] == "aem_verify_set").unwrap();
+        let field = set["input_schema"]["properties"]["field"]["description"].as_str().unwrap();
+        assert!(field.contains("aem_verify_controls"), "argument descriptions are renamed too: {field}");
         assert!(takes_artifact("aem_verify_run"));
         assert!(!takes_artifact("aem_verify_controls"));
+    }
+
+    #[test]
+    fn an_open_closes_only_the_sessions_on_another_build() {
+        let open = BTreeMap::from([("a".to_string(), 1), ("b".to_string(), 2), ("c".to_string(), 1)]);
+        assert_eq!(stale_sessions(&open, SessionCall::Open, 1), vec!["b".to_string()]);
+        assert_eq!(stale_sessions(&open, SessionCall::Open, 3), vec!["a", "b", "c"]);
+        assert!(stale_sessions(&BTreeMap::new(), SessionCall::Open, 1).is_empty());
+    }
+
+    #[test]
+    fn a_run_closes_every_session_and_a_close_none() {
+        let open = BTreeMap::from([("a".to_string(), 1), ("b".to_string(), 2)]);
+        assert_eq!(stale_sessions(&open, SessionCall::Run, 1), vec!["a", "b"]);
+        assert!(stale_sessions(&open, SessionCall::Close, 3).is_empty());
+    }
+
+    #[test]
+    fn the_opened_session_is_read_from_the_reply() {
+        let reply = ToolReply::Blocks(vec![ReplyBlock::Text(r#"{"session":"s-1","revision":0}"#.into())]);
+        assert_eq!(opened_session(&reply).as_deref(), Some("s-1"));
+        assert_eq!(opened_session(&ToolReply::Error("refused".into())), None);
+        assert_eq!(opened_session(&ToolReply::Text("not json".into())), None);
+    }
+
+    #[test]
+    fn the_reply_names_the_closed_sessions_first() {
+        let reply = with_closed_note(ToolReply::Blocks(vec![ReplyBlock::Text("{}".into())]), &["s-1".into()]);
+        let ToolReply::Blocks(blocks) = reply else { panic!("blocks stay blocks") };
+        assert!(matches!(&blocks[0], ReplyBlock::Text(t) if t.contains("s-1")), "{blocks:?}");
+        assert!(matches!(with_closed_note(ToolReply::Text("x".into()), &[]), ToolReply::Text(t) if t == "x"));
+    }
+
+    /// The tools that open or close a session go through `call`, which keeps
+    /// the agent's sessions, never beside other calls.
+    #[tokio::test]
+    async fn session_tools_are_refused_beside_other_calls() {
+        let mut tools = U2sTools::new().expect("tools");
+        for name in ["aem_verify_open", "aem_verify_close", "aem_verify_run"] {
+            let Err(ToolReply::Error(e)) = tools.start(name, &serde_json::json!({}), None).await else {
+                panic!("{name} was not refused");
+            };
+            assert!(e.contains("on its own"), "{e}");
+        }
+    }
+
+    /// Regression guard for the verifier's instance/session model: a session
+    /// still showing an older build of the form makes upstream refuse to open
+    /// the new one. Opening a rebuilt package must close it first and succeed.
+    #[tokio::test]
+    #[ignore = "needs Docker and the AEM image"]
+    async fn opening_a_rebuilt_package_closes_the_session_on_the_old_build() {
+        let golden = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vendor/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/AABF_019/document.json");
+        let text = std::fs::read_to_string(golden).unwrap();
+        let build = |text: &str| Artifact {
+            file_name: "package.zip",
+            bytes: u2s_aem_ubs_mcp::encode(
+                &u2s_aem_ubs_mcp::UbsAemDocument::from_json(&serde_json::from_str(text).unwrap()).unwrap(),
+            )
+            .unwrap()
+            .package,
+        };
+        let first = build(&text);
+        let second = build(&text.replace("UBS Europe SE", "UBS Europe SE (rebuilt)"));
+        assert_ne!(fingerprint(&first.bytes), fingerprint(&second.bytes));
+
+        let mut tools = U2sTools::new().expect("tools");
+        tools.attach_aem_verify(&AemVerifySettings::default()).expect("verifier");
+        let opened = tools.call("aem_verify_open", &serde_json::json!({}), Some(first)).await;
+        let old = opened_session(&opened).unwrap_or_else(|| panic!("first open: {opened:?}"));
+
+        let reopened = tools.call("aem_verify_open", &serde_json::json!({}), Some(second)).await;
+        let new = opened_session(&reopened).unwrap_or_else(|| panic!("second open: {reopened:?}"));
+        let ToolReply::Blocks(blocks) = &reopened else { panic!("{reopened:?}") };
+        assert!(matches!(&blocks[0], ReplyBlock::Text(t) if t.contains(&old)), "{blocks:?}");
+        assert_eq!(tools.open_sessions.keys().collect::<Vec<_>>(), vec![&new]);
+
+        let closed = tools.call("aem_verify_close", &serde_json::json!({ "session": new }), None).await;
+        assert!(!matches!(closed, ToolReply::Error(_)), "{closed:?}");
+        assert!(tools.open_sessions.is_empty());
+        tools.shutdown().await.expect("teardown");
     }
 
     /// Sets its flag when dropped, which is how a test sees that a spawned

@@ -833,10 +833,10 @@ mod tests {
             &text(json!({ "controls": [], "total": 0, "offset": 0, "next_offset": null, "space_size": 1, "saturated": false })),
         );
         e.observe_call("xfa_render_pages", &json!({ "doc_path": "source.pdf" }));
-        e.observe_reply("aem_verify_open", &json!({}), &text(json!({})));
+        e.observe_reply("aem_verify_open", &json!({}), &text(json!({ "session": "s-1", "revision": 0 })));
         e.observe_reply(
             "aem_verify_submit",
-            &json!({}),
+            &json!({ "session": "s-1" }),
             &text(json!({ "artefacts": [{ "blob": { "media_type": "application/pdf", "doc_path": "/blobs/dor.pdf" } }] })),
         );
         e.observe_call("pdf_render_pages", &json!({ "doc_path": "/blobs/dor.pdf" }));

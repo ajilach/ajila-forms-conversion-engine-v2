@@ -96,6 +96,7 @@ pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
             // is known, which is a result of laying the body out. The flattener
             // calls back into the still-live engine as it reaches each page.
             let mut warning = None;
+            let mut script_warning = result.script_report.warning();
             let flattened = match layout {
                 Some(mut layout) => {
                     let mut failed = false;
@@ -113,6 +114,9 @@ pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
                         },
                     )
                     .map_err(XfaError::Layout)?;
+                    let mut report = result.script_report.clone();
+                    report.errors.extend(layout.take_failures());
+                    script_warning = report.warning();
                     if failed {
                         warning = Some(
                             "this form's page-dependent master-page scripts could not \
@@ -130,7 +134,7 @@ pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
             Ok(Prepared {
                 flattened,
                 fidelity: Fidelity::Scripts,
-                warning,
+                warning: crate::xfa::scripting::join_warnings(warning, script_warning),
             })
         }
         Err(_) => {
