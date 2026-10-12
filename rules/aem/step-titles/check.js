@@ -117,8 +117,23 @@ function check(output, ctx) {
       });
       continue;
     }
-    // An untitled page opening with a deeper heading is fine: a step title prints as a ruled
-    // level-2 heading, which is only for a heading the source rules (ubs-aem-structure-matches-source).
+    // An untitled page that opens with a heading, at any level, has its step title in the wrong
+    // place: the feedback guard promotes that heading to the step title (PROBLEM-step-title-panel,
+    // `wrap:promote`). Its first drawn element with text decides, in document order, as the
+    // guard's `first_draw` does; a DoR header slot line is drawn text too. The guard asks only
+    // when the page has no level-2 heading, wrapped (fine) or not (reported above).
+    const first = h2.length > 0 ? null : inside.find(function (e) {
+      if (e.node.type !== "TextDraw" && e.node.type !== "TitleDraw") return false;
+      return plain(masterText(e.node.content, master)) !== "";
+    });
+    if (first && first.node.type === "TitleDraw") {
+      violations.push({
+        pointer: first.pointer,
+        message:
+          "page `" + page.name + "` has no title and starts with the heading `" + first.node.name +
+          "`: that is the step title written as a draw. Set the page's title to its text and delete the draw",
+      });
+    }
   }
 
   // Only the panels directly under the form are wizard steps. A panel below one that is marked

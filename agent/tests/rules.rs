@@ -616,18 +616,19 @@ fn a_step_is_a_page_and_its_heading_is_its_title() {
     )]);
     assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
 
-    // An untitled page may open with a deeper heading: a step title prints as a ruled level-2
-    // heading, which is only for a heading the source rules, and an unruled one is level 3 or
-    // deeper (BBTB_019's sections). That holds with the banking relationship before it too.
+    // An untitled page that opens with a heading, at any level, has its step title in the wrong
+    // place: the feedback guard promotes it (PROBLEM-step-title-panel, `wrap:promote`; AAAR_019's
+    // "2. SEPA core direct debit", a level-3 heading the source does not rule). The banking
+    // relationship alone is no text before the heading; its DoR header slot line is.
     let heading = || {
         let mut heading = draw("TitleDraw", "TTL_A", "Account");
         heading["heading_level"] = json!(3);
         heading
     };
     let doc = doc_with(vec![page("PN_A", "", vec![heading(), body()])]);
-    assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/0".to_string()]);
     let doc = doc_with(vec![page("PN_A", "", vec![preface(), heading()])]);
-    assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
     let entity = header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>");
     let doc = doc_with(vec![page("PN_A", "", vec![preface(), entity, heading()])]);
     assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
