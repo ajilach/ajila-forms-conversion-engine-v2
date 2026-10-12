@@ -150,11 +150,17 @@ fn is_marker(text: &str) -> bool {
 }
 
 /// Normalize a text for matching: collapse whitespace (a no-break space too),
-/// and drop a trailing colon or asterisk, which a label carries on paper and an
-/// input's label does not. Entities are the document side's business
-/// ([`decode_entities`]); the XFA text arrives decoded.
+/// write every double quote (straight, curly, low or a guillemet) as `"`, since
+/// the guillemet rule rewrites a German, Italian or Spanish quote whatever the
+/// source prints, and drop a trailing colon or asterisk, which a label carries
+/// on paper and an input's label does not. Entities are the document side's
+/// business ([`decode_entities`]); the XFA text arrives decoded.
 pub fn normalize(text: &str) -> String {
-    let collapsed = text.replace('\u{a0}', " ").split_whitespace().collect::<Vec<_>>().join(" ");
+    let quoted: String = text
+        .chars()
+        .map(|c| if matches!(c, '«' | '»' | '“' | '”' | '„') { '"' } else { c })
+        .collect();
+    let collapsed = quoted.replace('\u{a0}', " ").split_whitespace().collect::<Vec<_>>().join(" ");
     collapsed.trim_end_matches([':', '*', ' ']).to_string()
 }
 
@@ -453,6 +459,17 @@ mod tests {
         assert_eq!(decode_entities("it&#8217;s &#x2013; &euro;5 &amp;lt; &unknown;"), "it\u{2019}s \u{2013} \u{20ac}5 &lt; &unknown;");
         let (covered, missing) = compare(&["Name and address".into()], &texts(&["Name   and address"], &[]));
         assert_eq!((covered, missing.len()), (1, 0));
+    }
+
+    /// The guillemet rule rewrites a German, Italian or Spanish quote as
+    /// `«…»` whatever the source prints (BAGR_019's Spanish "operaciones",
+    /// which a Reviewer took for a missing text and had reverted), so a quote
+    /// mark's shape is not a difference.
+    #[test]
+    fn the_shape_of_a_double_quote_does_not_matter() {
+        let source = "(en lo sucesivo \"operaciones\") según el «Preis- und Leistungsverzeichnis»";
+        let target = texts(&["(en lo sucesivo «operaciones») según el „Preis- und Leistungsverzeichnis“"], &[]);
+        assert_eq!(compare(&[source.into()], &target), (1, vec![]));
     }
 
     /// A short label has to match exactly; a table row and a long text may
