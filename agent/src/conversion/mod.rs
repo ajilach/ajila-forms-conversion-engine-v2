@@ -501,6 +501,15 @@ impl ConversionAgent {
         })
     }
 
+    /// The languages the verifier can open the latest build in, as the form's
+    /// metadata files them (`aem_verify_run`'s `language`); the one it opens
+    /// by default first.
+    pub fn aem_languages(&self) -> Result<Vec<String>, String> {
+        let built = self.built.as_ref().ok_or(NO_PACKAGE)?;
+        let tools = self.u2s.as_ref().ok_or_else(|| crate::u2s::no_verifier("The form's languages"))?;
+        tools.aem_languages(&built.package)
+    }
+
     // ── Public accessors (for the driving loop's result finalization) ─────────
 
     /// Drain the Reviewer role's latest `submit_review` outcome (the controller

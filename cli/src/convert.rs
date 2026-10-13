@@ -335,13 +335,16 @@ fn write_artifacts(
         &serde_json::to_vec_pretty(&outcome.document)?,
     )?;
 
-    // What the final build looked like on the verifier, numbered in order.
+    // What the final build looked like on the verifier, a directory per
+    // language, numbered in order.
     if let Some(review) = &outcome.review {
-        let dir = out.join(runner::review_dirname(code));
-        std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
-        for (side, images) in review.sides() {
-            for (index, image) in images.iter().enumerate() {
-                write_file(&dir, &runner::review_image_filename(side, index, &image.label), &image.png)?;
+        for language in &review.languages {
+            let dir = out.join(runner::review_dirname(code)).join(&language.language);
+            std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+            for (side, images) in language.images.sides() {
+                for (index, image) in images.iter().enumerate() {
+                    write_file(&dir, &runner::review_image_filename(side, index, &image.label), &image.png)?;
+                }
             }
         }
     }

@@ -23,6 +23,7 @@ use std::time::{Duration, Instant};
 use rmcp3::model::CallToolResult;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use u2s_aem_ubs_verify_mcp::driver::UbsDriver;
 use u2s_aem_verify_core::profile::Profile;
 use u2s_aem_verify_core::server::{AemVerifyServer, ServerConfig};
 use u2s_render_core::{BlobStore, Limits};
@@ -287,20 +288,28 @@ impl AemVerifySettings {
         .map_err(|e| format!("the AEM verification settings are invalid: {e}"))
     }
 
+    /// How the verifier opens a UBS form: as the configured mandator.
+    fn driver(&self) -> UbsDriver {
+        UbsDriver::new(optional(&self.mandator))
+    }
+
     fn server(&self, blobs: u2s_blob::BlobStore) -> Result<AemVerifyServer, String> {
         let config = ServerConfig {
             name: "u2s-aem-ubs-verify-mcp",
             version: env!("CARGO_PKG_VERSION"),
             expected_format: Some("aem-ubs"),
-            driver: Arc::new(u2s_aem_ubs_verify_mcp::driver::UbsDriver::new(optional(
-                &self.mandator,
-            ))),
+            driver: Arc::new(self.driver()),
             tool_specs: u2s_aem_ubs_verify_mcp::specs::tool_specs(),
             manifest: Box::new(u2s_aem_ubs_verify_mcp::specs::manifest),
             instructions: Box::new(|_| String::new()),
         };
         AemVerifyServer::with_parts(Arc::new(config), self.profile()?, blobs)
     }
+}
+
+/// Why `what`, which needs the AEM verifier, cannot be had.
+pub(crate) fn no_verifier(what: &str) -> String {
+    format!("{what} is not available in this run: its verifier was not started")
 }
 
 /// Everything that keeps a run from starting, one problem per entry, each
@@ -1331,6 +1340,16 @@ impl U2sTools {
         })
     }
 
+    /// The languages the verifier can open `package`'s form in (its
+    /// `aem_verify_run` `language`), as the form's metadata files them for
+    /// the configured mandator; the one it opens by default first. Touches no
+    /// Docker.
+    pub fn aem_languages(&self, package: &[u8]) -> Result<Vec<String>, String> {
+        let hold = self.verifier.as_ref().ok_or_else(|| no_verifier("The form's languages"))?;
+        let inspection = u2s_aem_verify_core::package_check::inspect(package).map_err(|e| e.to_string())?;
+        hold.shared().settings.driver().languages(&inspection)
+    }
+
     /// Joins the process's AEM verifier, which the agent's `aem_verify_*`
     /// calls then use. Touches no Docker.
     pub fn attach_aem_verify(&mut self, settings: &AemVerifySettings) -> Result<(), String> {
@@ -1550,9 +1569,7 @@ impl U2sTools {
                     };
                     let restarted = self.notice_restart();
                     let Some(hold) = &self.verifier else {
-                        return Err(ToolReply::Error(format!(
-                            "{name} is not available in this run: its verifier was not started"
-                        )));
+                        return Err(ToolReply::Error(no_verifier(name)));
                     };
                     note = restarted;
                     let shared = Arc::clone(hold.shared());

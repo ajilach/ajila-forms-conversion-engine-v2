@@ -73,9 +73,9 @@ fn render_sources(args: RenderSourcesArgs) -> Result<(), Box<dyn std::error::Err
                 .map_err(|e| format!("Could not read {}: {e}", path.display()))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let images = agent::review::render_sources(&files)?;
+    let sources = agent::review::render_sources(&files)?;
     std::fs::create_dir_all(&args.out).map_err(|e| format!("Could not create {}: {e}", args.out.display()))?;
-    for (index, image) in images.iter().enumerate() {
+    for (index, image) in sources.iter().flat_map(|source| &source.pages).enumerate() {
         let path = args.out.join(runner::review_image_filename("source", index, &image.label));
         std::fs::write(&path, &image.png).map_err(|e| format!("Could not write {}: {e}", path.display()))?;
         println!("Wrote: {}", path.display());

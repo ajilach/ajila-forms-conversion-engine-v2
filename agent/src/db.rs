@@ -16,10 +16,11 @@
 //!   LLM message, opaque JSON this module never deserializes (that is
 //!   `pipeline::memory`'s job, the one place that knows what a rig `Message`
 //!   is). Append-only: nothing here ever deletes a row except `clear`.
-//! - `review_images(session_id TEXT, side TEXT, seq INTEGER, label TEXT,
-//!   png BLOB, PRIMARY KEY(session_id, side, seq))` — what a session's last
-//!   finished run looked like on its verifier (see [`crate::review`]); a run
-//!   that finishes replaces its session's rows.
+//! - `review_images(session_id TEXT, language TEXT, language_seq INTEGER,
+//!   side TEXT, seq INTEGER, label TEXT, png BLOB, PRIMARY KEY(session_id,
+//!   language, side, seq))` — what a session's last finished run looked like
+//!   on its verifier, per language (see [`crate::review`]); a run that
+//!   finishes replaces its session's rows.
 
 /// Metadata about a previous editing session, for the "continue editing" list.
 #[derive(Clone, Debug, PartialEq)]
@@ -53,7 +54,7 @@ pub fn format_timestamp(ts: &str) -> String {
 
 mod imp {
     use super::{EditInfo, SessionInfo};
-    use crate::review::{ReviewImage, ReviewImages};
+    use crate::review::{LanguageReview, Review, ReviewImage, ReviewImages};
     use rusqlite::{Connection, OptionalExtension};
     use std::collections::HashSet;
     use std::path::{Path, PathBuf};
@@ -69,7 +70,7 @@ mod imp {
     const BUSY_TIMEOUT: Duration = Duration::from_secs(10);
 
     /// The schema revision this build expects. Bumped when a migration is added.
-    const SCHEMA_VERSION: i64 = 4;
+    const SCHEMA_VERSION: i64 = 5;
 
     /// Redirects the store to a scratch file. Tests only — see
     /// [`set_db_path_for_test`].
@@ -197,6 +198,25 @@ mod imp {
         Ok(())
     }
 
+    /// The table of what a session's last finished run looked like on its
+    /// verifier, in each language: the form's screenshots and the output PDF's
+    /// pages. `language_seq` keeps the languages in the form's order. Named so
+    /// [`migrate`] can build the new shape beside an old one.
+    fn review_images_table(name: &str) -> String {
+        format!(
+            "CREATE TABLE IF NOT EXISTS {name} (
+                session_id   TEXT NOT NULL,
+                language     TEXT NOT NULL,
+                language_seq INTEGER NOT NULL,
+                side         TEXT NOT NULL CHECK (side IN ('form', 'output')),
+                seq          INTEGER NOT NULL,
+                label        TEXT NOT NULL,
+                png          BLOB NOT NULL,
+                PRIMARY KEY (session_id, language, side, seq)
+            );"
+        )
+    }
+
     /// Bring an existing database up to [`SCHEMA_VERSION`].
     ///
     /// Split from [`ensure_schema`] because `CREATE TABLE IF NOT EXISTS` cannot
@@ -255,6 +275,32 @@ mod imp {
             // field: this crate has no reason to know that struct's shape,
             // only to hold it for whoever does.
             let _ = conn.execute("ALTER TABLE sessions ADD COLUMN spend_json TEXT", []);
+        }
+
+        if version < 5 {
+            // Review images were once captured in one language, unrecorded.
+            // `CREATE TABLE IF NOT EXISTS` left such a table as it was, and
+            // its primary key cannot be altered, so it is rebuilt; its rows
+            // keep an empty language, which the review shows as unknown. The
+            // check is inside the write transaction, so a second process
+            // opening the store meanwhile finds the table already rebuilt.
+            let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate)?;
+            let has_language: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM pragma_table_info('review_images') WHERE name = 'language')",
+                [],
+                |row| row.get(0),
+            )?;
+            if !has_language {
+                tx.execute_batch(&format!(
+                    "{}
+                     INSERT INTO review_images_v5 (session_id, language, language_seq, side, seq, label, png)
+                         SELECT session_id, '', 0, side, seq, label, png FROM review_images;
+                     DROP TABLE review_images;
+                     ALTER TABLE review_images_v5 RENAME TO review_images;",
+                    review_images_table("review_images_v5")
+                ))?;
+            }
+            tx.commit()?;
         }
 
         if version < SCHEMA_VERSION {
@@ -318,19 +364,9 @@ mod imp {
                 created_at   TEXT NOT NULL,
                 message_json TEXT NOT NULL,
                 PRIMARY KEY (session_id, stage, seq)
-            );
-            -- What a session's last finished run looked like on its verifier:
-            -- the form's screenshots and the output PDF's pages. A brand new
-            -- table, so like `conversations` it needs no migration.
-            CREATE TABLE IF NOT EXISTS review_images (
-                session_id TEXT NOT NULL,
-                side       TEXT NOT NULL CHECK (side IN ('form', 'output')),
-                seq        INTEGER NOT NULL,
-                label      TEXT NOT NULL,
-                png        BLOB NOT NULL,
-                PRIMARY KEY (session_id, side, seq)
             );",
         )?;
+        conn.execute_batch(&review_images_table("review_images"))?;
         // Reference-form tables (shared schema with the `reference-builder`
         // crate, so dataset exports import without drift). Stored in the same
         // `history.db`; only these tables are written by reference import/export.
@@ -929,15 +965,26 @@ mod imp {
 
     // ── Review images ────────────────────────────────────────────────────────
 
-    fn store_review_conn(conn: &mut Connection, session_id: &str, images: &ReviewImages) -> rusqlite::Result<()> {
+    fn store_review_conn(conn: &mut Connection, session_id: &str, review: &Review) -> rusqlite::Result<()> {
         let tx = conn.transaction()?;
         tx.execute("DELETE FROM review_images WHERE session_id = ?1", [session_id])?;
-        for (side, side_images) in images.sides() {
-            for (seq, image) in side_images.iter().enumerate() {
-                tx.execute(
-                    "INSERT INTO review_images (session_id, side, seq, label, png) VALUES (?1, ?2, ?3, ?4, ?5)",
-                    rusqlite::params![session_id, side, seq as i64, image.label, image.png],
-                )?;
+        for (language_seq, language) in review.languages.iter().enumerate() {
+            for (side, side_images) in language.images.sides() {
+                for (seq, image) in side_images.iter().enumerate() {
+                    tx.execute(
+                        "INSERT INTO review_images (session_id, language, language_seq, side, seq, label, png)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        rusqlite::params![
+                            session_id,
+                            language.language,
+                            language_seq as i64,
+                            side,
+                            seq as i64,
+                            image.label,
+                            image.png
+                        ],
+                    )?;
+                }
             }
         }
         tx.commit()
@@ -946,32 +993,44 @@ mod imp {
     /// Replace the review images of `session_id`. One transaction, so a
     /// session never shows half of one run's images next to another's.
     /// `None` when the write failed (the cause is printed).
-    pub fn store_review(session_id: &str, images: &ReviewImages) -> Option<()> {
+    pub fn store_review(session_id: &str, review: &Review) -> Option<()> {
         let mut conn = warn_db(open(), "opening the store")?;
-        warn_db(store_review_conn(&mut conn, session_id, images), "storing review images")
+        warn_db(store_review_conn(&mut conn, session_id, review), "storing review images")
     }
 
-    fn load_review_conn(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<ReviewImages>> {
-        let mut images = ReviewImages::default();
+    fn load_review_conn(conn: &Connection, session_id: &str) -> rusqlite::Result<Option<Review>> {
+        let languages: Vec<String> = conn
+            .prepare(
+                "SELECT language FROM review_images WHERE session_id = ?1
+                 GROUP BY language ORDER BY MIN(language_seq) ASC",
+            )?
+            .query_map([session_id], |row| row.get(0))?
+            .collect::<rusqlite::Result<_>>()?;
         let mut stmt = conn.prepare(
-            "SELECT label, png FROM review_images WHERE session_id = ?1 AND side = ?2 ORDER BY seq ASC",
+            "SELECT label, png FROM review_images WHERE session_id = ?1 AND language = ?2 AND side = ?3
+             ORDER BY seq ASC",
         )?;
-        for (side, side_images) in images.sides_mut() {
-            *side_images = stmt
-                .query_map([session_id, side], |row| {
-                    Ok(ReviewImage {
-                        label: row.get(0)?,
-                        png: row.get(1)?,
-                    })
-                })?
-                .collect::<rusqlite::Result<Vec<_>>>()?;
+        let mut review = Review::default();
+        for language in languages {
+            let mut images = ReviewImages::default();
+            for (side, side_images) in images.sides_mut() {
+                *side_images = stmt
+                    .query_map([session_id, language.as_str(), side], |row| {
+                        Ok(ReviewImage {
+                            label: row.get(0)?,
+                            png: row.get(1)?,
+                        })
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+            }
+            review.languages.push(LanguageReview { language, images });
         }
-        Ok((!images.is_empty()).then_some(images))
+        Ok((!review.is_empty()).then_some(review))
     }
 
     /// The review images of `session_id`; `None` when it has none, or the read
     /// failed (the cause is printed).
-    pub fn load_review(session_id: &str) -> Option<ReviewImages> {
+    pub fn load_review(session_id: &str) -> Option<Review> {
         let conn = warn_db(open(), "opening the store")?;
         warn_db(load_review_conn(&conn, session_id), "reading review images").flatten()
     }
@@ -995,7 +1054,7 @@ mod imp {
     mod tests {
         use super::*;
 
-        fn review(labels: &[&str], outputs: &[&str]) -> ReviewImages {
+        fn images(labels: &[&str], outputs: &[&str]) -> ReviewImages {
             let image = |label: &&str| ReviewImage {
                 label: label.to_string(),
                 png: label.as_bytes().to_vec(),
@@ -1006,28 +1065,81 @@ mod imp {
             }
         }
 
-        /// Review images round-trip in order per side, a second store replaces
-        /// the first rather than adding to it, and deleting the session takes
-        /// them along.
+        fn review(languages: &[(&str, ReviewImages)]) -> Review {
+            Review {
+                languages: languages
+                    .iter()
+                    .map(|(language, images)| LanguageReview {
+                        language: language.to_string(),
+                        images: images.clone(),
+                    })
+                    .collect(),
+            }
+        }
+
+        /// Review images round-trip per language, in the languages' order and
+        /// in order per side; a second store replaces the first rather than
+        /// adding to it, and deleting the session takes them along.
         #[test]
         fn review_images_round_trip_and_are_replaced() {
             let mut conn = mem();
             assert!(!has_review_conn(&conn, "s").unwrap());
             assert_eq!(load_review_conn(&conn, "s").unwrap(), None);
 
-            let first = review(&["form", "panel-2", "panel-3"], &["DoR, page 1", "DoR, page 2"]);
+            // Not alphabetical: the form's order must survive.
+            let first = review(&[
+                ("en", images(&["form", "panel-2", "panel-3"], &["DoR, page 1", "DoR, page 2"])),
+                ("de", images(&["Formular"], &["DoR, Seite 1"])),
+            ]);
             store_review_conn(&mut conn, "s", &first).unwrap();
-            store_review_conn(&mut conn, "other", &review(&["x"], &[])).unwrap();
+            store_review_conn(&mut conn, "other", &review(&[("en", images(&["x"], &[]))])).unwrap();
             assert!(has_review_conn(&conn, "s").unwrap());
             assert_eq!(load_review_conn(&conn, "s").unwrap(), Some(first));
 
-            let second = review(&[], &["rendered (en), page 1"]);
+            let second = review(&[("es", images(&[], &["rendered (es), page 1"]))]);
             store_review_conn(&mut conn, "s", &second).unwrap();
             assert_eq!(load_review_conn(&conn, "s").unwrap(), Some(second));
 
             delete_session_conn(&mut conn, "s").unwrap();
             assert!(!has_review_conn(&conn, "s").unwrap());
             assert!(has_review_conn(&conn, "other").unwrap(), "another session keeps its images");
+        }
+
+        /// A store from before review images had a language keeps its images,
+        /// under an empty language.
+        #[test]
+        fn review_images_of_an_older_store_migrate_without_a_language() {
+            let mut conn = Connection::open_in_memory().unwrap();
+            conn.execute_batch(
+                "CREATE TABLE review_images (
+                     session_id TEXT NOT NULL,
+                     side       TEXT NOT NULL CHECK (side IN ('form', 'output')),
+                     seq        INTEGER NOT NULL,
+                     label      TEXT NOT NULL,
+                     png        BLOB NOT NULL,
+                     PRIMARY KEY (session_id, side, seq));
+                 INSERT INTO review_images VALUES ('s', 'form', 0, 'form', x'01');
+                 INSERT INTO review_images VALUES ('s', 'output', 0, 'DoR, page 1', x'02');",
+            )
+            .unwrap();
+            ensure_schema(&conn).unwrap();
+            migrate(&conn).unwrap();
+            let old = |label: &str, png: u8| ReviewImage {
+                label: label.into(),
+                png: vec![png],
+            };
+            let expected = Review {
+                languages: vec![LanguageReview {
+                    language: String::new(),
+                    images: ReviewImages {
+                        form: vec![old("form", 1)],
+                        output: vec![old("DoR, page 1", 2)],
+                    },
+                }],
+            };
+            assert_eq!(load_review_conn(&conn, "s").unwrap(), Some(expected));
+            store_review_conn(&mut conn, "s", &review(&[("de", images(&["f"], &[]))])).unwrap();
+            assert_eq!(load_review_conn(&conn, "s").unwrap().unwrap().languages[0].language, "de");
         }
 
         /// A scratch database carrying the same schema and indexes a real one

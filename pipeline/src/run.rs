@@ -148,7 +148,7 @@ pub struct RunOutcome {
     pub warnings: Vec<String>,
     /// What the final build looked like on the verifier, for a person to
     /// review; `None` when it was not captured (a warning says why).
-    pub review: Option<agent::review::ReviewImages>,
+    pub review: Option<agent::review::Review>,
     /// Where every rule stands on the final document.
     pub rules: Vec<agent::RuleView>,
 }
@@ -423,12 +423,12 @@ async fn capture_review(
     abort: &AbortFlag,
     obs: &SharedObserver,
     warnings: &mut Vec<String>,
-) -> Option<agent::review::ReviewImages> {
+) -> Option<agent::review::Review> {
     const ID: &str = "capture-review";
     obs.emit(RunEvent::ToolStarted {
         id: ID.to_string(),
         name: "capture_review".to_string(),
-        input_summary: "verifying the final build for the review images".into(),
+        input_summary: "verifying the final build in each language for the review images".into(),
     });
     let captured = tokio::select! {
         captured = async { agent::review::capture(&mut *shared_agent.lock().await).await } => captured,
@@ -444,7 +444,7 @@ async fn capture_review(
             for problem in captured.problems {
                 warn(obs, warnings, format!("The final verification for the review reported: {problem}"));
             }
-            Some(captured.images)
+            Some(captured.review)
         }
         Err(e) => {
             warn(obs, warnings, format!("No review images were captured: {e}"));

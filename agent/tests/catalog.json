@@ -1868,6 +1868,10 @@
           "description": "Field name to value. Each name must be the guide node's own `name` -- GuideBridge exposes it as a global carrying `.value`. Ignored when `submit` is false.",
           "type": "object"
         },
+        "language": {
+          "description": "The language to open the form in: one of the codes its metadata declares for the entity (aem_verify_package_check lists them, e.g. `de`). Default: the entity's first. A language the form does not declare is an error.",
+          "type": "string"
+        },
         "submit": {
           "description": "Fill and submit after rendering; default true.",
           "type": "boolean"

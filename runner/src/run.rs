@@ -266,7 +266,7 @@ async fn drive(
     // change what was built, so the previous run's images go now: a run that
     // ends without capturing any, or never ends, must not leave an older build
     // on show as this one.
-    if agent::db::store_review(&session_id, &agent::review::ReviewImages::default()).is_none() {
+    if agent::db::store_review(&session_id, &agent::review::Review::default()).is_none() {
         obs.emit(RunEvent::Warning(
             "The previous review images could not be cleared, so the review may show an older build.".into(),
         ));

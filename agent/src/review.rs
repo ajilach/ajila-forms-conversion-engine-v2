@@ -2,9 +2,10 @@
 //! page, next to what the run's output looks like on its verifier.
 //!
 //! The output side only exists while the verifier runs, so [`capture`] takes it
-//! at the end of a run, from one last verification of the build that ships,
-//! before the controller tears the verifier down. The source side can be
-//! rendered at any time from the source bytes ([`render_sources`]).
+//! at the end of a run, from one last verification per language of the build
+//! that ships, before the controller tears the verifier down. The source side
+//! can be rendered at any time from the source bytes ([`render_sources`]),
+//! each file tagged with its language so a person compares like with like.
 //!
 //! It also holds what the Reviewer hands a person rather than the Author: a
 //! [`RuleConflict`], a place where two rules ask for opposite things, which
@@ -29,7 +30,30 @@ pub struct ReviewImage {
     pub png: Vec<u8>,
 }
 
-/// What a run's output looks like.
+/// What a run's output looks like, in each language it ships, in the order
+/// the form declares them.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Review {
+    pub languages: Vec<LanguageReview>,
+}
+
+impl Review {
+    pub fn is_empty(&self) -> bool {
+        self.languages.iter().all(|language| language.images.is_empty())
+    }
+}
+
+/// What a run's output looks like in one language.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LanguageReview {
+    /// The document's code for it (ISO 639-1, `es` rather than the form
+    /// metadata's `sp`), the one [`SourceReview::language`] uses. Empty for
+    /// images captured before the language was recorded.
+    pub language: String,
+    pub images: ReviewImages,
+}
+
+/// What a run's output looks like in one language.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ReviewImages {
     /// Screenshots of the rendered form, in the order the verifier took them.
@@ -58,20 +82,71 @@ const FORM_SIDE: &str = "form";
 const OUTPUT_SIDE: &str = "output";
 
 /// What [`capture`] took, with what the verification reported as wrong: a
-/// failed submit still leaves its screenshots worth reviewing.
+/// failed submit still leaves its screenshots worth reviewing, and a language
+/// that failed leaves the others.
 #[derive(Debug)]
 pub struct Captured {
-    pub images: ReviewImages,
+    pub review: Review,
     pub problems: Vec<String>,
 }
 
-/// Verifies the agent's current build once more and keeps what that produced
-/// as images. Records nothing as stage evidence: no stage is running.
+/// What one language's verification left, as [`Captured`] has it.
+#[derive(Debug)]
+struct LanguageCapture {
+    images: ReviewImages,
+    problems: Vec<String>,
+}
+
+/// Verifies the agent's current build once more in every language its form
+/// declares and keeps what that produced as images. Records nothing as stage
+/// evidence: no stage is running.
 ///
-/// An error when the verification itself failed or produced nothing to show.
+/// An error when no language could be verified or produced anything to show;
+/// each language that failed is a problem.
 pub async fn capture(agent: &mut ConversionAgent) -> Result<Captured, String> {
+    let languages = review_languages(&agent.aem_languages()?)?;
+    let mut review = Review::default();
+    let mut problems = Vec::new();
+    for (language, code) in languages {
+        match capture_language(agent, &code).await {
+            Ok(captured) => {
+                problems.extend(captured.problems.into_iter().map(|p| format!("{language}: {p}")));
+                review.languages.push(LanguageReview {
+                    language,
+                    images: captured.images,
+                });
+            }
+            Err(e) => problems.push(format!("{language}: {e}")),
+        }
+    }
+    if review.languages.is_empty() {
+        return Err(problems.join("; "));
+    }
+    Ok(Captured { review, problems })
+}
+
+/// Each language of the form, as `(the document's code, the code the
+/// verifier opens it with)`: the form's metadata files Spanish as `sp`, a
+/// source and the document as `es`. A language listed twice under two codes
+/// is captured once, under the first.
+fn review_languages(codes: &[String]) -> Result<Vec<(String, String)>, String> {
+    let mut languages: Vec<(String, String)> = Vec::new();
+    for code in codes {
+        let language = u2s_aem_ubs_mcp::iso_language(code).map_err(|e| e.to_string())?;
+        if !languages.iter().any(|(known, _)| *known == language) {
+            languages.push((language, code.clone()));
+        }
+    }
+    if languages.is_empty() {
+        return Err("the form declares no language to open it in".into());
+    }
+    Ok(languages)
+}
+
+/// One verification, with the form opened in the verifier's `code`.
+async fn capture_language(agent: &mut ConversionAgent, code: &str) -> Result<LanguageCapture, String> {
     let tool = "aem_verify_run";
-    let report = match agent.execute_as(tool, &json!({}), &crate::Caller::Host).await {
+    let report = match agent.execute_as(tool, &json!({ "language": code }), &crate::Caller::Host).await {
         ToolReply::Error(e) => return Err(format!("{tool} failed: {e}")),
         reply => crate::conversion::json_of(&reply).ok_or_else(|| format!("{tool} returned no report"))?,
     };
@@ -130,7 +205,7 @@ fn locate(report: &Value) -> Located {
 }
 
 /// Reads the screenshots and renders the PDFs [`locate`] found.
-fn read_located(mut located: Located) -> Result<Captured, String> {
+fn read_located(mut located: Located) -> Result<LanguageCapture, String> {
     let mut images = ReviewImages::default();
     for (label, path) in located.screenshots {
         let png = std::fs::read(&path).map_err(|e| format!("reading screenshot {label}: {e}"))?;
@@ -153,45 +228,60 @@ fn read_located(mut located: Located) -> Result<Captured, String> {
         };
         return Err(format!("the verification produced nothing to review{why}"));
     }
-    Ok(Captured {
+    Ok(LanguageCapture {
         images,
         problems: located.problems,
     })
 }
 
-/// Renders every page of the source PDFs, in order, each labelled with its
-/// file. Files that are not PDFs (an attached template package) are skipped.
-/// XFA forms go through the XFA renderer, which draws them in their initial
-/// state; pdfium only shows such a form's "please wait" placeholder.
-pub fn render_sources(files: &[(String, Vec<u8>)]) -> Result<Vec<ReviewImage>, String> {
+/// One source PDF, rendered.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SourceReview {
+    pub file: String,
+    /// The language its XFA form declares, the document's code for it; `None`
+    /// for a plain PDF, which says none.
+    pub language: Option<String>,
+    pub pages: Vec<ReviewImage>,
+}
+
+/// Renders every page of the source PDFs, in order, each page labelled with
+/// its file. Files that are not PDFs (an attached template package) are
+/// skipped. XFA forms go through the XFA renderer, which draws them in their
+/// initial state; pdfium only shows such a form's "please wait" placeholder.
+pub fn render_sources(files: &[(String, Vec<u8>)]) -> Result<Vec<SourceReview>, String> {
     crate::u2s::register_fonts()?;
     let dir = tempfile::Builder::new()
         .prefix("blueprint-review-")
         .tempdir()
         .map_err(|e| format!("could not create a directory to render the sources in: {e}"))?;
-    let mut images = Vec::new();
+    let mut sources = Vec::new();
     for (index, (name, bytes)) in files.iter().enumerate() {
         if !crate::conversion::is_source_pdf(name) {
             continue;
         }
         let path = dir.path().join(format!("{index}.pdf"));
         std::fs::write(&path, bytes).map_err(|e| format!("writing {name}: {e}"))?;
-        let is_xfa = u2s_xfa::extract_xfa_from_pdf_bytes(bytes)
-            .map_err(|e| format!("reading {name}: {e}"))?
-            .is_some();
-        images.extend(if is_xfa {
+        // Only an XFA form has a context to read.
+        let context = crate::source::read(bytes).map_err(|e| format!("reading {name}: {e}"))?;
+        let (language, pages) = if let Some(context) = context {
             let xfa = u2s_render_xfa::Renderer::new(limits());
             let target = u2s_render_xfa::Target::doc(&path, &u2s_xfa::states::StateSpec::default());
-            labelled(
+            let pages = labelled(
                 name,
                 walk(|from| xfa.render_pages(&target, None, Some(from), None, Some(REVIEW_DPI), None, ImageFormat::Png))
                     .map_err(|e| format!("rendering {name}: {e}"))?,
-            )
+            );
+            (Some(context.language), pages)
         } else {
-            render_pdf(&path, name)?
+            (None, render_pdf(&path, name)?)
+        };
+        sources.push(SourceReview {
+            file: name.clone(),
+            language,
+            pages,
         });
     }
-    Ok(images)
+    Ok(sources)
 }
 
 /// Lighter than this, a pixel counts as paper: anti-aliasing leaves text
@@ -541,11 +631,39 @@ mod tests {
             let target = u2s_render_xfa::Target::doc(&path, &u2s_xfa::states::StateSpec::default());
             u2s_render_xfa::Renderer::new(limits()).info(&target).unwrap().page_count
         };
-        let images =
+        let sources =
             render_sources(&[(name.clone(), bytes), ("template.zip".into(), b"PK".to_vec())]).unwrap();
+        assert_eq!(sources.len(), 1);
+        let images = &sources[0].pages;
         assert_eq!(images.len(), page_count as usize);
         assert_eq!(images[0].label, format!("{name}, page 1"));
         assert!(images.iter().all(|i| i.png.starts_with(PNG_MAGIC)));
+    }
+
+    /// Each XFA source is tagged with its own language, in the document's
+    /// code: the Spanish PDF as `es`, as the review's selector pairs it with
+    /// the output captured under the metadata's `sp`.
+    #[test]
+    fn each_source_is_tagged_with_its_language() {
+        let files = [form("AAAA_019_DE.pdf"), form("AAAA_019_SP.pdf")];
+        let sources = render_sources(&files).unwrap();
+        let tagged: Vec<_> = sources.iter().map(|s| (s.file.as_str(), s.language.as_deref())).collect();
+        assert_eq!(tagged, [("AAAA_019_DE.pdf", Some("de")), ("AAAA_019_SP.pdf", Some("es"))]);
+        assert!(sources.iter().all(|s| !s.pages.is_empty()));
+    }
+
+    /// The verifier's codes become the document's languages, the first (the
+    /// one the verifier opens by default) first; a language listed under
+    /// two codes is captured once.
+    #[test]
+    fn verifier_languages_pair_with_the_documents() {
+        let codes = ["de", "en", "sp", "es"].map(String::from);
+        let pair = |a: &str, b: &str| (a.to_string(), b.to_string());
+        assert_eq!(
+            review_languages(&codes).unwrap(),
+            [pair("de", "de"), pair("en", "en"), pair("es", "sp")]
+        );
+        assert!(review_languages(&[]).is_err());
     }
 
     /// A PDF without XFA renders through pdfium.
@@ -556,8 +674,10 @@ mod tests {
                 .join("../vendor/crates/u2s-render-pdf/fixtures/generated/unicode-text.pdf"),
         )
         .unwrap();
-        let images = render_sources(&[("plain.pdf".into(), pdf)]).unwrap();
-        assert!(!images.is_empty());
-        assert!(images.iter().all(|i| i.png.starts_with(PNG_MAGIC)));
+        let sources = render_sources(&[("plain.pdf".into(), pdf)]).unwrap();
+        assert_eq!(sources.len(), 1);
+        assert_eq!(sources[0].language, None, "a plain PDF declares no language");
+        assert!(!sources[0].pages.is_empty());
+        assert!(sources[0].pages.iter().all(|i| i.png.starts_with(PNG_MAGIC)));
     }
 }
