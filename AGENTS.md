@@ -1,87 +1,62 @@
-# Agent Instructions
+**ONLY HUMANS ARE ALLOWED TO UPDATE THIS FILE**
 
-## General
+# General Instructions
 
-- When a bug was identified, always add a test to confirm the issue. Then fix the bug, and finally run the same test again to confirm that the issue is gone. Keep the test to ensure that the bug will not happen anymore.
-- After implementing a feature, always run all tests to ensure that the feature din't introduce a bug.
-- Before assuming that a test failure was preexisting, confirm it by stashing the changes and running the tests again in the original code.
-- In case you introduced a bug, try to identify the issue by comparing with the previous working state. Based on that analysis, fix the issue on the new code.
-- Instead of assuming something when the task is unclear, ask the user.
-- When making an architectural decision, always ask the user first with all possible options.
-- When asked to find the issue of a failing test, do not simplify the test itself without the users consent.
-- As soon as you have implemented a feature and all tests pass, commit it. Use a simple one-sentence commit message.
-- After finishing the implementation, review the code from a separate subagent that only knows the plan but not the actual implementation. The subagent should review the code (cleanliness, code duplication, potential bugs or missing implementation details, run clippy lints, removed or changed tests ...) and provide feedback to the main agent.
-- Do not use emojis.
+## Communication
 
-## Project-specific
+- No emojis, no motivational speech
+- If requirements are unclear, ask
 
-- When running tests, use `cargo test --release` such that they are faster. Also make sure to save the entire output to a log file to avoid needing to re-run the tests if output information is required. Do NOT run tests if you only modified the app/cli wrappers.
-- Before reading XFA semantics into a tool or prompt, consult the [XFA specs](./specs/XFA-3_3.txt) (text extraction of `specs/XFA-3_3.pdf`).
-- Tests should never work with the output files. Instead they should analyze the documents and intermediate structures directly.
-- The conversion is AI-guided end to end: a run authors one JSON document in the UBS AEM format (`UbsAemDocument`) with the `json_*` tools, and the vendored UBS layer (`u2s-aem-ubs-mcp`) encodes it. There is no deterministic conversion to fall back on, and AEM is the only output (Redacto output was dropped on 2026-10-09). The UBS writer (its lowering onto the generic AEM model, which `u2s-mapper-aem` encodes), its profile (`profiles/ubs/aem`), the normalize passes and the XSD live in that crate upstream, in `ajila-forms-conversion-engine-v3`: change them there and re-sync, never here. AEM output belongs in the UBS layer's lowering as much as possible.
-- The AEM output is judged by the feedback repo's CI guard, because a converted form joins the
-  corpus that guard polices. Run it on a package a conversion wrote with
-  `python3 scripts/check_feedback_rules.py <package.zip> forms/AAOS_033_IT.pdf` (it needs
-  `../ajila-forms-conversion-feedback`); every enrolled rule must be clean, bar the two exceptions below. The rules themselves are
-  in `specs/feedback/consistent-problems.md`, and the shapes a person still applies by hand in
-  `specs/feedback/manual-changes-italy-033.md`. The ones a document can break are also checked on
-  every edit, as the check rules in `rules/aem/` (`rule_check`); the rest the writer
-  or the normalize passes guarantee, and upstream's writer snapshot tests hold the encoder to its own
-  reviewed output (its parity test holds only the schema to the retired engine's). `specs/feedback/rule-coverage.md` maps every enrolled problem to what guarantees
-  it. What the writer guarantees is checked too: every build scans the rendered package
-  (`agent/src/package_checks.rs`) and reports a guard problem there as an engine defect. The check rules live here only (v3 keeps its rules in its database and ships none). A rule is
-  `rules/aem/<slug>/rule.toml` plus, when a script can decide it, `check.js` (with a clean and a
-  violating test in `agent/tests/rules.rs`); a rule without a `check.js` is judged: `rule_check`
-  dispatches a judge agent (`pipeline/src/judge.rs`, read-only, one per rule, several at once) that
-  checks the document against the rule's description and reports through `submit_rule_verdict`.
-  Where no judge runs (the agent on its own, outside a pipeline stage) such a rule is reported unchecked. A judged
-  rule's `rule.toml` may carry a `[judge]` block (`agent::rules::JudgeScope`): the `pointers` and `node_types` of the
-  document it reads, which its judge is handed in the prompt and which its verdict is cached for (an edit elsewhere
-  keeps the verdict, so name everything the rule reads), what it needs of the source (`source = "tools" | "first_page"
-  | "none"`) and a `max_turns` above the judges' default of 40. A judge's verdict is kept for the run while its view is
-  unchanged (`ConversionAgent::judge_view`). Rules are not written into the prompts: the agent reads the index with
-  `rule_list` and the descriptions with `rule_get`.
-- Three of those rules are about a node's position among its siblings, so lowering one node at a time cannot satisfy
-  them: they live in the UBS layer's `normalize.rs` and run over a copy of the tree on the way into
-  the writer, which is what makes them hold for an agent-authored or loaded document as well.
-  One more pass there answers UBS's summary rather than a feedback rule (`headings_leave_table_mode`): the summary
-  renders a panel with no child panel as one table and drops a title draw's heading level there, so a panel of static
-  text holding a section heading gets its body runs moved into panels of their own.
-- Where a node shows up is `AemAttrs` on the node, not a writer guess: `summary_exclude` is what
-  keeps content out of the UBS DoR (Redacto renders it from the summary), `dor_exclude` is Adobe's
-  own switch, and `always_in_pdf` is how a hidden node still reaches the printed document.
-- The source's master-page lines are the document's own text, translated like any other: hidden
-  `TextDraw`s with `dor_header_slot` (slot1 is the banking relationship's fragment, slot2 the legal
-  entity, slot3 the validity line), checked by the `ubs-aem-dor-header-slots` rule. The AEM
-  document has no `header` field; a session recorded with one is migrated into those draws when it
-  is restored (`u2s_aem_ubs_mcp::migrate`). A form carries the banking relationship (`Preface`)
-  only when its source has one.
-- Partner and signature blocks follow the UBS general-fragments directive (specs/"AF Fragments and Common Fields with XSD List.md", 2026-08-20), and the document authors them from ordinary nodes: there are no custom elements. A party is a `Repeatable` wrapping one of the four `afforms_ubs_fragmentlib` partner generics, whose `init_hide` lists the sub-panels its one Initialize rule hides with `hideAFHideDor` and `init_show` the ones it shows with `showAFShowDor`, each for the form and the DoR alike (only a partner generic takes them); its signature is a `Repeatable` wrapping `affrg_SignatureGeneric1`, both named after the party (`RCP_SGN_CPGRP`/`PN_SGN_CPGRP` for `PN_CPGRP`, `RCP_Sign_AHGRP`/`PN_Sign_AHGRP` for `PN_AHGRP`, `PN_SGN_BOGRP` and `PN_SGN_PAGRP` for the beneficial owner and the POA), and the UBS layer pairs the two by that name, so the party's Add and Remove drive both. The `ubs-aem-retired-market-fragments` and `ubs-aem-global-internal-bank-use` rules check every document; do not reintroduce germany/italy person or signature fragments.
-- Two feedback-guard rules are accepted exceptions, by decision (2026-09-29): the signer-name fill (`PROBLEM-signature-name-fill`) is left to a person in AEM, and a party repeatable's Add label (`PROBLEM-repeatable-add-label`) may fail only on a form that ships no English: elsewhere the Author titles the repeatable in English with its translations, as the prompts explain, and a failure is a defect. Every other enrolled rule must be clean.
-- The XSD is generated from the **AemNode** tree (the UBS layer's `xsd/from_aem.rs`), and each node's `bindRef` is assigned during that same walk, so a form's bindRefs are by construction exact element paths in its schema. Do not add a second XSD source. Customer-specific element names, ignore rules and occurrence overrides belong in the UBS layer's `profiles/ubs/xsd/config.toml` under `[[aemElements]]`, never in Rust.
+## Text Content in Projects
 
-## Layout
+- No emojis
+- No em dashes
+- User facing text should not talk about the user in third person
 
-| Crate | What belongs there |
-|---|---|
-| `agent` | The headless conversion agent: the tool catalog and executor over the run's one output document (the `json_*` and `rule_*` tools from the vendored `u2s-doc-tools`, the build through the UBS layer), the check rules and their sandbox (`rules.rs`), the edit-history store and session restore, the connection of the reference store to `history.db` (`references.rs`), the embedded profile fonts, and the adapter over the vendored u2s tool servers (`u2s.rs`: source-form reads and renders, PDF viewing, and the Docker-hosted AEM verifier, all linked in-process), and the review images a person checks a finished run by (`review.rs`: the output captured from one last verification before teardown and kept in `history.db`, the source rendered on demand). No UI and no LLM. |
-| `references-mcp` | The reference-form store (`references_` tables, their schema SQL, the order-independent `document_hash` that keys references and sessions alike), the sentence-embedding matcher with its embedded model (`models/`), and the eight reference tools (`list_reference_forms` ... `grep_reference_docs`) as an MCP server: `specs::tool_specs()` is their one specification, one `deny_unknown_fields` argument struct per tool turns a missing, misspelled or mistyped argument into an error instead of a default, and the rmcp `ServerHandler` plus the stdio bin (`REFERENCES_DB`, `REFERENCES_PROFILE`) serve them. The profile is supplied by the host (`ReferencesServer::new`), never by the model, and the database is reached only through the host's connection opener, so the crate does not depend on `agent`, which links it in-process. |
-| `pipeline` | The conversion controller: Author → Reviewer sequencing, retry recovery, the stuck watchdog. Each stage runs as a real rig `Agent`, driven through `AgentRunner::stream()` (`run_stage`); `hooks::StageHook` reproduces the abort flag, the tool timeline, the stuck watchdog and the output-cap nudge, shapes a growing stage's history every turn through `memory::ContextBudget` (`on_completion_call` → `RequestPatch::history`), and reproduces the operator's retry prompt by restarting a fresh attempt from where a failed one left off. `memory::SqliteConversationMemory` is the `rig_core::memory::ConversationMemory` backend `build_stage_agent` attaches (wrapped in `rig_memory::CompactingMemory`) whenever a stage has a real session id, so a resumed session's Author/Reviewer loads its prior run's conversation. Reaches the outside world only through `SharedObserver` (progress) and the `ModelHandle`/`PriceFn`/`ContextBudget` the caller supplies via `RunConfig`, so it needs neither a UI framework nor a network to test — rig's own `MockCompletionModel` drives it instead. |
-| `runner` | The host side of a run, shared by `app` and `cli`: the rig client factory (`client.rs`, the only place a provider is named), the per-endpoint request gate (`ratelimit.rs`) and model limits (`models.rs`), the calibrated `TokenCounter` and context budget (`token_counter.rs` — image vision-cost and the calibration EMA recovered from the old hand-rolled eviction ladder; deliberately not `rig_memory::HeuristicTokenCounter`, which flat-rates every image), the operator settings, `turns::TurnPlan` resolving an endpoint to what `pipeline` needs, and the entry points that build the agent, open a history session and record the result. |
-| `app` | The Dioxus desktop app: the observer implementation and all UI state. |
-| `cli` | `convert` (the AI conversion run headless, over `runner`), `sessions` and `verify`. |
-| `u2s/` | Crates vendored from `ajila-forms-conversion-engine-v3`; see `u2s/VENDORED.md`. Never edit them in place: change them through a patch in `u2s/patches/`, and re-sync with `scripts/sync-u2s.sh <checkout>`. |
+## Bugfixing
 
-- A run produces a UBS AEM package; there is no output target to choose. `profiles/<name>/` holds what a customer profile adds here: its source forms' fonts (`parser/fonts`) and, in `history.db`, its reference forms.
-- Every edit to the document is recorded under the session's `#document` sibling in `history.db`, and a resumed run starts from the latest one. Sessions recorded before this (structured or `#aem` tree snapshots) stay listed but cannot be resumed.
-- Rules run in a sandboxed worker process (`u2s_rules_host::worker`), which is the converting executable itself started with `--u2s-rules-worker`: the app and the CLI call `agent::rules::serve_worker_if_invoked()` first thing in `main`, and a new binary that converts must too. Test binaries cannot, so the agent tests use the standalone worker: build it with `cargo build -p u2s-rules-host --bin u2s-rules-worker` (`--release` for release builds) first. A run whose rules cannot run is refused, like one whose verifier is not ready.
-- Tools are scoped **once**, in `SCOPING` in `agent/src/conversion/catalog.rs`: each tool declares which pipeline stages are offered it, and whether it is a `Read` (runs beside the turn's other calls, without holding the agent; `ConversionAgent::start_read`) or a `Write` (runs alone). A tool is a `Write` unless it only reads state no other call can change. Do not add a second allow-list anywhere — add a row there. The u2s tools (`xfa_*`, `pdf_*`, `aem_verify_*`) are ordinary rows too: their specs come from the vendored crates through `agent/src/u2s.rs`, which also renames the verifier's tools (`verify_*` upstream) and removes the arguments it supplies itself (the package, the session).
-- Verification is not optional. Every run checks its verifier first (`agent::u2s::readiness(&aem_settings)`: the rule sandbox, settings, Docker, the images, and pdfium) and refuses to start when it is not ready; do not add a switch or a silent fallback. When an image is missing, the check names the `az acr login` command if the registry is private. The AEM verifier boots the prebaked UBS image `AEM_IMAGE` (pinned in `agent/src/u2s.rs`: move it to the tag upstream's `.env.example` names on every re-sync), a private GitHub package of `ajilach` published for arm64 and amd64, which seeds its own data volume (named after the image) on first boot (`docker/aem/README.md`). Once the check passes, an AEM run pulls it when Docker does not have it (`agent::u2s::ensure_aem_image`), with the login of the GitHub CLI (`gh auth token`; never stored), and does not start when that pull fails. Every exit path of a run lets go of its share of the verifier (`ConversionAgent::shutdown_verifiers`), and the last share tears the containers down, and an idle verifier is torn down after 30 minutes. Every verifier call has a deadline (`VerifyCall` in `agent/src/u2s.rs`): a call that misses it, such as one on a container Docker removed, is aborted and the verifier torn down like an idle one, so it cannot hold the agent forever. A verifier tool the adapter does not classify is refused. All AEM verifiers boot on the one data volume, so the conversions of a process share one verifier and its one AEM instance (`agent::u2s::SharedVerifier`): each checks its form in sessions of its own, their calls take turns (a call's deadline counts from its turn), and the last conversion to let go tears the containers down (`blueprint batch` holds a share of its own, so they stay up between forms). Only one process at a time, the app or a CLI, may drive it: an OS lock file next to `history.db` (`aem-verifier.lock`) enforces that, and leftover containers of a crashed run are removed only while holding it.
-- pdfium, which the `pdf_*` tools load, is pinned by release and checksum in `agent/build.rs`, which downloads it on the first build and embeds it in every binary; nothing ships next to a binary.
-- The agent reads the source form only through the u2s `xfa_*` tools: there are no engine-derived states, so a hidden section exists in the output only if a stage revealed it with `xfa_set`. The rules (`rule_check`) check the document on its own; source coverage is the stages' job, and the prompts say so. `coverage_check` (`agent/src/coverage.rs`) is its mechanical part: the XFA template's texts, every variant, against the AEM JSON's texts per language; a miss is a lead, not a verdict.
-- The source forms the tests and conversions use live in `forms/` (Git LFS).
-- The tool catalog is pinned by `agent/tests/catalog.json`. After an intended change, regenerate with `UPDATE_SNAPSHOTS=1 cargo test -p agent` and review the diff: tool descriptions are prompt surface, so a wording change is a behaviour change.
-- Tool descriptions and role prompts may only name tools that exist; `prose_only_names_tools_that_exist` enforces it. Prompt text lives in `agent/src/conversion/prompts.rs`.
-- In `app`, a run never touches the tab's signals. It reports through `agent_runner::ProgressSender` (an unbounded channel), and `agent_runner::show_progress` applies the updates on the UI thread; the only thing the run reads back is the Retry / Give up answer, through `models::RetryAnswer`. `RunState` is a plain (thread-local) signal so the compiler keeps it off the run's task; do not turn it back into a sync signal to hand it over. The run used to write a sync signal from its worker while `RunBox` read it several times in one `rsx!`, and the reader–writer lock behind it froze the app and the run for good about half an hour into long runs. In a component, read a signal once and copy what it renders rather than calling `.read()` repeatedly inside one `rsx!`.
-- Run analysis: `pipeline` reports a structured `TraceEvent` stream through `RunObserver::trace` (default no-op) — durations measured there, full content, no wall clock; `runner::analysis` records it into a per-run folder (`report.md`, `timeline.md`, `transcript/`, `trace.jsonl`, `summary.json`, and the `evaluation.md` template for the human evaluation) when enabled (off by default: App Settings → Run analysis, or `--analysis` / `--analysis-dir` on the CLI) by wrapping the caller's observer in `run::drive`. A new controller decision worth analysing gets a `ControlKind`, not a free-text `Thought`. The files are for people and AI assistants alike: keep them plain Markdown/JSONL, conclusions first, units on every number, `#seq` pointing back into `trace.jsonl`. Cross-run aggregation is `scripts/analyze_runs.py` over `summary.json` and `scripts/collect_evaluations.py` over the filled-in `evaluation.md` files (keep the template's front matter keys and table columns in step with it); bump `analysis::SCHEMA_VERSION` (and the script's `SUPPORTED_SCHEMA`) when either layout changes. See `docs/run-analysis.md`.
-- Controller behaviour (stage order, retry, abort) belongs in `pipeline` and gets a test there — rig's own `MockCompletionModel` plus a recording `RunObserver` drive the real `run` with no network. Do not add sequencing logic to the app.
+- Before implementing, try to identify a root cause
+- Based on the root cause, define a success criterion
+- If easily possible, build a test that asserts the success criterion
+- After implementation, check that the success criterion test passes
+
+## Code Maintainability
+
+- Do not duplicate logic, extract and reuse shared functionality
+- Prefer hard failures over undocumented mechanisms, ask the user in case of uncertainity of how to handle errors
+- Avoid interior mutability, and if you do, document it
+- Use linting after implementing a feature to find possible pitfalls
+
+## Type-Level Checking
+
+- Prefer to avoid null pointers, instead use constructs like optional to express the absence of something
+- Push invariants into type-level and the database schema
+- If possible, untrusted input gets converted once, at the edge, into a type that cannot hold an invalid value
+- Use assertions to enforce invariants
+
+## Testing
+
+- Business logic mutations should be extracted to pure functions if possible and unit tested
+- Every core functionality should be covered by an end to end test
+- After a minor change, only run potentially affected tests
+- After a major change, run the entire test suite
+
+# Projec-specific Instructions
+
+## Editor
+
+- The form and style editor values should be end to end tested so that we can be certain that they work in both the HTML rendering and the PDF
+
+## Documentation
+
+- The markdown docs should document how to use the author from a users perspective
+- Keep the documentation up to date with changes you make
+
+## OpenAPI Docs
+
+- Keep the generated openapi docs up to date with any related changes
+
+## Server-Side Checks
+
+- All client side checks on a form should be reflected on the server side, ideally reusing the same logic
+- Shared validation lives in a module that can be compiled to WASM and is reused on the frontend so that the validation matches exactly on front- and backend
