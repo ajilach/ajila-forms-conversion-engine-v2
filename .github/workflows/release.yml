@@ -114,19 +114,8 @@ jobs:
             package_types: deb
             artifact: blueprint-linux-x86_64.deb
             content_type: application/vnd.debian.binary-package
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            package_types: nsis
-            artifact: blueprint-windows-x86_64-setup.exe
-            content_type: application/octet-stream
 
     steps:
-      - name: Enable long paths for Git on Windows
-        # The vendored UBS profile holds AEM fragment paths over Windows'
-        # 260-character limit, which fails the checkout without this.
-        if: runner.os == 'Windows'
-        run: git config --system core.longpaths true
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -144,10 +133,6 @@ jobs:
           elif [ "${{ matrix.os }}" == "macos-latest" ]; then
             curl -fL https://github.com/DioxusLabs/dioxus/releases/download/${DX_VERSION}/dx-aarch64-apple-darwin.tar.gz | tar xz
             sudo mv dx /usr/local/bin/
-          elif [ "${{ matrix.os }}" == "windows-latest" ]; then
-            curl -fL https://github.com/DioxusLabs/dioxus/releases/download/${DX_VERSION}/dx-x86_64-pc-windows-msvc.zip -o dx.zip
-            unzip dx.zip
-            mv dx.exe C:/Windows/System32/
           fi
         shell: bash
 
@@ -201,9 +186,8 @@ jobs:
 
       - name: Bundle with Dioxus CLI
         # dx bundle (unlike dx build) does platform packaging and embeds the app
-        # icon from [bundle] icon in Dioxus.toml — the .icns into the macOS .app,
-        # the .ico into the Windows installer/exe, and a .desktop + icon into the
-        # Linux .deb. No manual icon handling needed.
+        # icon from [bundle] icon in Dioxus.toml — the .icns into the macOS .app
+        # and a .desktop + icon into the Linux .deb. No manual icon handling needed.
         #
         # --verbose streams the underlying cargo output. Without it dx collapses a
         # compile failure to "cargo build finished with errors" and discards the
@@ -233,8 +217,6 @@ jobs:
               "release-artifacts/${{ matrix.artifact }}"
           elif [ "${{ matrix.os }}" == "ubuntu-latest" ]; then
             cp "$(find target/dx/blueprint-app/bundle -ipath '*deb*' -name '*.deb' | head -1)" "release-artifacts/${{ matrix.artifact }}"
-          elif [ "${{ matrix.os }}" == "windows-latest" ]; then
-            cp "$(find target/dx/blueprint-app/bundle -ipath '*nsis*' -name '*.exe' | head -1)" "release-artifacts/${{ matrix.artifact }}"
           fi
         shell: bash
 
@@ -263,18 +245,8 @@ jobs:
             target: x86_64-unknown-linux-gnu
             artifact: blueprint-cli-linux-x86_64.tar.gz
             content_type: application/gzip
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            artifact: blueprint-cli-windows-x86_64.zip
-            content_type: application/zip
 
     steps:
-      - name: Enable long paths for Git on Windows
-        # The vendored UBS profile holds AEM fragment paths over Windows'
-        # 260-character limit, which fails the checkout without this.
-        if: runner.os == 'Windows'
-        run: git config --system core.longpaths true
-
       - name: Checkout code
         uses: actions/checkout@v4
         with:
@@ -304,12 +276,8 @@ jobs:
         run: |
           mkdir -p release-artifacts
           OUT="target/${{ matrix.target }}/release"
-          if [ "${{ matrix.os }}" == "windows-latest" ]; then
-            7z a "release-artifacts/${{ matrix.artifact }}" "./$OUT/blueprint.exe"
-          else
-            chmod +x "$OUT/blueprint"
-            tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint
-          fi
+          chmod +x "$OUT/blueprint"
+          tar -czf "release-artifacts/${{ matrix.artifact }}" -C "$OUT" blueprint
         shell: bash
 
       - name: Upload Release Asset
