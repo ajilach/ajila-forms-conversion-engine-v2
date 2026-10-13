@@ -140,8 +140,8 @@ mod tests {
     use super::*;
     use crate::{Access, access_of};
 
-    /// A view answers only reads: a tool it serves that the catalog makes a
-    /// write would still be answered from a view, but never off the lock.
+    /// Every tool a view answers is a read in the catalog, so it is answered
+    /// off the lock.
     #[test]
     fn every_tool_a_view_answers_is_a_read() {
         for name in VIEW_TOOLS {

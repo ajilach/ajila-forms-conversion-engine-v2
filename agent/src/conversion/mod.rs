@@ -1608,8 +1608,8 @@ mod tests {
 mod catalog;
 mod evidence;
 mod execute;
-mod view;
 mod prompts;
+mod view;
 
 pub use catalog::{Access, ToolSpec, access_of, all_tools, catalog, scope, tools_for};
 pub(crate) use evidence::json_of;
