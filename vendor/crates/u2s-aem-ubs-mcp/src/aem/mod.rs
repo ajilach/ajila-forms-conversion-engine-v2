@@ -15,6 +15,7 @@
 
 pub mod fragment_parser;
 pub mod identity;
+pub mod letterhead;
 mod lower;
 pub mod normalize;
 mod package_writer;
@@ -39,6 +40,7 @@ pub use parser::{
     AemScript, ParsedAemPackage, TranslationData, VisibilityCondition, detect_aem_zip,
     parse_aem_zip,
 };
+pub use letterhead::{LetterAddress, LetterParty};
 pub use profile::AemProfile;
 pub use script_engine::AemScriptEngine;
 pub use to_translated::aem_to_translated;
@@ -193,6 +195,18 @@ pub struct AemConfig {
     /// Merged into the Sling i18n dictionaries at package generation time.
     /// Form-content translations take precedence over defaults.
     pub default_translations: HashMap<String, HashMap<String, String>>,
+
+    // -- Letterhead ------------------------------------------------------------
+    /// The profile's letterhead component (`letterhead.xml`), which a
+    /// [`AemNode::Letterhead`] is written as. `None` when the profile has none,
+    /// and then a form holding a letterhead is refused.
+    pub letterhead_template: Option<String>,
+
+    /// The translations of the letterhead component's own texts (its section
+    /// headings and field labels), by master text and language. Merged into
+    /// the dictionaries like [`default_translations`](Self::default_translations),
+    /// but only into a form that holds a letterhead.
+    pub letterhead_translations: HashMap<String, HashMap<String, String>>,
 }
 
 impl AemConfig {
@@ -279,6 +293,9 @@ impl AemConfig {
             fragments: Vec::new(),
 
             default_translations: profile.default_translations.clone(),
+
+            letterhead_template: profile.letterhead_template.clone(),
+            letterhead_translations: profile.letterhead_translations.clone(),
         })
     }
 
@@ -432,6 +449,7 @@ impl AemConfig {
     /// The caller provides the form code directly.
     /// All other fields use sensible defaults.
     pub fn test_default(form_code: &str) -> Self {
+        let profile = crate::profiles::load_aem_profile("ubs").expect("the embedded UBS profile loads");
         Self {
             form_title: form_code.into(),
             form_code: form_code.into(),
@@ -465,9 +483,7 @@ impl AemConfig {
             // The embedded UBS profile's constants, and what a form of this
             // code and no entity decides: what every writer test runs with.
             user_vars: {
-                let mut vars = crate::profiles::load_aem_profile("ubs")
-                    .expect("the embedded UBS profile loads")
-                    .variables;
+                let mut vars = profile.variables.clone();
                 let identity = identity::FormIdentity { code: form_code.into(), entity: None };
                 vars.extend(identity.variables());
                 vars
@@ -482,6 +498,9 @@ impl AemConfig {
             fragments: Vec::new(),
 
             default_translations: HashMap::new(),
+
+            letterhead_template: profile.letterhead_template.clone(),
+            letterhead_translations: profile.letterhead_translations.clone(),
         }
     }
 }
@@ -1057,6 +1076,31 @@ pub enum AemNode {
     /// first page panel.
     Preface { uuid: Uuid, name: String },
 
+    /// The letter top of a form whose source is a letter: the profile's
+    /// letterhead component, written for this letter's sender, receiver,
+    /// subject and reference lines. A form holding one renders its DoR as a
+    /// letter. See [`letterhead`].
+    ///
+    /// Its texts are carried per language on the node, as an HTML block's are:
+    /// they are field values, which no dictionary translates.
+    Letterhead {
+        uuid: Uuid,
+        name: String,
+        /// Who the letter is from; `None` when the source names no sender.
+        sender: Option<LetterParty>,
+        /// Who the letter is to.
+        receiver: LetterParty,
+        /// The subject line, plain text, per language.
+        subject: AemI18nText,
+        /// The "your reference" line: the text it opens with, per language.
+        /// `None` keeps the line off the form.
+        your_reference: Option<AemI18nText>,
+        /// The "our reference" line, like `your_reference`.
+        our_reference: Option<AemI18nText>,
+        /// XSD path of the `Letter` element its fields are bound under.
+        bind_ref: Option<String>,
+    },
+
     /// Footnote placeholder component, placed at the end of a page panel
     /// that contains inline footnote references. AEM renders collected
     /// footnotes at this location.
@@ -1096,6 +1140,7 @@ impl AemNode {
             | AemNode::Repeatable { name, .. }
             | AemNode::Fragment { name, .. }
             | AemNode::Preface { name, .. }
+            | AemNode::Letterhead { name, .. }
             | AemNode::FootnotePlaceholder { name, .. } => Some(name),
         }
     }
@@ -1118,6 +1163,7 @@ impl AemNode {
             | AemNode::Repeatable { uuid, .. }
             | AemNode::Fragment { uuid, .. }
             | AemNode::Preface { uuid, .. }
+            | AemNode::Letterhead { uuid, .. }
             | AemNode::FootnotePlaceholder { uuid, .. } => Some(*uuid),
         }
     }
@@ -1129,8 +1175,9 @@ impl AemNode {
     }
 
     /// The node's presentation attributes ([`AemAttrs`]), or `None` for the
-    /// variants that have none: `Root` and the profile-driven `Preface` /
-    /// `FootnotePlaceholder` snippets, whose whole tag the writer fixes.
+    /// variants that have none: `Root` and the profile-driven `Preface`,
+    /// `Letterhead` and `FootnotePlaceholder` components, whose whole tag the
+    /// writer fixes.
     pub fn attrs(&self) -> Option<&AemAttrs> {
         match self {
             AemNode::Panel { attrs, .. }
@@ -1148,6 +1195,7 @@ impl AemNode {
             | AemNode::Fragment { attrs, .. } => Some(attrs),
             AemNode::Root { .. }
             | AemNode::Preface { .. }
+            | AemNode::Letterhead { .. }
             | AemNode::FootnotePlaceholder { .. } => None,
         }
     }
@@ -1171,6 +1219,7 @@ impl AemNode {
             | AemNode::Fragment { attrs, .. } => Some(attrs),
             AemNode::Root { .. }
             | AemNode::Preface { .. }
+            | AemNode::Letterhead { .. }
             | AemNode::FootnotePlaceholder { .. } => None,
         }
     }
@@ -1197,6 +1246,7 @@ impl AemNode {
             AemNode::Repeatable { uuid, .. } => format!("repeatable_{}", uuid.as_simple()),
             AemNode::Fragment { uuid, .. } => format!("fragment_{}", uuid.as_simple()),
             AemNode::Preface { uuid, .. } => format!("preface_{}", uuid.as_simple()),
+            AemNode::Letterhead { uuid, .. } => format!("letterhead_{}", uuid.as_simple()),
             AemNode::FootnotePlaceholder { uuid, .. } => {
                 format!("guidefootnoteplaceho_{}", uuid.as_simple())
             }

@@ -564,10 +564,24 @@ fn form_metadata(tree: &JcrNode) -> BTreeMap<String, String> {
         node.children.iter().for_each(|child| collect(child, out));
     }
     let mut out = BTreeMap::new();
-    if let Some(draw) = find_node_by_name(tree, "metadataTextDraw") {
+    // The profile names it `metadataTextDraw`; a form authored in AEM may name
+    // it anything (`metadata`), but not give it another component.
+    let draw = find_node_by_name(tree, "metadataTextDraw")
+        .or_else(|| find_node_by_resource_suffix(tree, "/controls/metadata"));
+    if let Some(draw) = draw {
         collect(draw, &mut out);
     }
     out
+}
+
+/// The first node, depth first, whose `sling:resourceType` ends with `suffix`.
+fn find_node_by_resource_suffix<'a>(node: &'a JcrNode, suffix: &str) -> Option<&'a JcrNode> {
+    if node.resource_type().is_some_and(|t| t.ends_with(suffix)) {
+        return Some(node);
+    }
+    node.children
+        .iter()
+        .find_map(|child| find_node_by_resource_suffix(child, suffix))
 }
 
 fn find_node_by_resource_type<'a>(node: &'a JcrNode, resource_type: &str) -> Option<&'a JcrNode> {
@@ -659,6 +673,12 @@ fn convert_jcr_to_aem(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<A
         // whole block -- a table, a chart, an image -- is dropped from a loaded
         // package without a word.
         "htmlDisplayer" => Ok(Some(convert_html_displayer(node, ctx))),
+        // The UBS letterhead is a panel the profile writes whole: what a form
+        // decides about it is read back, the rest is the profile's again.
+        "letterhead" => {
+            let uuid = ctx.uuid_for(node, comp_name);
+            Ok(Some(super::letterhead::parse(node, uuid)))
+        }
         "panel" | "guidePanel" | "rootPanel" => convert_panel(node, ctx),
         // Fragment reference
         _ if node.attr("fragRef").is_some() => convert_fragment(node, ctx),

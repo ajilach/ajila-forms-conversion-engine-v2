@@ -95,4 +95,16 @@ pub struct AemProfile {
     /// time. Form-content translations take precedence over defaults.
     #[serde(default)]
     pub default_translations: HashMap<String, HashMap<String, String>>,
+
+    /// The letterhead component a form's letterhead is written as, loaded from
+    /// `letterhead.xml` beside the profile's `config.toml`. `None` when the
+    /// profile has none.
+    #[serde(skip)]
+    pub letterhead_template: Option<String>,
+
+    /// The letterhead component's own texts translated, from the
+    /// `[letterhead]` table of each `translations/<lang>.toml`; same shape as
+    /// [`default_translations`](Self::default_translations).
+    #[serde(skip)]
+    pub letterhead_translations: HashMap<String, HashMap<String, String>>,
 }

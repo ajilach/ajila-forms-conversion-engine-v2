@@ -99,6 +99,7 @@ fn node_name_of(node: &AemNode) -> Option<&str> {
         | N::Repeatable { name, .. }
         | N::Fragment { name, .. }
         | N::Preface { name, .. }
+        | N::Letterhead { name, .. }
         | N::FootnotePlaceholder { name, .. }
         | N::MessageBox { name, .. } => Some(name),
     }

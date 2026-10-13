@@ -141,6 +141,27 @@ impl LiftContext<'_> {
     fn children(&self, children: &[AemNode]) -> Vec<AemNodeTranslated> {
         children.iter().map(|c| lift_node(c, self)).collect()
     }
+
+    /// A letterhead text, as the form's languages read it: a text the package
+    /// filed under no language (a plain value) is the master's, and a code the
+    /// form does not ship (a synonym the writer adds, `sp` beside `es`) is
+    /// dropped.
+    fn field_values(&self, text: &AemI18nText) -> AemI18nText {
+        AemI18nText(
+            text.0
+                .iter()
+                .map(|(lang, value)| {
+                    let lang = if lang.is_empty() {
+                        self.master_language
+                    } else {
+                        lang.as_str()
+                    };
+                    (lang.to_owned(), value.clone())
+                })
+                .filter(|(lang, _)| self.languages.contains(lang) || lang == self.master_language)
+                .collect(),
+        )
+    }
 }
 
 fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
@@ -456,6 +477,24 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             uuid: *uuid,
             passthrough: ctx.passthrough(uuid),
             name: name.clone(),
+        },
+        AemNode::Letterhead {
+            uuid,
+            name,
+            sender,
+            receiver,
+            subject,
+            your_reference,
+            our_reference,
+            ..
+        } => AemNodeTranslated::Letterhead {
+            uuid: *uuid,
+            name: name.clone(),
+            sender: sender.clone(),
+            receiver: receiver.clone(),
+            subject: ctx.field_values(subject),
+            your_reference: your_reference.as_ref().map(|t| ctx.field_values(t)),
+            our_reference: our_reference.as_ref().map(|t| ctx.field_values(t)),
         },
         AemNode::FootnotePlaceholder {
             uuid,

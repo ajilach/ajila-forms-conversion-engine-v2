@@ -271,6 +271,7 @@ pub fn encode(doc: &UbsAemDocument) -> Result<UbsAemBuild, Error> {
 
     let (node, translations, conflicts) = lower(doc, &config);
     check_header_slots(&node)?;
+    check_letterhead(&node)?;
     // The dictionary is keyed by master text, so a text translated two ways
     // would ship only one of them.
     if !conflicts.is_empty() {
@@ -532,6 +533,118 @@ fn check_parties(doc: &UbsAemDocument, library: &[ParsedFragment]) -> Result<(),
     } else {
         Err(Error::InvalidDocument(problems.join("; ")))
     }
+}
+
+/// A form is a letter at most once, and its letterhead is where the letter
+/// layout reads it, holding what the letter window can print:
+///
+/// - one letterhead, a direct child of the first page, after the banking
+///   relationship (the `Preface`) where the page has one;
+/// - a sender takes the DoR header's `slot2`, so nothing else may print there;
+/// - without a sender some other node must fill a header slot (the banking
+///   relationship fills `slot1`): the summary script writes the letter's
+///   header, and with it the receiver window, date and subject, only when a
+///   slot has content;
+/// - its addresses and texts are ones the letter window prints
+///   ([`letterhead::problems`](crate::aem::letterhead::problems)).
+fn check_letterhead(root: &AemNode) -> Result<(), Error> {
+    fn walk<'a>(
+        node: &'a AemNode,
+        letterheads: &mut Vec<&'a AemNode>,
+        slots: &mut Vec<(&'a str, &'a str)>,
+        preface: &mut bool,
+    ) {
+        match node {
+            AemNode::Letterhead { .. } => letterheads.push(node),
+            AemNode::Preface { .. } => *preface = true,
+            _ => {}
+        }
+        let slot = node.attrs().and_then(|a| a.dor_header_slot.as_deref());
+        if let (Some(name), Some(slot)) = (node.name(), slot) {
+            slots.push((name, slot));
+        }
+        if let AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } = node
+        {
+            children.iter().for_each(|c| walk(c, letterheads, slots, preface));
+        }
+    }
+    let (mut letterheads, mut slots, mut preface) = (Vec::new(), Vec::new(), false);
+    walk(root, &mut letterheads, &mut slots, &mut preface);
+    let mut problems = Vec::new();
+    if letterheads.len() > 1 {
+        let names: Vec<String> =
+            letterheads.iter().filter_map(|l| l.name()).map(|n| format!("`{n}`")).collect();
+        problems.push(format!(
+            "a form has at most one letterhead, and this one has {}: {}",
+            names.len(),
+            names.join(", ")
+        ));
+    }
+    for letterhead in letterheads {
+        let AemNode::Letterhead {
+            uuid, name, sender, receiver, subject, your_reference, our_reference, ..
+        } = letterhead
+        else {
+            unreachable!("only letterheads are collected");
+        };
+        let references = [your_reference.as_ref(), our_reference.as_ref()];
+        problems.extend(
+            crate::aem::letterhead::problems(sender.as_ref(), receiver, subject, references)
+                .into_iter()
+                .map(|p| format!("`{name}`: {p}")),
+        );
+        if !on_first_page_after_preface(root, *uuid) {
+            problems.push(format!(
+                "the letterhead `{name}` must be a direct child of the first page, after the banking \
+                 relationship (`Preface`) where the page has one"
+            ));
+        }
+        let slot2: Vec<String> = slots
+            .iter()
+            .filter(|(_, slot)| *slot == crate::aem::letterhead::SENDER_SLOT)
+            .map(|(n, _)| format!("`{n}`"))
+            .collect();
+        if sender.is_some() && !slot2.is_empty() {
+            problems.push(format!(
+                "the letterhead `{name}` prints its sender in the DoR header's `{}`, which {} takes too: \
+                 leave that slot to the letterhead, or set its `sender` to null",
+                crate::aem::letterhead::SENDER_SLOT,
+                slot2.join(", ")
+            ));
+        }
+        if sender.is_none() && !preface && slots.is_empty() {
+            problems.push(format!(
+                "the letterhead `{name}` has no sender, and nothing else fills a DoR header slot, so the \
+                 letter's header (receiver, date, subject) would not print: give it a `sender`, or author \
+                 the header line the source prints (a slot draw)"
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::InvalidDocument(problems.join("; ")))
+    }
+}
+
+/// Whether the node `uuid` is a direct child of the first page, after its
+/// `Preface` if it has one.
+fn on_first_page_after_preface(root: &AemNode, uuid: uuid::Uuid) -> bool {
+    let AemNode::Root { children, .. } = root else {
+        return false;
+    };
+    let Some(AemNode::Panel { children, .. }) =
+        children.iter().find(|c| matches!(c, AemNode::Panel { is_page: true, .. }))
+    else {
+        return false;
+    };
+    let Some(at) = children.iter().position(|c| c.uuid() == Some(uuid)) else {
+        return false;
+    };
+    children[..at].iter().any(|c| matches!(c, AemNode::Preface { .. }))
+        || !children.iter().any(|c| matches!(c, AemNode::Preface { .. }))
 }
 
 /// The DoR header slots a node may print in.

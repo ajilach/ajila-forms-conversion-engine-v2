@@ -1139,6 +1139,7 @@ mod tests {
                 | AemNode::Repeatable { .. }
                 | AemNode::Fragment { .. }
                 | AemNode::Preface { .. }
+                | AemNode::Letterhead { .. }
         )
     }
 

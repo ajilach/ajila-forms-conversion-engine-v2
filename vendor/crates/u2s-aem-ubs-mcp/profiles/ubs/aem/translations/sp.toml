@@ -30,3 +30,29 @@
 # two variants.
 "Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Por favor, introduzca una dirección de correo electrónico válida (por ejemplo, max.muster@beispiel.ch)."
 "Please enter a valid phone number incl. country code (e.g., +41)." = "Por favor, introduzca un número de teléfono válido que incluya el código de país (por ejemplo, +41)."
+
+# The letterhead component's own texts (`letterhead.xml`): its section
+# headings, as the rich text they are written as, and the labels of the
+# fields a person fills in. Shipped only with a form that holds a letterhead.
+# Corpus wordings where the issued letters have one.
+[letterhead]
+"<p><b>Sender</b></p>" = "<p><b>Remitente</b></p>"
+"<p><b>Receiver</b></p>" = "<p><b>Destinatario</b></p>"
+"<p><b>Date and references</b></p>" = "<p><b>Fecha y referencias</b></p>"
+"<p><b>Letter content</b></p>" = "<p><b>Contenido de la carta</b></p>"
+"Individual" = "Persona física"
+"Company/Entity" = "Empresa/Entidad"
+"Last name" = "Apellido(s)"
+"First name(s)" = "Nombre(s)"
+"Company/Entity name" = "Nombre de la empresa/entidad"
+"Street" = "Calle"
+"No." = "Nº"
+"Additional address details" = "Detalles adicionales de la dirección"
+"Postal code" = "Código postal"
+"City" = "Ciudad"
+"Canton/State/Province" = "Cantón/Estado/Provincia"
+"Country" = "País"
+"Date" = "Fecha"
+"Your reference" = "Su referencia"
+"Our reference" = "Nuestra referencia"
+"Subject" = "Asunto"

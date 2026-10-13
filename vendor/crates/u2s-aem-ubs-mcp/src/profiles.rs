@@ -49,10 +49,22 @@ pub fn load_aem_profile(name: &str) -> Result<AemProfile, String> {
                 && let Some(lang) = path.file_stem().and_then(|s| s.to_str())
                 && let Some(content) = entry.contents_utf8()
             {
-                parse_translation_toml(content, lang, &mut profile.default_translations)
-                    .map_err(|e| format!("Failed to parse translations/{lang}.toml: {e}"))?;
+                parse_translation_toml(
+                    content,
+                    lang,
+                    &mut profile.default_translations,
+                    &mut profile.letterhead_translations,
+                )
+                .map_err(|e| format!("Failed to parse translations/{lang}.toml: {e}"))?;
             }
         }
+    }
+
+    if let Some(template) = aem_dir.get_file(format!("{name}/aem/letterhead.xml")) {
+        let template = template
+            .contents_utf8()
+            .ok_or_else(|| format!("Profile '{name}': letterhead.xml is not UTF-8"))?;
+        profile.letterhead_template = Some(template.to_owned());
     }
 
     Ok(profile)
@@ -370,31 +382,44 @@ fn resolve_embedded_fragment_paths(frag_ref: &str) -> Option<(String, String)> {
 }
 
 /// Parse a translation TOML file (from the `translations/` directory) and merge
-/// entries into the `default_translations` map.
+/// its `[translations]` into `translations` (the profile's
+/// `default_translations`) and its `[letterhead]` into `letterhead` (the
+/// letterhead component's texts, shipped only with a form that holds one).
 ///
 /// Expected format:
 /// ```toml
 /// [translations]
 /// "Master text" = "Translated text"
+///
+/// [letterhead]
+/// "Sender" = "Translated text"
 /// ```
 pub fn parse_translation_toml(
     toml_str: &str,
     lang: &str,
     translations: &mut HashMap<String, HashMap<String, String>>,
+    letterhead: &mut HashMap<String, HashMap<String, String>>,
 ) -> Result<(), String> {
     #[derive(serde::Deserialize)]
+    #[serde(deny_unknown_fields)]
     struct TranslationFile {
         #[serde(default)]
         translations: HashMap<String, String>,
+        #[serde(default)]
+        letterhead: HashMap<String, String>,
     }
 
     let file: TranslationFile = toml::from_str(toml_str).map_err(|e| e.to_string())?;
 
-    for (key, message) in file.translations {
-        translations
-            .entry(key)
-            .or_default()
-            .insert(lang.to_string(), message);
+    for (table, out) in [
+        (file.translations, translations),
+        (file.letterhead, letterhead),
+    ] {
+        for (key, message) in table {
+            out.entry(key)
+                .or_default()
+                .insert(lang.to_string(), message);
+        }
     }
 
     Ok(())

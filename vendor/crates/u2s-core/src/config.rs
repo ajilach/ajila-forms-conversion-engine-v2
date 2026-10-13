@@ -1,6 +1,6 @@
-//! Config-parsing primitives shared by `u2s-auth` and `u2s-server`, so
-//! neither duplicates the other's error accumulation or environment
-//! abstraction (CLAUDE.md: do not duplicate logic).
+//! Config-parsing primitives, so no crate that reads its environment
+//! duplicates another's error accumulation or environment abstraction
+//! (CLAUDE.md: do not duplicate logic).
 
 use std::collections::BTreeMap;
 
@@ -44,8 +44,8 @@ pub enum ConfigProblem {
         value_hint: String,
         reason: String,
     },
-    /// A variable that is set but not allowed — e.g. the removed
-    /// `U2S_AUTH_MODE`.
+    /// A variable that is set but not allowed — e.g. a removed setting
+    /// left over in an old `.env`.
     Forbidden {
         key: &'static str,
         reason: &'static str,

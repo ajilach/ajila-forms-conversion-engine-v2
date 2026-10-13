@@ -1,11 +1,11 @@
 //! Domain identifier types and config-parsing primitives shared across the
 //! web-app crates.
 //!
-//! `u2s-core` exists so `u2s-auth` (grants key on [`DatasetSlug`]) and
-//! `u2s-store` (which stores it, `datasets.id` and `datasets.slug`) can
-//! name the same types without either depending on the other, and so both
-//! can share one `from_env` error-accumulation shape without duplicating
-//! it. [`FormatScope`] extends that for the same reason: `u2s-store`'s pull
+//! `u2s-core` exists so `u2s-server` and `u2s-store` (which stores
+//! `datasets.id` and `datasets.slug`) can name the same types without the
+//! store depending on the server, and so every crate that reads its
+//! environment shares one `from_env` error-accumulation shape without
+//! duplicating it. [`FormatScope`] extends that for the same reason: `u2s-store`'s pull
 //! query and every MCP tool's manifest match a run's format against a scope,
 //! and [`format::matches`] is the one function both are tested against.
 //! Nothing here does I/O, nothing here names AEM or any output format — see

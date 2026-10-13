@@ -174,6 +174,44 @@ pub fn configurator_reset(choice: &str, targets: &[ResetTarget]) -> EventScript 
     }
 }
 
+const LOCALIZED_VALUE: &str = "localized-value";
+/// How [`localized_value`] opens the texts it picks from, on a line of its own.
+const TEXTS: &str = "  var texts = ";
+
+/// A field's Initialize rule giving it the text of the reader's language:
+/// `texts` by every code the form's metadata may report the language as, and
+/// `fallback` for any other. It fills only an empty field, so a value entered
+/// or restored from a draft stays.
+///
+/// A field's value is not translated by AEM's dictionary (only a static
+/// text's is), so this is how a prefilled value reads in the form's language.
+pub fn localized_value(
+    field: &str,
+    texts: &std::collections::BTreeMap<String, String>,
+    fallback: &str,
+) -> EventScript {
+    let texts = serde_json::to_string(texts).expect("a map of strings serialises");
+    let content = format!(
+        "{}\nif (!this.value) {{\n{TEXTS}{texts};\n  this.value = texts[window.forms.ubs.getFormMetadata().language] || {};\n}}",
+        generated(LOCALIZED_VALUE),
+        js_string(fallback)
+    );
+    EventScript {
+        archetype: Some(LOCALIZED_VALUE.into()),
+        ..EventScript::event(field, ScriptEvent::Initialize, content)
+    }
+}
+
+/// The texts a [`localized_value`] rule picks from, by language code; `None`
+/// for any other rule.
+pub fn localized_values(content: &str) -> Option<std::collections::BTreeMap<String, String>> {
+    if !content.starts_with(&generated(LOCALIZED_VALUE)) {
+        return None;
+    }
+    let line = content.lines().find_map(|l| l.strip_prefix(TEXTS))?;
+    serde_json::from_str(line.strip_suffix(';')?).ok()
+}
+
 // A fragment's Initialize rules. AEM's Expression Editor hands back exactly
 // ONE SCRIPTMODEL per field and event: two sharing `this` and `Initialize` are
 // joined by a bare comma into invalid JSON, and the editor then fails the
@@ -246,6 +284,51 @@ mod tests {
             attribute_value(&[click]),
             r#"[{"script":{"content":"// [repeating-panel] Generated automatically. Do not edit: will be overwritten. Create your own different script.\\nvar repeatingPanel = this.parent;\\nvar addButton = this.parent.parent.BT_Add;\\nwindow.forms.ubs.removeInstance(repeatingPanel);\\nwindow.forms.ubs.accessibility.setRepeatPanelAccessibilityLabels(repeatingPanel\, \\"Client\\"\, addButton);\\nwindow.forms.ubs.accessibility.setRepeatPanelAccessibilityLabelsForButtons(repeatingPanel\, \\"Client\\"\, addButton\, this);"\,"event":"Click"\,"field":"BT_Remove"}\,"nodeName":"SCRIPTMODEL"\,"version":1\,"enabled":true\,"_archetype":"repeating-panel"}]"#
         );
+    }
+
+    /// The texts a localized value picks from come back out of the rule, and
+    /// a text holding a newline or a quote stays on its one line.
+    #[test]
+    fn a_localized_value_reads_back() {
+        let texts: std::collections::BTreeMap<String, String> = [
+            ("de".to_owned(), "Betreff: \"A\"\nB".to_owned()),
+            ("it".to_owned(), "Oggetto".to_owned()),
+        ]
+        .into_iter()
+        .collect();
+        let rule = localized_value("AF_Subject", &texts, "Oggetto");
+        assert_eq!(localized_values(&rule.content), Some(texts));
+        assert!(rule.content.contains("window.forms.ubs.getFormMetadata().language"));
+        assert_eq!(localized_values("this.value = 1;"), None);
+    }
+
+    /// What a localized value leaves in its field, run as the form runs it.
+    fn run_localized(language: &str, value: &str) -> String {
+        let texts = [("de".to_owned(), "Betreff: \"A\"\nB".to_owned()), ("it".to_owned(), "Oggetto".to_owned())]
+            .into_iter()
+            .collect();
+        let rule = localized_value("AF_Subject", &texts, "Oggetto");
+        let source = format!(
+            "var window = {{forms: {{ubs: {{getFormMetadata: function () {{ return {{language: {}}}; }}}}}}}};\n\
+             var field = {{value: {}}};\n(function () {{\n{}\n}}).call(field);\nfield.value;",
+            js_string(language),
+            js_string(value),
+            rule.content
+        );
+        let mut context = boa_engine::Context::default();
+        let result = context
+            .eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|e| panic!("the rule runs: {e}\n{source}"));
+        result.to_string(&mut context).unwrap().to_std_string_escaped()
+    }
+
+    /// The rule fills an empty field with its language's text, or the
+    /// fallback's for a language it has none for, and leaves a filled field.
+    #[test]
+    fn a_localized_value_picks_the_readers_language() {
+        assert_eq!(run_localized("de", ""), "Betreff: \"A\"\nB");
+        assert_eq!(run_localized("fr", ""), "Oggetto");
+        assert_eq!(run_localized("de", "Prot. 42"), "Prot. 42");
     }
 
     #[test]

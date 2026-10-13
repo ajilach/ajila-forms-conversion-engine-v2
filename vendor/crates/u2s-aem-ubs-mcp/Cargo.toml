@@ -48,6 +48,10 @@ name = "golden_parity"
 path = "tests/golden_parity.rs"
 
 [[test]]
+name = "letterhead"
+path = "tests/letterhead.rs"
+
+[[test]]
 name = "party_row"
 path = "tests/party_row.rs"
 

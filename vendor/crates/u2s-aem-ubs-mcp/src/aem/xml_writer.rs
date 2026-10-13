@@ -639,7 +639,9 @@ pub(super) fn holds_input(node: &AemNode) -> bool {
         | AemNode::Dropdown { .. }
         | AemNode::Checkbox { .. }
         | AemNode::RadioButton { .. }
-        | AemNode::Fragment { .. } => true,
+        | AemNode::Fragment { .. }
+        // Its date is the person's to pick, whatever else it holds.
+        | AemNode::Letterhead { .. } => true,
 
         AemNode::Root { children, .. }
         | AemNode::Panel { children, .. }

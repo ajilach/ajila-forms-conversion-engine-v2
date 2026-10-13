@@ -264,11 +264,10 @@ fn assemble_package(
     // wholesale win left the profile's other locales without the key at all. A
     // form whose own label happens to read "Company" would knock `Company` out of
     // the French and Italian dictionaries the profile itself emits.
-    for (key, lang_map) in &config.default_translations {
-        let entry = translations.entry(key.clone()).or_default();
-        for (lang, text) in lang_map {
-            entry.entry(lang.clone()).or_insert_with(|| text.clone());
-        }
+    merge_defaults(&mut translations, &config.default_translations);
+    // The letterhead's own headings and labels, where the form has one.
+    if super::letterhead::holds_letterhead(root) {
+        merge_defaults(&mut translations, &config.letterhead_translations);
     }
 
     // Fold every synonym code onto the language it is a synonym of, so content
@@ -410,6 +409,17 @@ fn assemble_package(
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/// Add `defaults` to `translations`, per language: a language a key already has
+/// keeps its own text.
+fn merge_defaults(translations: &mut I18nDictionary, defaults: &HashMap<String, HashMap<String, String>>) {
+    for (key, lang_map) in defaults {
+        let entry = translations.entry(key.clone()).or_default();
+        for (lang, text) in lang_map {
+            entry.entry(lang.clone()).or_insert_with(|| text.clone());
+        }
+    }
+}
 
 fn write_entry(
     zip: &mut ZipWriter<Cursor<Vec<u8>>>,

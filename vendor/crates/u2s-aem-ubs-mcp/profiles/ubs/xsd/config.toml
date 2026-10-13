@@ -460,6 +460,15 @@ kind = "textbox"
 visible = false
 ignore = true
 
+# --- The letterhead -----------------------------------------------------------
+
+# A letter's letterhead is UBS's own `Letter` element (LetterAddress.xsd),
+# referenced: the letterhead component binds its fields to paths under it
+# (`aem/letterhead.xml`), and `LetterType` declares every one of them.
+[[aemElements]]
+kind = "letterhead"
+element = "Letter"
+
 # --- Fragments ---------------------------------------------------------------
 
 # BankingRelationship is declared globally, so it is referenced, and it is the
