@@ -164,9 +164,18 @@ impl TurnPlan {
         } else {
             model
         };
+        // An OpenAI-compatible endpoint counts cached tokens inside the
+        // prompt; split them out so they are not billed twice.
+        let disjoint = self.endpoint.provider != Provider::Anthropic;
         Ok(ResolvedModel {
             model,
-            price: Arc::new(move |usage| crate::pricing::cost_usd(&model_id, usage)),
+            price: Arc::new(move |usage| {
+                if disjoint {
+                    crate::pricing::cost_usd(&model_id, &crate::pricing::disjoint_usage(usage))
+                } else {
+                    crate::pricing::cost_usd(&model_id, usage)
+                }
+            }),
             max_tokens: self.max_tokens,
             context_budget: Arc::new(context_budget),
         })
