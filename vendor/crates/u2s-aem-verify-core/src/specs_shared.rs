@@ -357,8 +357,8 @@ pub fn tool_specs() -> Vec<Value> {
                 "Closes the session's browser tab and releases the `session` handle; the package \
                  is uninstalled once no other open session shows it. Always worth calling once \
                  done with a form: an instance holds at most {MAX_SESSIONS_PER_INSTANCE} \
-                 sessions, and verify_run on an instance with any session open is refused. \
-                 Side-effecting."
+                 sessions, and a different build of the form cannot be opened or run while a \
+                 session still shows this one. Side-effecting."
             ),
             json!({
                 "type": "object",

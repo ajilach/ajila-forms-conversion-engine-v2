@@ -2171,7 +2171,7 @@
     "name": "aem_verify_submit"
   },
   {
-    "description": "Closes the session's browser tab and releases the `session` handle; the package is uninstalled once no other open session shows it. Always worth calling once done with a form: an instance holds at most 8 sessions, and aem_verify_run on an instance with any session open is refused. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
+    "description": "Closes the session's browser tab and releases the `session` handle; the package is uninstalled once no other open session shows it. Always worth calling once done with a form: an instance holds at most 8 sessions, and a different build of the form cannot be opened or run while a session still shows this one. Side-effecting. In this run the latest build_aem_package result is checked automatically and the instance is managed for you: pass no `package`, `package_path` or `instance_id`.",
     "input_schema": {
       "additionalProperties": false,
       "properties": {
