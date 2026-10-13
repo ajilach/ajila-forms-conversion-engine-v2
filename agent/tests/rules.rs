@@ -1776,3 +1776,23 @@ fn a_letters_sender_takes_slot2_so_no_draw_does() {
     let free = doc_with(vec![page("PN_A", "A", vec![preface(), silent, entity(), validity()])]);
     assert!(violations("dor-header-slots", &free).is_empty());
 }
+
+/// A repeatable of signatures is named after who signs, which may be an entity line of up to eight
+/// words (the writer's `MAX_SIGNATURE_SUBJECT_WORDS`); any other repeatable keeps four.
+#[test]
+fn a_signature_block_takes_an_entity_line_as_its_title() {
+    let signature = || fragment("PN_SGN_UBS", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1");
+    let bank = doc_with(vec![page(
+        "PN_A",
+        "",
+        vec![repeatable("RCP_SGN_UBS", "UBS Europe SE (Succursale Italia)", vec![signature()])],
+    )]);
+    assert!(violations("repeatable-title", &bank).is_empty());
+
+    let rows = doc_with(vec![page(
+        "PN_A",
+        "",
+        vec![repeatable("RCP_Rows", "UBS Europe SE (Succursale Italia)", vec![text_field("TXT_Row", "Row", None)])],
+    )]);
+    assert_eq!(violations("repeatable-title", &rows), vec!["/form/children/0/children/0/title".to_string()]);
+}

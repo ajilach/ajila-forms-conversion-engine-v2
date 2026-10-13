@@ -1,4 +1,8 @@
 const MAX_SUBJECT_WORDS = 4;
+// A repeatable of signatures is named after who signs, often an entity line ("UBS Europe SE
+// (Succursale Italia)"): the writer's `MAX_SIGNATURE_SUBJECT_WORDS`, for its own title only.
+const MAX_SIGNATURE_SUBJECT_WORDS = 8;
+const SIGNATURE_GENERIC = "affrg_SignatureGeneric1";
 const MAX_SUBJECT_CHARS = 42;
 const SUBJECT_STOP_WORDS = ["name", "nome", "nombre", "no", "nr", "number", "details", "data", "daten"];
 
@@ -20,7 +24,7 @@ function stripMarkup(text) {
 }
 
 // `sane_subject` of the writer: the text as a subject, or null when it names nothing usable.
-function saneSubject(text) {
+function saneSubject(text, maxWords) {
   const plain = stripMarkup(text);
   if (/^\s*Condition: /.test(plain)) return null;
   let body = plain;
@@ -31,11 +35,18 @@ function saneSubject(text) {
   }
   const trimmed = body.trim().replace(/[:*0-9]+$/, "").trim();
   if (trimmed === "" || Array.from(trimmed).length > MAX_SUBJECT_CHARS ||
-      trimmed.split(/\s+/).length > MAX_SUBJECT_WORDS ||
+      trimmed.split(/\s+/).length > (maxWords || MAX_SUBJECT_WORDS) ||
       SUBJECT_STOP_WORDS.indexOf(trimmed.toLowerCase()) >= 0 || trimmed.endsWith(".")) {
     return null;
   }
   return trimmed;
+}
+
+// `wraps_signatures` of the writer: a direct child Fragment of the signature generic.
+function wrapsSignatures(node) {
+  return (node.children || []).some(function (c) {
+    return c.type === "Fragment" && typeof c.frag_ref === "string" && c.frag_ref.slice(-SIGNATURE_GENERIC.length) === SIGNATURE_GENERIC;
+  });
 }
 
 function plain(text) {
@@ -61,7 +72,8 @@ function check(output, ctx) {
 
   function repeatable(node, pointer, heading, inForce) {
     const own = node.title !== undefined && masterText(node.title, master) !== node.name
-      ? saneSubject(masterText(node.title, master)) : null;
+      ? saneSubject(masterText(node.title, master), wrapsSignatures(node) ? MAX_SIGNATURE_SUBJECT_WORDS : MAX_SUBJECT_WORDS)
+      : null;
     if (own === null && heading === null && inForce === null) {
       violations.push({
         pointer: pointer + "/title",

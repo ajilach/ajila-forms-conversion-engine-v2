@@ -8,7 +8,7 @@ A repeatable's `title` is the one string that becomes the row heading, the Add b
 the Document of Record heading, so make it the short noun phrase of the thing that repeats
 (`Client`, `Beneficial owner`), in every language. Left empty, the writer falls back to the
 nearest TitleDraw above the repeatable among its siblings, then to the title of the enclosing
-panel; a title it cannot use (longer than 4 words or 42 characters, a sentence ending in a full
+panel; a title it cannot use (longer than 4 words, 8 for a repeatable of signatures' own title, or 42 characters, a sentence ending in a full
 stop, "Condition: ...", or just `name`, `number`, `details`, `data`) counts as empty. If nothing
 names the repeatable, the panel ships the visible placeholder `(Repeatable name)`.
 

@@ -209,7 +209,7 @@ impl Side {
 
     /// The side's heading draw.
     fn subtitle(self) -> String {
-        format!("TTL_Letter_{}_Subtitle", self.stem())
+        format!("ST_Letter_{}_Subtitle", self.stem())
     }
 
     /// The side's address panel.
@@ -366,7 +366,78 @@ pub(super) fn render(
             }
         }
     }
+    mirror_value_commits(&mut letterhead)?;
     Ok(letterhead)
+}
+
+/// Every value-commit rule of the letterhead run on Initialize too, for a form
+/// that opens with the value already in it (a draft, a prefill): the date
+/// string and the references block are otherwise empty in the DoR until the
+/// person touches the date or a reference (PROBLEM-visible-on-init). A rule
+/// that destroys data (a reset) is not repeated on load, and one whose text an
+/// Initialize rule of the field already holds is not repeated twice. The copy
+/// runs only once the field has a value, as its value-commit rule does, so the
+/// date logic never reads an empty date.
+fn mirror_value_commits(node: &mut RawJcrNode) -> Result<(), String> {
+    const DESTRUCTIVE: &[&str] = &[
+        "resetData(",
+        "resetAllPanelInstances(",
+        "addInstance(",
+        "removeInstance(",
+    ];
+    let name = node.attributes.get("name").cloned();
+    if let (Some(name), Some(at)) = (
+        name,
+        node.children
+            .iter()
+            .position(|c| c.tag_name == "fd:scripts"),
+    ) {
+        let scripts = &mut node.children[at];
+        let contents = |attribute: &str| -> Result<Vec<String>, String> {
+            let Some(raw) = scripts.attributes.get(attribute) else {
+                return Ok(Vec::new());
+            };
+            let rules =
+                decode_script_list(raw).map_err(|e| format!("`{name}`'s {attribute}: {e}"))?;
+            Ok(rules
+                .iter()
+                .filter_map(|json| {
+                    let rule: serde_json::Value = serde_json::from_str(json).ok()?;
+                    Some(rule.pointer("/script/content")?.as_str()?.to_owned())
+                })
+                .collect())
+        };
+        let commits = contents(ScriptEvent::ValueCommit.attribute())?;
+        let inits = contents(ScriptEvent::Initialize.attribute())?;
+        let copies: Vec<String> = commits
+            .into_iter()
+            .filter(|body| !DESTRUCTIVE.iter().any(|d| body.contains(d)))
+            .filter(|body| !inits.iter().any(|init| init.contains(body.as_str())))
+            .map(|body| {
+                EventScript::event(
+                    name.as_str(),
+                    ScriptEvent::Initialize,
+                    format!("if (this.value) {{\n{body}\n}}"),
+                )
+                .to_json()
+            })
+            .collect();
+        if !copies.is_empty() {
+            let attribute = ScriptEvent::Initialize.attribute();
+            let mut rules = match scripts.attributes.get(attribute) {
+                Some(raw) => {
+                    decode_script_list(raw).map_err(|e| format!("`{name}`'s {attribute}: {e}"))?
+                }
+                None => Vec::new(),
+            };
+            rules.extend(copies);
+            scripts.attributes.insert(
+                attribute.into(),
+                u2s_mapper_aem::script::encode_script_list(rules),
+            );
+        }
+    }
+    node.children.iter_mut().try_for_each(mirror_value_commits)
 }
 
 /// Every `bindRef` under `node` bound below `letter`, the path the schema walk
@@ -629,7 +700,15 @@ fn read_party(letterhead: &JcrNode, side: Side) -> Option<LetterParty> {
             .filter(|v| !v.is_empty())
             .map(str::to_owned)
     };
-    let company = value(&side.client_type()).as_deref() == Some(COMPANY);
+    // The choice decides; an older letterhead whose choice carries no value is
+    // a company where only the company name is filled in.
+    let person_given = ["Title", "FirstName", "LastName"]
+        .iter()
+        .any(|suffix| value(&side.field(suffix)).is_some());
+    let company = match value(&side.client_type()) {
+        Some(kind) => kind == COMPANY,
+        None => !person_given && value(&side.field("CompanyName")).is_some(),
+    };
     let address = ADDRESS_FIELDS
         .iter()
         .filter(|suffix| match **suffix {
@@ -711,6 +790,48 @@ mod tests {
         assert!(is_markup("<b>Oggetto</b>"));
         assert!(is_markup("a</p>"));
         assert!(!is_markup("a < b and 3 <4"));
+    }
+
+    /// A letterhead side as an older package holds it: fields with values, and
+    /// a person/company choice with `choice` as its value, if any.
+    fn loaded_side(choice: Option<&str>, fields: &[(&str, &str)]) -> JcrNode {
+        let mut xml = String::from("<letterhead name=\"panel_letterhead\">");
+        xml.push_str(&match choice {
+            Some(v) => format!("<radiobutton name=\"RB_Receiver_ClientType\" _value=\"{v}\"/>"),
+            None => "<radiobutton name=\"RB_Receiver_ClientType\"/>".into(),
+        });
+        for (name, value) in fields {
+            xml.push_str(&format!("<textbox name=\"{name}\" _value=\"{value}\"/>"));
+        }
+        xml.push_str("</letterhead>");
+        u2s_mapper_aem::jcr::tree::parse_jcr_xml(&xml).unwrap()
+    }
+
+    /// Without a value on the choice, a side whose company name alone is filled
+    /// in is a company; with person names it stays a person, and a choice that
+    /// says person is believed.
+    #[test]
+    fn a_company_address_reads_back_without_a_choice_value() {
+        let company =
+            |choice, fields| match read_party(&loaded_side(choice, fields), Side::Receiver) {
+                Some(LetterParty::Fixed { address }) => address.company.clone(),
+                other => panic!("a fixed address, got {other:?}"),
+            };
+        let ubs = [
+            ("AF_Receiver_CompanyName", "UBS Europe SE"),
+            ("AF_Receiver_City", "Milano"),
+        ];
+        assert_eq!(company(None, &ubs[..]), Some("UBS Europe SE".into()));
+        let both = [
+            ("AF_Receiver_CompanyName", "UBS Europe SE"),
+            ("AF_Receiver_LastName", "Rossi"),
+        ];
+        assert_eq!(company(None, &both[..]), None);
+        assert_eq!(company(Some(PERSON), &ubs[..]), None);
+        assert_eq!(
+            company(Some(COMPANY), &ubs[..]),
+            Some("UBS Europe SE".into())
+        );
     }
 
     #[test]

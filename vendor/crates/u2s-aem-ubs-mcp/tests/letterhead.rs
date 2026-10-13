@@ -216,7 +216,7 @@ fn a_letter_is_written_with_the_letterhead_and_the_letter_layout() {
 
     // The bank's address is prefilled and hidden; the receiver is the reader's to enter.
     assert!(
-        hidden(named(lh, "PN_Sender_Address")) && hidden(named(lh, "TTL_Letter_Sender_Subtitle"))
+        hidden(named(lh, "PN_Sender_Address")) && hidden(named(lh, "ST_Letter_Sender_Subtitle"))
     );
     assert_eq!(
         named(lh, "AF_Sender_CompanyName").attr("_value"),
@@ -630,5 +630,101 @@ fn a_person_company_change_resets_only_its_own_side() {
     assert_eq!(
         state,
         json!(["Mario", "Rossi", "Via Roma", "Roma", null, true, false, "1"])
+    );
+}
+
+/// PROBLEM-visible-on-init: a form that opens with a date or a reference in it
+/// (a draft, a prefill) composes the date string and the references block on
+/// load too, so the letter DoR prints them. Every value-commit rule of the
+/// letterhead that destroys nothing has an Initialize rule holding its text.
+#[test]
+fn the_letterheads_value_commit_rules_also_run_on_initialize() {
+    let mut node = letterhead(bank(), json!({"kind": "Entered"}));
+    node["our_reference"] = json!({"it": "Rif.", "en": "Our ref."});
+    let build = build(&document(json!([preface(), node])));
+    let form = parse_jcr_xml(&form_xml(&build.package)).unwrap();
+    let lh = letterhead_of(&form).unwrap();
+    let mut holders = Vec::new();
+    all(lh, &|n| n.component_name().is_some(), &mut holders);
+    let mut mirrored = Vec::new();
+    for holder in holders {
+        let inits = rules(holder, "fd:init");
+        for commit in rules(holder, "fd:valueCommit") {
+            if commit.contains("resetData(") {
+                continue;
+            }
+            let name = holder.component_name().unwrap();
+            assert!(
+                inits.iter().any(|i| i.contains(&commit)),
+                "`{name}` does not run on load: {commit}"
+            );
+            mirrored.push(name.to_owned());
+        }
+    }
+    for name in ["DATE_Date", "TXT_Your_Ref", "TXT_Our_Ref"] {
+        assert!(mirrored.iter().any(|m| m == name), "{name}: {mirrored:?}");
+    }
+    // The reference's own text is in place before its copy composes the block.
+    let inits = rules(named(lh, "TXT_Your_Ref"), "fd:init");
+    assert!(
+        inits[0].contains("Prot. n.") && inits[1].contains("AF_References"),
+        "{inits:?}"
+    );
+}
+
+/// PROBLEM-step-title-panel: a first page without a title of its own does not
+/// open with a title draw, which the feedback guard would promote to the page's
+/// step title (the letterhead's "Sender"). The letterhead's headings are bold
+/// static texts, and the page keeps no title the source does not give it.
+#[test]
+fn a_letter_on_an_untitled_page_has_no_title_draw_to_promote() {
+    fn first_draw(node: &JcrNode) -> Option<&JcrNode> {
+        for child in &node.children {
+            if child.tag_name == "layout" || child.tag_name == "cq:responsive" {
+                continue;
+            }
+            let draw = child.tag_name.contains("titledraw")
+                || child.tag_name.contains("textdraw")
+                || child.resource_type().is_some_and(|t| t.contains("draw"));
+            let text = child
+                .attr("_value")
+                .map(u2s_aem_ubs_mcp::xsd::strip_markup)
+                .unwrap_or_default();
+            if draw && !text.trim().is_empty() {
+                return Some(child);
+            }
+            if let Some(found) = first_draw(child) {
+                return Some(found);
+            }
+        }
+        None
+    }
+    let mut value = document(json!([
+        letterhead(bank(), json!({"kind": "Entered"})),
+        field()
+    ]));
+    value["form"]["children"][0]["title"] = json!({});
+    let build = build(&value);
+    let form = parse_jcr_xml(&form_xml(&build.package)).unwrap();
+    let page = find(&form, &|n| n.component_name() == Some("PN_Page")).unwrap();
+    let draw = first_draw(page).expect("the letterhead draws its headings");
+    let is_title = draw.tag_name.contains("titledraw")
+        || draw
+            .resource_type()
+            .is_some_and(|t| t.contains("titledraw"));
+    assert!(
+        !is_title,
+        "the page opens with the title draw `{:?}`",
+        draw.component_name()
+    );
+    let mut headings = Vec::new();
+    all(
+        page,
+        &|n| n.attr("headingLevel") == Some("2"),
+        &mut headings,
+    );
+    assert!(
+        headings.is_empty(),
+        "the untitled page carries no step title"
     );
 }

@@ -6,7 +6,10 @@
   - every component carrying `dorExclusion` and `summaryExclusion`: the summary
     script prints the letter from these fields, never the fields themselves;
   - its section headings and field labels in English, translated by the
-    `[letterhead]` table of `translations/*.toml`;
+    `[letterhead]` table of `translations/*.toml`; the headings are bold static
+    texts, not title draws, since a title draw leading a page without a title of
+    its own reads to the feedback guard as that page's misplaced step title
+    (PROBLEM-step-title-panel);
   - what a person fills in shown and the rest hidden; the writer hides a side
     whose address is fixed, and shows the reference lines a letter has;
   - no prefilled values: the writer sets them from the node;
@@ -65,14 +68,13 @@
             </dropdownlist>
             <textdraw_sender_subt
                 jcr:primaryType="nt:unstructured"
-                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
+                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
                 _value="&lt;p>&lt;b>Sender&lt;/b>&lt;/p>"
                 css="ubs-margin-20"
                 dorExclusion="true"
                 dorFieldStyling="Default"
                 guideNodeClass="guideTextDraw"
-                headingLevel="3"
-                name="TTL_Letter_Sender_Subtitle"
+                name="ST_Letter_Sender_Subtitle"
                 summaryExclusion="true"
                 textIsRich="true"/>
             <panel_sender_details
@@ -605,14 +607,13 @@
             </panel_sender_details>
             <textdraw_receiver_subtitle
                 jcr:primaryType="nt:unstructured"
-                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
+                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
                 _value="&lt;p>&lt;b>Receiver&lt;/b>&lt;/p>"
                 css="ubs-margin-20"
                 dorExclusion="true"
                 dorFieldStyling="Default"
                 guideNodeClass="guideTextDraw"
-                headingLevel="3"
-                name="TTL_Letter_Receiver_Subtitle"
+                name="ST_Letter_Receiver_Subtitle"
                 summaryExclusion="true"
                 textIsRich="true"/>
             <panel_receiver_details
@@ -1098,14 +1099,13 @@
             </panel_receiver_details>
             <textdraw_references_subtitle
                 jcr:primaryType="nt:unstructured"
-                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
+                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
                 _value="&lt;p>&lt;b>Date and references&lt;/b>&lt;/p>"
                 css="ubs-margin-20"
                 dorExclusion="true"
                 dorFieldStyling="Default"
                 guideNodeClass="guideTextDraw"
-                headingLevel="3"
-                name="TTL_Letter_References_Subtitle"
+                name="ST_Letter_References_Subtitle"
                 summaryExclusion="true"
                 textIsRich="true"/>
             <panel_date
@@ -1246,14 +1246,13 @@
             </textbox_references>
             <textdraw_letter_content_subtitle
                 jcr:primaryType="nt:unstructured"
-                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
+                sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textdraw"
                 _value="&lt;p>&lt;b>Letter content&lt;/b>&lt;/p>"
                 css="ubs-margin-20"
                 dorExclusion="true"
                 dorFieldStyling="Default"
                 guideNodeClass="guideTextDraw"
-                headingLevel="3"
-                name="TTL_Letter_Content"
+                name="ST_Letter_Content"
                 summaryExclusion="true"
                 textIsRich="true"/>
             <textbox_subject

@@ -132,6 +132,15 @@ fn first_page(root: &AemNode) -> Option<Uuid> {
 const MAX_SUBJECT_WORDS: usize = 4;
 const MAX_SUBJECT_CHARS: usize = 42;
 
+/// The longest own title a repeatable of signatures (`affrg_SignatureGeneric1`)
+/// may carry as its subject. Such a block is named after who signs, and that is
+/// often an entity line, which runs longer than a party's name: the bank's
+/// officers sign as "UBS Europe SE (Succursale Italia)", five words.
+const MAX_SIGNATURE_SUBJECT_WORDS: usize = 8;
+
+/// The fragment a repeatable of signatures wraps.
+const SIGNATURE_GENERIC: &str = "affrg_SignatureGeneric1";
+
 /// Words that name no entity, so a heading that is only this is no subject.
 const SUBJECT_STOP_WORDS: &[&str] = &[
     "name", "nome", "nombre", "no", "nr", "number", "details", "data", "daten",
@@ -187,7 +196,8 @@ fn collect_add_subjects_rec(
                 // treating it as real text would write that hex-suffixed name as
                 // the row heading (`Add RCP_1120c`). Only a title that differs
                 // from the node's own name can be someone's real subject.
-                let own_title = (title != name).then(|| sane_subject(title)).flatten();
+                let words = if wraps_signatures(child) { MAX_SIGNATURE_SUBJECT_WORDS } else { MAX_SUBJECT_WORDS };
+                let own_title = (title != name).then(|| subject_of(title, words)).flatten();
                 if let Some(subject) = own_title
                     .or_else(|| heading.clone())
                     .or_else(|| in_force.map(String::from))
@@ -201,6 +211,14 @@ fn collect_add_subjects_rec(
     }
 }
 
+/// Whether a repeatable is a block of signatures: it wraps the generic
+/// signature fragment.
+fn wraps_signatures(repeatable: &AemNode) -> bool {
+    node_children(repeatable)
+        .iter()
+        .any(|c| matches!(c, AemNode::Fragment { frag_ref, .. } if frag_ref.ends_with(SIGNATURE_GENERIC)))
+}
+
 /// `text` as a subject, or `None` when it names nothing usable.
 ///
 /// Strips the decoration a heading carries — numbering, trailing colons, markup —
@@ -208,6 +226,11 @@ fn collect_add_subjects_rec(
 /// thing. A wrong subject is worse than none: the button would name something the
 /// panel is not about.
 fn sane_subject(text: &str) -> Option<String> {
+    subject_of(text, MAX_SUBJECT_WORDS)
+}
+
+/// [`sane_subject`], allowing up to `max_words` words.
+fn subject_of(text: &str, max_words: usize) -> Option<String> {
     let plain = strip_markup(text);
     // A conditional wrapper's title is a machine label the converter writes
     // (`Condition: <field> = <value>`, converter.rs), not wording anyone chose.
@@ -237,7 +260,7 @@ fn sane_subject(text: &str) -> Option<String> {
         .to_string();
     if trimmed.is_empty()
         || trimmed.chars().count() > MAX_SUBJECT_CHARS
-        || trimmed.split_whitespace().count() > MAX_SUBJECT_WORDS
+        || trimmed.split_whitespace().count() > max_words
         || SUBJECT_STOP_WORDS.contains(&trimmed.to_lowercase().as_str())
         // A sentence is not a subject.
         || trimmed.ends_with('.')
@@ -3303,5 +3326,84 @@ mod tests {
                 xml
             );
         }
+    }
+
+    /// A page titled "Firme" holding one repeatable titled `title`, around the
+    /// signature fragment when `signatures`, else around a text field.
+    fn signature_page(title: &str, signatures: bool) -> AemNode {
+        let content = if signatures {
+            AemNode::Fragment {
+                uuid: uuid_of("PN_Officer"),
+                name: "PN_Officer".into(),
+                title: String::new(),
+                frag_ref: "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1".into(),
+                attrs: AemAttrs::default(),
+                visible: true,
+                bind_ref: None,
+                init_hide: Vec::new(),
+                init_show: Vec::new(),
+            }
+        } else {
+            AemNode::TextField {
+                uuid: uuid_of("TXT_Name"),
+                name: "TXT_Name".into(),
+                label: "Nome".into(),
+                mandatory: false,
+                visible: true,
+                max_chars: None,
+                attrs: AemAttrs::default(),
+                colspan: 12,
+                dor_colspan: None,
+                bind_ref: None,
+                kind: Default::default(),
+            }
+        };
+        AemNode::Root {
+            title: "Form".into(),
+            children: vec![AemNode::Panel {
+                uuid: uuid_of("PN_Firme"),
+                name: "PN_Firme".into(),
+                title: "Firme".into(),
+                children: vec![AemNode::Repeatable {
+                    uuid: uuid_of("RCP_Officers"),
+                    name: "RCP_Officers".into(),
+                    title: title.into(),
+                    children: vec![content],
+                    min_occur: 1,
+                    max_occur: 2,
+                    attrs: AemAttrs::default(),
+                    visible: true,
+                    bind_ref: None,
+                    frag_ref: None,
+                }],
+                is_page: true,
+                attrs: AemAttrs::default(),
+                visible: true,
+                is_conditional: false,
+                dor_num_cols: None,
+                colspan: 12,
+                dor_colspan: None,
+                bind_ref: None,
+                frag_ref: None,
+            }],
+        }
+    }
+
+    fn subject(title: &str, signatures: bool) -> Option<String> {
+        collect_add_subjects(&signature_page(title, signatures)).get("RCP_Officers").cloned()
+    }
+
+    /// A block of signatures is named after who signs, an entity line of up to
+    /// eight words; any other repeatable keeps the four-word limit and falls back
+    /// to the page's title. A sentence and a machine label stay no subject.
+    #[test]
+    fn a_signature_block_takes_an_entity_line_as_its_subject() {
+        let entity = "UBS Europe SE (Succursale Italia)";
+        assert_eq!(subject(entity, true).as_deref(), Some(entity));
+        assert_eq!(subject(entity, false).as_deref(), Some("Firme"));
+        assert_eq!(subject("Uno due tre quattro cinque sei sette otto", true).as_deref(), Some("Uno due tre quattro cinque sei sette otto"));
+        assert_eq!(subject("Uno due tre quattro cinque sei sette otto nove", true).as_deref(), Some("Firme"));
+        assert_eq!(subject("Firmano i funzionari della banca.", true).as_deref(), Some("Firme"));
+        assert_eq!(subject("Condition: RB_X = 1", true).as_deref(), Some("Firme"));
     }
 }
