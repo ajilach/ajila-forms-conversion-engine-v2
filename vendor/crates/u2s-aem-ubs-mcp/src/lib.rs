@@ -15,7 +15,7 @@ mod util;
 pub mod value;
 pub mod xsd;
 
-pub use document::{UbsAemBuild, UbsAemDocument, decode, encode, migrate};
+pub use document::{UbsAemBuild, UbsAemDocument, decode, encode, iso_language, migrate};
 
 /// Errors from building a UBS AEM configuration or writing its package.
 #[derive(Debug, thiserror::Error)]

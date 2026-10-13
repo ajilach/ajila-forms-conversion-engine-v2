@@ -1577,7 +1577,7 @@ pub async fn open(
     )
     .await?;
 
-    let opened = match flow::open_live_form(profile, driver, &state.containers, package).await {
+    let opened = match flow::open_live_form(profile, driver, &state.containers, package, None).await {
         Ok(opened) => opened,
         Err(err) => {
             release_package(profile, state, &form_path, "a form that failed to open").await;

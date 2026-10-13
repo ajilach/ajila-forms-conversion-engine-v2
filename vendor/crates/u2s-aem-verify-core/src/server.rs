@@ -237,6 +237,11 @@ impl AemVerifyServer {
                 .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
                 .unwrap_or_default();
             let submit = args.get("submit").and_then(Value::as_bool).unwrap_or(true);
+            let language = match args.get("language") {
+                None | Some(Value::Null) => None,
+                Some(Value::String(language)) => Some(language.clone()),
+                Some(other) => return Err(format!("language must be a string, got {other}")),
+            };
             let instance_id = Self::instance_id(args);
             crate::flow::run(
                 &self.profile,
@@ -248,6 +253,7 @@ impl AemVerifyServer {
                     package_bytes: bytes,
                     fill,
                     submit,
+                    language,
                 },
             )
             .await

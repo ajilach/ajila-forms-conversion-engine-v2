@@ -27,6 +27,15 @@ impl UbsDriver {
         Self { mandator_override }
     }
 
+    /// The languages `package`'s form can be opened in (`verify_run`'s
+    /// `language`), for the entity this driver opens it as: lowercased, the
+    /// one it opens in by default first.
+    pub fn languages(&self, package: &PackageInspection) -> Result<Vec<String>, String> {
+        ubs_metadata::extract(package)
+            .and_then(|metadata| metadata.languages(self.mandator_override.as_deref()))
+            .map_err(|err| err.to_string())
+    }
+
     pub fn from_env() -> Self {
         Self::new(
             std::env::var("U2S_AEM_VERIFY_UBS_MANDATOR")
@@ -37,10 +46,14 @@ impl UbsDriver {
 }
 
 impl FormDriver for UbsDriver {
-    fn form_url_query(&self, package: &PackageInspection) -> Result<Vec<(String, String)>, String> {
+    fn form_url_query(
+        &self,
+        package: &PackageInspection,
+        language: Option<&str>,
+    ) -> Result<Vec<(String, String)>, String> {
         let metadata = ubs_metadata::extract(package).map_err(|err| err.to_string())?;
         let params = metadata
-            .select(self.mandator_override.as_deref())
+            .select(self.mandator_override.as_deref(), language)
             .map_err(|err| err.to_string())?;
         Ok(params.query())
     }
@@ -76,14 +89,14 @@ impl FormDriver for UbsDriver {
 
     fn last_panel_checks_js(&self, package: &PackageInspection) -> Option<String> {
         let metadata = ubs_metadata::extract(package).ok()?;
-        let params = metadata.select(self.mandator_override.as_deref()).ok()?;
+        let params = metadata.select(self.mandator_override.as_deref(), None).ok()?;
         Some(ubs_js::last_panel_checks(&params.mandator))
     }
 
     fn package_summary_extension(&self, package: &PackageInspection) -> Value {
         match ubs_metadata::extract(package) {
             Ok(metadata) => {
-                let selected = metadata.select(self.mandator_override.as_deref());
+                let selected = metadata.select(self.mandator_override.as_deref(), None);
                 json!({
                     "ubs": {
                         "formcode": metadata.formcode,
@@ -139,7 +152,7 @@ mod tests {
     #[test]
     fn form_url_query_derives_mandator_and_language_from_the_package() {
         let driver = UbsDriver::new(None);
-        let query = driver.form_url_query(&package()).expect("ok");
+        let query = driver.form_url_query(&package(), None).expect("ok");
         assert!(query.contains(&("mandator".to_owned(), "033".to_owned())));
         assert!(query.contains(&("afAcceptLang".to_owned(), "it".to_owned())));
         assert!(query.contains(&("wcmmode".to_owned(), "disabled".to_owned())));
@@ -148,7 +161,16 @@ mod tests {
     #[test]
     fn form_url_query_fails_closed_on_an_unknown_mandator_override() {
         let driver = UbsDriver::new(Some("999".to_owned()));
-        assert!(driver.form_url_query(&package()).is_err());
+        assert!(driver.form_url_query(&package(), None).is_err());
+    }
+
+    #[test]
+    fn form_url_query_opens_a_requested_language_and_refuses_an_undeclared_one() {
+        let driver = UbsDriver::new(None);
+        assert_eq!(driver.languages(&package()).expect("languages"), ["it"]);
+        let query = driver.form_url_query(&package(), Some("IT")).expect("declared");
+        assert!(query.contains(&("afAcceptLang".to_owned(), "it".to_owned())));
+        assert!(driver.form_url_query(&package(), Some("de")).is_err());
     }
 
     #[test]

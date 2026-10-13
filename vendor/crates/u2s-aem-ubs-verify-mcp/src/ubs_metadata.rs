@@ -79,6 +79,15 @@ pub enum UbsMetadataError {
         requested: String,
         known: Vec<String>,
     },
+    #[error(
+        "the form was asked to open in {requested:?}, which entity {entity} does not declare \
+         (its languages: {known:?})"
+    )]
+    UnknownLanguage {
+        requested: String,
+        entity: String,
+        known: Vec<String>,
+    },
     #[error(transparent)]
     Xml(#[from] JcrXmlError),
 }
@@ -181,14 +190,49 @@ impl UbsFormMetadata {
     /// and it must name a real entity, a hard error otherwise, since a
     /// silently-ignored override would open the form as whichever entity
     /// happens to be first, not the one an operator explicitly asked for
-    /// -- else the first declared entity. `language` is that entity's own
+    /// -- else the first declared entity. `language`, when given, must be
+    /// one that entity declares (compared case-insensitively; another is a
+    /// hard error for the same reason); else it is that entity's own
     /// first declared language, falling back to the form's master
     /// language if the entity declares none (lowercased: `esignature.js`
     /// and `ElectronicSignatureRdsServlet` both build a `Locale` from the
     /// first two characters, and every real example is already
     /// lowercase-safe -- `"IT"`, `"EN"`, `"DE"`).
-    pub fn select(&self, mandator_override: Option<&str>) -> Result<OpenParams, UbsMetadataError> {
-        let entity = match mandator_override {
+    pub fn select(
+        &self,
+        mandator_override: Option<&str>,
+        language: Option<&str>,
+    ) -> Result<OpenParams, UbsMetadataError> {
+        let entity = self.entity(mandator_override)?;
+        let languages = self.languages_of(entity);
+        let language = match language {
+            None => languages[0].clone(),
+            Some(requested) => languages
+                .iter()
+                .find(|known| known.eq_ignore_ascii_case(requested))
+                .cloned()
+                .ok_or_else(|| UbsMetadataError::UnknownLanguage {
+                    requested: requested.to_owned(),
+                    entity: entity.entity.clone(),
+                    known: languages.clone(),
+                })?,
+        };
+        Ok(OpenParams {
+            mandator: entity.entity.clone(),
+            language,
+            formcode: self.formcode.clone(),
+        })
+    }
+
+    /// Every language the form can be opened in for the entity [`Self::select`]
+    /// picks, lowercased, in the order the entity declares them: its first is
+    /// the one `select` opens with when no language is asked for.
+    pub fn languages(&self, mandator_override: Option<&str>) -> Result<Vec<String>, UbsMetadataError> {
+        Ok(self.languages_of(self.entity(mandator_override)?))
+    }
+
+    fn entity(&self, mandator_override: Option<&str>) -> Result<&UbsEntity, UbsMetadataError> {
+        match mandator_override {
             Some(requested) => self
                 .entities
                 .iter()
@@ -196,20 +240,19 @@ impl UbsFormMetadata {
                 .ok_or_else(|| UbsMetadataError::UnknownMandator {
                     requested: requested.to_owned(),
                     known: self.entities.iter().map(|e| e.entity.clone()).collect(),
-                })?,
-            None => &self.entities[0],
-        };
-        let language = entity
-            .languages
-            .first()
-            .cloned()
-            .unwrap_or_else(|| self.master_language.clone())
-            .to_lowercase();
-        Ok(OpenParams {
-            mandator: entity.entity.clone(),
-            language,
-            formcode: self.formcode.clone(),
-        })
+                }),
+            None => Ok(&self.entities[0]),
+        }
+    }
+
+    /// Never empty: an entity declaring no language opens in the form's
+    /// master language.
+    fn languages_of(&self, entity: &UbsEntity) -> Vec<String> {
+        if entity.languages.is_empty() {
+            vec![self.master_language.to_lowercase()]
+        } else {
+            entity.languages.iter().map(|l| l.to_lowercase()).collect()
+        }
     }
 }
 
@@ -281,7 +324,7 @@ mod tests {
     #[test]
     fn select_with_no_override_uses_the_first_entity() {
         let metadata = extract(&package_with(AAOV_LIKE_XML, None)).expect("must parse");
-        let params = metadata.select(None).expect("must select");
+        let params = metadata.select(None, None).expect("must select");
         assert_eq!(
             params,
             OpenParams {
@@ -296,12 +339,29 @@ mod tests {
     fn select_with_an_unknown_override_is_a_hard_error() {
         let metadata = extract(&package_with(AAOV_LIKE_XML, None)).expect("must parse");
         let err = metadata
-            .select(Some("999"))
+            .select(Some("999"), None)
             .expect_err("999 is not a declared entity");
         assert!(matches!(
             err,
             UbsMetadataError::UnknownMandator { requested, known }
                 if requested == "999" && known == vec!["033".to_owned()]
+        ));
+    }
+
+    #[test]
+    fn select_opens_a_requested_language_the_entity_declares() {
+        let xml = AAOV_LIKE_XML.replace(r#"formrange_language="IT""#, r#"formrange_language="IT,DE,SP""#);
+        let metadata = extract(&package_with(&xml, None)).expect("must parse");
+        assert_eq!(metadata.languages(None).expect("languages"), ["it", "de", "sp"]);
+        assert_eq!(metadata.select(None, None).expect("default").language, "it");
+        assert_eq!(metadata.select(None, Some("SP")).expect("declared").language, "sp");
+        let err = metadata
+            .select(None, Some("fr"))
+            .expect_err("fr is not declared");
+        assert!(matches!(
+            err,
+            UbsMetadataError::UnknownLanguage { requested, entity, known }
+                if requested == "fr" && entity == "033" && known == ["it", "de", "sp"]
         ));
     }
 

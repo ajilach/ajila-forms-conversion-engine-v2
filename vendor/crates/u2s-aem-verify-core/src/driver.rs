@@ -26,8 +26,14 @@ pub trait FormDriver: Send + Sync {
     /// use the same query. `Err` fails the whole run closed (mapped to
     /// `ErrorKind::PackageInvalid` by the caller): a format that cannot
     /// determine how to open its own form at all must not fall back to
-    /// opening it wrong.
-    fn form_url_query(&self, package: &PackageInspection) -> Result<Vec<(String, String)>, String>;
+    /// opening it wrong. `language`, when given, is the language the
+    /// caller asked the form to open in; a driver that cannot honour it
+    /// fails the same way rather than opening another language.
+    fn form_url_query(
+        &self,
+        package: &PackageInspection,
+        language: Option<&str>,
+    ) -> Result<Vec<(String, String)>, String>;
 
     /// A JS expression evaluating to `true` iff the currently visible
     /// panel is the wizard's terminal panel -- the panel from which
@@ -89,7 +95,8 @@ pub trait FormDriver: Send + Sync {
     fn package_summary_extension(&self, package: &PackageInspection) -> Value;
 }
 
-/// The generic driver: no URL query beyond `wcmmode=disabled`, a visible
+/// The generic driver: no URL query beyond `wcmmode=disabled` (so it cannot
+/// open a form in a language asked for), a visible
 /// submit button is the terminal-panel signal, and submit is a plain
 /// `guideBridge.submit()` call -- exactly this crate's behaviour before it
 /// grew a `FormDriver` seam at all.
@@ -99,8 +106,14 @@ impl FormDriver for GenericDriver {
     fn form_url_query(
         &self,
         _package: &PackageInspection,
+        language: Option<&str>,
     ) -> Result<Vec<(String, String)>, String> {
-        Ok(vec![("wcmmode".to_owned(), "disabled".to_owned())])
+        match language {
+            None => Ok(vec![("wcmmode".to_owned(), "disabled".to_owned())]),
+            Some(language) => Err(format!(
+                "this format has no way to open a form in a given language (asked for {language:?})"
+            )),
+        }
     }
 
     fn terminal_panel_js(&self) -> String {
@@ -165,8 +178,16 @@ mod tests {
 
     #[test]
     fn the_generic_driver_asks_for_exactly_wcmmode_disabled() {
-        let query = GenericDriver.form_url_query(&inspection()).expect("ok");
+        let query = GenericDriver.form_url_query(&inspection(), None).expect("ok");
         assert_eq!(query, vec![("wcmmode".to_owned(), "disabled".to_owned())]);
+    }
+
+    #[test]
+    fn the_generic_driver_refuses_a_requested_language() {
+        let err = GenericDriver
+            .form_url_query(&inspection(), Some("de"))
+            .expect_err("the generic driver opens no language");
+        assert!(err.contains("\"de\""), "{err}");
     }
 
     #[test]

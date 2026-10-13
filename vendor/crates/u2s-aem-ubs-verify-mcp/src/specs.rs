@@ -110,6 +110,14 @@ pub fn tool_specs() -> Vec<Value> {
                         "type": "boolean",
                         "description": "Fill and submit after rendering; default true."
                     },
+                    "language": {
+                        "type": "string",
+                        "description":
+                            "The language to open the form in: one of the codes its metadata \
+                             declares for the entity (verify_package_check lists them, e.g. \
+                             `de`). Default: the entity's first. A language the form does not \
+                             declare is an error."
+                    },
                     "instance_id": {
                         "type": "string",
                         "description":

@@ -628,6 +628,10 @@ pub struct RunRequest {
     /// `GuideBridge` exposes it under) to the value to assign its `.value`.
     pub fill: BTreeMap<String, Value>,
     pub submit: bool,
+    /// The language to open the form in, as the driver's
+    /// [`FormDriver::form_url_query`] takes it; `None` leaves the choice to
+    /// the driver.
+    pub language: Option<String>,
 }
 
 fn storage_failed(action: &str, err: u2s_blob::BlobError) -> VerifyError {
@@ -926,6 +930,7 @@ pub(crate) async fn open_live_form(
     driver: &dyn FormDriver,
     containers: &Containers,
     package: PackageInspection,
+    language: Option<&str>,
 ) -> Result<OpenedForm, VerifyError> {
     let aem_base_url = &containers.aem_base_url;
     let cdp_url = &containers.cdp_url;
@@ -938,7 +943,7 @@ pub(crate) async fn open_live_form(
     // driver could not determine how to open this package's form -- a
     // package-level problem, not a Docker/AEM one.
     let query = driver
-        .form_url_query(&package)
+        .form_url_query(&package, language)
         .map_err(|err| VerifyError::new(ErrorKind::PackageInvalid, err))?;
     let query_string = encode_query(&query);
 
@@ -1047,7 +1052,7 @@ async fn execute(
         .put(&request.package_bytes, "application/zip", "zip")
         .map_err(|err| storage_failed("storing the package", err))?;
 
-    let opened = open_live_form(profile, driver, containers, package).await?;
+    let opened = open_live_form(profile, driver, containers, package, request.language.as_deref()).await?;
     findings.extend(opened.findings);
     let LiveForm {
         browser_session,

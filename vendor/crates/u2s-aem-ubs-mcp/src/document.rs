@@ -432,18 +432,30 @@ fn form_languages(metadata: &BTreeMap<String, String>) -> Result<Vec<String>, Er
         })?;
     let profile = crate::profiles::load_aem_profile(PROFILE).map_err(Error::Profile)?;
     let mut languages: Vec<String> = Vec::new();
-    for code in listed.split(',').map(|c| c.trim().to_lowercase()) {
-        let iso = profile
-            .language_synonyms
-            .get(&code)
-            .and_then(|synonyms| synonyms.iter().find(|s| s.len() == 2))
-            .cloned()
-            .unwrap_or(code);
+    for code in listed.split(',') {
+        let iso = iso_language_in(&profile, code);
         if !languages.contains(&iso) {
             languages.push(iso);
         }
     }
     Ok(languages)
+}
+
+/// The document's language (ISO 639-1, as a source is detected) for a code
+/// the form's metadata files it under: `es` for `SP`, `de` for `DE`.
+pub fn iso_language(metadata_code: &str) -> Result<String, Error> {
+    let profile = crate::profiles::load_aem_profile(PROFILE).map_err(Error::Profile)?;
+    Ok(iso_language_in(&profile, metadata_code))
+}
+
+fn iso_language_in(profile: &crate::aem::AemProfile, metadata_code: &str) -> String {
+    let code = metadata_code.trim().to_lowercase();
+    profile
+        .language_synonyms
+        .get(&code)
+        .and_then(|synonyms| synonyms.iter().find(|s| s.len() == 2))
+        .cloned()
+        .unwrap_or(code)
 }
 
 /// Reject what the writer would otherwise silently drop or misplace.
@@ -629,6 +641,13 @@ mod tests {
 
     /// A misspelled placement flag would otherwise be dropped, and the draw it
     /// was meant to keep out of the DoR would reach it.
+    #[test]
+    fn a_metadata_language_code_maps_to_the_documents_language() {
+        assert_eq!(iso_language("SP").unwrap(), "es");
+        assert_eq!(iso_language("DE").unwrap(), "de");
+        assert_eq!(iso_language("en").unwrap(), "en");
+    }
+
     #[test]
     fn a_misspelled_node_field_is_refused() {
         let mut node = draw("ST_A", json!({"en": "Internal"}));
