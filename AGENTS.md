@@ -43,20 +43,5 @@
 
 # Projec-specific Instructions
 
-## Editor
-
-- The form and style editor values should be end to end tested so that we can be certain that they work in both the HTML rendering and the PDF
-
-## Documentation
-
-- The markdown docs should document how to use the author from a users perspective
-- Keep the documentation up to date with changes you make
-
-## OpenAPI Docs
-
-- Keep the generated openapi docs up to date with any related changes
-
-## Server-Side Checks
-
-- All client side checks on a form should be reflected on the server side, ideally reusing the same logic
-- Shared validation lives in a module that can be compiled to WASM and is reused on the frontend so that the validation matches exactly on front- and backend
+- Keep the README up to date and concise
+- Fixes to u2s should be fixed upstream, and then resynced from the vendored master branch
