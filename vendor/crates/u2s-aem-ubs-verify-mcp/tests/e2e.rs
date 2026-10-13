@@ -2490,16 +2490,16 @@ async fn two_sessions_of_one_package_are_independent() {
     client.cancel().await.ok();
 }
 
-/// `verify_run` refuses while any session is open on its instance, rather
-/// than share the browser with it -- confirmed live, since a bogus handle
-/// offline (`u2s_aem_verify_core::specs_shared`'s own vectors) cannot
-/// exercise this without a real open session to collide with.
+/// `verify_run` walks beside a session open on its instance, which may be
+/// another caller's: the session's form is still installed and answering
+/// after the run uninstalls its own package. Needs a real open session to
+/// share the instance with, so live only.
 #[tokio::test]
 #[ignore = "needs a real Docker daemon and the UBS AEM image (U2S_AEM_VERIFY_IMAGE)"]
-async fn verify_run_on_an_instance_with_an_open_session_is_refused() {
+async fn verify_run_walks_beside_an_open_session() {
     let package_path = af_aabf_zip().display().to_string();
 
-    let server = live_test_server("ubs-run-vs-open-form");
+    let server = live_test_server("ubs-run-beside-open-form");
     let client = server.connect().await;
 
     let opened = call_ok(
@@ -2510,13 +2510,23 @@ async fn verify_run_on_an_instance_with_an_open_session_is_refused() {
     .await;
     let session = opened["session"].as_str().expect("a session handle").to_owned();
 
-    call_refused(
+    call_ok(
         &client,
         "verify_run",
         serde_json::json!({ "package_path": package_path, "instance_id": "shared" }),
-        "form_open",
     )
     .await;
+
+    let controls = call_ok(
+        &client,
+        "verify_controls",
+        serde_json::json!({ "session": session, "revision": 0, "limit": 500, "instance_id": "shared" }),
+    )
+    .await;
+    assert!(
+        controls["controls"].as_array().is_some_and(|c| !c.is_empty()),
+        "the open session must still show its form after the run: {controls}"
+    );
 
     call_ok(&client, "verify_close", serde_json::json!({ "session": session, "instance_id": "shared" })).await;
     client.cancel().await.ok();

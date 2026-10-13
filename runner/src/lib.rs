@@ -36,6 +36,6 @@ pub mod turns;
 
 pub use artifacts::{Artifact, artifact_filename, review_dirname, review_image_filename};
 pub use provider::{LlmEndpoint, Provider};
-pub use run::{Completed, RunOptions, resume, run_fresh};
+pub use run::{Completed, RunOptions, resume, run_fresh, source_hash, verification_for};
 pub use settings::AppSettings;
 pub use turns::TurnPlan;

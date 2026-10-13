@@ -699,11 +699,12 @@ pub async fn dry_run(package_bytes: &[u8]) -> VerifyReport {
 /// cleaned up (unless `keep_on_failure` and this call failed, so the
 /// failure state stays inspectable), regardless of how `execute` finished.
 ///
-/// Refuses outright, before installing anything, while any session is open
-/// on the instance (`crate::interactive`): this walk would share the
-/// browser with them, and refusing keeps its own install and uninstall
-/// simple. The caller's fix is to `verify_close` first, or use a different
-/// `instance_id`.
+/// Runs beside the sessions open on the instance (`crate::interactive`),
+/// which may belong to other callers sharing it: the walk opens a page of
+/// its own, and the instance lock it holds keeps their calls out until it
+/// is done. The package table is what keeps the two apart: a session's
+/// package stays installed through this run's uninstall, and a different
+/// build of a form a session shows is refused (`install_package`).
 ///
 /// `driver` supplies the format-specific behaviour this crate itself never
 /// names -- see this module's own doc and `crate::driver::FormDriver`.
@@ -732,17 +733,6 @@ pub async fn run(
     let state = guard
         .as_mut()
         .expect("ensure always leaves Some on success");
-
-    if !state.sessions.is_empty() {
-        return Err(VerifyError::new(
-            ErrorKind::FormOpen,
-            format!(
-                "sessions {:?} are open on this instance; call verify_close on them first, or \
-                 use a different instance_id for verify_run",
-                state.sessions.keys().collect::<Vec<_>>()
-            ),
-        ));
-    }
 
     // Defensive: a prior call may have kept its package (keep_on_failure)
     // or crashed before uninstalling. Clearing it first means this run's

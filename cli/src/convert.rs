@@ -35,14 +35,35 @@ pub struct ConvertArgs {
     #[arg(value_name = "DOCUMENT", required = true)]
     documents: Vec<PathBuf>,
 
+    /// Directory the artefacts are written to (created if missing).
+    #[arg(long, default_value = ".")]
+    out: PathBuf,
+
+    /// Refine an earlier run instead of converting afresh: applies this feedback
+    /// to the result held in --session.
+    #[arg(long, value_name = "TEXT", requires = "session")]
+    feedback: Option<String>,
+
+    /// Edit-history session to resume (list them with `blueprint sessions`).
+    ///
+    /// On its own it carries that session on with nothing to apply: the agent
+    /// finishes the tree the earlier run left. Add --feedback to give it
+    /// something specific to change.
+    #[arg(long, value_name = "ID")]
+    session: Option<String>,
+
+    #[command(flatten)]
+    run: RunArgs,
+}
+
+/// How a conversion runs: the profile, the model and what the run records.
+/// Shared by `convert` and `batch`.
+#[derive(Args, Debug)]
+pub struct RunArgs {
     /// Conversion profile (AEM config + reference library). Defaults to the
     /// session's profile when resuming, or to the only installed profile.
     #[arg(long)]
     profile: Option<String>,
-
-    /// Directory the artefacts are written to (created if missing).
-    #[arg(long, default_value = ".")]
-    out: PathBuf,
 
     /// Which API to talk to: "anthropic" (default) or "openai" for any
     /// OpenAI-compatible endpoint such as OpenRouter. Defaults to the desktop
@@ -91,19 +112,6 @@ pub struct ConvertArgs {
     #[arg(long, value_name = "PATH", conflicts_with = "instructions")]
     instructions_file: Option<PathBuf>,
 
-    /// Refine an earlier run instead of converting afresh: applies this feedback
-    /// to the result held in --session.
-    #[arg(long, value_name = "TEXT", requires = "session")]
-    feedback: Option<String>,
-
-    /// Edit-history session to resume (list them with `blueprint sessions`).
-    ///
-    /// On its own it carries that session on with nothing to apply: the agent
-    /// finishes the tree the earlier run left. Add --feedback to give it
-    /// something specific to change.
-    #[arg(long, value_name = "ID")]
-    session: Option<String>,
-
     /// Retries for a failed model turn before the run gives up. The controller's
     /// own automatic retries happen first; this budget is what a person would
     /// otherwise decide with the app's Retry button.
@@ -121,6 +129,13 @@ pub struct ConvertArgs {
     /// `run-analysis/`. Implies `--analysis`.
     #[arg(long, value_name = "DIR")]
     analysis_dir: Option<PathBuf>,
+}
+
+impl RunArgs {
+    /// The operator-level retry budget of each run.
+    pub(crate) fn retries(&self) -> usize {
+        self.retries
+    }
 }
 
 fn parse_provider(value: &str) -> Result<Provider, String> {
@@ -151,8 +166,8 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
         }
     }
 
-    let profile = resolve_profile(&args)?;
-    let settings = resolve_settings(&args)?;
+    let profile = resolve_profile(&args.run, args.session.as_deref())?;
+    let settings = resolve_settings(&args.run)?;
 
     // The run is async; the CLI owns the runtime the app gets from Dioxus.
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -162,21 +177,16 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     let abort = AbortFlag::default();
     let plan = TurnPlan::for_settings(&settings);
     // Kept as our own `Arc` (not just `pipeline::SharedObserver::new`'s), so
-    // `report_spend`/`transcript` below can read the concrete `ConsoleObserver`
-    // back once the run has returned — methods `SharedObserver` does not
-    // expose, since it only forwards the `RunObserver` trait itself.
+    // `finish` below can read the concrete `ConsoleObserver` back once the run
+    // has returned — methods `SharedObserver` does not expose, since it only
+    // forwards the `RunObserver` trait itself.
     let observer = std::sync::Arc::new(std::sync::Mutex::new(ConsoleObserver::new(
         plan.context_window,
-        args.retries,
+        args.run.retries,
     )));
     let obs = pipeline::SharedObserver::from_arc(observer.clone());
 
-    println!("Profile: {}", profile.as_deref().unwrap_or("(none)"));
-    println!("{}{}", plan.describe(), runner::turns::describe_role_models(&settings));
-    println!(
-        "Verification: AEM image {} (pulled from GitHub when missing, checked before the run starts)",
-        agent::u2s::AEM_IMAGE
-    );
+    describe_run(profile.as_deref(), &plan, &settings);
 
     let opts = runner::RunOptions {
         profile,
@@ -185,20 +195,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     };
 
     let completed = runtime.block_on(async {
-        // Ctrl-C stops the run at its next checkpoint rather than killing the
-        // process: the stage ends cleanly and the edit history keeps what the
-        // agent had built, so the session can be resumed. It does NOT finalize —
-        // an interrupted run writes no artefacts. A second Ctrl-C is the
-        // operating system's business.
-        tokio::spawn({
-            let abort = abort.clone();
-            async move {
-                if tokio::signal::ctrl_c().await.is_ok() {
-                    eprintln!("\nStopping at the next checkpoint…");
-                    abort.abort();
-                }
-            }
-        });
+        stop_on_ctrl_c(abort.clone());
 
         match args.session.clone() {
             // Carry that session on, applying whatever --feedback gave it. Blank
@@ -220,48 +217,7 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
         }
     })?;
 
-    // Printed before the outcome is examined: a run that stopped early still
-    // recorded its history under this id, and that is what a resume needs.
-    println!("\n── Result ──");
-    println!("Session: {}", completed.session_id);
-    // Reported even when the run stopped early: those turns were still billed.
-    {
-        let mut console = observer.lock().unwrap_or_else(|p| p.into_inner());
-        console.report_spend();
-
-        // Fold this run's spend into the session's running total, so a form
-        // resumed for a later feedback round keeps what its earlier rounds
-        // already cost rather than starting the figure over at zero.
-        if let Some(run_spend) = console.spend() {
-            let mut total: pipeline::Spend = agent::db::session_spend_json(&completed.session_id)
-                .and_then(|json| serde_json::from_str(&json).ok())
-                .unwrap_or_default();
-            total.merge(&run_spend);
-            console.report_total_spend(&total);
-            if let Ok(json) = serde_json::to_string(&total) {
-                agent::db::set_session_spend_json(&completed.session_id, &json);
-            }
-        }
-    }
-
-    let Some(outcome) = completed.outcome else {
-        // Aborted, or the retry budget ran out. The observer said why.
-        return Err("The run stopped before producing a result.".into());
-    };
-
-    println!("Elapsed: {}s", completed.elapsed_secs);
-    if let Some(code) = &outcome.form_code {
-        println!("Form code: {code}");
-    }
-    for warning in &outcome.warnings {
-        println!("Warning: {warning}");
-    }
-
-    write_artifacts(
-        &args,
-        &outcome,
-        &observer.lock().unwrap_or_else(|p| p.into_inner()),
-    )?;
+    finish(&completed, &observer, &args.out)?;
 
     println!(
         "\nRefine it with: blueprint convert {} --session {} --feedback \"…\"",
@@ -275,39 +231,108 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+/// What a run uses, printed before it starts.
+pub(crate) fn describe_run(profile: Option<&str>, plan: &TurnPlan, settings: &AppSettings) {
+    println!("Profile: {}", profile.unwrap_or("(none)"));
+    println!("{}{}", plan.describe(), runner::turns::describe_role_models(settings));
+    println!(
+        "Verification: AEM image {} (pulled from GitHub when missing, checked before the run starts)",
+        agent::u2s::AEM_IMAGE
+    );
+}
+
+/// Ctrl-C stops the runs at their next checkpoint rather than killing the
+/// process: each stage ends cleanly and the edit history keeps what the agent
+/// had built, so the session can be resumed. It does NOT finalize — an
+/// interrupted run writes no artefacts. A second Ctrl-C is the operating
+/// system's business.
+pub(crate) fn stop_on_ctrl_c(abort: AbortFlag) {
+    tokio::spawn(async move {
+        if tokio::signal::ctrl_c().await.is_ok() {
+            eprintln!("\nStopping at the next checkpoint…");
+            abort.abort();
+        }
+    });
+}
+
+/// Reports a finished run and writes what it produced to `out`: its session
+/// (printed first: a run that stopped early still recorded its history under
+/// it, and that is what a resume needs), what it cost, and its artefacts. An
+/// error when it stopped before producing a result.
+pub(crate) fn finish(
+    completed: &runner::Completed,
+    observer: &std::sync::Mutex<ConsoleObserver>,
+    out: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let mut console = observer.lock().unwrap_or_else(|p| p.into_inner());
+    console.say("\n── Result ──");
+    console.say(format!("Session: {}", completed.session_id));
+    // Reported even when the run stopped early: those turns were still billed.
+    console.report_spend();
+
+    // Fold this run's spend into the session's running total, so a form
+    // resumed for a later feedback round keeps what its earlier rounds
+    // already cost rather than starting the figure over at zero.
+    if let Some(run_spend) = console.spend() {
+        let mut total: pipeline::Spend = agent::db::session_spend_json(&completed.session_id)
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default();
+        total.merge(&run_spend);
+        console.report_total_spend(&total);
+        if let Ok(json) = serde_json::to_string(&total) {
+            agent::db::set_session_spend_json(&completed.session_id, &json);
+        }
+    }
+
+    let Some(outcome) = &completed.outcome else {
+        // Aborted, or the retry budget ran out. The observer said why.
+        return Err("The run stopped before producing a result.".into());
+    };
+
+    console.say(format!("Elapsed: {}s", completed.elapsed_secs));
+    if let Some(code) = &outcome.form_code {
+        console.say(format!("Form code: {code}"));
+    }
+    for warning in &outcome.warnings {
+        console.say(format!("Warning: {warning}"));
+    }
+
+    write_artifacts(out, outcome, &console)
+}
+
 /// Write every artefact the run produced, plus the transcript.
 fn write_artifacts(
-    args: &ConvertArgs,
+    out: &Path,
     outcome: &pipeline::RunOutcome,
     observer: &ConsoleObserver,
 ) -> Result<(), Box<dyn Error>> {
-    std::fs::create_dir_all(&args.out)
-        .map_err(|e| format!("Could not create {}: {e}", args.out.display()))?;
+    std::fs::create_dir_all(out)
+        .map_err(|e| format!("Could not create {}: {e}", out.display()))?;
     let code = outcome.form_code.as_deref();
 
     for artifact in Artifact::ALL {
         match artifact.bytes_from(outcome) {
-            Some(bytes) => write_file(&args.out, &artifact.filename(code), &bytes)?,
-            None => println!("Not produced: {}", artifact.filename(code)),
+            Some(bytes) => write_file(out, &artifact.filename(code), &bytes)?,
+            None => observer.say(format!("Not produced: {}", artifact.filename(code))),
         }
     }
 
     write_file(
-        &args.out,
+        out,
         &runner::artifact_filename("agent-log", code, "md"),
         observer.transcript().as_bytes(),
     )?;
 
     // The document the run authored, which a later run can be resumed from.
     write_file(
-        &args.out,
+        out,
         &runner::artifact_filename("document", code, "json"),
         &serde_json::to_vec_pretty(&outcome.document)?,
     )?;
 
     // What the final build looked like on the verifier, numbered in order.
     if let Some(review) = &outcome.review {
-        let dir = args.out.join(runner::review_dirname(code));
+        let dir = out.join(runner::review_dirname(code));
         std::fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
         for (side, images) in review.sides() {
             for (index, image) in images.iter().enumerate() {
@@ -327,7 +352,7 @@ fn write_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Box<dyn Error>
 
 /// Read the sources, keeping the full file names: the agent tells PDFs from an
 /// attached content package by extension, so a stem would hide both.
-fn read_documents(paths: &[PathBuf]) -> Result<Sources, Box<dyn Error>> {
+pub(crate) fn read_documents(paths: &[PathBuf]) -> Result<Sources, Box<dyn Error>> {
     let mut files = Vec::with_capacity(paths.len());
     for path in paths {
         let name = path
@@ -342,7 +367,7 @@ fn read_documents(paths: &[PathBuf]) -> Result<Sources, Box<dyn Error>> {
     Ok(files)
 }
 
-fn pdfs_only(files: &[(String, Vec<u8>)]) -> Sources {
+pub(crate) fn pdfs_only(files: &[(String, Vec<u8>)]) -> Sources {
     files
         .iter()
         .filter(|(name, _)| agent::conversion::is_source_pdf(name))
@@ -350,10 +375,10 @@ fn pdfs_only(files: &[(String, Vec<u8>)]) -> Sources {
         .collect()
 }
 
-/// Which profile the run uses: the flag, else the resumed session's, else the
+/// Which profile the run uses: the flag, else the resumed `session`'s, else the
 /// only one installed. Guessing between several would silently convert against
 /// the wrong AEM config and reference library.
-fn resolve_profile(args: &ConvertArgs) -> Result<Option<String>, Box<dyn Error>> {
+pub(crate) fn resolve_profile(args: &RunArgs, session: Option<&str>) -> Result<Option<String>, Box<dyn Error>> {
     let available = agent::profiles::list_profiles();
 
     if let Some(name) = &args.profile {
@@ -367,7 +392,7 @@ fn resolve_profile(args: &ConvertArgs) -> Result<Option<String>, Box<dyn Error>>
         return Ok(Some(name.clone()));
     }
 
-    if let Some(session) = &args.session
+    if let Some(session) = session
         && let Some(profile) = agent::db::session_profile(session)
     {
         return Ok(Some(profile));
@@ -388,7 +413,7 @@ fn resolve_profile(args: &ConvertArgs) -> Result<Option<String>, Box<dyn Error>>
 ///
 /// Sharing the settings store is the point: a key, model and AEM connection
 /// configured in the app work here without being repeated on the command line.
-fn resolve_settings(args: &ConvertArgs) -> Result<AppSettings, Box<dyn Error>> {
+pub(crate) fn resolve_settings(args: &RunArgs) -> Result<AppSettings, Box<dyn Error>> {
     let mut settings = AppSettings::load();
 
     // --base-url is only meaningful for the OpenAI-compatible path, so passing

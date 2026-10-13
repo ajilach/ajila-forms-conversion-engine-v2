@@ -87,7 +87,15 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
 
 # Refine a run with feedback
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> --feedback "The IBAN field must be mandatory."
+
+# Convert several forms at once, 3 at a time, on one shared AEM: a form is a PDF or a
+# directory of its PDFs, and each gets a folder of its own under --out
+cargo run --release -p blueprint-cli -- batch forms/AAEV_019 forms/AAOS_033_IT.pdf --jobs 3 --out ./out
 ```
+
+Conversions verify on one AEM instance per process, so run several forms with `batch`
+rather than several `convert` processes: a second process's verifier calls are refused
+while the first one's conversions run.
 
 ### Verification setup
 

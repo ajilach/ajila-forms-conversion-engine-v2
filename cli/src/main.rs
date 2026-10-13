@@ -3,6 +3,7 @@
 //! `runner` transport, which is why the app and this binary cannot drift apart),
 //! the sessions it can resume, and the verifiers it checks its output with.
 
+mod batch;
 mod console;
 mod convert;
 
@@ -31,6 +32,10 @@ struct Args {
 enum Command {
     /// Convert a form with the AI agent: the desktop app's pipeline, headless.
     Convert(convert::ConvertArgs),
+
+    /// Convert several forms at once, sharing one AEM verifier: each form's
+    /// artefacts go to a folder of its own under --out.
+    Batch(batch::BatchArgs),
 
     /// List the conversion sessions a `convert --feedback` run can resume.
     Sessions,
@@ -151,6 +156,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match args.command {
         Command::Convert(convert_args) => convert::run(convert_args),
+        Command::Batch(batch_args) => batch::run(batch_args),
         Command::Sessions => {
             list_sessions();
             Ok(())

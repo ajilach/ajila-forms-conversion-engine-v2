@@ -30,6 +30,9 @@ pub struct ConsoleObserver {
     /// The run's cumulative spend, reported once when it finishes.
     spend: Option<pipeline::Spend>,
     transcript: Vec<String>,
+    /// Put in front of every printed line, so the runs of a batch, printing
+    /// side by side, can be told apart. Empty for a single run.
+    prefix: String,
 }
 
 struct Running {
@@ -48,7 +51,14 @@ impl ConsoleObserver {
             aborted: false,
             spend: None,
             transcript: vec!["# Agent Conversion Log\n".to_string()],
+            prefix: String::new(),
         }
+    }
+
+    /// Prints every line as `[label] …`, for a run printing beside others.
+    pub fn labelled(mut self, label: &str) -> Self {
+        self.prefix = format!("[{label}] ");
+        self
     }
 
     /// The run's Markdown transcript, in the same shape the app's log download
@@ -86,8 +96,21 @@ impl ConsoleObserver {
         }
     }
 
-    fn say(&mut self, line: impl AsRef<str>) {
-        println!("{}", line.as_ref());
+    /// Prints `text` to stdout, each line behind the label.
+    pub fn say(&self, text: impl AsRef<str>) {
+        println!("{}", self.labelled_lines(text.as_ref()));
+    }
+
+    /// Prints `text` to stderr, each line behind the label.
+    fn warn(&self, text: impl AsRef<str>) {
+        eprintln!("{}", self.labelled_lines(text.as_ref()));
+    }
+
+    fn labelled_lines(&self, text: &str) -> String {
+        if self.prefix.is_empty() {
+            return text.to_string();
+        }
+        text.split('\n').map(|line| format!("{}{line}", self.prefix)).collect::<Vec<_>>().join("\n")
     }
 }
 
@@ -130,16 +153,16 @@ impl RunObserver for ConsoleObserver {
                 match self.running.remove(&id) {
                     Some(running) => {
                         let secs = running.started.elapsed().as_secs_f32();
-                        println!("{} {glyph} ({secs:.1}s)", running.line);
+                        self.say(format!("{} {glyph} ({secs:.1}s)", running.line));
                         // Mark the entry this result belongs to, matching the app's log.
                         let entry = &mut self.transcript[running.entry];
                         *entry = entry.replacen("- ", &format!("- {glyph} "), 1);
                     }
-                    None => println!("  · (unknown call {id}) {glyph}"),
+                    None => self.say(format!("  · (unknown call {id}) {glyph}")),
                 }
             }
             RunEvent::Warning(w) => {
-                eprintln!("warning: {w}");
+                self.warn(format!("warning: {w}"));
                 self.transcript.push(format!("\n**Warning:** {w}\n"));
             }
             RunEvent::ContextUsed(tokens) => {
@@ -161,7 +184,7 @@ impl RunObserver for ConsoleObserver {
     }
 
     fn retry_prompt(&mut self, role: &str, error: &str) {
-        eprintln!("\nerror: the {role} turn failed: {error}");
+        self.warn(format!("\nerror: the {role} turn failed: {error}"));
         // Decided here, announced in `retry_resolved`: the controller narrates
         // the pause in between, and the console should read in that order.
         self.retry_action = if self.retries_left > 0 {
@@ -180,10 +203,8 @@ impl RunObserver for ConsoleObserver {
 
     fn retry_resolved(&mut self, action: RetryAction) {
         match action {
-            RetryAction::Retry => eprintln!("Retrying. Retries left: {}", self.retries_left),
-            RetryAction::Cancel => {
-                eprintln!("Out of retries — stopping and keeping whatever was built.")
-            }
+            RetryAction::Retry => self.warn(format!("Retrying. Retries left: {}", self.retries_left)),
+            RetryAction::Cancel => self.warn("Out of retries — stopping and keeping whatever was built."),
         }
         self.retry_action = None;
     }
@@ -227,6 +248,15 @@ mod tests {
         }
         obs.retry_prompt("Author", "overloaded");
         assert_eq!(obs.poll_retry(), Some(RetryAction::Cancel));
+    }
+
+    /// A batch prints its runs side by side, so every line of a labelled run,
+    /// a multi-line one too, names its form.
+    #[test]
+    fn a_labelled_run_names_itself_on_every_line() {
+        let obs = ConsoleObserver::new(200_000, 0).labelled("AAEV_019");
+        assert_eq!(obs.labelled_lines("one\ntwo"), "[AAEV_019] one\n[AAEV_019] two");
+        assert_eq!(ConsoleObserver::new(200_000, 0).labelled_lines("one\ntwo"), "one\ntwo");
     }
 
     /// A tool's outcome belongs on its own transcript entry — the log is the

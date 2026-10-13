@@ -153,9 +153,8 @@ pub struct InstanceState {
     /// uninstall a package the other still needs.
     pub(crate) packages: PackageTable,
     /// The forms open on this instance, one browser tab each, keyed by the
-    /// handle `verify_open` returned. `crate::flow::run` refuses while any
-    /// is open (`ErrorKind::FormOpen`): its one-shot walk would share the
-    /// browser with them for nothing. `pub(crate)`, like
+    /// handle `verify_open` returned. `crate::flow::run` walks beside them
+    /// in a page of its own. `pub(crate)`, like
     /// `crate::interactive::OpenSession` itself.
     pub(crate) sessions: BTreeMap<String, crate::interactive::OpenSession>,
 }

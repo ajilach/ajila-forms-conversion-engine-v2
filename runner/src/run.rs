@@ -61,14 +61,7 @@ pub async fn run_fresh(
     // refuse the run, and a refused run should leave no session behind.
     let verification = verification_for(opts, obs).await?;
 
-    // Hash on the PDFs when present, otherwise on the template, so the session
-    // id is stable for template-only runs.
-    let pdfs: Vec<(String, Vec<u8>)> = files
-        .iter()
-        .filter(|(name, _)| agent::conversion::is_source_pdf(name))
-        .cloned()
-        .collect();
-    let doc_hash = agent::db::document_hash(if pdfs.is_empty() { &files } else { &pdfs });
+    let doc_hash = source_hash(&files);
     agent::db::upsert_document(&doc_hash, session_label);
     // Keep the bytes, not just their hash. Resuming a session replays the
     // sources through the agent, so without them a run recorded here could be
@@ -157,12 +150,24 @@ pub async fn resume(
     Ok(drive(agent, opts, seed, "", session_id, &label, obs).await)
 }
 
+/// What identifies a run's sources, and so its session's document: the PDFs
+/// when there are any, otherwise the template, so the id is stable for
+/// template-only runs.
+pub fn source_hash(files: &[(String, Vec<u8>)]) -> String {
+    let pdfs: Vec<(String, Vec<u8>)> = files
+        .iter()
+        .filter(|(name, _)| agent::conversion::is_source_pdf(name))
+        .cloned()
+        .collect();
+    agent::db::document_hash(if pdfs.is_empty() { files } else { &pdfs })
+}
+
 /// Check that the rules and the verifier can run: the rule sandbox, Docker,
 /// the images and pdfium, then pull the AEM image from GitHub when Docker does
 /// not have it yet. There is no way to run without them, so a setup that is
 /// not ready, or whose pull fails, refuses the run before it spends a token.
 /// Returns the verifier settings, ready to attach.
-async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<AemVerifySettings, String> {
+pub async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result<AemVerifySettings, String> {
     let refused = |e: String| {
         format!(
             "Verification is not possible, so the run cannot start:\n{e}\n\

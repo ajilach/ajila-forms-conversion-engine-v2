@@ -18,5 +18,6 @@ env_logger = { workspace = true }
 log = { workspace = true }
 serde_json = { workspace = true }
 # The conversion run is async, so the CLI owns the runtime the app gets from
-# Dioxus. `signal` is what turns Ctrl-C into a clean stop.
-tokio = { version = "1", features = ["rt", "signal", "time"] }
+# Dioxus. `signal` is what turns Ctrl-C into a clean stop; a batch runs its
+# forms on a thread pool (`rt-multi-thread`) and limits them with `sync`.
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "signal", "sync", "time"] }
