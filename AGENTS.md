@@ -45,3 +45,4 @@
 
 - Keep the README up to date and concise
 - Fixes to u2s should be fixed upstream, and then resynced from the vendored master branch
+- You are allowed to run `cargo clean` if you run out of disk space
