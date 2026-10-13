@@ -30,9 +30,8 @@
 //! safe to call and the closure must be `unsafe`, and putting the limits in
 //! the parent hides them from anyone reading the program they constrain.
 
-use std::io::Write;
+use std::io::{BufRead, Write};
 
-use tokio::io::{AsyncBufReadExt, BufReader};
 use u2s_rules::ScriptBudget;
 use crate::protocol::{CheckResponse, WorkerRequest, WorkerResponse};
 
@@ -247,19 +246,19 @@ pub fn is_worker_invocation(args: impl IntoIterator<Item = std::ffi::OsString>) 
     args.into_iter().nth(1).is_some_and(|arg| arg == WORKER_ARG)
 }
 
-/// Serves worker requests on stdin until the host closes it. Builds its own
-/// single-threaded runtime, so call it from a plain `main`, not from inside
-/// a runtime.
+/// Serves worker requests on stdin until the host closes it, on the calling
+/// thread alone. Call it from a plain `main`, before anything else starts a
+/// thread.
+///
+/// **The worker must stay single-threaded.** glibc gives every thread that
+/// allocates an arena of its own and reserves 64 MiB of address space for
+/// each, all of which `RLIMIT_AS` counts against [`DEFAULT_MEM_LIMIT_MB`].
+/// Reading stdin through tokio put each read on a blocking-pool thread: three
+/// such arenas left a script about 30 MiB of its 256, and on Linux CI honest
+/// rules died of `memory allocation of 336 bytes failed` and were reported
+/// broken. The protocol is strictly one request, then one answer, so blocking
+/// reads lose nothing.
 pub fn run() {
-    tokio::runtime::Builder::new_current_thread()
-        .enable_io()
-        .build()
-        .expect("a single-threaded runtime builds")
-        .block_on(serve());
-}
-
-async fn serve() {
-    let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut memory_capped = false;
 
     // Reading line-by-line and answering in order is the entire protocol.
@@ -267,7 +266,8 @@ async fn serve() {
     // the host name the exact request that was running when this process
     // died, which is the only way a crash can fail one rule instead of a
     // whole batch.
-    while let Ok(Some(line)) = lines.next_line().await {
+    for line in std::io::stdin().lock().lines() {
+        let Ok(line) = line else { return };
         if line.trim().is_empty() {
             continue;
         }

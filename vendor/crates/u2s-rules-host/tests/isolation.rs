@@ -442,3 +442,43 @@ fn the_worker_argument_is_recognised_only_first() {
     assert!(!is_worker_invocation(args(&["host"])));
     assert!(!is_worker_invocation(args(&["host", "convert", WORKER_ARG])));
 }
+
+/// The worker runs on one thread, however many jobs it answers. glibc
+/// reserves 64 MiB of address space for each allocating thread's arena, and
+/// `RLIMIT_AS` counts it: a worker reading stdin on tokio's blocking pool had
+/// three of them, left a script about 30 MiB of its 256, and failed honest
+/// rules on Linux CI with `memory allocation of 336 bytes failed`.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_worker_answers_on_a_single_thread() {
+    use std::io::{BufRead, BufReader, Write};
+    use u2s_rules_host::protocol::{WorkerRequest, WorkerResponse};
+
+    let mut child = std::process::Command::new(u2s_rules_host::runner::test_support::worker_bin())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .expect("the worker starts");
+    let mut stdin = child.stdin.take().expect("stdin was piped");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout was piped"));
+    let mut line = serde_json::to_string(&WorkerRequest::Check(request(PASSING, ScriptBudget::default())))
+        .expect("a request serializes");
+    line.push('\n');
+    for _ in 0..8 {
+        stdin.write_all(line.as_bytes()).expect("the worker reads");
+        let mut answer = String::new();
+        stdout.read_line(&mut answer).expect("the worker answers");
+        let response: WorkerResponse = serde_json::from_str(&answer).expect("the answer parses");
+        assert!(matches!(response, WorkerResponse::Check(ref r) if r.broken_reason.is_none()), "{answer}");
+    }
+
+    let status = std::fs::read_to_string(format!("/proc/{}/status", child.id())).expect("its status is readable");
+    let threads = status
+        .lines()
+        .find_map(|l| l.strip_prefix("Threads:"))
+        .map(|n| n.trim().to_owned())
+        .expect("the status names its threads");
+    drop(stdin);
+    child.wait().expect("the worker exits once its input closes");
+    assert_eq!(threads, "1", "{status}");
+}

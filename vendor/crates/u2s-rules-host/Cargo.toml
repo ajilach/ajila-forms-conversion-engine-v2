@@ -53,7 +53,6 @@ features = [
     "sync",
     "process",
     "io-util",
-    "io-std",
     "time",
     "macros",
     "rt",
