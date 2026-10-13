@@ -21,15 +21,19 @@ use crate::convert::{self, RunArgs};
 
 #[derive(Args, Debug)]
 pub struct BatchArgs {
-    /// The forms to convert, one per argument: a source PDF, or a directory
-    /// holding one form's source PDF(s) and, optionally, an AEM content-package
-    /// ZIP to pre-load as an editable template.
+    /// The forms to convert, one per argument: a source PDF; a pattern whose
+    /// `*` selects one form's files, named after the part before the `*`
+    /// ('forms/AAAA_019_*.pdf' is the form AAAA_019 in every language; quote
+    /// it, or the shell splits it into one form per file); or a directory
+    /// holding one form's source PDF(s). A form may include an AEM
+    /// content-package ZIP to pre-load as an editable template.
     #[arg(value_name = "FORM", required = true)]
     forms: Vec<PathBuf>,
 
     /// How many forms convert at once. They share one AEM instance, which
-    /// holds at most 8 open forms, and take turns for its calls.
-    #[arg(long, default_value = "3", value_name = "N", value_parser = clap::value_parser!(u8).range(1..=8))]
+    /// holds at most 8 open forms across all of them, and take turns for its
+    /// calls.
+    #[arg(long, default_value = "3", value_name = "N", value_parser = clap::value_parser!(u8).range(1..=4))]
     jobs: u8,
 
     /// Directory each form's artefacts go to, in a folder of its own named
@@ -53,6 +57,13 @@ struct Finished {
     session_id: Option<String>,
     elapsed_secs: u64,
     result: Result<(), String>,
+}
+
+impl Finished {
+    /// A form that never started: the batch was stopped first.
+    fn skipped(label: String) -> Self {
+        Self { label, session_id: None, elapsed_secs: 0, result: Err("not started: the batch was stopped".into()) }
+    }
 }
 
 /// Convert every form, `--jobs` at a time, and write each one's artefacts to a
@@ -88,16 +99,35 @@ pub fn run(args: BatchArgs) -> Result<(), Box<dyn Error>> {
 
         let slots = Arc::new(tokio::sync::Semaphore::new(usize::from(args.jobs)));
         let mut runs = tokio::task::JoinSet::new();
+        let mut labels = HashMap::new();
         for form in forms {
             let (opts, slots, out) = (Arc::clone(&opts), Arc::clone(&slots), out.join(&form.label));
-            runs.spawn(async move {
-                let _slot = slots.acquire_owned().await.expect("the slots are never closed");
-                convert_one(form, &opts, context_window, retries, &out).await
-            });
+            let label = form.label.clone();
+            let id = runs
+                .spawn(async move {
+                    let _slot = slots.acquire_owned().await.expect("the slots are never closed");
+                    // A form still waiting when the batch is stopped does not start.
+                    if opts.abort.is_aborted() {
+                        return Finished::skipped(form.label);
+                    }
+                    convert_one(form, &opts, context_window, retries, &out).await
+                })
+                .id();
+            labels.insert(id, label);
         }
+        // A form whose run panicked is a failed form; the others carry on, and
+        // the verifier is still let go of below.
         let mut finished = Vec::new();
-        while let Some(joined) = runs.join_next().await {
-            finished.push(joined.map_err(|e| format!("a form's run failed: {e}"))?);
+        while let Some(joined) = runs.join_next_with_id().await {
+            finished.push(match joined {
+                Ok((_, done)) => done,
+                Err(e) => Finished {
+                    label: labels.get(&e.id()).cloned().unwrap_or_default(),
+                    session_id: None,
+                    elapsed_secs: 0,
+                    result: Err(format!("its run failed: {e}")),
+                },
+            });
         }
 
         if let Err(e) = hold.release().await {
@@ -177,15 +207,48 @@ fn read_forms(paths: &[PathBuf]) -> Result<Vec<Form>, Box<dyn Error>> {
     Ok(forms)
 }
 
-/// One form: a single source PDF, or a directory holding its sources (the PDFs
-/// and an optional template ZIP, everything else ignored).
+/// One form: a single source PDF, a pattern selecting its files, or a
+/// directory holding its sources (the PDFs and an optional template ZIP,
+/// everything else ignored).
 fn read_form(path: &Path) -> Result<Form, Box<dyn Error>> {
-    let label = path
-        .file_stem()
+    let name = path
+        .file_name()
         .and_then(|n| n.to_str())
-        .ok_or_else(|| format!("Unreadable form name: {}", path.display()))?
-        .to_string();
-    let documents = if path.is_dir() {
+        .ok_or_else(|| format!("Unreadable form name: {}", path.display()))?;
+    let (label, documents) = if name.contains('*') {
+        (pattern_label(name).ok_or_else(|| {
+            format!("{} names no form: put the form's name before the `*`", path.display())
+        })?, convert::expand(path)?)
+    } else {
+        let label = path
+            .file_stem()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| format!("Unreadable form name: {}", path.display()))?
+            .to_string();
+        (label, form_documents(path)?)
+    };
+    let files = convert::read_documents(&documents)?;
+    if convert::pdfs_only(&files).is_empty() && agent::conversion::template_of(&files).is_none() {
+        return Err(format!(
+            "Nothing to convert in {}: it needs a source PDF, an AEM content package, or both.",
+            path.display()
+        )
+        .into());
+    }
+    Ok(Form { label, files })
+}
+
+/// A pattern's form name: what comes before its first `*`, without the
+/// separator in front of it ('AAAA_019_*.pdf' is AAAA_019).
+fn pattern_label(pattern: &str) -> Option<String> {
+    let before = pattern.split('*').next().unwrap_or_default();
+    let label = before.trim_end_matches(['_', '-', '.', ' ']);
+    (!label.is_empty()).then(|| label.to_string())
+}
+
+/// The files of a form given as a PDF or a directory.
+fn form_documents(path: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    Ok(if path.is_dir() {
         let mut documents: Vec<PathBuf> = std::fs::read_dir(path)
             .map_err(|e| format!("Could not read {}: {e}", path.display()))?
             .filter_map(|entry| entry.ok().map(|entry| entry.path()))
@@ -199,16 +262,7 @@ fn read_form(path: &Path) -> Result<Form, Box<dyn Error>> {
         documents
     } else {
         vec![path.to_path_buf()]
-    };
-    let files = convert::read_documents(&documents)?;
-    if convert::pdfs_only(&files).is_empty() && agent::conversion::template_of(&files).is_none() {
-        return Err(format!(
-            "Nothing to convert in {}: it needs a source PDF, an AEM content package, or both.",
-            path.display()
-        )
-        .into());
-    }
-    Ok(Form { label, files })
+    })
 }
 
 #[cfg(test)]
@@ -223,7 +277,8 @@ mod tests {
     }
 
     /// A directory is one form of its PDFs (and template), named after the
-    /// directory; a PDF on its own is a form named after the file.
+    /// directory; a PDF on its own is a form named after the file; a pattern
+    /// is one form of its matches, named after what precedes the `*`.
     #[test]
     fn a_form_is_a_pdf_or_a_directory_of_its_sources() {
         let dir = scratch("forms");
@@ -235,11 +290,19 @@ mod tests {
         let single = dir.join("AAOS_033_IT.pdf");
         std::fs::write(&single, b"%PDF-1.4 it").unwrap();
 
-        let forms = read_forms(&[multilingual, single]).unwrap();
+        std::fs::write(dir.join("AAAA_019_DE.pdf"), b"%PDF-1.4 aaaa de").unwrap();
+        std::fs::write(dir.join("AAAA_019_SP.pdf"), b"%PDF-1.4 aaaa sp").unwrap();
+        let pattern = dir.join("AAAA_019_*.pdf");
+
+        let forms = read_forms(&[multilingual, single, pattern]).unwrap();
         assert_eq!(forms[0].label, "AAEV_019");
         let names: Vec<&str> = forms[0].files.iter().map(|(n, _)| n.as_str()).collect();
         assert_eq!(names, ["AAEV_019_DE.pdf", "AAEV_019_EN.pdf"]);
         assert_eq!(forms[1].label, "AAOS_033_IT");
+        assert_eq!(forms[2].label, "AAAA_019");
+        let names: Vec<&str> = forms[2].files.iter().map(|(n, _)| n.as_str()).collect();
+        assert_eq!(names, ["AAAA_019_DE.pdf", "AAAA_019_SP.pdf"]);
+        assert!(read_forms(&[dir.join("*.pdf")]).err().unwrap().to_string().contains("names no form"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -274,7 +337,7 @@ mod tests {
             batch: BatchArgs,
         }
         assert!(Cli::try_parse_from(["blueprint", "a.pdf", "--session", "x"]).is_err());
-        assert!(Cli::try_parse_from(["blueprint", "a.pdf", "--jobs", "9"]).is_err());
+        assert!(Cli::try_parse_from(["blueprint", "a.pdf", "--jobs", "5"]).is_err());
         let cli = Cli::try_parse_from(["blueprint", "a.pdf", "b.pdf", "--jobs", "2"]).unwrap();
         assert_eq!((cli.batch.forms.len(), cli.batch.jobs), (2, 2));
     }

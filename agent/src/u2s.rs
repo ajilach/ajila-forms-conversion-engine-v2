@@ -687,6 +687,9 @@ const VERIFY_SUBMIT_DEADLINE: Duration = Duration::from_secs(5 * 60);
 /// reboot.
 const VERIFY_STEP_DEADLINE: Duration = Duration::from_secs(3 * 60);
 
+/// The call that boots a fresh platform after a teardown.
+const VERIFIER_REBOOT_CALL: &str = "aem_verify_open (or aem_verify_run)";
+
 /// Tearing the verifier down talks to Docker, which may be what went away.
 const VERIFY_TEARDOWN_DEADLINE: Duration = Duration::from_secs(2 * 60);
 
@@ -812,6 +815,11 @@ fn with_closed_note(reply: ToolReply, closed: &[String]) -> ToolReply {
         closed.len(),
         closed.join(", ")
     );
+    with_note(reply, note)
+}
+
+/// `reply`, preceded by `note` in a block of its own.
+fn with_note(reply: ToolReply, note: String) -> ToolReply {
     match reply {
         ToolReply::Text(text) => ToolReply::Blocks(vec![ReplyBlock::Text(note), ReplyBlock::Text(text)]),
         ToolReply::Blocks(mut blocks) => {
@@ -869,7 +877,7 @@ impl Verifier {
 
     /// The call that boots a fresh platform after a teardown.
     fn reboot_call(&self) -> &'static str {
-        "aem_verify_open (or aem_verify_run)"
+        VERIFIER_REBOOT_CALL
     }
 }
 
@@ -904,6 +912,10 @@ struct SharedVerifier {
     /// Tears the containers down once nobody used them for
     /// [`VERIFIER_IDLE_TIMEOUT`]; started with the first call that needs them.
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
+    /// How often the containers were torn down, so a conversion can tell that
+    /// its sessions went with them although another one's deadline or the
+    /// idle watcher did it ([`U2sTools::restarts_seen`]).
+    restarts: std::sync::atomic::AtomicU64,
 }
 
 /// The one live `T` of a process and how many users hold it: the
@@ -951,6 +963,17 @@ impl<T> Shares<T> {
         }
     }
 
+    /// Counts one more user of `shared`, when it is still the live one.
+    fn rejoin(&mut self, shared: &Arc<T>) -> bool {
+        match self.live.as_mut() {
+            Some((live, users)) if Arc::ptr_eq(live, shared) => {
+                *users += 1;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Forgets `shared` when nobody joined it since the last user left.
     fn forget_if_unused(&mut self, shared: &Arc<T>) {
         if self.live.as_ref().is_some_and(|(live, users)| Arc::ptr_eq(live, shared) && *users == 0) {
@@ -962,6 +985,13 @@ impl<T> Shares<T> {
 /// The process's [`SharedVerifier`] and how many conversions (or
 /// [`VerifierHold`]s) hold it.
 static LIVE: Mutex<Shares<SharedVerifier>> = Mutex::new(Shares::new());
+
+/// [`LIVE`]. A panic while it was held cannot leave the counts half-changed
+/// (each change is one statement), so a poisoned lock is taken over rather than
+/// leaving the verifier never torn down.
+fn live_shares() -> std::sync::MutexGuard<'static, Shares<SharedVerifier>> {
+    LIVE.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+}
 
 impl SharedVerifier {
     /// The process's verifier, started when nobody holds one, counting the
@@ -982,9 +1012,10 @@ impl SharedVerifier {
                 activity: Mutex::new(Activity { last_used: Instant::now(), lock: None }),
                 turn: tokio::sync::Mutex::new(()),
                 watcher: Mutex::new(None),
+                restarts: std::sync::atomic::AtomicU64::new(0),
             })
         };
-        LIVE.lock().map_err(poisoned)?.join(|live| live.settings == *settings, start).map_err(|e| {
+        live_shares().join(|live| live.settings == *settings, start).map_err(|e| {
             e.unwrap_or_else(|| {
                 "another conversion in this process uses the AEM verifier with other verification \
                  settings; start this one once it has finished"
@@ -998,14 +1029,18 @@ impl SharedVerifier {
     /// while the last one tears it down shares it (and waits its turn behind
     /// the teardown) instead of starting a second AEM beside it.
     fn leave(shared: &Arc<Self>) -> bool {
-        LIVE.lock().is_ok_and(|mut live| live.leave(shared))
+        live_shares().leave(shared)
     }
 
     /// Unregisters `shared` when nobody joined it since the last user left.
     fn forget_if_unused(shared: &Arc<Self>) {
-        if let Ok(mut live) = LIVE.lock() {
-            live.forget_if_unused(shared);
-        }
+        live_shares().forget_if_unused(shared);
+    }
+
+    /// One more share of `shared`, for work that must keep it from being torn
+    /// down under it; `None` once its last user has let go.
+    fn share(shared: &Arc<Self>) -> Option<VerifierHold> {
+        live_shares().rejoin(shared).then(|| VerifierHold(Some(Arc::clone(shared))))
     }
 
     /// Lets go of one user's share; the last one tears the containers down and
@@ -1029,6 +1064,10 @@ impl SharedVerifier {
         }
     }
 
+    fn restarts(&self) -> u64 {
+        self.restarts.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
     /// Whether this verifier holds the verifier lock, so its containers may be up.
     fn holds_lock(&self) -> bool {
         self.activity.lock().is_ok_and(|a| a.lock.is_some())
@@ -1046,6 +1085,7 @@ impl SharedVerifier {
         if let Ok(mut activity) = self.activity.lock() {
             activity.lock = None;
         }
+        self.restarts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         result
     }
 
@@ -1142,11 +1182,16 @@ impl SharedVerifier {
     /// its turn like any call; the receiver gets the outcome, a verifier lock
     /// another process holds included. With the platform up already (another
     /// conversion booted it), it only confirms that. The last user's teardown
-    /// waits its turn behind a boot still under way.
+    /// waits its turn behind a boot still under way. The boot holds a share of
+    /// its own, so one that outlives every run is still torn down after it.
     fn start_warm_up(self: &Arc<Self>) -> tokio::sync::oneshot::Receiver<Result<(), String>> {
-        let shared = Arc::clone(self);
         let (sender, outcome) = tokio::sync::oneshot::channel();
+        let Some(hold) = Self::share(self) else {
+            let _ = sender.send(Err("the verifier was let go before it booted".into()));
+            return outcome;
+        };
         tokio::spawn(async move {
+            let shared = Arc::clone(hold.shared());
             let booted = on_turn(&shared.turn, async {
                 shared.acquire_lock().await?;
                 shared.touch();
@@ -1161,6 +1206,9 @@ impl SharedVerifier {
             .await;
             // Nobody listening is fine: the outcome is only reported.
             let _ = sender.send(booted);
+            if let Err(e) = hold.release().await {
+                eprintln!("blueprint: the verifier could not be torn down after its boot: {e}");
+            }
         });
         outcome
     }
@@ -1256,6 +1304,9 @@ pub struct U2sTools {
     /// (torn down idle or after a missed deadline) stays listed until the next
     /// open or run tries to close it.
     open_sessions: BTreeMap<String, u64>,
+    /// The verifier's [`SharedVerifier::restarts`] when this agent last
+    /// called it: once it moved on, the agent's sessions are gone.
+    restarts_seen: u64,
 }
 
 impl U2sTools {
@@ -1275,6 +1326,7 @@ impl U2sTools {
             verifier: None,
             documents: HashSet::new(),
             open_sessions: BTreeMap::new(),
+            restarts_seen: 0,
             dir,
         })
     }
@@ -1282,7 +1334,9 @@ impl U2sTools {
     /// Joins the process's AEM verifier, which the agent's `aem_verify_*`
     /// calls then use. Touches no Docker.
     pub fn attach_aem_verify(&mut self, settings: &AemVerifySettings) -> Result<(), String> {
-        self.verifier = Some(VerifierHold::new(settings)?);
+        let hold = VerifierHold::new(settings)?;
+        self.restarts_seen = hold.shared().restarts();
+        self.verifier = Some(hold);
         Ok(())
     }
 
@@ -1297,6 +1351,28 @@ impl U2sTools {
         &mut self,
     ) -> Result<Option<tokio::sync::oneshot::Receiver<Result<(), String>>>, String> {
         Ok(self.verifier.as_ref().map(|hold| hold.shared().start_warm_up()))
+    }
+
+    /// Whether the verifier was torn down since this agent last called it (by
+    /// the idle watcher, or by a call that missed its deadline, this agent's
+    /// or another conversion's), and if so what to tell the model: its
+    /// sessions are gone, so they are forgotten here too.
+    fn notice_restart(&mut self) -> Option<String> {
+        let restarts = self.verifier.as_ref()?.shared().restarts();
+        if restarts == self.restarts_seen {
+            return None;
+        }
+        self.restarts_seen = restarts;
+        if self.open_sessions.is_empty() {
+            return None;
+        }
+        let gone: Vec<String> = std::mem::take(&mut self.open_sessions).into_keys().collect();
+        Some(format!(
+            "The AEM verifier was restarted since your last verifier call (it sat idle, or a call \
+             missed its deadline), so the sessions you had open are gone: {}. {} opens the form again.",
+            gone.join(", "),
+            VERIFIER_REBOOT_CALL
+        ))
     }
 
     /// Closes the sessions this agent left open, so they do not hold the
@@ -1449,6 +1525,9 @@ impl U2sTools {
             (Family::AemVerify, Some(hold)) => hold.shared().blobs.path().to_path_buf(),
             _ => self.dir.path().join("blobs"),
         };
+        // What the reply says first: that the verifier restarted since this
+        // agent last used it.
+        let mut note = None;
         let work: std::pin::Pin<Box<dyn std::future::Future<Output = Result<CallToolResult, String>> + Send>> =
             match entry.family {
                 Family::XfaData => {
@@ -1469,19 +1548,25 @@ impl U2sTools {
                             "{name} has no deadline in this engine, so it is not run"
                         )));
                     };
+                    let restarted = self.notice_restart();
                     let Some(hold) = &self.verifier else {
                         return Err(ToolReply::Error(format!(
                             "{name} is not available in this run: its verifier was not started"
                         )));
                     };
+                    note = restarted;
                     let shared = Arc::clone(hold.shared());
                     Box::pin(shared.call(name.to_string(), server_name, call, input))
                 }
             };
         Ok(async move {
-            match work.await {
+            let reply = match work.await {
                 Ok(result) => crate::mcp_reply::reply_from_result(result, Some(&blobs)),
                 Err(message) => ToolReply::Error(message),
+            };
+            match note {
+                Some(note) => with_note(reply, note),
+                None => reply,
             }
         })
     }
@@ -1773,6 +1858,23 @@ mod tests {
         assert!(Arc::ptr_eq(&shared(&third), &kept), "a share still held keeps the verifier");
         second.shutdown().await.unwrap();
         third.shutdown().await.unwrap();
+    }
+
+    /// Another conversion's missed deadline (or the idle watcher) tears down
+    /// the AEM this conversion's sessions were on: its next verifier call says
+    /// so, once, and the sessions are forgotten rather than closed in vain.
+    #[tokio::test]
+    async fn a_restart_by_anyone_is_noticed_once_by_a_conversion_with_open_sessions() {
+        let mut tools = U2sTools::new().unwrap();
+        tools.attach_aem_verify(&AemVerifySettings::default()).unwrap();
+        assert_eq!(tools.notice_restart(), None);
+        tools.open_sessions.insert("sess_a".into(), 1);
+        tools.verifier.as_ref().unwrap().shared().restarts.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let note = tools.notice_restart().expect("the restart is noticed");
+        assert!(note.contains("sess_a") && note.contains("aem_verify_open"), "{note}");
+        assert!(tools.open_sessions.is_empty());
+        assert_eq!(tools.notice_restart(), None, "only once");
+        tools.shutdown().await.unwrap();
     }
 
     /// A call waiting its turn behind another conversion's long call does not

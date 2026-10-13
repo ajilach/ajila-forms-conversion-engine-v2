@@ -182,9 +182,8 @@ pub async fn run(
 
 /// Starts booting the verifier's platform in the background, when the run
 /// has one. Nothing waits for it: the first verifier call that needs the
-/// platform waits on the same session lock, and the teardown at the end of
-/// the run (`shutdown_verifiers`) waits for a boot still under way before
-/// removing its containers.
+/// platform waits its turn behind the boot, and so does the teardown of the
+/// last conversion sharing the verifier (`shutdown_verifiers`).
 /// A boot that fails is only a warning — the first real call boots again
 /// and reports its own error.
 async fn warm_up_verifier(shared_agent: &SharedAgent, obs: &SharedObserver) {

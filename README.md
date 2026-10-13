@@ -88,9 +88,13 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
 # Refine a run with feedback
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> --feedback "The IBAN field must be mandatory."
 
-# Convert several forms at once, 3 at a time, on one shared AEM: a form is a PDF or a
-# directory of its PDFs, and each gets a folder of its own under --out
-cargo run --release -p blueprint-cli -- batch forms/AAEV_019 forms/AAOS_033_IT.pdf --jobs 3 --out ./out
+# Convert several forms at once, 3 at a time, on one shared AEM. A form is a PDF, a quoted
+# pattern selecting its language PDFs, or a directory of its PDFs; each gets a folder of
+# its own under --out (a pattern's form is named after the part before the `*`)
+cargo run --release -p blueprint-cli -- batch 'forms/AAAA_019_*.pdf' forms/AAOS_033_IT.pdf --jobs 3 --out ./out
+
+# A `*` works in convert too: one form in all its languages
+cargo run --release -p blueprint-cli -- convert 'forms/AAAA_019_*.pdf'
 ```
 
 Conversions verify on one AEM instance per process, so run several forms with `batch`

@@ -477,9 +477,10 @@ impl ConversionAgent {
         tools_for(scopes)
     }
 
-    /// Tear down the containers the verifier started, if any. Called by the
-    /// controller on every way out of a run, so no AEM container outlives
-    /// it.
+    /// Closes the verifier sessions this run left open and lets go of its
+    /// share of the process's verifier; the last share tears the containers
+    /// down. Called by the controller on every way out of a run, so no AEM
+    /// container outlives the conversions using it.
     pub async fn shutdown_verifiers(&mut self) -> Result<(), String> {
         match self.u2s.as_mut() {
             Some(tools) => tools.shutdown().await,

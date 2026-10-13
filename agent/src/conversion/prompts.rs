@@ -62,8 +62,8 @@ UBS's own routine and returns the PDF the submission produces, the Document of R
 platform renders from the summary data. Read it with pdf_info and pdf_render_pages, passing the \
 `doc_path` from the reply (gated): it must show the values entered. Then aem_verify_close. \
 aem_verify_open always opens the latest build: after a rebuild, open the form again, and \
-the sessions still showing an older build are closed for you (the reply names them); \
-aem_verify_run closes every open session first. \
+the sessions still showing an older build are closed for you (the reply names them), and \
+aem_verify_run does the same. \
 aem_verify_run does the whole walk in one call (`fill` gives field values) and suits a quick \
 re-check, but it does not count as the walk. The form opens in the language its metadata resolves \
 to, so check the other languages' wording in the document against each language's PDF instead. \

@@ -31,7 +31,8 @@ type Sources = Vec<(String, Vec<u8>)>;
 #[derive(Args, Debug)]
 pub struct ConvertArgs {
     /// Source document(s): the PDF(s) to convert, plus optionally an AEM
-    /// content-package ZIP to pre-load as an editable template.
+    /// content-package ZIP to pre-load as an editable template. A `*` in a
+    /// file name selects every matching file, e.g. 'forms/AAAA_019_*.pdf'.
     #[arg(value_name = "DOCUMENT", required = true)]
     documents: Vec<PathBuf>,
 
@@ -150,7 +151,11 @@ fn parse_provider(value: &str) -> Result<Provider, String> {
 
 /// Run the conversion and write what it produced.
 pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
-    let files = read_documents(&args.documents)?;
+    let mut documents = Vec::new();
+    for document in &args.documents {
+        documents.extend(expand(document)?);
+    }
+    let files = read_documents(&documents)?;
     let pdfs = pdfs_only(&files);
     // The agent has to have something to work from: sources to convert, or an
     // AEM content package to modify. A feedback run refines a previous result
@@ -350,6 +355,54 @@ fn write_file(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), Box<dyn Error>
     Ok(())
 }
 
+/// The files `path` names: itself, or, when its file name holds a `*`, every
+/// file in its directory whose name matches (a `*` matching any run of
+/// characters), in name order. A pattern that matches nothing is an error, not
+/// an empty run.
+pub(crate) fn expand(path: &Path) -> Result<Vec<PathBuf>, Box<dyn Error>> {
+    let dir = match path.parent() {
+        Some(dir) if !dir.as_os_str().is_empty() => dir,
+        _ => Path::new("."),
+    };
+    if dir.to_string_lossy().contains('*') {
+        return Err(format!("A `*` only selects files, not directories: {}", path.display()).into());
+    }
+    let Some(pattern) = path.file_name().and_then(|n| n.to_str()).filter(|n| n.contains('*')) else {
+        return Ok(vec![path.to_path_buf()]);
+    };
+    let mut matches: Vec<PathBuf> = std::fs::read_dir(dir)
+        .map_err(|e| format!("Could not read {}: {e}", dir.display()))?
+        .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+        .filter(|p| p.is_file() && p.file_name().and_then(|n| n.to_str()).is_some_and(|n| matches_pattern(pattern, n)))
+        .collect();
+    if matches.is_empty() {
+        return Err(format!("No file matches {}", path.display()).into());
+    }
+    matches.sort();
+    Ok(matches)
+}
+
+/// Whether `name` matches `pattern`, in which `*` stands for any run of
+/// characters (none included) and everything else for itself.
+fn matches_pattern(pattern: &str, name: &str) -> bool {
+    let mut parts = pattern.split('*');
+    let first = parts.next().unwrap_or_default();
+    let Some(mut rest) = name.strip_prefix(first) else {
+        return false;
+    };
+    let middle: Vec<&str> = parts.collect();
+    let Some((last, middle)) = middle.split_last() else {
+        return rest.is_empty();
+    };
+    for part in middle {
+        match rest.find(part) {
+            Some(at) => rest = &rest[at + part.len()..],
+            None => return false,
+        }
+    }
+    rest.len() >= last.len() && rest.ends_with(last)
+}
+
 /// Read the sources, keeping the full file names: the agent tells PDFs from an
 /// attached content package by extension, so a stem would hide both.
 pub(crate) fn read_documents(paths: &[PathBuf]) -> Result<Sources, Box<dyn Error>> {
@@ -520,5 +573,35 @@ mod tests {
         assert_eq!(pdfs_only(&files).len(), 1);
 
         let _ = std::fs::remove_file(&pdf);
+    }
+
+    #[test]
+    fn a_star_matches_any_run_of_characters() {
+        assert!(matches_pattern("AAAA_019_*.pdf", "AAAA_019_DE.pdf"));
+        assert!(matches_pattern("AAAA_019_*.pdf", "AAAA_019_.pdf"));
+        assert!(!matches_pattern("AAAA_019_*.pdf", "AAAA_019_DE.zip"));
+        assert!(!matches_pattern("AAAA_019_*.pdf", "AAAB_019_DE.pdf"));
+        assert!(matches_pattern("*_019_*", "AAAA_019_EN.pdf"));
+        assert!(!matches_pattern("a*a", "a"), "the parts may not overlap");
+        assert!(matches_pattern("plain.pdf", "plain.pdf"));
+        assert!(!matches_pattern("plain.pdf", "plain.pdfx"));
+    }
+
+    /// A pattern names every matching file of its directory, in name order;
+    /// one matching nothing is refused rather than converting nothing.
+    #[test]
+    fn a_pattern_selects_every_matching_file() {
+        let dir = std::env::temp_dir().join(format!("blueprint-cli-expand-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for name in ["AAAA_019_EN.pdf", "AAAA_019_DE.pdf", "AAAB_019_DE.pdf"] {
+            std::fs::write(dir.join(name), b"%PDF-1.4").unwrap();
+        }
+        let found = expand(&dir.join("AAAA_019_*.pdf")).unwrap();
+        let names: Vec<_> = found.iter().map(|p| p.file_name().unwrap().to_str().unwrap()).collect();
+        assert_eq!(names, ["AAAA_019_DE.pdf", "AAAA_019_EN.pdf"]);
+        assert_eq!(expand(&dir.join("AAAB_019_DE.pdf")).unwrap().len(), 1);
+        assert!(expand(&dir.join("ZZZZ_*.pdf")).err().unwrap().to_string().contains("No file matches"));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
