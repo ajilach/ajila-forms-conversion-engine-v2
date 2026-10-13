@@ -1,3 +1,13 @@
+// The panels under the form that are not wizard steps (same list as the step-titles rule).
+const SPECIAL_NAMES = ["formmetadata", "formMetadata", "FormMetadata", "metadata", "autoSaveInfo",
+  "signerInfo", "doroptionsubs", "PN_Preview"];
+
+function isPage(node) {
+  const name = typeof node.name === "string" ? node.name : "";
+  return node.type === "Panel" && node.is_page !== false && SPECIAL_NAMES.indexOf(name) < 0 &&
+    name.toLowerCase() !== "preview";
+}
+
 function check(output, ctx) {
   const violations = [];
   const found = [];
@@ -8,7 +18,7 @@ function check(output, ctx) {
   }
   visit(output.form, "/form", null);
 
-  const pages = (output.form.children || []).filter(function (c) { return c.type === "Panel"; });
+  const pages = (output.form.children || []).filter(isPage);
   const first = pages.length > 0 ? pages[0] : null;
   for (let i = 0; i < found.length; i++) {
     const { node, pointer, parent } = found[i];
@@ -28,9 +38,17 @@ function check(output, ctx) {
       });
       continue;
     }
-    const before = first.children.slice(0, first.children.indexOf(node));
+    const at = first.children.indexOf(node);
+    const before = first.children.slice(0, at);
     const other = before.filter(function (c) { return c.type !== "Preface"; });
-    if (other.length > 0) {
+    const prefaceAfter = first.children.slice(at + 1).some(function (c) { return c.type === "Preface"; });
+    if (prefaceAfter) {
+      violations.push({
+        pointer: pointer,
+        message: "the letterhead `" + node.name + "` comes before the `Preface`: the banking relationship " +
+          "opens the page, so move the letterhead right after it",
+      });
+    } else if (other.length > 0) {
       violations.push({
         pointer: pointer,
         message: "the letterhead `" + node.name + "` comes after `" + other[0].name + "`: it opens " +

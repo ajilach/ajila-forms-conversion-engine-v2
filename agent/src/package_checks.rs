@@ -126,6 +126,7 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
     // the letterhead's receiver, date and subject, and nothing else fills them.
     let mut letterheads = 0usize;
     let mut letter_layouts = 0usize;
+    let mut letter_template = false;
 
     for (tag_name, tag) in open_tags(xml) {
         let label = attr(tag, "name").unwrap_or(tag_name).to_string();
@@ -283,6 +284,9 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
         if has_attr(tag, "redactoLayout", "letterDor") {
             letter_layouts += 1;
         }
+        if attr(tag, "metaTemplateRef").is_some_and(|t| t.ends_with("/UBS_Blank_Letter_DoR.xdp")) {
+            letter_template = true;
+        }
 
         if has_attr(tag, "name", "fwbSaveProgress") {
             save_progress += 1;
@@ -311,6 +315,20 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
             "the letter layout is on (redactoLayout=\"letterDor\") but the form has no letterhead \
              to fill its receiver, date and subject"
                 .into(),
+        );
+    }
+
+    if letterheads > 0 && !letter_template {
+        push(
+            "ENGINE-letter-layout",
+            "dorProperties".into(),
+            "the form has a letterhead but its DoR template is not UBS_Blank_Letter_DoR.xdp".into(),
+        );
+    } else if letterheads == 0 && letter_template {
+        push(
+            "ENGINE-letter-layout",
+            "dorProperties".into(),
+            "the DoR template is the letter's (UBS_Blank_Letter_DoR.xdp) but the form has no letterhead".into(),
         );
     }
 

@@ -11,9 +11,16 @@ function plain(text) {
   return String(text).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-// The entity line on its own, as Germany ("UBS Europe SE") and Italy ("UBS Europe SE (Succursale
-// Italia)", also with a comma) write it: the feedback repo's ENTITY_LINE matches the whole line too.
-const ENTITY_LINE = /^ubs europe se(\s*\(succursale italia\)|,\s*succursale italia)?$/;
+// The entity line, as Germany ("UBS Europe SE") and Italy ("Per UBS Europe SE (Succursale Italia)",
+// with a comma, a dash or a full stop) write it: the feedback repo's ENTITY_LINE
+// (`find_subtitle_detector.py`), tested on the first non-empty line, as it does, so the unit or the
+// address under it does not hide it.
+const ENTITY_LINE = /^\s*(?:per\s+)?ubs\s+europe\s+se\b[\s,()\-–]*(?:succursale\s+italia)?[\s,()\-–.]*$/i;
+
+function firstLine(html) {
+  const lines = String(html).split(/<\/p>|<br\s*\/?>|\n/i).map(plain).filter(function (l) { return l !== ""; });
+  return lines.length > 0 ? lines[0] : "";
+}
 
 function check(output, ctx) {
   const violations = [];
@@ -45,12 +52,13 @@ function check(output, ctx) {
     if (isBody && !node.dor_header_slot) {
       const content = node.content || {};
       for (const lang of Object.keys(content)) {
-        if (ENTITY_LINE.test(plain(content[lang]))) {
+        if (ENTITY_LINE.test(firstLine(content[lang]))) {
           entityDraws.push({
             pointer: pointer + "/content/" + lang,
-            message: "`" + node.name + "` is the entity line \"" + plain(content[lang]) + "\", which the banking relationship fragment " +
+            message: "`" + node.name + "` opens with the entity line \"" + firstLine(content[lang]) + "\", which the banking relationship fragment " +
               "renders itself: delete the draw (the entity reaches the Document of Record header as the " +
-              "`slot2` draw; where it heads the bank's signature block, it is that signature Repeatable's `title`)",
+              "`slot2` draw, or in a letter as the letterhead's sender; where it heads the bank's signature " +
+              "block, it is that signature Repeatable's `title`)",
           });
         }
       }

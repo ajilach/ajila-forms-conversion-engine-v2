@@ -36,6 +36,14 @@ function check(output, ctx) {
       });
       continue;
     }
+    if (slot === "slot2" && sender !== null) {
+      violations.push({
+        pointer: at,
+        message: "`" + node.name + "` takes `slot2`, which in a letter is the sender's: the letterhead `" +
+          sender + "` prints the sender there, so take it out of the slot (a draw's text belongs in the letterhead's sender)",
+      });
+      continue;
+    }
     const isStatic = STATIC.indexOf(node.type) >= 0;
     if (slot === "slot1" && (preface || isStatic)) {
       violations.push({
@@ -51,14 +59,6 @@ function check(output, ctx) {
         pointer: pointer,
         message: "`" + node.name + "` is a " + node.type + " in a header slot: a master-page line is a " +
           "static `TextDraw`, so replace it with one",
-      });
-      continue;
-    }
-    if (slot === "slot2" && sender !== null) {
-      violations.push({
-        pointer: at,
-        message: "`" + node.name + "` takes `slot2`, which in a letter is the sender's: the letterhead `" +
-          sender + "` prints the sender there, so delete this draw and put its text into the letterhead's sender",
       });
       continue;
     }

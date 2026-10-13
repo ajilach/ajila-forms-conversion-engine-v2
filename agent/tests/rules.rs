@@ -1157,11 +1157,16 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
             draw("TextDraw", "ST_Closing", "<p>UBS Europe SE (Succursale Italia)</p>"),
             draw("TextDraw", "ST_Comma", "UBS Europe SE, Succursale Italia"),
             draw("TextDraw", "ST_Mention", "UBS Europe SE (Succursale Italia) con sede in Milano"),
+            // The closing as Italian letters write it, with a dash, and with its unit under it: the
+            // feedback guard's ENTITY_LINE reads the first line only.
+            draw("TextDraw", "ST_Per", "<p>Per UBS Europe SE (Succursale Italia)</p>"),
+            draw("TextDraw", "ST_Dash", "UBS Europe SE \u{2013} Succursale Italia."),
+            draw("TextDraw", "ST_Unit", "<p>UBS Europe SE (Succursale Italia)</p><p>Front Support Office</p>"),
         ],
     )]);
     assert_eq!(
         violations("banking-relationship-present", &italy),
-        vec!["/form/children/0/children/1/content/en".to_string(), "/form/children/0/children/2/content/en".to_string()]
+        [1, 2, 4, 5, 6].map(|i| format!("/form/children/0/children/{i}/content/en")).to_vec()
     );
 }
 
@@ -1741,6 +1746,15 @@ fn a_letter_has_one_letterhead_at_the_top_of_its_first_page() {
 
     let below = doc_with(vec![page("PN_A", "A", vec![body(), letterhead("PN_LetterHead")])]);
     assert_eq!(violations("letter-letterhead", &below), vec!["/form/children/0/children/1".to_string()]);
+
+    // The banking relationship opens the page, the letterhead follows it.
+    let ahead = doc_with(vec![page("PN_A", "A", vec![letterhead("PN_LetterHead"), preface(), body()])]);
+    assert_eq!(violations("letter-letterhead", &ahead), vec!["/form/children/0/children/0".to_string()]);
+
+    // A panel under `form` that is no wizard step (the form metadata) is not the first page.
+    let metadata = panel("FormMetadata", "", false, false, vec![]);
+    let after_metadata = doc_with(vec![metadata, page("PN_A", "A", vec![letterhead("PN_LetterHead"), body()])]);
+    assert!(violations("letter-letterhead", &after_metadata).is_empty());
 }
 
 #[test]
@@ -1749,6 +1763,12 @@ fn a_letters_sender_takes_slot2_so_no_draw_does() {
     let validity = || header_line("ST_HeaderSlot3", "slot3", "<p>Valido dal 09.10.2025</p>");
     let taken = doc_with(vec![page("PN_A", "A", vec![preface(), letterhead("PN_LetterHead"), entity(), validity()])]);
     assert_eq!(violations("dor-header-slots", &taken), vec!["/form/children/0/children/2/dor_header_slot".to_string()]);
+
+    // Nor does a field: the sender has slot2 to itself.
+    let mut account = text_field("TXT_Account", "Account no.", None);
+    account["dor_header_slot"] = json!("slot2");
+    let field = doc_with(vec![page("PN_A", "A", vec![preface(), letterhead("PN_LetterHead"), account])]);
+    assert_eq!(violations("dor-header-slots", &field), vec!["/form/children/0/children/2/dor_header_slot".to_string()]);
 
     // A letter whose source prints no sender leaves slot2 to the entity line.
     let mut silent = letterhead("PN_LetterHead");
