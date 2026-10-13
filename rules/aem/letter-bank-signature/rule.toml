@@ -1,0 +1,42 @@
+id = "ubs-aem-letter-bank-signature"
+title = "Bank officers sign in one Repeatable"
+output_formats = ["aem-ubs"]
+description = """
+A letter the bank writes closes with its entity line ("UBS Europe SE (Succursale Italia)",
+sometimes followed by a unit such as "Front Support Office") and two or more signature slots for
+its officers, each with a name ("Cognome/Nome") and often a corporate-title choice (Authorized
+Officer, Associate Director, Director, ...). The bank is not a party of the form: its signature is
+outside the account-holder cluster and pairs with no partner generic.
+
+The signatories are ONE `Repeatable` named `RCP_SGN_UBS` wrapping one `Fragment` of
+`affrg_SignatureGeneric1` named `PN_SGN_UBS`:
+
+- `min_occur` and `max_occur` are both the number of signature slots the source prints, so the
+  rows are fixed (ubs-aem-signature-family, ubs-aem-repeatable-bounds);
+- its `title` is the source's entity line, which the printed form numbers per row
+  ("UBS Europe SE (Succursale Italia) 1"), so no draw repeats that line above it
+  (ubs-aem-banking-relationship-present);
+- where the source offers a corporate title, a content `Panel` beside the fragment, inside the
+  Repeatable, holds a `Dropdown` (`DD_CorporateTitle`) with the source's items in its order and
+  their labels in every language; a unit line under the entity line ("Front Support Office") stays
+  a `TextDraw` before the Repeatable.
+
+A letter the client writes has no bank signatories; its signers follow
+ubs-aem-account-holder-cluster.
+
+How to judge: find the source's officer block (xfa_controls for the name fields and the officer
+dropdowns, xfa_render_pages for the slots) and compare with the tree (json_search for
+`RCP_SGN_UBS` and `affrg_SignatureGeneric1`).
+
+A break is officers built from loose name fields or numbered panels, a count of rows that differs
+from the source's slots, a market signature fragment (`affrg_UBSEuropeSignature1`, the italy
+client-advisor fragments), a missing or invented corporate-title choice, or an entity line printed
+both as a draw and as the title.
+
+Fix: replace the officer fields with the `RCP_SGN_UBS` Repeatable around `PN_SGN_UBS`, set both
+bounds to the source's slot count, title it with the entity line, and move the corporate-title
+dropdown into the content Panel beside the fragment.
+"""
+
+[judge]
+node_types = ["Repeatable", "Fragment", "Panel", "TextField", "Dropdown", "TextDraw"]

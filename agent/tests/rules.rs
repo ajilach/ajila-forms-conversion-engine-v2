@@ -1146,6 +1146,23 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
     // Without the fragment there is nothing to duplicate.
     let alone = doc_with(vec![page("PN_A", "A", vec![entity])]);
     assert!(violations("banking-relationship-present", &alone).is_empty());
+
+    // Italy writes the whole line with its qualifier, the way a letter closes above its officers;
+    // a sentence that only mentions the bank is no entity line.
+    let italy = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            preface(),
+            draw("TextDraw", "ST_Closing", "<p>UBS Europe SE (Succursale Italia)</p>"),
+            draw("TextDraw", "ST_Comma", "UBS Europe SE, Succursale Italia"),
+            draw("TextDraw", "ST_Mention", "UBS Europe SE (Succursale Italia) con sede in Milano"),
+        ],
+    )]);
+    assert_eq!(
+        violations("banking-relationship-present", &italy),
+        vec!["/form/children/0/children/1/content/en".to_string(), "/form/children/0/children/2/content/en".to_string()]
+    );
 }
 
 /// A master-page line authored for the DoR header `slot`, with the flags that

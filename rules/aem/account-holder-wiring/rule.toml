@@ -22,6 +22,11 @@ for `PN_AHGRP` (`RCP_Sign_AHGRP_AR` and `PN_Sign_AHGRP_AR` for `PN_AHGRP_AR`); `
 party's Add and Remove buttons add and remove the signature row too, and gives the signature
 repeatable no buttons of its own, so a misspelled name silently unpairs them.
 
+A signature that pairs with no party (the bank's officers, `RCP_SGN_UBS` around `PN_SGN_UBS`; the
+signer of a form with no configurator, `RCP_SGN_<stem>` around `PN_SGN_<stem>` with a stem that is
+none of `CPGRP`, `AHGRP`, `AHGRP_AR`, `BOGRP`, `PAGRP`) keeps its own Add and Remove buttons, which
+the writer gives every signature repeatable it cannot pair.
+
 The check decides the wrapping: a Fragment of a partner generic (`affrg_ContractualPartnerGeneric`,
 `affrg_PartnertoPartnerGeneric`, `affrg_BeneficialOwnerGeneric`, `affrg_PowerofAttorneyGeneric`)
 must be a child of a Repeatable, because a party that is not repeatable has no Add and Remove and

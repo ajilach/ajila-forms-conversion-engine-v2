@@ -11,6 +11,10 @@ function plain(text) {
   return String(text).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+// The entity line on its own, as Germany ("UBS Europe SE") and Italy ("UBS Europe SE (Succursale
+// Italia)", also with a comma) write it: the feedback repo's ENTITY_LINE matches the whole line too.
+const ENTITY_LINE = /^ubs europe se(\s*\(succursale italia\)|,\s*succursale italia)?$/;
+
 function check(output, ctx) {
   const violations = [];
   const top = output.form.children || [];
@@ -41,10 +45,10 @@ function check(output, ctx) {
     if (isBody && !node.dor_header_slot) {
       const content = node.content || {};
       for (const lang of Object.keys(content)) {
-        if (plain(content[lang]) === "ubs europe se") {
+        if (ENTITY_LINE.test(plain(content[lang]))) {
           entityDraws.push({
             pointer: pointer + "/content/" + lang,
-            message: "`" + node.name + "` is the line \"UBS Europe SE\", which the banking relationship fragment " +
+            message: "`" + node.name + "` is the entity line \"" + plain(content[lang]) + "\", which the banking relationship fragment " +
               "renders itself: delete the draw (the entity reaches the Document of Record header as the " +
               "`slot2` draw; where it heads the bank's signature block, it is that signature Repeatable's `title`)",
           });

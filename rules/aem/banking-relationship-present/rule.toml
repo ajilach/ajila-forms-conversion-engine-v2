@@ -14,7 +14,8 @@ ubs-aem-banking-relationship rule holds the hand-built shapes to the canonical o
 no banking relationship (AACU_019, for one) gets no `Preface`: do not add one.
 
 The fragment renders the "UBS Europe SE" line itself, so beside a `Preface` a standalone TextDraw,
-TitleDraw or MessageBox whose text is exactly "UBS Europe SE" in any language duplicates it. The
+TitleDraw or MessageBox whose text is only the entity line, "UBS Europe SE" or Italy's "UBS Europe SE
+(Succursale Italia)", in any language duplicates it. The
 legal-entity line reaches the Document of Record header as its own hidden `slot2` draw
 (ubs-aem-dor-header-slots), which is not such a duplicate.
 

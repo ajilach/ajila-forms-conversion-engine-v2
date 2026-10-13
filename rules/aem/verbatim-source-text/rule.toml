@@ -7,8 +7,9 @@ Every label, option, help text, title, paragraph and footnote is taken verbatim 
 author's own, a paraphrase, a shortened text or a gap filled with plausible wording is a defect.
 The option labels, values and codes of a cascading dropdown come verbatim from the `addItem` and
 `rawValue` lines of its change script. The text the writer or a fragment renders itself (the step
-title built from a page `title`, the banking relationship, a fragment's own fields, the Add button)
-is not authored and is not judged.
+title built from a page `title`, the banking relationship, a fragment's own fields, the Add button,
+the letterhead's captions) is not authored and is not judged. A `Letterhead`'s prefilled addresses
+and its `subject` are authored and are judged like any text.
 
 How to judge: walk the document with json_outline and sample the texts it carries: every heading,
 every paragraph of static text, every label and option of the first pages and of each page that

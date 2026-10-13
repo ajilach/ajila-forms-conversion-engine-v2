@@ -24,6 +24,13 @@ source or not (ubs-aem-step-titles): a page never opens with a `TitleDraw`. A pa
 body text has no `title` (most steps of the reference forms have none), and its headings are
 `TitleDraw`s at level 3 or deeper.
 
+A letter (ubs-aem-letter-detection) prints no form title and no step heading at its top: its letter
+top is the `Letterhead`, its subject line the letterhead's `subject`, and the salutation, the body
+paragraphs, the closing formula, the entity line and the attachments line follow as body text in
+the source's order, with bold only where the source sets it. Its first page has no `title` unless
+the source heads a section below the letter top. A section the source rules further down (a receipt
+for the heir, a declaration) is a page or a TitleDraw as anywhere else.
+
 A break is a region whose structure in the tree differs from the page: sections in another order,
 a heading at another level, a level-2 heading the source does not rule (other than a page's
 `title`), fields grouped differently,

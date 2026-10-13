@@ -6,7 +6,8 @@ Each text, number and date field, dropdown, checkbox and radio button presents a
 of the form's languages. A label is not usable when it is empty, when it is only a parenthetical
 hint such as `(optional)`, or when it carries markup: labels are plain text.
 
-A checkbox whose options carry the text may leave its own label empty.
+A checkbox whose options carry the text may leave its own label empty. The fields a `Letterhead`
+renders are the component's and have no node in the document.
 
 The check decides empty, parenthetical-only and marked-up labels. Whether the text is the real
 question is for you to judge against the source page: a caption that merely sits near a field in the
