@@ -26,8 +26,8 @@
   in `specs/feedback/consistent-problems.md`, and the shapes a person still applies by hand in
   `specs/feedback/manual-changes-italy-033.md`. The ones a document can break are also checked on
   every edit, as the check rules in `rules/aem/` (`rule_check`); the rest the writer
-  or the normalize passes guarantee, and the parity tests upstream hold the encoder to the retired
-  engine's output. `specs/feedback/rule-coverage.md` maps every enrolled problem to what guarantees
+  or the normalize passes guarantee, and upstream's writer snapshot tests hold the encoder to its own
+  reviewed output (its parity test holds only the schema to the retired engine's). `specs/feedback/rule-coverage.md` maps every enrolled problem to what guarantees
   it. What the writer guarantees is checked too: every build scans the rendered package
   (`agent/src/package_checks.rs`) and reports a guard problem there as an engine defect. The check rules live here only (v3 keeps its rules in its database and ships none). A rule is
   `rules/aem/<slug>/rule.toml` plus, when a script can decide it, `check.js` (with a clean and a

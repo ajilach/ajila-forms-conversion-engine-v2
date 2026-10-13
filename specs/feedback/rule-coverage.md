@@ -13,8 +13,8 @@ here. A guarantee is one of: a check rule in `rules/aem/`, a normalize pass of t
 
 Reading the "guaranteed by" column: a rule is checked on every edit of the document (`rule_check`),
 so it covers what an author can get wrong; a template, writer function or normalize pass makes the
-shape hold by construction, so no check is needed; the parity and writer tests of the UBS layer
-hold those to the retired engine's output. Where both appear, the template covers the generated
+shape hold by construction, so no check is needed; the UBS layer's writer snapshot tests hold the
+package to its own reviewed output, and its parity test holds the schema to the retired engine's. Where both appear, the template covers the generated
 shape and the rule covers what a loaded or authored node can still carry.
 
 What templates and the writer guarantee is checked as well, on the package every build writes:
