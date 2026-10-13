@@ -21,7 +21,15 @@ For each form, one run of that engine's pipeline wrote all three:
   draws after the `Preface`.
 
 Writing them in one run keeps the old converter's random node uuids consistent between the
-document and the package, so `tests/golden_parity.rs` compares them exactly.
+document and the package.
+
+`tests/golden_parity.rs` compares only `schema.xsd` now. The packages stopped being compared on
+2026-10-13: the normalize pass `headings_leave_table_mode` moves a section heading's body text
+into panels of its own, a shape the retired engine never wrote (UBS's summary otherwise renders
+the heading as a plain table cell). `tests/writer_snapshots.rs` still holds the whole encoded
+package of each golden document to a snapshot of this crate's output. The notes below on the
+package comparison, the guillemet allowance and `known-dictionary-gaps.txt` describe what that
+comparison accepted while it ran.
 
 Since then two things in the documents changed, and nothing else:
 

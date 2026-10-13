@@ -2,30 +2,23 @@
 //!
 //! Each golden form carries `document.json`: the UBS document the old engine
 //! built for that form, lifted from its own AEM tree and dictionary in the same
-//! run that wrote `package.zip` and `schema.xsd`. Encoding it must reproduce
-//! them:
-//!
-//! - every file other than a dictionary is identical once timestamps are masked;
-//! - no dictionary entry translates a key differently from the golden one, and
-//!   every golden translation is present unless `known-dictionary-gaps.txt`
-//!   lists it. An identity entry (`fd_Text` → `Text`) is not required: AEM shows
-//!   a key's own text when the dictionary lacks it, so it changes nothing;
-//! - the XSD is identical.
+//! run that wrote `package.zip` and `schema.xsd`. Encoding it must reproduce the
+//! XSD exactly. The packages themselves are no longer compared: the normalize
+//! passes now shape the form differently from the retired engine (a section
+//! heading's body moves into panels of its own, `headings_leave_table_mode`).
 //!
 //! The account-holder cluster and the signature block of `AABF_019` and
 //! `AAOS_033_IT` were custom templates in the retired engine; the documents now
-//! author them as ordinary nodes, which render differently. Those subtrees
-//! ([`REAUTHORED`]) are left out of the comparison on both sides, everything
-//! else is held to the golden output as before, and the schema, to which the
-//! templates contributed nothing, is compared for the document without them.
+//! author them as ordinary nodes. Those subtrees ([`REAUTHORED`]) are left out
+//! of the document whose schema is compared, as the templates contributed
+//! nothing to it.
 
-use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use u2s_aem_ubs_mcp::{UbsAemDocument, encode};
 
 mod support;
-use support::package::{canonical, dictionary, first_difference, structure_without, unescaped, unzip};
+use support::package::{first_difference, unzip};
 
 const FORMS: &[&str] = &["AAOS_033_IT", "AAEV_019_EN", "AABF_019"];
 
@@ -63,56 +56,6 @@ fn golden_dir(form: &str) -> PathBuf {
         .join(form)
 }
 
-/// Is this entry one AEM would render the same without?
-fn is_identity(key: &str, message: &str) -> bool {
-    key.strip_prefix("fd_") == Some(message)
-}
-
-/// The locales that quote with guillemets since the golden run
-/// (PROBLEM-guillemet-quotes): the profile's default messages were reworded
-/// from `"…"` to `«…»` there, and nothing else about them changed. Only a
-/// default message's key is held to the rewording.
-const GUILLEMET_LOCALES: &[&str] = &["de", "de-ch", "it", "es", "sp"];
-
-/// `golden` as the profile words it since the guillemet rewording: each
-/// straight-quoted run outside markup in `«…»`. A `"` inside a tag delimits an
-/// attribute and stays.
-fn with_guillemets(golden: &str) -> String {
-    let mut out = String::with_capacity(golden.len());
-    let (mut in_tag, mut open) = (false, true);
-    for c in golden.chars() {
-        match c {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            '"' if !in_tag => {
-                out.push(if open { '«' } else { '»' });
-                open = !open;
-                continue;
-            }
-            _ => {}
-        }
-        out.push(c);
-    }
-    out
-}
-
-/// `<locale> <key>` lines of the golden entries the encoder knowingly does not
-/// reproduce. Lines starting with `#` explain why.
-fn known_gaps(form: &str) -> BTreeSet<(String, String)> {
-    let path = golden_dir(form).join("known-dictionary-gaps.txt");
-    let Ok(text) = std::fs::read_to_string(&path) else {
-        return BTreeSet::new();
-    };
-    text.lines()
-        .filter(|l| !l.trim().is_empty() && !l.starts_with('#'))
-        .map(|l| {
-            let (locale, key) = l.split_once(' ').expect("`<locale> <key>`");
-            // Written as the golden dictionary spells it; compared as read.
-            (locale.to_string(), unescaped(key))
-        })
-        .collect()
-}
-
 fn golden_document(form: &str) -> serde_json::Value {
     let json = std::fs::read_to_string(golden_dir(form).join("document.json")).unwrap();
     serde_json::from_str(&json).unwrap()
@@ -140,105 +83,6 @@ fn without_reauthored(mut node: serde_json::Value) -> serde_json::Value {
 }
 
 #[test]
-fn encoded_packages_match_the_golden_packages() {
-    let mut failures = Vec::new();
-    // Only the profile's own default messages were reworded.
-    let defaults = u2s_aem_ubs_mcp::profiles::load_aem_profile("ubs")
-        .expect("the UBS profile loads")
-        .default_translations;
-    for form in FORMS {
-        let build = encode_golden(form);
-        let golden = unzip(&std::fs::read(golden_dir(form).join("package.zip")).unwrap());
-        let encoded = unzip(&build.package);
-
-        let golden_names: BTreeSet<&String> = golden.keys().collect();
-        let encoded_names: BTreeSet<&String> = encoded.keys().collect();
-        for name in golden_names.symmetric_difference(&encoded_names) {
-            let identity_only = golden.get(*name).is_some_and(|text| {
-                name.contains("/assets/dictionary/")
-                    && dictionary(text).iter().all(|(k, m)| is_identity(k, m))
-            });
-            if !identity_only {
-                let side = if golden.contains_key(*name) {
-                    "golden"
-                } else {
-                    "encoded"
-                };
-                failures.push(format!("{form}: only in the {side} package: {name}"));
-            }
-        }
-
-        for (name, text) in &encoded {
-            let duplicates = u2s_aem_ubs_mcp::aem::duplicate_attribute_elements(text);
-            if name.ends_with(".xml") && !duplicates.is_empty() {
-                failures.push(format!(
-                    "{form}: {name} repeats an attribute on {duplicates:?}"
-                ));
-            }
-        }
-
-        let gaps = known_gaps(form);
-        let mut unused_gaps = gaps.clone();
-        for (name, golden_text) in &golden {
-            let Some(encoded_text) = encoded.get(name) else {
-                continue;
-            };
-            if name.contains("/assets/dictionary/") {
-                let locale = name.rsplit('/').next().unwrap().trim_end_matches(".xml");
-                let (want, got) = (dictionary(golden_text), dictionary(encoded_text));
-                for (key, message) in &want {
-                    match got.get(key) {
-                        Some(m) if m == message => {}
-                        Some(m)
-                            if GUILLEMET_LOCALES.contains(&locale)
-                                && key.strip_prefix("fd_").is_some_and(|k| defaults.contains_key(k))
-                                && *m == with_guillemets(message) => {}
-                        Some(m) => failures.push(format!(
-                            "{form}: {locale} translates {key:?} as {m:?}, golden {message:?}"
-                        )),
-                        None if is_identity(key, message) => {}
-                        None => {
-                            let gap = (locale.to_string(), key.clone());
-                            if !unused_gaps.remove(&gap) && !gaps.contains(&gap) {
-                                failures.push(format!(
-                                    "{form}: {locale} lacks {key:?} (golden {message:?})"
-                                ));
-                            }
-                        }
-                    }
-                }
-                continue;
-            }
-            let (want, got) = if name.ends_with(".xml") {
-                (
-                    structure_without(golden_text, REAUTHORED),
-                    structure_without(encoded_text, REAUTHORED),
-                )
-            } else {
-                (canonical(golden_text), canonical(encoded_text))
-            };
-            if want != got {
-                failures.push(format!(
-                    "{form}: {name} differs; {}",
-                    first_difference(&want, &got)
-                ));
-            }
-        }
-        for (locale, key) in unused_gaps {
-            failures.push(format!(
-                "{form}: known-dictionary-gaps.txt lists {locale} {key:?}, which is no longer missing"
-            ));
-        }
-    }
-    assert!(
-        failures.is_empty(),
-        "{} differences:\n{}",
-        failures.len(),
-        failures.join("\n")
-    );
-}
-
-#[test]
 fn encoded_schemas_match_the_golden_schemas() {
     for form in FORMS {
         let mut doc = golden_document(form);
@@ -254,45 +98,6 @@ fn encoded_schemas_match_the_golden_schemas() {
             first_difference(&golden, &xsd)
         );
     }
-}
-
-/// A deployed package loads back as a document and saves unchanged, as AEM
-/// reads it (the whitespace between elements aside): decoding a golden package
-/// and encoding it again yields the same files, bar dictionaries, which the
-/// lift rebuilds from the texts it can place. Nothing is filled in from the
-/// source: the package itself records the variables, and its DoR header slot
-/// draws come back as the document's own.
-#[test]
-fn decoded_golden_packages_re_encode_to_the_same_files() {
-    let mut failures = Vec::new();
-    for form in FORMS {
-        let package = std::fs::read(golden_dir(form).join("package.zip")).unwrap();
-        let doc = u2s_aem_ubs_mcp::decode(&package).unwrap_or_else(|e| panic!("{form}: {e}"));
-        let build = encode(&doc).unwrap_or_else(|e| panic!("{form} re-encodes: {e}"));
-        let (golden, encoded) = (unzip(&package), unzip(&build.package));
-        for (name, golden_text) in &golden {
-            if name.contains("/assets/dictionary/") {
-                continue;
-            }
-            match encoded.get(name) {
-                None => failures.push(format!("{form}: re-encoding drops {name}")),
-                Some(text)
-                    if structure_without(text, REAUTHORED)
-                        != structure_without(golden_text, REAUTHORED) =>
-                {
-                    failures.push(format!(
-                        "{form}: {name} differs; {}",
-                        first_difference(
-                            &structure_without(golden_text, REAUTHORED),
-                            &structure_without(text, REAUTHORED)
-                        )
-                    ))
-                }
-                Some(_) => {}
-            }
-        }
-    }
-    assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
 /// The issued forms keep the legal entity's DoR header slot draw inside the

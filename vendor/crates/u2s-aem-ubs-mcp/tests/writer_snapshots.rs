@@ -1,9 +1,8 @@
 //! The writer's whole output, held to a snapshot of itself.
 //!
-//! Golden parity (`golden_parity.rs`) holds the writer to the retired engine,
-//! but it has to leave out the account-holder cluster and the signature block,
-//! which documents now author differently. This test covers everything,
-//! including those: each case's package (and bound package and schema) is read
+//! Golden parity (`golden_parity.rs`) holds only the schema to the retired
+//! engine: the packages no longer match it. This test covers the whole output:
+//! each case's package (and bound package and schema) is read
 //! the way AEM reads it (`support::package::structure_without`) and compared
 //! with `tests/fixtures/writer_snapshots/<case>.snap`.
 //!

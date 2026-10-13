@@ -44,6 +44,9 @@
 - Three of those rules are about a node's position among its siblings, so lowering one node at a time cannot satisfy
   them: they live in the UBS layer's `normalize.rs` and run over a copy of the tree on the way into
   the writer, which is what makes them hold for an agent-authored or loaded document as well.
+  One more pass there answers UBS's summary rather than a feedback rule (`headings_leave_table_mode`): the summary
+  renders a panel with no child panel as one table and drops a title draw's heading level there, so a panel of static
+  text holding a section heading gets its body runs moved into panels of their own.
 - Where a node shows up is `AemAttrs` on the node, not a writer guess: `summary_exclude` is what
   keeps content out of the UBS DoR (Redacto renders it from the summary), `dor_exclude` is Adobe's
   own switch, and `always_in_pdf` is how a hidden node still reaches the printed document.

@@ -20,7 +20,11 @@
 //!   "for internal bank use only" block is the bank's copy: never on screen,
 //!   never on the summary, always in the PDF.
 //!
-//! Each pass is idempotent, and running the three in sequence is idempotent too:
+//! One more answers the UBS summary rather than a swept rule:
+//! [`headings_leave_table_mode`] keeps a section heading out of a panel the
+//! summary renders as one table, where it would lose its heading level.
+//!
+//! Each pass is idempotent, and running them in sequence is idempotent too:
 //! they key on the state of the tree, not on what a previous run did.
 
 use uuid::Uuid;
@@ -70,6 +74,7 @@ pub fn normalize(root: &mut AemNode) {
     drop_captions_an_input_already_carries(root);
     copy_infobox_into_the_dor(root);
     wrap_static_text(root);
+    headings_leave_table_mode(root);
 }
 
 // ── A caption rendered twice ────────────────────────────────────────────────
@@ -240,6 +245,12 @@ fn flush_run(parent: &str, run: &mut Vec<AemNode>, out: &mut Vec<AemNode>) {
         out.append(run);
         return;
     }
+    out.push(content_panel(parent, std::mem::take(run)));
+}
+
+/// The content panel the static-text passes wrap a run of `parent`'s children
+/// in: untitled, full width unless every draw in it is narrower.
+fn content_panel(parent: &str, run: Vec<AemNode>) -> AemNode {
     let colspan = run.iter().filter_map(colspan_of).max().unwrap_or(12);
     // Derived from the panel AND the run's first draw: two panels can each hold a
     // run starting with a draw of the same name, and a shared uuid would be two
@@ -253,11 +264,11 @@ fn flush_run(parent: &str, run: &mut Vec<AemNode>, out: &mut Vec<AemNode>) {
             .to_string()[..8]
     );
     let uuid = Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes());
-    out.push(AemNode::Panel {
+    AemNode::Panel {
         uuid,
         name,
         title: String::new(),
-        children: std::mem::take(run),
+        children: run,
         is_page: false,
         attrs: AemAttrs::default(),
         visible: true,
@@ -267,7 +278,90 @@ fn flush_run(parent: &str, run: &mut Vec<AemNode>, out: &mut Vec<AemNode>) {
         dor_colspan: None,
         bind_ref: None,
         frag_ref: None,
+    }
+}
+
+// ── A heading in a panel the summary renders as a table ─────────────────────
+
+/// Give every panel of static text that holds a section heading a panel of
+/// its own to hold, so the heading reaches the DoR as a heading.
+///
+/// UBS's summary renders a panel whose children include no panel as ONE table
+/// (`summary-backend-creator.js`, `shouldUseTable`), and that table's rows drop
+/// a title draw's `headingLevel`: the draw becomes a `<td class="staticText">`,
+/// which Redacto prints as a plain paragraph. A panel with any child panel --
+/// hidden or not, the test reads the raw model -- takes the per-item path
+/// instead, where the same draw becomes `role="heading"` and Redacto prints a
+/// real `<h3>`..`<h5>`. [`wrap_static_text`] makes exactly the table shape: a
+/// run with a heading in it lands in a `PN_StaticText` of draws alone.
+///
+/// So each heading stays where it is and each run of body text between the
+/// headings moves into a content panel. Only panels of static text are
+/// touched: moving an input would change the scope its rules resolve names
+/// in, and a telephone or email beside a sibling panel empties the whole DoR
+/// (PROBLEM-contact-leaf-panel). A panel of headings and nothing else is left
+/// as it is: only an empty panel would take it off the table path. A page is
+/// never a table: the writer gives it its title panel.
+///
+/// Idempotent: a panel this changed holds a panel and no longer matches.
+pub fn headings_leave_table_mode(node: &mut AemNode) {
+    if node.attrs().is_some_and(|a| a.dor_exclude) {
+        return;
+    }
+    if let Some(children) = children_mut(node) {
+        for child in children.iter_mut() {
+            headings_leave_table_mode(child);
+        }
+    }
+    let (name, children) = match node {
+        AemNode::Panel {
+            is_page: false,
+            name,
+            children,
+            ..
+        }
+        | AemNode::Repeatable { name, children, .. } => (name.clone(), children),
+        _ => return,
+    };
+    let static_only = children.iter().all(|c| {
+        matches!(
+            c,
+            AemNode::TextDraw { .. } | AemNode::TitleDraw { .. } | AemNode::HtmlDisplayer { .. }
+        )
     });
+    if !static_only || !children.iter().any(is_section_heading) {
+        return;
+    }
+    let mut out: Vec<AemNode> = Vec::with_capacity(children.len());
+    let mut run: Vec<AemNode> = Vec::new();
+    for child in std::mem::take(children) {
+        if is_section_heading(&child) {
+            if !run.is_empty() {
+                out.push(content_panel(&name, std::mem::take(&mut run)));
+            }
+            out.push(child);
+        } else {
+            run.push(child);
+        }
+    }
+    if !run.is_empty() {
+        out.push(content_panel(&name, run));
+    }
+    *children = out;
+}
+
+/// A title draw that prints in the DoR as a heading of the section it opens:
+/// not the step's own title, not the first page's subtitle, not kept out of
+/// the DoR.
+fn is_section_heading(node: &AemNode) -> bool {
+    match node {
+        AemNode::TitleDraw { attrs, .. } => {
+            !attrs.dor_exclude
+                && !has_class(attrs, STEP_TITLE_CSS)
+                && !has_class(attrs, SUBTITLE_CSS)
+        }
+        _ => false,
+    }
 }
 
 // ── PROBLEM-infobox-dor-copy ────────────────────────────────────────────────
@@ -518,11 +612,110 @@ mod tests {
         }
     }
 
+    /// A content panel below page level: no title, nothing excluded.
+    fn content(name: &str, children: Vec<AemNode>) -> AemNode {
+        AemNode::Panel {
+            uuid: Uuid::new_v5(&Uuid::NAMESPACE_OID, name.as_bytes()),
+            name: name.into(),
+            title: String::new(),
+            children,
+            is_page: false,
+            attrs: AemAttrs::default(),
+            visible: true,
+            is_conditional: false,
+            dor_num_cols: None,
+            colspan: 12,
+            dor_colspan: None,
+            bind_ref: None,
+            frag_ref: None,
+        }
+    }
+
     fn root(children: Vec<AemNode>) -> AemNode {
         AemNode::Root {
             title: "Form".into(),
             children,
         }
+    }
+
+    /// `node` (a draw) with its css set to `css`.
+    fn with_css(node: AemNode, css: &str) -> AemNode {
+        with_attrs(
+            node,
+            AemAttrs {
+                css: Some(css.into()),
+                ..AemAttrs::default()
+            },
+        )
+    }
+
+    /// `node` (a draw) with `attrs` in place of its own.
+    fn with_attrs(node: AemNode, attrs: AemAttrs) -> AemNode {
+        match node {
+            AemNode::TextDraw {
+                uuid,
+                name,
+                content,
+                visible,
+                colspan,
+                dor_colspan,
+                ..
+            } => AemNode::TextDraw {
+                uuid,
+                name,
+                content,
+                attrs,
+                visible,
+                colspan,
+                dor_colspan,
+            },
+            AemNode::TitleDraw {
+                uuid,
+                name,
+                content,
+                heading_level,
+                visible,
+                colspan,
+                dor_colspan,
+                ..
+            } => AemNode::TitleDraw {
+                uuid,
+                name,
+                content,
+                heading_level,
+                attrs,
+                visible,
+                colspan,
+                dor_colspan,
+            },
+            other => panic!("not a draw: {other:?}"),
+        }
+    }
+
+    /// The container whose direct children include the node named `name`.
+    fn parent_of<'a>(node: &'a AemNode, name: &str) -> Option<&'a AemNode> {
+        let (AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. }) = node
+        else {
+            return None;
+        };
+        if children.iter().any(|c| c.name() == Some(name)) {
+            return Some(node);
+        }
+        children.iter().find_map(|c| parent_of(c, name))
+    }
+
+    /// The node named `name`, anywhere in the tree.
+    fn find<'a>(node: &'a AemNode, name: &str) -> &'a AemNode {
+        let parent = parent_of(node, name).unwrap_or_else(|| panic!("no node {name}"));
+        let (AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. }) = parent
+        else {
+            unreachable!()
+        };
+        children.iter().find(|c| c.name() == Some(name)).unwrap()
     }
 
     /// The names of a container's children, for compact assertions.
@@ -578,51 +771,6 @@ mod tests {
     /// body text, and are left where they are.
     #[test]
     fn the_two_marked_headings_separate_runs_and_are_never_wrapped() {
-        let with_css = |node: AemNode, css: &str| match node {
-            AemNode::TextDraw {
-                uuid,
-                name,
-                content,
-                visible,
-                colspan,
-                dor_colspan,
-                ..
-            } => AemNode::TextDraw {
-                uuid,
-                name,
-                content,
-                attrs: AemAttrs {
-                    css: Some(css.into()),
-                    ..AemAttrs::default()
-                },
-                visible,
-                colspan,
-                dor_colspan,
-            },
-            AemNode::TitleDraw {
-                uuid,
-                name,
-                content,
-                heading_level,
-                visible,
-                colspan,
-                dor_colspan,
-                ..
-            } => AemNode::TitleDraw {
-                uuid,
-                name,
-                content,
-                heading_level,
-                attrs: AemAttrs {
-                    css: Some(css.into()),
-                    ..AemAttrs::default()
-                },
-                visible,
-                colspan,
-                dor_colspan,
-            },
-            other => other,
-        };
         let subtitle = with_css(draw("ST_Subtitle"), SUBTITLE_CSS);
         let step_title = with_css(title("TTL_Step", 2), STEP_TITLE_CSS);
         let mut tree = root(vec![page(
@@ -676,26 +824,7 @@ mod tests {
     /// and neither does a panel that keeps its own title in the DoR.
     #[test]
     fn a_run_is_left_alone_when_wrapping_would_change_nothing() {
-        let excluded = match draw("ST_Hidden") {
-            AemNode::TextDraw {
-                uuid,
-                name,
-                content,
-                visible,
-                colspan,
-                dor_colspan,
-                ..
-            } => AemNode::TextDraw {
-                uuid,
-                name,
-                content,
-                attrs: AemAttrs::dor_excluded(),
-                visible,
-                colspan,
-                dor_colspan,
-            },
-            _ => unreachable!(),
-        };
+        let excluded = with_attrs(draw("ST_Hidden"), AemAttrs::dor_excluded());
         let mut tree = root(vec![page("PN_Page", vec![excluded])]);
         wrap_static_text(&mut tree);
         let AemNode::Root { children, .. } = &tree else {
@@ -999,5 +1128,218 @@ mod tests {
         let before = serde_json::to_value(&tree).unwrap();
         internal_bank_use_is_pdf_only(&mut tree);
         assert_eq!(before, serde_json::to_value(&tree).unwrap());
+    }
+
+    /// Whether a node is written as a `guidePanel`: what the summary counts as a
+    /// panel when it decides between a table and one row per item.
+    fn lowers_to_panel(node: &AemNode) -> bool {
+        matches!(
+            node,
+            AemNode::Panel { .. }
+                | AemNode::Repeatable { .. }
+                | AemNode::Fragment { .. }
+                | AemNode::Preface { .. }
+        )
+    }
+
+    /// Whether a container holds a child that lowers to a panel: what keeps
+    /// the summary from rendering it as one table.
+    fn holds_a_panel(node: &AemNode) -> bool {
+        match node {
+            AemNode::Panel { children, .. } | AemNode::Repeatable { children, .. } => {
+                children.iter().any(lowers_to_panel)
+            }
+            _ => false,
+        }
+    }
+
+    /// The body runs around a heading move into panels of their own, and the
+    /// heading stays where it is, so its panel is no longer all leaves.
+    #[test]
+    fn a_heading_in_a_draws_only_panel_gets_its_body_moved_into_sub_panels() {
+        let mut tree = root(vec![page(
+            "PN_Page",
+            vec![content(
+                "PN_Section",
+                vec![
+                    draw("ST_Intro"),
+                    title("TTL_Section", 3),
+                    draw("ST_One"),
+                    draw("ST_Two"),
+                ],
+            )],
+        )]);
+        headings_leave_table_mode(&mut tree);
+
+        let section = find(&tree, "PN_Section");
+        let names = child_names(section);
+        assert_eq!(names.len(), 3, "{names:?}");
+        assert!(names[0].starts_with("PN_StaticText_"), "{names:?}");
+        assert_eq!(names[1], "TTL_Section");
+        assert!(names[2].starts_with("PN_StaticText_"), "{names:?}");
+        assert_ne!(names[0], names[2], "each run gets a name of its own");
+        assert_eq!(child_names(find(&tree, &names[0])), ["ST_Intro"]);
+        assert_eq!(child_names(find(&tree, &names[2])), ["ST_One", "ST_Two"]);
+    }
+
+    /// The success criterion, through the whole of `normalize`: the pass that
+    /// wraps static text under a page put the heading into a panel of draws
+    /// alone, and that panel must end up holding a panel too.
+    #[test]
+    fn after_normalize_no_heading_is_left_in_a_panel_of_leaves() {
+        let mut tree = root(vec![page(
+            "PN_Page",
+            vec![draw("ST_Intro"), title("TTL_Section", 4), draw("ST_Body")],
+        )]);
+        normalize(&mut tree);
+
+        let parent = parent_of(&tree, "TTL_Section").unwrap();
+        assert!(
+            matches!(parent, AemNode::Panel { is_page: false, .. }),
+            "the heading still sits in a content panel, not on the page"
+        );
+        assert!(
+            holds_a_panel(parent),
+            "the heading's panel must hold a panel: {:?}",
+            child_names(parent)
+        );
+    }
+
+    /// A repeatable's row is a panel like any other.
+    #[test]
+    fn a_heading_in_a_repeatable_row_is_handled_too() {
+        let mut tree = root(vec![page(
+            "PN_Page",
+            vec![AemNode::Repeatable {
+                uuid: Uuid::nil(),
+                name: "RCP_Rows".into(),
+                title: "Rows".into(),
+                children: vec![title("TTL_Row", 3), draw("ST_Row")],
+                min_occur: 1,
+                max_occur: 3,
+                attrs: AemAttrs::default(),
+                visible: true,
+                bind_ref: None,
+                frag_ref: None,
+            }],
+        )]);
+        headings_leave_table_mode(&mut tree);
+        assert!(holds_a_panel(parent_of(&tree, "TTL_Row").unwrap()));
+    }
+
+    /// The pass leaves a panel alone when it has nothing to fix or when moving
+    /// its children would be a risk of its own.
+    #[test]
+    fn panels_the_pass_has_no_business_with_are_left_alone() {
+        let panels = [
+            // An input moves into another scope for its rules, and a telephone
+            // or email beside a sibling panel empties the DoR.
+            vec![title("TTL_Section", 3), field("TXT_Name")],
+            // Already off the table path.
+            vec![
+                title("TTL_Section", 3),
+                draw("ST_Body"),
+                content("PN_Inner", vec![draw("ST_Inner")]),
+            ],
+            // Headings only: there is no body to move, and an empty panel
+            // would be a hack.
+            vec![title("TTL_One", 3), title("TTL_Two", 3)],
+            // No heading at all.
+            vec![draw("ST_One"), draw("ST_Two")],
+            // The step's own title and the first page's subtitle are no
+            // section headings, and a heading kept out of the DoR loses nothing.
+            vec![
+                with_css(title("TTL_Step", 2), STEP_TITLE_CSS),
+                draw("ST_Body"),
+            ],
+            vec![
+                with_css(title("TTL_Subtitle", 3), SUBTITLE_CSS),
+                draw("ST_Body"),
+            ],
+            vec![
+                with_attrs(title("TTL_Hidden", 3), AemAttrs::dor_excluded()),
+                draw("ST_Body"),
+            ],
+        ];
+        for children in panels {
+            let mut tree = root(vec![page("PN_Page", vec![content("PN_Section", children)])]);
+            let before = serde_json::to_value(&tree).unwrap();
+            headings_leave_table_mode(&mut tree);
+            assert_eq!(
+                before,
+                serde_json::to_value(&tree).unwrap(),
+                "{:?}",
+                child_names(find(&tree, "PN_Section"))
+            );
+        }
+    }
+
+    /// A panel kept out of the DoR is not walked: nothing below it renders.
+    #[test]
+    fn a_dor_excluded_panel_is_not_walked() {
+        let mut section = content("PN_Section", vec![title("TTL_Section", 3), draw("ST_Body")]);
+        if let AemNode::Panel { attrs, .. } = &mut section {
+            *attrs = AemAttrs::dor_excluded();
+        }
+        let mut tree = root(vec![page("PN_Page", vec![section])]);
+        let before = serde_json::to_value(&tree).unwrap();
+        headings_leave_table_mode(&mut tree);
+        assert_eq!(before, serde_json::to_value(&tree).unwrap());
+    }
+
+    #[test]
+    fn leaving_table_mode_is_idempotent_and_so_is_normalize() {
+        let tree = root(vec![page(
+            "PN_Page",
+            vec![
+                draw("ST_Intro"),
+                title("TTL_A", 3),
+                draw("ST_A"),
+                title("TTL_B", 4),
+                draw("ST_B"),
+            ],
+        )]);
+
+        let mut once = tree.clone();
+        headings_leave_table_mode(&mut once);
+        let mut twice = once.clone();
+        headings_leave_table_mode(&mut twice);
+        assert_eq!(
+            serde_json::to_value(&once).unwrap(),
+            serde_json::to_value(&twice).unwrap()
+        );
+
+        let mut once = tree;
+        normalize(&mut once);
+        let mut twice = once.clone();
+        normalize(&mut twice);
+        assert_eq!(
+            serde_json::to_value(&once).unwrap(),
+            serde_json::to_value(&twice).unwrap()
+        );
+    }
+
+    /// Two sections holding runs that start with draws of the same name still
+    /// get different wrappers: a shared uuid is two nodes claiming one JCR
+    /// identity.
+    #[test]
+    fn wrappers_of_runs_with_the_same_first_draw_differ() {
+        let section = |name: &str| content(name, vec![title("TTL_Heading", 3), draw("ST_Body")]);
+        let mut tree = root(vec![page(
+            "PN_Page",
+            vec![section("PN_One"), section("PN_Two")],
+        )]);
+        headings_leave_table_mode(&mut tree);
+
+        let wrapper = |section: &str| match find(&tree, section) {
+            AemNode::Panel { children, .. } => match &children[1] {
+                AemNode::Panel { name, uuid, .. } => (name.clone(), *uuid),
+                other => panic!("expected a wrapper, got {other:?}"),
+            },
+            other => panic!("expected a panel, got {other:?}"),
+        };
+        let (one, two) = (wrapper("PN_One"), wrapper("PN_Two"));
+        assert_ne!(one.0, two.0, "the names must differ");
+        assert_ne!(one.1, two.1, "the uuids must differ");
     }
 }

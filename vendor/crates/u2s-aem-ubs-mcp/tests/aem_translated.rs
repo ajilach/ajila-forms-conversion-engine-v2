@@ -422,22 +422,24 @@ fn loaded_subtree_diff(
             Some(Value::Array(a)) => a,
             _ => &empty,
         };
-        let mut by_name: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
-        for child in rc {
-            let name = child.get("name").and_then(|n| n.as_str()).unwrap_or("");
-            if name.starts_with("PN_StaticText_")
-                && let Some(Value::Array(inner)) = child.get("children")
-            {
-                for wrapped in inner {
-                    if let Some(n) = wrapped.get("name").and_then(|n| n.as_str()) {
-                        by_name.insert(n, wrapped);
-                    }
+        // The normalize passes move static text into `PN_StaticText_` wrappers,
+        // and a section heading's body into wrappers inside those: a loaded node
+        // may sit below any depth of them.
+        fn index<'a>(children: &'a [Value], by_name: &mut std::collections::HashMap<&'a str, &'a Value>) {
+            for child in children {
+                let name = child.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                if name.starts_with("PN_StaticText_")
+                    && let Some(Value::Array(inner)) = child.get("children")
+                {
+                    index(inner, by_name);
+                }
+                if !name.is_empty() {
+                    by_name.insert(name, child);
                 }
             }
-            if !name.is_empty() {
-                by_name.insert(name, child);
-            }
         }
+        let mut by_name: std::collections::HashMap<&str, &Value> = std::collections::HashMap::new();
+        index(rc, &mut by_name);
         for child in oc {
             let name = child.get("name").and_then(|n| n.as_str()).unwrap_or("");
             let ty = child.get("type").and_then(|t| t.as_str()).unwrap_or("?");
