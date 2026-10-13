@@ -13,6 +13,7 @@
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::sync::Arc;
 
 use serde_json::{Value, json};
 use u2s_doc_tools::native::{NativeJsonTool, RuleForCheck};
@@ -180,7 +181,8 @@ pub fn validate_package_bytes(pkg: &[u8]) -> Result<String, String> {
 
 /// What the latest successful build produced.
 struct Built {
-    package: Vec<u8>,
+    /// Shared with the package reads in flight (see [`view::DocumentView`]).
+    package: Arc<[u8]>,
     /// The same form built bound to its schema: every field carries a
     /// `bindRef` and the package ships the XSD. Kept beside the plain one
     /// because they are for different deployments; the plain one is what
@@ -270,17 +272,20 @@ impl std::io::Write for HashWriter {
 type SourceDocument = (String, Option<SourceContext>);
 
 pub struct ConversionAgent {
-    current_pdfs: Vec<(String, Vec<u8>)>,
+    current_pdfs: Arc<[(String, Vec<u8>)]>,
     /// Each read source's documents, by source key (see [`Self::source_key`]).
     sources: HashMap<String, Vec<SourceDocument>>,
 
     /// The run's output document, and the schema and rules it is held to.
-    document: Document,
-    schema: Value,
+    /// Each is shared with the reads in flight (see [`view::DocumentView`]):
+    /// an edit goes through `Arc::make_mut`, which copies the document only
+    /// while a read still holds the revision before it.
+    document: Arc<Document>,
+    schema: Arc<Value>,
     /// The rules a script decides, run on every edit and by `rule_check`.
-    rules: Vec<RuleForCheck>,
+    rules: Arc<[RuleForCheck]>,
     /// The rules a judge agent decides (see [`crate::rules`]).
-    judged: Vec<crate::rules::JudgedRule>,
+    judged: Arc<[crate::rules::JudgedRule]>,
     /// The rule sandbox, started on the first rule call.
     runner: Option<RuleRunner>,
     /// Each rule's verdict at the last check, so an edit reports what it
@@ -365,12 +370,12 @@ impl ConversionAgent {
         );
         let rule_board = new_rule_board(&rules.scripted, &rules.judged);
         Ok(Self {
-            current_pdfs: pdfs,
+            current_pdfs: pdfs.into(),
             sources: HashMap::from([("current".to_string(), documents)]),
-            document: Document::new(document),
-            schema,
-            rules: rules.scripted,
-            judged: rules.judged,
+            document: Arc::new(Document::new(document)),
+            schema: Arc::new(schema),
+            rules: rules.scripted.into(),
+            judged: rules.judged.into(),
             runner: None,
             lint: None,
             rule_board,
@@ -393,7 +398,7 @@ impl ConversionAgent {
     /// Refused unless it is a document of this run's format.
     pub fn seed_document(&mut self, value: Value) -> Result<(), String> {
         check_document(&value)?;
-        self.document = Document::new(value);
+        self.document = Arc::new(Document::new(value));
         self.set_built(None);
         self.lint = None;
         self.rule_board = new_rule_board(&self.rules, &self.judged);
@@ -404,7 +409,7 @@ impl ConversionAgent {
     /// tools then read it (describing a reference form does this).
     pub fn seed_package(&mut self, package: Vec<u8>) {
         self.set_built(Some(Built {
-            package,
+            package: package.into(),
             bound_package: None,
             xsd: None,
         }));
@@ -492,7 +497,7 @@ impl ConversionAgent {
     fn verify_artifact(&self) -> Option<crate::u2s::Artifact> {
         self.built.as_ref().map(|built| crate::u2s::Artifact {
             file_name: "package.zip",
-            bytes: built.package.clone(),
+            bytes: built.package.to_vec(),
         })
     }
 
@@ -513,7 +518,7 @@ impl ConversionAgent {
     /// Replaces the judged rules, for a test of what dispatches judges.
     #[cfg(any(test, feature = "test-utils"))]
     pub fn set_judged_rules(&mut self, rules: Vec<crate::rules::JudgedRule>) {
-        self.judged = rules;
+        self.judged = rules.into();
         self.rule_board = new_rule_board(&self.rules, &self.judged);
     }
 
@@ -610,7 +615,7 @@ impl ConversionAgent {
 
     /// The latest built AEM package.
     pub fn package(&self) -> Option<Vec<u8>> {
-        self.built.as_ref().map(|built| built.package.clone())
+        self.built.as_ref().map(|built| built.package.to_vec())
     }
 
     /// The latest built AEM package bound to its schema.
@@ -656,7 +661,7 @@ impl ConversionAgent {
                 let bytes = crate::references::store().get_reference_pdf_bytes(id, 0)?;
                 Ok(vec![(format!("{id}.pdf"), bytes)])
             }
-            None => Ok(self.current_pdfs.clone()),
+            None => Ok(self.current_pdfs.to_vec()),
         }
     }
 
@@ -926,6 +931,50 @@ mod tests {
         let through = reply_text(agent.execute("xfa_packets", &input).await);
         assert_eq!(beside, through);
         assert!(beside.contains("template"), "{beside}");
+    }
+
+    /// Every document read answers on the read path what it answers through
+    /// `execute`, on an edited document with a build.
+    #[tokio::test]
+    async fn every_document_read_answers_the_same_on_either_path() {
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
+        reply_text(agent.execute("build_aem_package", &json!({})).await);
+        let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
+        let file = files.iter().find(|(p, _)| p.ends_with(".content.xml")).map(|(p, _)| p.clone()).unwrap();
+
+        let calls = [
+            ("json_outline", json!({ "pointer": "" })),
+            ("json_get", json!({ "pointer": "/form/children" })),
+            ("json_search", json!({ "pointer": "", "query": "TXT_LastName" })),
+            ("json_validate", json!({})),
+            ("rule_list", json!({})),
+            ("rule_get", json!({})),
+            ("get_package_info", json!({})),
+            ("read_package_file", json!({ "path": file })),
+            ("coverage_check", json!({})),
+        ];
+        for (tool, input) in calls {
+            let work = agent.start_read(tool, &input).await.unwrap_or_else(|| panic!("{tool} is a read"));
+            let beside = reply_text(work.await);
+            let through = reply_text(agent.execute(tool, &input).await);
+            assert_eq!(beside, through, "{tool}");
+        }
+    }
+
+    /// A read answers from the document as it stood when it started, however
+    /// far the writes after it have taken the agent's own.
+    #[tokio::test]
+    async fn a_document_read_keeps_the_revision_it_started_on() {
+        let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
+        let search = json!({ "pointer": "", "query": "PN_Details" });
+        let work = agent.start_read("json_search", &search).await.expect("a read");
+
+        patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
+        let before = reply_text(work.await);
+        let after = reply_text(agent.execute("json_search", &search).await);
+        assert!(!before.contains("/form/children"), "{before}");
+        assert!(after.contains("/form/children"), "{after}");
     }
 
     /// rule_list holds every rule and says which kind each is; rule_check
@@ -1559,6 +1608,7 @@ mod tests {
 mod catalog;
 mod evidence;
 mod execute;
+mod view;
 mod prompts;
 
 pub use catalog::{Access, ToolSpec, access_of, all_tools, catalog, scope, tools_for};

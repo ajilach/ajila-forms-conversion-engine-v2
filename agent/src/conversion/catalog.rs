@@ -41,11 +41,13 @@ pub struct ToolSpec {
 
 /// Whether a tool only reads state no other call of the turn can change.
 ///
-/// A [`Access::Read`] call runs without holding the agent while its work is
-/// done, so several of them (rendering every language's pages, say) run side
-/// by side. Everything else is [`Access::Write`] and runs alone: the document
-/// tools, the builds, a live form session, a verifier session. When in doubt,
-/// a tool is a write.
+/// A [`Access::Read`] call takes what it reads under the agent's lock (a
+/// snapshot: the document and the build as they stand, behind `Arc`s) and does
+/// its work without it, so several of them (rendering every language's pages,
+/// judges reading the document) run side by side; it changes no agent state.
+/// Everything else is [`Access::Write`] and runs alone, holding the lock: the
+/// edits, the builds, the rule checks, a live form session, a verifier
+/// session. When in doubt, a tool is a write.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     Read,
@@ -157,13 +159,13 @@ const SCOPING: &[(&str, scope::Mask, Access)] = {
         // §2 the run's output document: one revisioned JSON document per run,
         // read and patched with the json_* tools and held to the rules with the
         // rule_* ones.
-        ("json_outline",                      EVERYWHERE, Write),
-        ("json_get",                          EVERYWHERE, Write),
-        ("json_search",                       EVERYWHERE, Write),
+        ("json_outline",                      EVERYWHERE, Read),
+        ("json_get",                          EVERYWHERE, Read),
+        ("json_search",                       EVERYWHERE, Read),
         ("json_patch",                        AUTHOR, Write),
-        ("json_validate",                     MAIN_STAGES | JUDGE, Write),
-        ("rule_list",                         MAIN_STAGES, Write),
-        ("rule_get",                          MAIN_STAGES, Write),
+        ("json_validate",                     MAIN_STAGES | JUDGE, Read),
+        ("rule_list",                         MAIN_STAGES, Read),
+        ("rule_get",                          MAIN_STAGES, Read),
         ("rule_check",                        MAIN_STAGES, Write),
         ("rule_autofix",                      AUTHOR, Write),
 
@@ -171,9 +173,9 @@ const SCOPING: &[(&str, scope::Mask, Access)] = {
         // Only the Author builds: the Reviewer judges the build the pipeline
         // made of the Author's last document, and changes nothing.
         ("build_aem_package",                 AUTHOR, Write),
-        ("get_package_info",                  ALL_STAGES | DESCRIBE, Write),
-        ("read_package_file",                 ALL_STAGES | DESCRIBE, Write),
-        ("coverage_check",                    ALL_STAGES, Write),
+        ("get_package_info",                  ALL_STAGES | DESCRIBE, Read),
+        ("read_package_file",                 ALL_STAGES | DESCRIBE, Read),
+        ("coverage_check",                    ALL_STAGES, Read),
 
         // §6 verification through the vendored u2s verifier (crate::u2s): the
         // AEM package against a Docker AEM.

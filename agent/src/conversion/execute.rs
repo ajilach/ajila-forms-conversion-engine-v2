@@ -3,6 +3,7 @@
 //! Each arm is the tool's own work; what every edit shares (dropping the stale
 //! build, the `AI:` snapshot, the lint) is [`ConversionAgent::edited`].
 
+use super::view::DocumentView;
 use super::*;
 use crate::rule_board::RuleState;
 
@@ -178,6 +179,16 @@ impl ConversionAgent {
         if access_of(name) != Access::Read || input.get("session").is_some() {
             return None;
         }
+        if DocumentView::serves(name) {
+            let view = self.view();
+            let (name, input) = (name.to_string(), input.clone());
+            return Some(Box::pin(async move {
+                match tokio::task::spawn_blocking(move || view.answer(&name, &input)).await {
+                    Ok(reply) => reply,
+                    Err(join) => ToolReply::Error(format!("the read failed: {join}")),
+                }
+            }));
+        }
         if references_mcp::specs::is_reference_tool(name) {
             let server = self.references.clone();
             let (name, input) = (name.to_string(), input.clone());
@@ -216,7 +227,7 @@ impl ConversionAgent {
             Some(_) => return Err("rule_ids is a list of rule ids from rule_list".into()),
         };
         if requested.is_empty() {
-            return Ok(RuleCheckPlan { scripted: None, judged: self.judged.clone() });
+            return Ok(RuleCheckPlan { scripted: None, judged: self.judged.to_vec() });
         }
         let scripted: Vec<String> = self
             .rules
@@ -321,10 +332,7 @@ impl ConversionAgent {
                     Err(e) => ToolReply::Error(e),
                 }
             }
-            "rule_get" => match crate::rules::rule_get(&self.rules, &self.judged, input) {
-                Ok(rules) => ToolReply::Text(rules.to_string()),
-                Err(e) => ToolReply::Error(e),
-            },
+            name if DocumentView::serves(name) => self.view().answer(name, input),
             "rule_autofix" => self.autofix(input).await,
             name if DOCUMENT_TOOLS.iter().any(|t| t.name() == name) => {
                 let tool = *DOCUMENT_TOOLS.iter().find(|t| t.name() == name).expect("matched");
@@ -336,15 +344,11 @@ impl ConversionAgent {
                 match u2s_doc_tools::native::dispatch(
                     tool,
                     input,
-                    &mut self.document,
+                    Arc::make_mut(&mut self.document),
                     Some(&self.schema),
                     &self.rules,
                 ) {
                     Ok(outcome) if outcome.mutated => self.edited(name, outcome.value).await,
-                    // One list holds every rule, the judged ones too.
-                    Ok(outcome) if tool == NativeJsonTool::ListRules => {
-                        ToolReply::Text(crate::rules::list_with_judged(outcome.value, &self.judged).to_string())
-                    }
                     Ok(outcome) => ToolReply::Text(outcome.value.to_string()),
                     Err(e) => ToolReply::Error(e.to_string()),
                 }
@@ -352,50 +356,6 @@ impl ConversionAgent {
 
             // §3 building
             "build_aem_package" => self.build_aem_package(),
-            "get_package_info" => match self.package() {
-                Some(pkg) => {
-                    let files = references_mcp::unzip_package(&pkg).unwrap_or_default();
-                    let paths: Vec<&String> = files.iter().map(|(p, _)| p).collect();
-                    ToolReply::Text(format!(
-                        "size: {} bytes\nfiles:\n{}",
-                        pkg.len(),
-                        serde_json::to_string_pretty(&paths).unwrap_or_default()
-                    ))
-                }
-                None => ToolReply::Error(NO_PACKAGE.into()),
-            },
-            "read_package_file" => {
-                let path = input["path"].as_str().unwrap_or_default();
-                // See `windowed_text`: an authored .content.xml reached 250 KB
-                // in the run that overflowed the window, so the default here
-                // is a bounded window, not the whole file.
-                let offset = input["offset"].as_u64().unwrap_or(0) as usize;
-                let limit = input["limit"].as_u64().unwrap_or(0) as usize;
-                match self.package() {
-                    Some(pkg) => match references_mcp::unzip_package(&pkg) {
-                        Ok(files) => match files.iter().find(|(p, _)| p == path) {
-                            Some((_, content)) => {
-                                ToolReply::Text(cap_total(windowed_text(content, offset, limit)))
-                            }
-                            None => ToolReply::Error(format!("No such file: {path:?}")),
-                        },
-                        Err(e) => ToolReply::Error(e),
-                    },
-                    None => ToolReply::Error(NO_PACKAGE.into()),
-                }
-            }
-
-            "coverage_check" => {
-                let language = match input.get("language") {
-                    None | Some(Value::Null) => None,
-                    Some(Value::String(language)) => Some(language.as_str()),
-                    Some(other) => return ToolReply::Error(format!("language must be a string, not {other}")),
-                };
-                match crate::coverage::check(&self.current_pdfs, self.document.value(), language) {
-                    Ok(report) => ToolReply::Text(report.to_string()),
-                    Err(e) => ToolReply::Error(e),
-                }
-            }
 
             // §7 references: typed arguments, validated by the server itself.
             other if references_mcp::specs::is_reference_tool(other) => {
@@ -718,7 +678,7 @@ impl ConversionAgent {
         }
         let ops = json!([{ "op": "replace", "path": "", "value": result.final_output }]);
         let current = self.document.revision();
-        if let Err(e) = u2s_jsondoc::patch_apply(&mut self.document, &ops, current) {
+        if let Err(e) = u2s_jsondoc::patch_apply(Arc::make_mut(&mut self.document), &ops, current) {
             return ToolReply::Error(format!("the fixes could not be applied: {e}"));
         }
         let reply = json!({ "results": result.results, "revision": self.document.revision().get() });
@@ -755,7 +715,7 @@ impl ConversionAgent {
         let size = build.package.len();
         let bound = build.bound_package.as_ref().map(Vec::len);
         self.set_built(Some(Built {
-            package: build.package,
+            package: build.package.into(),
             bound_package: build.bound_package,
             xsd: build.xsd,
         }));

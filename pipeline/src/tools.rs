@@ -15,9 +15,10 @@
 //! permits) and locking it for the call.
 //!
 //! A stage runs up to [`TOOL_CONCURRENCY`] of a turn's calls at once. A read
-//! (`ConversionAgent::start_read`) holds the lock only while it takes what it
-//! needs, then does its work without it, so a turn's renders and reads run
-//! side by side. Every other call holds the lock throughout, so writes run one
+//! (`ConversionAgent::start_read`) holds the lock only while it takes a
+//! snapshot of what it reads, then does its work without it, so a turn's
+//! renders and document reads, and judges reading together, run side by
+//! side. Every other call holds the lock throughout, so writes run one
 //! at a time, in the order tokio's fair mutex hands it out (call order), and a
 //! read never sees a half-applied write. rig records the results in call
 //! order whatever order they finish in; only the live timeline sees them in
@@ -308,6 +309,39 @@ mod tests {
             .await
             .expect("the read waited for the agent");
         assert!(matches!(reply, ToolReply::Text(_)), "{reply:?}");
+    }
+
+    /// A document read made after a write in the same turn sees the write,
+    /// although it runs without the agent: it takes its snapshot in the order
+    /// the lock hands the agent out, which is call order.
+    #[tokio::test]
+    async fn a_read_after_a_write_sees_it() {
+        let _guard = crate::memory::test_support::use_scratch_db().await;
+        let agent = bare_agent();
+        let specs: Vec<serde_json::Value> = agent::tools_for(agent::scope::AUTHOR)
+            .into_iter()
+            .filter(|s| matches!(s["name"].as_str(), Some("json_patch" | "json_get")))
+            .collect();
+        let set = rig_agent::tool::ToolSet::from_dynamic_tools(dynamic_tools_for(&agent, &specs));
+        let patch = serde_json::json!({
+            "ops": [{ "op": "add", "path": "/probe", "value": "written first" }],
+            "expected_revision": 0,
+        })
+        .to_string();
+        let get = serde_json::json!({ "pointer": "/probe" }).to_string();
+
+        // Both calls queue for the agent while it is held, the patch first,
+        // and only then is it let go.
+        let held = agent.lock().await;
+        let (mut patch_ctx, mut get_ctx) = (rig_agent::tool::ToolContext::new(), rig_agent::tool::ToolContext::new());
+        let (patched, got, ()) = tokio::join!(
+            set.execute("json_patch", &patch, &mut patch_ctx),
+            set.execute("json_get", &get, &mut get_ctx),
+            async { drop(held) },
+        );
+        assert!(patched.is_success(), "{patched:?}");
+        assert!(got.is_success(), "{got:?}");
+        assert!(got.output().as_text().unwrap().contains("written first"), "{got:?}");
     }
 
     /// A spec missing a name is dropped, not panicked on — the catalog's own
