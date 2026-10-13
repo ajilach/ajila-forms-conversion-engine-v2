@@ -27,7 +27,7 @@ enrols). `build_aem_package` lists a finding under ENGINE DEFECTS and `rule_chec
 |---|---|---|---|
 | PROBLEM-banking-relationship-fragment | every node whose `fragRef` holds `BankingRelationship` (custody account excluded) has the canonical `/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1` and `dorExclusion="true"` | `preface.xml` (writes the canonical fragment in `PN_BR` with the exclusions); `fragment.xml` (adds `dorExclusion` to that fragment); rules `ubs-aem-banking-relationship` and `ubs-aem-banking-relationship-present` | The `Preface` node owns the banking block; a hand-authored Fragment can still carry a market path, which the first rule reports. A form carries the `Preface` only where its source has a banking relationship; the second rule reports a second or misplaced one, and `ubs-aem-standard-sections-are-fragments` judges whether the source has the block. |
 | PROBLEM-dor-exclude-hidden | no tag carries `excludeFromDoRIfHidden="true"` | `root.xml` (its `dorProperties` never writes the attribute); rule `ubs-aem-passthrough-attributes` | A typed document cannot say it; only a loaded node's passthrough can carry it into the package. |
-| PROBLEM-dor-custom-template | `metaTemplateRef` is not the blank DoR template on a 019/033 form, and `AF_FORM_TITLE` takes `valueFrom="formTitle"` | `config.toml` `meta_template_ref` (entity General templates) and `root.xml` (`AF_FORM_TITLE` valueFrom); rule `ubs-aem-variables` | The template follows `formrange_entity`; the variables rule keeps the entity well formed so the choice is not silently skipped. |
+| PROBLEM-dor-custom-template | `metaTemplateRef` is not the blank DoR template on a 019/033 form, and `AF_FORM_TITLE` takes `valueFrom="formTitle"` | `config.toml` `meta_template_ref` (entity General templates) and `root.xml` (`AF_FORM_TITLE` valueFrom); rule `ubs-aem-variables` | The template follows `formrange_entity`; the variables rule keeps the entity well formed so the choice is not silently skipped. A letter (a document with a `Letterhead`) takes `UBS_Blank_Letter_DoR.xdp`, which the detector does not flag: it reports only the generic `UBS_Blank_DoR.xdp`. |
 | PROBLEM-step-title-panel | each wizard step's heading lives in a `{step}Title` panel, not in an unwrapped h2 or a panel `jcr:title` | `panel.xml` (builds the step-title panel from a page's `title`); rule `ubs-aem-step-titles` (also a nested `Panel` marked `is_page`) | The title is generated from the page, so only a non-page step, a nested panel marked as a page, or an authored heading in an untitled page, breaks it. |
 | PROBLEM-panel-type-ubs | no node has `sling:resourceType="fd/af/components/panel"` | every panel template (`panel.xml`, `conditional.xml`, `fragment.xml`, `repeatable.xml`, `preface.xml`) writes the UBS panel; rule `ubs-aem-passthrough-attributes`; package check | A raw attribute of that name is dropped by the template, so only a raw child element could carry the default panel in. |
 | PROBLEM-nav-button-order | the toolbar buttons are Next, Submit, Back | `root.xml` (the toolbar is fixed) | Not authorable. |
@@ -62,3 +62,23 @@ enrols). `build_aem_package` lists a finding under ENGINE DEFECTS and `rule_chec
 | PROBLEM-internal-bank-use-pdf-only | the internal-bank-use panels are summary-excluded, always in the PDF, and never toggled by a visibility rule | `normalize.rs` `internal_bank_use_is_pdf_only`; rules `ubs-aem-global-internal-bank-use` and `ubs-aem-placement-flags` (a node with `always_in_pdf` and `dor_exclude`); package check | The pass fixes the flags for the fragment family, the second rule holds every other node kept for the PDF to the same shape; the writer only writes visibility scripts for conditional panels, never for a fragment. |
 | PROBLEM-static-text-links | a static text's web or e-mail address is a link (`<a href="..." target="_blank">`), in the master and in each of its dictionary messages | `text_shape.rs` `link_addresses`, run by `document.rs` on the multilingual tree before the dictionary is built | The source's own links do not reach the agent's plain-text view of the source, so the writer links every bare address, in every language; an address written twice over or carrying a query string is left as it is, as the sweep leaves it. |
 | PROBLEM-guillemet-quotes | a German, Italian or Spanish dictionary message, or such a form's static text, quotes with `«…»` | `translations/{de,it,sp}.toml` (the default messages, held by the UBS layer's `the_ubs_defaults_quote_with_guillemets`); rule `ubs-aem-guillemet-quotes` (every authored text that reaches a dictionary: draw and message-box content, titles, labels, option labels) | The source PDF quotes with straight, curly or low pairs, so the Author rewrites them; the rule reports any left. |
+
+## Letters
+
+No guard problem covers letters yet; these rules hold them. A letter is a source whose first page
+has a letter top (receiver block, date, subject, salutation). Its document holds a `Letterhead`
+node, from which the UBS layer derives:
+- the letterhead component (`letterhead.rs`, `profiles/ubs/aem/letterhead.xml`), every node of it
+  out of the summary and the DoR;
+- `redactoLayout="letterDor"` on the metadata component, which switches Redacto's letter layout on;
+- the letter DoR template;
+- the sender in header slot2.
+
+| Rule | Holds |
+|---|---|
+| `ubs-aem-letter-detection` (judged) | the source PDF is a letter exactly when the document has a `Letterhead`; parties, subject and references from the PDF |
+| `ubs-aem-letter-letterhead` | one `Letterhead`, first on the first page after the `Preface` |
+| `ubs-aem-dor-header-slots` | no slot2 draw beside a letterhead with a sender |
+| `ubs-aem-letter-bank-signature` (judged) | the bank's officers sign in one `RCP_SGN_UBS` Repeatable around `affrg_SignatureGeneric1` |
+| `ubs-aem-floating-fields` (judged) | a value the source prints inside a sentence is one input, collected once |
+| package check `ENGINE-letter-layout` | a letterhead component and `letterDor` go together |

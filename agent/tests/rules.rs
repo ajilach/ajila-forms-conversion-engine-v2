@@ -1712,3 +1712,47 @@ fn html_in_css_columns_is_multi_column_text() {
         assert!(violations("single-column-text", &doc).is_empty(), "{clean}");
     }
 }
+
+/// A letter's letterhead: the bank writes (`sender` fixed) to a receiver the person enters.
+fn letterhead(name: &str) -> Value {
+    json!({
+        "type": "Letterhead", "uuid": UUID, "name": name,
+        "sender": {"kind": "Fixed", "address": {"company": "UBS Europe SE (Succursale Italia)",
+            "street": "Via del Vecchio Politecnico", "street_no": "3", "postal_code": "20121", "city": "Milano"}},
+        "receiver": {"kind": "Entered"},
+        "subject": {"en": "Oggetto: Notifica"},
+        "your_reference": null, "our_reference": null
+    })
+}
+
+#[test]
+fn a_letter_has_one_letterhead_at_the_top_of_its_first_page() {
+    let body = || draw("TextDraw", "ST_Body", "Egregi Signori,");
+    let ok = doc_with(vec![page("PN_A", "A", vec![preface(), letterhead("PN_LetterHead"), body()])]);
+    assert!(violations("letter-letterhead", &ok).is_empty());
+    let alone = doc_with(vec![page("PN_A", "A", vec![letterhead("PN_LetterHead"), body()])]);
+    assert!(violations("letter-letterhead", &alone).is_empty());
+
+    let twice = doc_with(vec![page("PN_A", "A", vec![letterhead("PN_LetterHead"), letterhead("PN_Second")])]);
+    assert_eq!(violations("letter-letterhead", &twice), vec!["/form/children/0/children/1".to_string()]);
+
+    let late = doc_with(vec![page("PN_A", "A", vec![body()]), page("PN_B", "B", vec![letterhead("PN_LetterHead")])]);
+    assert_eq!(violations("letter-letterhead", &late), vec!["/form/children/1/children/0".to_string()]);
+
+    let below = doc_with(vec![page("PN_A", "A", vec![body(), letterhead("PN_LetterHead")])]);
+    assert_eq!(violations("letter-letterhead", &below), vec!["/form/children/0/children/1".to_string()]);
+}
+
+#[test]
+fn a_letters_sender_takes_slot2_so_no_draw_does() {
+    let entity = || header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b> (Succursale Italia)</p>");
+    let validity = || header_line("ST_HeaderSlot3", "slot3", "<p>Valido dal 09.10.2025</p>");
+    let taken = doc_with(vec![page("PN_A", "A", vec![preface(), letterhead("PN_LetterHead"), entity(), validity()])]);
+    assert_eq!(violations("dor-header-slots", &taken), vec!["/form/children/0/children/2/dor_header_slot".to_string()]);
+
+    // A letter whose source prints no sender leaves slot2 to the entity line.
+    let mut silent = letterhead("PN_LetterHead");
+    silent["sender"] = Value::Null;
+    let free = doc_with(vec![page("PN_A", "A", vec![preface(), silent, entity(), validity()])]);
+    assert!(violations("dor-header-slots", &free).is_empty());
+}

@@ -104,7 +104,8 @@ reports what it changed against the scripted rules.\n\n\
 If a content-package ZIP was uploaded as a template, the document ALREADY holds its form, decoded \
 from the package: start with json_outline / json_get to study it, then MODIFY it with json_patch to \
 match the source instead of authoring a new form from scratch; replace `/form` wholesale only if it \
-is unusable.\n\n\
+is unusable. The source PDFs, not the template, decide what the form is: whether it is a letter, \
+which fragments it uses, what it says.\n\n\
 Typical workflow (call tools as needed; each step is a separate call):\n\
 1. Inspect the input yourself, from the source PDFs: get_source_info (each PDF's language, its XFA \
 variables and the `doc_path` every xfa_* tool takes; form codes ending 019 are Germany, 033 Italy). \
@@ -176,7 +177,17 @@ fragment and its path in the fragment-library documentation (grep_reference_docs
 Fragments and Common Fields\") and confirm it against the reference packages (grep_references for \
 `fragRef`). A fragment is OPAQUE: AEM supplies its fields at runtime from that path, so it has no \
 children to author. A `Preface` node is the banking relationship block the template renders, \
-authored only when the source has a banking relationship. A \
+authored only when the source has a banking relationship. \
+LETTERS: a source whose first page has a letter top (a receiver's address block, with a date, a \
+subject line such as \"Oggetto:\" or a salutation) is a letter, and its Document of Record prints \
+as one only when the document holds a `Letterhead` node, first on the first page after the \
+`Preface`: the template then writes the UBS letterhead and switches the letter layout on. Its \
+`sender` and `receiver` are `Fixed` (an address the PDF prints, verbatim) or `Entered` (the person \
+fills it in), the sender `null` where the source prints none; its `subject` is the subject line, \
+which then appears in no body draw and no page title; the date is its own. The salutation, body, \
+closing and the bank's entity line stay body text in the source's order, and the bank's officers \
+sign in one signature `Repeatable`; ubs-aem-letter-detection and the other letter rules give the \
+shapes. A \
 party (account holder, representative, beneficial owner, power of attorney) is a `Repeatable` \
 wrapping one `afforms_ubs_fragmentlib` partner generic `Fragment`, whose `init_hide` lists the \
 sub-panels the source does not ask for and `init_show` the ones it ships hidden that the source \

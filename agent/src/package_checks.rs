@@ -122,6 +122,10 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
         out.push(PackageFinding { problem, node, detail })
     };
     let mut save_progress = 0usize;
+    // The letterhead and Redacto's letter layout go together: the layout prints
+    // the letterhead's receiver, date and subject, and nothing else fills them.
+    let mut letterheads = 0usize;
+    let mut letter_layouts = 0usize;
 
     for (tag_name, tag) in open_tags(xml) {
         let label = attr(tag, "name").unwrap_or(tag_name).to_string();
@@ -273,6 +277,13 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
             }
         }
 
+        if resource_type.is_some_and(|rt| rt.ends_with("controls/letterhead")) {
+            letterheads += 1;
+        }
+        if has_attr(tag, "redactoLayout", "letterDor") {
+            letter_layouts += 1;
+        }
+
         if has_attr(tag, "name", "fwbSaveProgress") {
             save_progress += 1;
             if has_attr(tag, "visible", "{Boolean}false") {
@@ -283,6 +294,24 @@ pub fn check_form_xml(xml: &str) -> Vec<PackageFinding> {
                 );
             }
         }
+    }
+
+    if letterheads > 0 && letter_layouts == 0 {
+        push(
+            "ENGINE-letter-layout",
+            "metadata".into(),
+            "the form has a letterhead but its metadata does not switch the letter layout on \
+             (redactoLayout=\"letterDor\"), so the DoR prints the letterhead as form fields"
+                .into(),
+        );
+    } else if letterheads == 0 && letter_layouts > 0 {
+        push(
+            "ENGINE-letter-layout",
+            "metadata".into(),
+            "the letter layout is on (redactoLayout=\"letterDor\") but the form has no letterhead \
+             to fill its receiver, date and subject"
+                .into(),
+        );
     }
 
     if save_progress == 0 {
@@ -318,6 +347,8 @@ mod tests {
   <panel_infobox_copy sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"
       fragRef="/content/dam/formsanddocuments/afforms_italy_fragmentlib/affrg_italy_infobox"
       guideNodeClass="guidePanel" name="PN_ItalyInfoboxDoR" visible="{Boolean}false"/>
+  <letterhead sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/letterhead"
+      guideNodeClass="guidePanel" name="panel_letterhead"/>
   <titledraw_bare sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/titledraw"
       _value="1. General information" headingLevel="3" name="TTL_Bare"/>
 </jcr:root>"##;
@@ -362,6 +393,7 @@ mod tests {
             problems_of(DEFECTIVE),
             [
                 "ENGINE-heading-paragraph",
+                "ENGINE-letter-layout",
                 "PROBLEM-checkbox-rich-text-options",
                 "PROBLEM-dor-exclusion-implies-summary",
                 "PROBLEM-fragment-library-consolidation",
@@ -425,5 +457,42 @@ mod tests {
             let findings = check_package(&build.package).unwrap();
             assert!(findings.is_empty(), "{form}: {findings:?}");
         }
+    }
+
+    /// A letter builds clean too, and only its letterhead switches the letter
+    /// layout on: AAEV_019_EN with a letterhead first on its first page.
+    #[test]
+    fn a_letter_builds_a_clean_package_with_the_letter_layout_on() {
+        let golden = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../vendor/crates/u2s-aem-ubs-mcp/tests/fixtures/golden/AAEV_019_EN/document.json");
+        let mut json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(golden).unwrap()).unwrap();
+        let first = json["form"]["children"]
+            .as_array_mut()
+            .unwrap()
+            .iter_mut()
+            .find(|c| c["type"] == "Panel")
+            .unwrap();
+        let children = first["children"].as_array_mut().unwrap();
+        // A letter's sender takes slot2, so the entity line's draw goes.
+        children.retain(|c| c["dor_header_slot"] != "slot2");
+        let at = children.iter().position(|c| c["type"] == "Preface").map_or(0, |i| i + 1);
+        children.insert(
+            at,
+            serde_json::json!({
+                "type": "Letterhead", "uuid": "00000000-0000-0000-0000-00000000c0de", "name": "PN_LetterHead",
+                "sender": {"kind": "Fixed", "address": {"company": "UBS Europe SE", "street": "Bockenheimer Landstraße",
+                    "street_no": "2-4", "postal_code": "60306", "city": "Frankfurt am Main"}},
+                "receiver": {"kind": "Entered"},
+                "subject": {"en": "Subject: Notice"},
+                "your_reference": null, "our_reference": null
+            }),
+        );
+        let doc = u2s_aem_ubs_mcp::UbsAemDocument::from_json(&json).unwrap();
+        let build = u2s_aem_ubs_mcp::encode(&doc).unwrap();
+        let findings = check_package(&build.package).unwrap();
+        assert!(findings.is_empty(), "{findings:?}");
+        let files = references_mcp::unzip_package(&build.package).unwrap();
+        let (_, xml) = crate::conversion::form_content_xml(&files).unwrap();
+        assert!(xml.contains("redactoLayout=\"letterDor\""));
     }
 }
