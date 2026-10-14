@@ -1796,3 +1796,22 @@ fn a_signature_block_takes_an_entity_line_as_its_title() {
     )]);
     assert_eq!(violations("repeatable-title", &rows), vec!["/form/children/0/children/0/title".to_string()]);
 }
+
+/// A letter closes with its entity line, then a unit line, then the bank's officers: there the
+/// closing lines are body text in the source's order, and the officers' repeatable takes their
+/// own caption as title (decision 2026-10-14). Outside a letter the title precedence stands.
+#[test]
+fn a_letters_closing_entity_line_is_body_text_above_the_officers() {
+    let signature = || fragment("PN_SGN_UBS", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1");
+    let closing = || draw("TextDraw", "ST_Closing", "<p>UBS Europe SE (Succursale Italia)</p><p>Front Support Office</p>");
+    let letter = doc_with(vec![page(
+        "PN_A",
+        "",
+        vec![preface(), letterhead("PN_LetterHead"), closing(), repeatable("RCP_SGN_UBS", "Cognome/Nome", vec![signature()])],
+    )]);
+    assert!(violations("banking-relationship-present", &letter).is_empty());
+
+    // Without officers below it the line is still the fragment's duplicate, letter or not.
+    let alone = doc_with(vec![page("PN_A", "", vec![preface(), letterhead("PN_LetterHead"), closing()])]);
+    assert_eq!(violations("banking-relationship-present", &alone), vec!["/form/children/0/children/2/content/en".to_string()]);
+}

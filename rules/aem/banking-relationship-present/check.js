@@ -22,6 +22,13 @@ function firstLine(html) {
   return lines.length > 0 ? lines[0] : "";
 }
 
+// A repeatable of the bank's officers: it wraps the signature generic.
+function signsBelow(node) {
+  return node.type === "Repeatable" && (node.children || []).some(function (c) {
+    return c.type === "Fragment" && typeof c.frag_ref === "string" && /affrg_SignatureGeneric1$/.test(c.frag_ref);
+  });
+}
+
 function check(output, ctx) {
   const violations = [];
   const top = output.form.children || [];
@@ -32,7 +39,9 @@ function check(output, ctx) {
   const firstPointer = first < 0 ? null : "/form/children/" + first;
   let seen = 0;
   const entityDraws = [];
-  function visit(node, pointer) {
+  // In a letter the closing entity line above the bank's officers is body text (decision 2026-10-14).
+  const isLetter = JSON.stringify(output.form).indexOf('"type":"Letterhead"') >= 0;
+  function visit(node, pointer, closing) {
     if (node.type === "Preface") {
       seen += 1;
       if (seen > 1) {
@@ -49,7 +58,7 @@ function check(output, ctx) {
     }
     // A DoR header slot draw is the master-page line itself, not a body line.
     const isBody = node.type === "TextDraw" || node.type === "TitleDraw" || node.type === "MessageBox";
-    if (isBody && !node.dor_header_slot) {
+    if (isBody && !node.dor_header_slot && !closing) {
       const content = node.content || {};
       for (const lang of Object.keys(content)) {
         if (ENTITY_LINE.test(firstLine(content[lang]))) {
@@ -64,9 +73,12 @@ function check(output, ctx) {
       }
     }
     const children = node.children || [];
-    for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i);
+    for (let i = 0; i < children.length; i++) {
+      const officersFollow = isLetter && children.slice(i + 1).some(signsBelow);
+      visit(children[i], pointer + "/children/" + i, officersFollow);
+    }
   }
-  visit(output.form, "/form");
+  visit(output.form, "/form", false);
   // Without a banking relationship the fragment renders no entity line, so a
   // body line is no duplicate of it.
   if (seen > 0) {

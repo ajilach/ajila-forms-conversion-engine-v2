@@ -24,4 +24,6 @@ SE". Where the source heads the bank's signature block with "UBS Europe SE", tha
 `title` of the bank's signature Repeatable, which AEM renders on each instance ("UBS Europe SE 1",
 "UBS Europe SE 2"); a draw that is only "UBS Europe SE" breaks that rule. So that heading needs no
 TitleDraw: do not report it while the signature Repeatable's title carries it.
+In a letter the bank's closing (entity line and unit line) is a body draw above the officers, not
+a title (ubs-aem-letter-bank-signature).
 """

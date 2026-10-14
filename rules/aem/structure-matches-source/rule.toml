@@ -29,7 +29,10 @@ top is the `Letterhead`, its subject line the letterhead's `subject`, and the sa
 paragraphs, the closing formula, the entity line and the attachments line follow as body text in
 the source's order, with bold only where the source sets it. Its first page has no `title` unless
 the source heads a section below the letter top. A section the source rules further down (a receipt
-for the heir, a declaration) is a page or a TitleDraw as anywhere else. A letter top on a LATER page of
+for the heir, a declaration) is a page or a TitleDraw as anywhere else. A field the source's master page prints in the page header beside the banking relationship (a
+custody account number, "N. di conto") comes after the `Letterhead` in a letter, which always opens
+the first page after the `Preface` (ubs-aem-letter-letterhead, decision 2026-10-14); that order is not
+a break. A letter top on a LATER page of
 a form whose first page is not one (a mixed form: an order or internal notes first, the letter after)
 is no letter: its receiver lines, date, subject and body are ordinary nodes in the source's order
 (draws, inputs, a bold subject draw), never a `Letterhead`, and that is not a break.
