@@ -32,6 +32,12 @@ values, in every language), its default, whether it is required, whether it is s
 it shares a row with its neighbour. Read the source's own values with xfa_read where the labels
 alone do not show them.
 
+Option VALUES follow ubs-aem-options-wellformed, which wins over the source here (owner directive):
+every key is a number, kept as the source has it where its values are numbers, and numbered by
+position from 1 where they are text (a dropdown an `addItem(text)` script fills has text values). Such
+numbered keys, and a default that selects the same option by its number, are not invented and not a
+break; judge the labels, their order and which option is the default.
+
 A break is a control of the wrong type (a text box for a date, a dropdown for radio buttons), options
 missing, reordered or with invented values, a default or required state that differs from the
 source, a field hidden that the source shows (or the reverse), or a width that does not match the
