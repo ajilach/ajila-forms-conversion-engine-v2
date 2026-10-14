@@ -31,6 +31,12 @@ Precedence:
   of its option, verbatim in that language, with any surrounding brackets dropped (`(s. unten
   stehende Erklärung)` becomes `s. unten stehende Erklärung`). Such a label is the source's text and
   is not a break; wording of the author's own still is.
+- ubs-aem-repeatable-title wins for a Repeatable's `title` (decision 2026-10-14). The title is the
+  row heading and the Add button's label, so where the source's heading is too long for it (more
+  than 4 words or 42 characters; 8 words for a signature block), the title is the shortest noun
+  phrase in the source's own words for what repeats ("Guthaben", "Wertpapiere"), and the full
+  heading stays verbatim where the page shows it (the page `title` or a TitleDraw). That shortened
+  title is not a break; a word the source does not use still is.
 - Where a page exists in one language only (another language's PDF prints it in the same wording),
   every language carries that wording, copied from the source. It is the source's own text in
   each language, including a party Repeatable's title on that page, whatever
