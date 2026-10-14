@@ -31,7 +31,7 @@
 
 - Prefer to avoid null pointers, instead use constructs like optional to express the absence of something
 - Push invariants into type-level and the database schema
-- If possible, untrusted input gets converted once, at the edge, into a type that cannot hold an invalid value
+- If possible, undtrusted input gets converted once, at the edge, into a type that cannot hold an invalid value
 - Use assertions to enforce invariants
 
 ## Testing
@@ -44,5 +44,7 @@
 # Projec-specific Instructions
 
 - Keep the README up to date and concise
+- You may change things in u2s (especially u2s-aem-ubs-mcp for authoring changes, and u2s-aem-ubs-verify-mcp for verification changes). However these should only be changes that the rules have no way to express, or are really general enough to apply for all UBS forms. You are also allowed to do changes in u2s-aem-mcp/u2s-aem-ubs-mcp if they are general enough to apply for AEM in general. Everything else should be a rule, and the MCP generic enough to express it.
 - Fixes to u2s should be fixed upstream, and then resynced from the vendored master branch
+- All rules should have a check script if somehow possible. Only rules that are not expressable as a script are allowed to leave it.
 - You are allowed to run `cargo clean` if you run out of disk space
