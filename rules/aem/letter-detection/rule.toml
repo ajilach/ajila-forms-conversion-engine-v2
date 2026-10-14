@@ -23,9 +23,11 @@ letter.
 When it is a letter:
 
 - The document holds exactly one `Letterhead` (its shape and place: ubs-aem-letter-letterhead).
-- The sender follows the source. The bank writes: `sender` is `Fixed` with the bank's address as
-  the PDF prints it (usually its master page, top of the first page), verbatim, and `receiver` is
-  `Entered`. The client writes: `receiver` is `Fixed` with the bank's address from the letter
+- The sender follows the source, and only what the PDF prints. The bank writes: `receiver` is
+  `Entered`, and `sender` is `Fixed` with the bank's address verbatim where the PDF prints one
+  (usually its master page, top of the first page), or `null` where it prints none. Never fill in
+  the bank's address from elsewhere: with no sender the header shows the banking relationship, as
+  the source does. The client writes: `receiver` is `Fixed` with the bank's address from the letter
   top, and `sender` is `Entered` where the source asks for the client's address or `null` where it
   prints none.
 - The subject line is the letterhead's `subject`, in every language as each language's PDF prints
@@ -45,7 +47,7 @@ A break is any of these:
 
 - a letter with no `Letterhead`, so the letter layout stays off;
 - a `Letterhead` in a form whose source is not a letter;
-- a sender or receiver whose kind does not match who writes;
+- a sender or receiver whose kind does not match who writes, or a sender the PDF does not print;
 - a prefilled address that differs from the source;
 - a subject missing from the letterhead, or repeated in the body or as a page title;
 - a reference the source asks for that is missing.
