@@ -82,3 +82,9 @@ node, from which the UBS layer derives:
 | `ubs-aem-letter-bank-signature` (judged) | the bank's officers sign in one `RCP_SGN_UBS` Repeatable around `affrg_SignatureGeneric1` |
 | `ubs-aem-floating-fields` (judged) | a value the source prints inside a sentence is one input, collected once |
 | package check `ENGINE-letter-layout` | a letterhead component and `letterDor` go together |
+
+Accepted exception (decision 2026-10-14): PROBLEM-choice-keys-numbered fails on every letter, for the
+letterhead's own dropdowns (`AF_Sender_Title`, `AF_Receiver_Title`, `AF_Classification`), which stay
+keyless. UBS's summary script (`buildDorLetterHtml`) prints a dropdown's stored value into the
+receiver window, so a numeric key would print as "3 Mario Rossi" (checked on a rendered DoR). Every
+other dropdown of a letter is held to numeric keys as usual.
