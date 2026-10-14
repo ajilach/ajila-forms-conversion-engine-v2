@@ -51,6 +51,21 @@ pub trait ContextBudget: Send + Sync {
     fn refresh_cache(&self, _system: &str) -> Option<CacheRefresh> {
         None
     }
+
+    /// A turn's `usage` in the one shape this crate reads it in: fresh input,
+    /// cache reads and cache writes as three disjoint buckets, the way
+    /// Anthropic reports them. Applied once, as the usage arrives, before the
+    /// context gauge, the calibration, the price, the spend and the trace see
+    /// it.
+    ///
+    /// An endpoint that counts a prompt otherwise maps it here: an
+    /// OpenAI-compatible one reports `input_tokens` as the whole prompt, with
+    /// the cached and written tokens a breakdown of it, and read as disjoint
+    /// that counts every cached token twice. The default leaves the usage as
+    /// reported.
+    fn reported_usage(&self, usage: &rig_core::completion::Usage) -> rig_core::completion::Usage {
+        *usage
+    }
 }
 
 /// A cache-refreshing request in flight — see

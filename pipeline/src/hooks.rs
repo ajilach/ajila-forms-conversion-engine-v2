@@ -207,6 +207,7 @@ impl StageHook {
                 };
                 let (detail, ok) = match refresh.await {
                     Ok(usage) => {
+                        let usage = budget.reported_usage(&usage);
                         let cost = price(&usage);
                         let total = {
                             let mut spend = spend.lock().unwrap_or_else(|p| p.into_inner());
@@ -355,7 +356,13 @@ impl StageHook {
             .map(trace::elapsed_ms)
     }
 
-    fn trace_turn_finished(&self, event: &ModelTurnFinished<'_>, text: &str, cost: Option<f64>) {
+    fn trace_turn_finished(
+        &self,
+        event: &ModelTurnFinished<'_>,
+        usage: &rig_core::completion::Usage,
+        text: &str,
+        cost: Option<f64>,
+    ) {
         let latency_ms = self
             .turn_started
             .lock()
@@ -388,7 +395,7 @@ impl StageHook {
             turn: self.current_turn.load(Ordering::Relaxed),
             latency_ms,
             finish_reason: event.finish_reason.map(describe_finish_reason),
-            usage: TurnUsage::from_usage(&event.usage),
+            usage: TurnUsage::from_usage(usage),
             cost_usd: cost,
             text: text.to_string(),
             reasoning: reasoning.join("\n\n"),
@@ -693,12 +700,15 @@ impl AgentHook for StageHook {
             self.obs.emit(RunEvent::Thought(text.clone()));
         }
 
+        // The usage in disjoint buckets, whatever shape the endpoint
+        // reported it in (see `ContextBudget::reported_usage`); everything
+        // below reads this, never `event.usage`.
+        let usage = self.context_budget.reported_usage(&event.usage);
+
         // What the API billed for the prompt is the only ground truth for how
         // full the window was; caching lowers the cost but not the occupancy,
         // so the cached buckets count too.
-        let prompt_tokens = event.usage.input_tokens
-            + event.usage.cached_input_tokens
-            + event.usage.cache_creation_input_tokens;
+        let prompt_tokens = usage.input_tokens + usage.cached_input_tokens + usage.cache_creation_input_tokens;
         if prompt_tokens > 0 {
             self.obs.emit(RunEvent::ContextUsed(prompt_tokens as usize));
             // Feed the calibration EMA: what `on_completion_call` estimated
@@ -715,11 +725,11 @@ impl AgentHook for StageHook {
                 self.context_budget.record_actual(raw_estimate, prompt_tokens);
             }
         }
-        let cost = (self.price)(&event.usage);
-        self.trace_turn_finished(&event, &text, cost);
+        let cost = (self.price)(&usage);
+        self.trace_turn_finished(&event, &usage, &text, cost);
         let spend = {
             let mut spend = self.spend.lock().unwrap_or_else(|p| p.into_inner());
-            spend.add(&event.usage, cost);
+            spend.add(&usage, cost);
             *spend
         };
         self.obs.emit(RunEvent::Spend(spend));
@@ -1533,6 +1543,61 @@ mod tests {
             events.iter().any(|e| matches!(
                 e,
                 RunEvent::Spend(spend) if spend.input_tokens == 1000 && spend.cost_usd == Some(1.0)
+            )),
+            "{events:?}"
+        );
+    }
+
+    /// A budget for an endpoint whose `input_tokens` is the whole prompt:
+    /// it takes the cached tokens out of it, as `runner`'s does for an
+    /// OpenAI-compatible endpoint.
+    struct InclusiveUsage;
+
+    impl ContextBudget for InclusiveUsage {
+        fn policy(&self) -> Arc<dyn rig_memory::MemoryPolicy> {
+            NoBudget.policy()
+        }
+        fn raw_estimate(&self, _history: &[Message]) -> usize {
+            0
+        }
+        fn record_actual(&self, _raw_estimate: usize, _real_tokens: u64) {}
+        fn reported_usage(&self, usage: &rig_core::completion::Usage) -> rig_core::completion::Usage {
+            let mut disjoint = *usage;
+            disjoint.input_tokens = usage.input_tokens.saturating_sub(usage.cached_input_tokens);
+            disjoint
+        }
+    }
+
+    /// A prompt of 1000 tokens, 800 of them cached, reported the
+    /// OpenAI-compatible way (`input_tokens` 1000): the gauge reads 1000, not
+    /// 1800, and the price and the spend see 200 fresh tokens.
+    #[tokio::test]
+    async fn a_turn_is_read_in_the_shape_the_budget_maps_it_to() {
+        let mut usage = rig_core::completion::Usage::new();
+        usage.input_tokens = 1000;
+        usage.cached_input_tokens = 800;
+        usage.output_tokens = 50;
+        let model = MockCompletionModel::from_stream_turns([[
+            MockStreamEvent::text("hello"),
+            MockStreamEvent::final_response(usage),
+        ]]);
+        let agent = agent_with(model);
+        let (obs, log) = recorder();
+        let price: PriceFn = Arc::new(|usage| Some(usage.input_tokens as f64 * 0.001));
+        let hook = StageHook::new(&PLAIN, AbortFlag::default(), obs, price, Spend::default(), Arc::new(InclusiveUsage));
+
+        drain(agent.runner("go").add_hook(hook).max_turns(5).stream().await).await;
+
+        let events = log.lock().unwrap();
+        assert!(
+            events.iter().any(|e| matches!(e, RunEvent::ContextUsed(tokens) if *tokens == 1000)),
+            "{events:?}"
+        );
+        assert!(
+            events.iter().any(|e| matches!(
+                e,
+                RunEvent::Spend(spend)
+                    if spend.input_tokens == 200 && spend.cached_input_tokens == 800 && spend.cost_usd == Some(0.2)
             )),
             "{events:?}"
         );

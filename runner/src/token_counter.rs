@@ -177,6 +177,9 @@ pub struct RunnerContextBudget {
     /// What [`ContextBudget::refresh_cache`] re-sends and through which
     /// model, when the provider keeps a cache worth refreshing.
     refresher: Option<(Arc<crate::cache_refresh::RequestLog>, rig_agent::agent::model::ModelHandle)>,
+    /// Whether the endpoint counts cache reads and writes inside
+    /// `input_tokens` (OpenAI-compatible) rather than beside it (Anthropic).
+    inclusive_usage: bool,
 }
 
 impl RunnerContextBudget {
@@ -184,7 +187,16 @@ impl RunnerContextBudget {
         Self {
             policy: Arc::new(TidiedWindow { window: TokenWindowMemory::new(prompt_target, CalibratedTokenCounter) }),
             refresher: None,
+            inclusive_usage: false,
         }
+    }
+
+    /// For an endpoint that reports `input_tokens` as the whole prompt, cache
+    /// reads and writes included: [`ContextBudget::reported_usage`] takes them
+    /// out of it.
+    pub fn with_inclusive_usage(mut self) -> Self {
+        self.inclusive_usage = true;
+        self
     }
 
     /// Lets [`ContextBudget::refresh_cache`] re-send what `log` recorded,
@@ -215,6 +227,14 @@ impl ContextBudget for RunnerContextBudget {
 
     fn record_actual(&self, raw_estimate: usize, real_tokens: u64) {
         record_token_calibration(real_tokens as usize, raw_estimate);
+    }
+
+    fn reported_usage(&self, usage: &rig_core::completion::Usage) -> rig_core::completion::Usage {
+        if self.inclusive_usage {
+            crate::pricing::disjoint_usage(usage)
+        } else {
+            *usage
+        }
     }
 }
 
@@ -389,5 +409,23 @@ mod tests {
     fn no_refresh_without_a_recorded_model() {
         assert!(RunnerContextBudget::new(100_000).refresh_cache("any").is_none());
     }
-}
 
+    /// An OpenAI-compatible endpoint's prompt is split into disjoint buckets;
+    /// Anthropic's, already disjoint, is left alone.
+    #[test]
+    fn inclusive_usage_is_split_and_disjoint_usage_is_kept() {
+        let reported = rig_core::completion::Usage {
+            input_tokens: 1_000,
+            cached_input_tokens: 700,
+            cache_creation_input_tokens: 200,
+            output_tokens: 10,
+            ..rig_core::completion::Usage::new()
+        };
+        let inclusive = RunnerContextBudget::new(100_000).with_inclusive_usage().reported_usage(&reported);
+        assert_eq!(
+            (inclusive.input_tokens, inclusive.cached_input_tokens, inclusive.cache_creation_input_tokens),
+            (100, 700, 200)
+        );
+        assert_eq!(RunnerContextBudget::new(100_000).reported_usage(&reported), reported);
+    }
+}

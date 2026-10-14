@@ -20,7 +20,10 @@
 //! endpoint (OpenRouter included) reports `prompt_tokens` as the whole prompt,
 //! with the cached and written tokens as a breakdown of it. Pricing the second
 //! as if it were the first bills every cached token twice, once at the input
-//! rate, so [`disjoint_usage`] brings it to Anthropic's shape first.
+//! rate. [`disjoint_usage`] brings it to Anthropic's shape, and the run's
+//! context budget applies it to every turn's usage as it arrives (see
+//! `pipeline::memory::ContextBudget::reported_usage`), so this table, the
+//! spend, the context gauge and the run analysis all read the same buckets.
 
 /// What one model costs, in USD per million tokens.
 pub struct Price {
