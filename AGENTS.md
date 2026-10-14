@@ -45,6 +45,7 @@
 
 - Keep the README up to date and concise
 - You may change things in u2s (especially u2s-aem-ubs-mcp for authoring changes, and u2s-aem-ubs-verify-mcp for verification changes). However these should only be changes that the rules have no way to express, or are really general enough to apply for all UBS forms. You are also allowed to do changes in u2s-aem-mcp/u2s-aem-ubs-mcp if they are general enough to apply for AEM in general. Everything else should be a rule, and the MCP generic enough to express it.
+- You are NOT allowed to do changes in ajila-forms-ubs/ajila-forms-ubs-redacto-summary, except for fixes that allow local debugging. These are copies from the UBS environment and we need to have these the same for reproducability.
 - Fixes to u2s should be fixed upstream, and then resynced from the vendored master branch
 - All rules should have a check script if somehow possible. Only rules that are not expressable as a script are allowed to leave it.
 - You are allowed to run `cargo clean` if you run out of disk space
