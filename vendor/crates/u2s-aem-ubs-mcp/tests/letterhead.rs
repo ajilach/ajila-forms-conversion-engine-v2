@@ -386,8 +386,8 @@ fn the_canonical_letterhead_reads_back() {
         panic!("AAQR_033 holds a letterhead");
     };
     assert_eq!(name, "panel_letterhead");
-    assert_eq!(sender, Some(LetterParty::entered()));
-    assert_eq!(receiver, LetterParty::entered());
+    assert_eq!(sender, Some(LetterParty::Entered));
+    assert_eq!(receiver, LetterParty::Entered);
     assert_eq!(subject, AemI18nText::default());
     assert_eq!((your_reference, our_reference), (None, None));
 }
@@ -418,11 +418,10 @@ fn a_flagged_letter_reads_back() {
     assert_eq!(
         sender,
         Some(LetterParty::Fixed {
-            address: Box::new(address),
-            opening: None
+            address: Box::new(address)
         })
     );
-    assert_eq!(receiver, LetterParty::entered());
+    assert_eq!(receiver, LetterParty::Entered);
     assert!(
         subject
             .get("it")
@@ -793,76 +792,4 @@ fn a_subject_naming_what_it_cannot_show_is_refused() {
 
     let message = refusal(subject_letter(subject("Polizza {TXT_Name"), field()));
     assert!(message.contains("unclosed"), "{message}");
-}
-
-/// The receiver's opening line ("Spettabile") is a hidden, unbound field the
-/// summary script prints above the receiver's name, set by language like the
-/// reference lines, and it reads back, for an entered and a fixed receiver.
-#[test]
-fn a_receiver_opening_is_written_and_reads_back() {
-    let plain = parse_jcr_xml(&form_xml(&build(&letter()).package)).unwrap();
-    let opening = json!({"it": "Spettabile", "en": "To"});
-    let entered = json!({"kind": "Entered", "opening": opening});
-    let value = document(json!([preface(), letterhead(bank(), entered)]));
-    let build = build(&value);
-    let form = parse_jcr_xml(&form_xml(&build.package)).unwrap();
-    let field = named(letterhead_of(&form).unwrap(), "AF_Receiver_Opening");
-    assert!(hidden(field));
-    assert_eq!(field.attr("summaryExclusion"), Some("true"));
-    assert_eq!(field.attr("dorExclusion"), Some("true"));
-    assert_eq!(field.attr("jcr:title"), None);
-    let init = rules(field, "fd:init");
-    assert!(
-        init.len() == 1
-            && init[0].contains("Spettabile")
-            && init[0].contains("getFormMetadata().language"),
-        "{init:?}"
-    );
-    let bound = parse_jcr_xml(&form_xml(build.bound_package.as_ref().unwrap())).unwrap();
-    assert_eq!(
-        named(letterhead_of(&bound).unwrap(), "AF_Receiver_Opening").attr("bindRef"),
-        None
-    );
-
-    let doc = UbsAemDocument::from_json(&value).unwrap();
-    assert_eq!(
-        decoded_letterhead(&decode(&build.package).unwrap()),
-        decoded_letterhead(&doc)
-    );
-
-    let fixed = json!({"kind": "Fixed", "opening": {"it": "Spettabile", "en": "To"}, "address": {"company": "UBS Europe SE"}});
-    let doc = UbsAemDocument::from_json(&document(json!([
-        preface(),
-        letterhead(Value::Null, fixed)
-    ])))
-    .unwrap();
-    let decoded = decode(&encode(&doc).unwrap().package).unwrap();
-    assert_eq!(decoded_letterhead(&decoded), decoded_letterhead(&doc));
-
-    // Without one the field stays empty and nothing comes back.
-    assert!(
-        rules(
-            named(letterhead_of(&plain).unwrap(), "AF_Receiver_Opening"),
-            "fd:init"
-        )
-        .is_empty()
-    );
-}
-
-
-#[test]
-fn an_opening_the_letter_cannot_print_is_refused() {
-    let marked = json!({"kind": "Entered", "opening": {"it": "<b>Spettabile</b>", "en": "To"}});
-    let message = refusal(document(json!([preface(), letterhead(bank(), marked)])));
-    assert!(
-        message.contains("opening") && message.contains("markup"),
-        "{message}"
-    );
-
-    let sender = json!({"kind": "Entered", "opening": {"it": "Da", "en": "From"}});
-    let message = refusal(document(json!([
-        preface(),
-        letterhead(sender, json!({"kind": "Entered"}))
-    ])));
-    assert!(message.contains("only the receiver window"), "{message}");
 }

@@ -33,47 +33,10 @@ pub enum LetterParty {
     /// The source prints this address: the bank's own as the sender, or UBS as
     /// the receiver of a letter the client writes. It is prefilled and hidden on
     /// screen, and the DoR prints it.
-    Fixed {
-        address: Box<LetterAddress>,
-        /// The receiver's opening line, per language, plain text: what the
-        /// source prints above the receiver's name ("Spettabile", "An"). The
-        /// letter prints it as the window's first line. A receiver's only.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        opening: Option<AemI18nText>,
-    },
+    Fixed { address: Box<LetterAddress> },
     /// The person filling in the form enters this address: the fields are shown,
     /// empty.
-    Entered {
-        /// The receiver's opening line, as for a fixed address.
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        opening: Option<AemI18nText>,
-    },
-}
-
-impl LetterParty {
-    /// An entered address with no opening line.
-    pub fn entered() -> Self {
-        LetterParty::Entered { opening: None }
-    }
-
-    /// The opening line printed above the address, if any.
-    pub fn opening(&self) -> Option<&AemI18nText> {
-        match self {
-            LetterParty::Fixed { opening, .. } | LetterParty::Entered { opening } => {
-                opening.as_ref()
-            }
-        }
-    }
-
-    fn with_opening(self, text: Option<AemI18nText>) -> Self {
-        match self {
-            LetterParty::Fixed { address, .. } => LetterParty::Fixed {
-                address,
-                opening: text,
-            },
-            LetterParty::Entered { .. } => LetterParty::Entered { opening: text },
-        }
-    }
+    Entered,
 }
 
 /// A letter's address, as the letter window prints it. Either a company (with
@@ -283,9 +246,6 @@ const SENDER_INFO: &str = "AF_Sender_Info_For_Header_Slot";
 /// The DoR header slot the sender is printed in.
 pub const SENDER_SLOT: &str = "slot2";
 const SUBJECT: &str = "AF_Subject";
-/// The receiver's opening line, which the summary script prints above the
-/// receiver's name.
-const OPENING: &str = "AF_Receiver_Opening";
 const YOUR_REFERENCE: &str = "TXT_Your_Ref";
 const OUR_REFERENCE: &str = "TXT_Our_Ref";
 /// What every `bindRef` of the profile's letterhead opens with: the path of the
@@ -404,22 +364,9 @@ pub fn problems(
 ) -> Vec<String> {
     let mut problems = Vec::new();
     for (side, party) in [(Side::Sender, sender), (Side::Receiver, Some(receiver))] {
-        if let Some(LetterParty::Fixed { address, .. }) = party {
+        if let Some(LetterParty::Fixed { address }) = party {
             problems.extend(address.problems(side));
         }
-    }
-    if sender.and_then(LetterParty::opening).is_some() {
-        problems.push(
-            "the letterhead's sender has an `opening`, and only the receiver window prints one: \
-             move it to the `receiver`"
-                .into(),
-        );
-    }
-    if receiver
-        .opening()
-        .is_some_and(|o| o.0.values().all(|v| v.trim().is_empty()))
-    {
-        problems.push("the receiver's `opening` is empty: leave it out instead".into());
     }
     if let Err(problem) = subject_fields(subject) {
         problems.push(format!("the letterhead's `subject` {problem}"));
@@ -430,7 +377,6 @@ pub fn problems(
     let texts = std::iter::once(("subject", Some(subject))).chain([
         ("your_reference", references[0]),
         ("our_reference", references[1]),
-        ("receiver`'s `opening", receiver.opening()),
     ]);
     for (key, text) in texts {
         for (lang, value) in text.into_iter().flat_map(|t| t.0.iter()) {
@@ -494,9 +440,6 @@ pub(super) fn render(
         }
     }
     write_party(&mut letterhead, Side::Receiver, receiver)?;
-    if let Some(opening) = receiver.opening() {
-        add_rule(named(&mut letterhead, OPENING)?, OPENING, opening, config)?;
-    }
 
     let (rule, _) = subject_rule(subject, config)?;
     let rule = EventScript::event(SUBJECT, ScriptEvent::Initialize, rule);
@@ -619,11 +562,11 @@ fn bind(node: &mut RawJcrNode, letter: Option<&str>) -> Result<(), String> {
 /// One side of the letter, as `party` has it.
 fn write_party(letterhead: &mut RawJcrNode, side: Side, party: &LetterParty) -> Result<(), String> {
     let address = match party {
-        LetterParty::Entered { .. } => {
+        LetterParty::Entered => {
             set(letterhead, &side.client_type(), "_value", PERSON)?;
             return client_type_rules(letterhead, side, true);
         }
-        LetterParty::Fixed { address, .. } => address,
+        LetterParty::Fixed { address } => address,
     };
     client_type_rules(letterhead, side, false)?;
     hide_side(letterhead, side)?;
@@ -820,12 +763,7 @@ fn fallback(text: &AemI18nText, config: &AemConfig) -> String {
 pub(super) fn parse(node: &JcrNode, uuid: Uuid) -> AemNode {
     let name = node.component_name().unwrap_or("PN_LetterHead").to_owned();
     let sender = read_party(node, Side::Sender);
-    let opening = find(node, &|n| n.component_name() == Some(OPENING))
-        .map(read_text)
-        .filter(|t| t.0.values().any(|v| !v.trim().is_empty()));
-    let receiver = read_party(node, Side::Receiver)
-        .unwrap_or_else(LetterParty::entered)
-        .with_opening(opening);
+    let receiver = read_party(node, Side::Receiver).unwrap_or(LetterParty::Entered);
     let subject = find(node, &|n| n.component_name() == Some(SUBJECT))
         .map(read_text)
         .unwrap_or_default();
@@ -881,7 +819,6 @@ fn read_party(letterhead: &JcrNode, side: Side) -> Option<LetterParty> {
     if address != LetterAddress::default() {
         let bold_company = company && value(&side.bold_company()).as_deref() == Some(BOLD);
         return Some(LetterParty::Fixed {
-            opening: None,
             address: Box::new(LetterAddress {
                 bold_company,
                 ..address
@@ -901,7 +838,7 @@ fn read_party(letterhead: &JcrNode, side: Side) -> Option<LetterParty> {
             .is_some_and(|n| n.attr("dorHeaderSlot").is_some());
     match side {
         Side::Sender if !shown && !in_header => None,
-        _ => Some(LetterParty::entered()),
+        _ => Some(LetterParty::Entered),
     }
 }
 
@@ -994,7 +931,7 @@ mod tests {
     fn a_company_address_reads_back_without_a_choice_value() {
         let company =
             |choice, fields| match read_party(&loaded_side(choice, fields), Side::Receiver) {
-                Some(LetterParty::Fixed { address, .. }) => address.company.clone(),
+                Some(LetterParty::Fixed { address }) => address.company.clone(),
                 other => panic!("a fixed address, got {other:?}"),
             };
         let ubs = [

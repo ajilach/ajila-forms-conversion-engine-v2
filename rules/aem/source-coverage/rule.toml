@@ -20,7 +20,8 @@ the date, the references and the subject line are covered by its `receiver`, its
 `your_reference` and `our_reference`, and its `subject`, and the sender block the master page
 prints (the bank's name, address and telephone) by its `sender`, which the letter layout prints in
 the header. The letterhead's own captions ("Sender", "Street", "Postal code") are the component's
-text, like a fragment's, and are not judged.
+text, like a fragment's, and are not judged. The line above the receiver's address ("Spettabile",
+"An") is not carried by a letter and is an expected miss.
 
 A party's source fields (name, address, date of birth, nationality, company name) and a
 signature's (place, date, name) are collected by the party's partner generic and by

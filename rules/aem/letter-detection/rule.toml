@@ -36,6 +36,9 @@ When it is a letter:
 - A reference the letter top asks for ("Prot. n.", "Rif.:", "Unser Zeichen") is `your_reference`
   or `our_reference`, labelled with the source's caption. The date is the letterhead's own date
   field: no date input of the document's own.
+- The line a source prints above the receiver's address ("Spettabile", "An", "To") is not carried:
+  the letter layout prints the address only, as the letters UBS ships do (decision 2026-10-14). Its
+  absence is not a break, and it is never typed into an address field.
 - The salutation, the body, the closing ("Distinti saluti") and the attachments line stay body
   text, in the source's order.
 
