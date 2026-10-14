@@ -396,8 +396,16 @@ pub enum AemNodeTranslated {
         /// Who the letter is to: `Fixed` when the source prints the receiver's
         /// address (UBS, for a letter the client writes), `Entered` when the
         /// person filling in writes it.
+        /// Either may carry an `opening`, per language, plain text: the line the
+        /// source prints above the receiver's name ("Spettabile", "An"), which
+        /// the letter prints as the window's first line.
         receiver: LetterParty,
-        /// The subject line, plain text, in every language of the form.
+        /// The subject, plain text, in every language of the form; a newline
+        /// starts a new subject line. `{FIELD_NAME}` prints the current value of
+        /// the form's text or number field of that name (nothing while it is
+        /// empty), as the source's floating fields do: `"Polizza n.:
+        /// {TXT_PolizzaN}"`. `{{` and `}}` print a brace; no other brace is
+        /// allowed.
         subject: AemI18nText,
         /// The "your reference" line: the text the field opens with ("Prot. n."),
         /// which the person may complete. `null` leaves it off the form.

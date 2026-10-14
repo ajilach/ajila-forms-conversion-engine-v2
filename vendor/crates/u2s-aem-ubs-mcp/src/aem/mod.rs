@@ -1090,7 +1090,8 @@ pub enum AemNode {
         sender: Option<LetterParty>,
         /// Who the letter is to.
         receiver: LetterParty,
-        /// The subject line, plain text, per language.
+        /// The subject, plain text, per language; `{FIELD_NAME}` prints that
+        /// field's value (see `AemNodeTranslated::Letterhead`).
         subject: AemI18nText,
         /// The "your reference" line: the text it opens with, per language.
         /// `None` keeps the line off the form.

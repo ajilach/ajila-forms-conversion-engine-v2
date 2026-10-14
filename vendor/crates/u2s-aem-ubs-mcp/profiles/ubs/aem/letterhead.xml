@@ -18,6 +18,9 @@
     choices: the writer gives an entered side's choice its show rule and a
     reset of that side's own two panels, and a fixed side's only the copy into
     `AF_<side>_ClientType`, so nothing ever clears a prefilled address;
+  - `AF_Receiver_Opening`, hidden and unbound (LetterType has no element for
+    it): the line the summary script prints above the receiver's name
+    ("Spettabile"), which the writer sets by language;
   - every `bindRef` under `{letter}`, the path of the `Letter` element the
     schema walk binds the letterhead to (UBS's `LetterType`).
 -->
@@ -639,6 +642,18 @@
                 <items
                     jcr:primaryType="nt:unstructured"
                     sling:resourceType="fd/af/layouts/gridFluidLayout2">
+                    <textbox_opening
+                        jcr:primaryType="nt:unstructured"
+                        sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/textbox"
+                        autofillFieldKeyword="name"
+                        css="widget_ajila-forms-ubs-textbox"
+                        dorExclusion="true"
+                        dorFieldStyling="Default"
+                        guideNodeClass="guideTextBox"
+                        name="AF_Receiver_Opening"
+                        summaryExclusion="true"
+                        textIsRich="[true,true,true,true]"
+                        visible="{Boolean}false"/>
                     <panel_personal_details
                         jcr:primaryType="nt:unstructured"
                         sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/panel"

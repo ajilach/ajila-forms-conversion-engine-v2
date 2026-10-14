@@ -595,6 +595,9 @@ fn check_letterhead(root: &AemNode) -> Result<(), Error> {
                 .into_iter()
                 .map(|p| format!("`{name}`: {p}")),
         );
+        if let Ok(fields) = crate::aem::letterhead::subject_fields(subject) {
+            problems.extend(subject_field_problems(root, name, &fields));
+        }
         if !on_first_page_after_preface(root, *uuid) {
             problems.push(format!(
                 "the letterhead `{name}` must be a direct child of the first page, after the banking \
@@ -627,6 +630,45 @@ fn check_letterhead(root: &AemNode) -> Result<(), Error> {
     } else {
         Err(Error::InvalidDocument(problems.join("; ")))
     }
+}
+
+/// What makes a field a letter's subject names (`{NAME}`) one it cannot show:
+/// it must be exactly one text or number field of the form, whose value is
+/// what a person typed (a choice's value is its key).
+fn subject_field_problems(root: &AemNode, letterhead: &str, fields: &[String]) -> Vec<String> {
+    fn kinds<'a>(node: &'a AemNode, name: &str, out: &mut Vec<&'a AemNode>) {
+        if node.name() == Some(name) {
+            out.push(node);
+        }
+        if let AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } = node
+        {
+            children.iter().for_each(|c| kinds(c, name, out));
+        }
+    }
+    let mut problems = Vec::new();
+    for field in fields {
+        let mut named = Vec::new();
+        kinds(root, field, &mut named);
+        match named.as_slice() {
+            [] => problems.push(format!(
+                "the letterhead `{letterhead}`'s subject names `{{{field}}}`, and the form has no field \
+                 of that name"
+            )),
+            [AemNode::TextField { .. } | AemNode::NumberField { .. }] => {}
+            [_] => problems.push(format!(
+                "the letterhead `{letterhead}`'s subject names `{{{field}}}`, which is no text or number \
+                 field: only a value a person types prints as it is"
+            )),
+            many => problems.push(format!(
+                "the letterhead `{letterhead}`'s subject names `{{{field}}}`, and {} components share \
+                 that name",
+                many.len()
+            )),
+        }
+    }
+    problems
 }
 
 /// Whether the node `uuid` is a direct child of the first page, after its

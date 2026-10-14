@@ -97,6 +97,9 @@ features = [
 [dev-dependencies]
 http = "1"
 
+[dev-dependencies.boa_engine]
+version = "0.20"
+
 [dev-dependencies.tokio]
 version = "1"
 features = [

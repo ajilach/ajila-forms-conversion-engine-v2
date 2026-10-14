@@ -183,6 +183,87 @@ macro_rules! bridge_step {
 /// wizard form's rendered markup or runtime version disagrees. `pub` so
 /// `crate::driver::GenericDriver` can reuse [`HAS_VISIBLE_SUBMIT`] as its
 /// own terminal-panel signal without this module needing to know that.
+/// The text placeholder, [`wizard_js::PLACEHOLDER`].
+macro_rules! placeholder_text {
+    () => {
+        "UtwoS"
+    };
+}
+
+/// The placeholder logic of `wizard_js::AUTO_FILL_REQUIRED`, as a macro so it
+/// is spliced into that script with `concat!` and run on its own by the tests.
+///
+/// `placeholderCandidates(kind, clauses)` lists what to type, best first: a
+/// candidate the field's own regex pattern (`validatePictureClause`,
+/// `displayPictureClause`, `validationPattern`) accepts comes before one it
+/// refuses, and an AEM date picker gets 1 January 2000 written in its picture
+/// clause (`date{D.M.YYYY}`) first, then the other usual spellings. The caller
+/// types them in turn until one sticks. `modelOf(el)` is the field's guide
+/// node, found by the id of its `.guideFieldNode` wrapper.
+macro_rules! placeholder_js {
+    () => {
+        concat!(
+            r#"
+        var PLACEHOLDER_TEXT = '"#,
+            placeholder_text!(),
+            r#"';
+        var guideModels = null;
+        function modelOf(el) {
+            var node = el.closest ? el.closest('.guideFieldNode') : null;
+            if (!node || !node.id) { return null; }
+            if (guideModels === null) {
+                guideModels = {};
+                try {
+                    guideBridge.visit(function(m) { if (m && m.id) { guideModels[m.id] = m; } });
+                } catch (e) {}
+            }
+            return guideModels[node.id] || guideModels[node.id.replace(/_guide-item$/, '')] || null;
+        }
+        function isDatePicker(el, model) {
+            if (model && model.className === 'guideDatePicker') { return true; }
+            var node = el.closest ? el.closest('.guideFieldNode') : null;
+            return !!(node && /guideDatePicker|datepicker/i.test(node.className || ''));
+        }
+        function clausesOf(model) {
+            var json = (model && model.jsonModel) || {};
+            return [json.validatePictureClause, json.displayPictureClause, json.validationPattern]
+                .filter(function(c) { return typeof c === 'string' && c.length > 0; });
+        }
+        function dateIn(pattern) {
+            return pattern.replace(/YYYY|YY|MM|M|DD|D/g, function(token) {
+                return { YYYY: '2000', YY: '00', MM: '01', M: '1', DD: '01', D: '1' }[token];
+            });
+        }
+        function placeholderCandidates(kind, clauses) {
+            var out = [];
+            function add(v) { if (out.indexOf(v) === -1) { out.push(v); } }
+            if (kind === 'datepicker' || kind === 'date') {
+                clauses.forEach(function(c) {
+                    var m = /^date\{(.*)\}$/.exec(c);
+                    if (m) { add(dateIn(m[1])); }
+                });
+                if (kind === 'date') { add('2000-01-01'); }
+                ['1.1.2000', '01.01.2000', '01/01/2000', '2000-01-01'].forEach(add);
+            } else if (kind === 'email') { add('verify@example.com'); }
+            else if (kind === 'number' || kind === 'tel') { add('1'); }
+            else if (kind === 'url') { add('https://example.com'); }
+            else { [PLACEHOLDER_TEXT, 'Verifier', 'X'].forEach(add); }
+            var patterns = [];
+            clauses.forEach(function(c) {
+                if (/^[a-z]+\{/.test(c)) { return; }
+                try { patterns.push(new RegExp(c)); } catch (e) {}
+            });
+            var accepted = out.filter(function(v) {
+                return patterns.every(function(p) { return p.test(v); });
+            });
+            return accepted.concat(out.filter(function(v) { return accepted.indexOf(v) === -1; }));
+        }
+        "#
+        )
+    };
+}
+
+
 pub mod wizard_js {
     /// The next/submit toolbar buttons are server-rendered with a stable
     /// `name` attribute matching `specs/aem/aem-xml-spec.md` §6.11's
@@ -415,7 +496,14 @@ pub mod wizard_js {
     /// rather than guessed at, so one live run is enough to see what a new
     /// widget type needs -- the same "make a miss correctable without a
     /// second run" reasoning as [`NAVIGATION_DIAGNOSTIC`].
-    pub const AUTO_FILL_REQUIRED: &str = r#"(function() {
+    ///
+    /// What it types is [`PLACEHOLDER`]'s: a value the field's own pattern
+    /// accepts, so the wizard's step validation lets the panel go.
+    pub const AUTO_FILL_REQUIRED: &str = concat!(
+        r#"(function() {
+        "#,
+        placeholder_js!(),
+        r#"
         var filled = [];
         var skipped = [];
         var seenRadioGroups = {};
@@ -474,23 +562,43 @@ pub mod wizard_js {
                     filled.push({ name: name, kind: 'select', value: chosen.value });
                 } else {
                     if (el.value) { continue; }
-                    var value;
-                    if (type === 'date') { value = '2000-01-01'; }
-                    else if (type === 'email') { value = 'verify@example.com'; }
-                    else if (type === 'number' || type === 'tel') { value = '1'; }
-                    else if (type === 'url') { value = 'https://example.com'; }
-                    else { value = 'U2S'; }
-                    el.value = value;
-                    announce(el);
-                    if (!el.value) { skipped.push({ name: name, reason: 'value did not stick' }); continue; }
-                    filled.push({ name: name, kind: type, value: value });
+                    var model = modelOf(el);
+                    var kind = isDatePicker(el, model) ? 'datepicker' : type;
+                    // An AEM date picker's widget shows the date in its
+                    // display pattern, but its model holds it as ISO, and
+                    // typing into the widget does not always reach the model
+                    // (the step then reports the field as empty).
+                    if (kind === 'datepicker' && model) {
+                        model.value = '2000-01-01';
+                        if (model.value) {
+                            filled.push({ name: name, kind: kind, value: '2000-01-01' });
+                            continue;
+                        }
+                    }
+                    var value = null;
+                    var candidates = placeholderCandidates(kind, clausesOf(model));
+                    for (var c = 0; c < candidates.length; c++) {
+                        el.value = candidates[c];
+                        announce(el);
+                        if (el.value) { value = candidates[c]; break; }
+                    }
+                    if (value === null) { skipped.push({ name: name, reason: 'value did not stick' }); continue; }
+                    filled.push({ name: name, kind: kind, value: value });
                 }
             } catch (e) {
                 skipped.push({ name: name, reason: String(e) });
             }
         }
         return JSON.stringify({ filled: filled, skipped: skipped });
-    })()"#;
+    })()"#
+    );
+
+    /// The text [`AUTO_FILL_REQUIRED`] types into a text field whose pattern
+    /// does not ask for something else: free of digits, since a name field
+    /// may refuse them (the UBS letterhead's `^([^0-9]*)$`), and unlikely to
+    /// be text the form prints of its own, so a rendered document showing it
+    /// shows the submitted data.
+    pub const PLACEHOLDER: &str = placeholder_text!();
 
     /// What the last submit's error callback recorded
     /// ([`crate::capture_submit_error_js`]), or an empty string.
@@ -1996,7 +2104,7 @@ mod tests {
         assert_eq!(artefacts.len(), 1, "the blank PDF is kept as evidence");
 
         keep_pdf_artefact(
-            &pdf_content::fixtures::page_showing("U2S"),
+            &pdf_content::fixtures::page_showing(wizard_js::PLACEHOLDER),
             "the form's submit download",
             &blobs,
             &mut artefacts,
@@ -2165,6 +2273,39 @@ mod tests {
         assert_eq!(parse_set_report(""), SetReport::default());
     }
 
+    /// What `placeholderCandidates(kind, clauses)` lists first, run as the
+    /// browser runs it.
+    fn first_candidate(kind: &str, clauses: &[&str]) -> String {
+        let source = format!(
+            "{}\nplaceholderCandidates({}, {})[0];",
+            placeholder_js!(),
+            serde_json::to_string(kind).unwrap(),
+            serde_json::to_string(clauses).unwrap()
+        );
+        let mut context = boa_engine::Context::default();
+        let value = context
+            .eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|e| panic!("the placeholder logic runs: {e}"));
+        value.to_string(&mut context).unwrap().to_std_string_escaped()
+    }
+
+    /// A placeholder the field's own pattern refuses blocks the wizard: a
+    /// letter's name fields allow no digits, and its date picker reads its
+    /// picture clause.
+    #[test]
+    fn the_placeholder_satisfies_the_fields_own_pattern() {
+        assert_eq!(first_candidate("text", &[]), wizard_js::PLACEHOLDER);
+        assert!(!wizard_js::PLACEHOLDER.chars().any(|c| c.is_ascii_digit()));
+        assert_eq!(first_candidate("text", &["^([^0-9]*)$"]), wizard_js::PLACEHOLDER);
+        assert_eq!(first_candidate("text", &["^[A-Z]+$"]), "X");
+        assert_eq!(first_candidate("datepicker", &["date{D.M.YYYY}"]), "1.1.2000");
+        assert_eq!(first_candidate("datepicker", &["date{DD.MM.YYYY}", "date{DD.MM.YYYY}"]), "01.01.2000");
+        assert_eq!(first_candidate("datepicker", &["date{YYYY-MM-DD}"]), "2000-01-01");
+        assert_eq!(first_candidate("datepicker", &[]), "1.1.2000");
+        assert_eq!(first_candidate("date", &[]), "2000-01-01");
+        assert_eq!(first_candidate("email", &["^not(a regex"]), "verify@example.com");
+    }
+
     #[test]
     fn a_panel_needing_no_auto_fill_produces_no_finding() {
         assert!(auto_fill_finding(1, r#"{"filled":[],"skipped":[]}"#).is_none());
@@ -2175,7 +2316,7 @@ mod tests {
         let finding = auto_fill_finding(
             3,
             r#"{"filled":[{"name":"RB_Group","kind":"radio","value":"1"},
-                         {"name":"txtName","kind":"text","value":"U2S"}],
+                         {"name":"txtName","kind":"text","value":"UtwoS"}],
                 "skipped":[]}"#,
         )
         .expect("a panel that was auto-filled must say so");
@@ -2184,7 +2325,7 @@ mod tests {
         // A caller auditing the run has to be able to see which fields
         // carried invented data, not just how many.
         assert!(finding.message.contains("RB_Group=1"), "{}", finding.message);
-        assert!(finding.message.contains("txtName=U2S"), "{}", finding.message);
+        assert!(finding.message.contains("txtName=UtwoS"), "{}", finding.message);
         assert!(finding.message.contains("panel 3"), "{}", finding.message);
     }
 

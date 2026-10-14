@@ -91,6 +91,7 @@ pub(super) fn form_xml(
         pass,
         vars: &vars,
         letter: super::letterhead::holds_letterhead(root),
+        subject: super::letterhead::subject_triggers(root, config)?,
     };
     let form = lower.form(root)?;
     let form = form
@@ -302,6 +303,9 @@ struct Lower<'a> {
     /// Whether the form is a letter: it holds a letterhead, so its DoR is
     /// rendered in the letter layout, from the letter template.
     letter: bool,
+    /// A letter's subject rule and the fields it names: each of them runs it
+    /// when its value commits, and on Initialize, so the subject shows them.
+    subject: Option<(String, Vec<String>)>,
 }
 
 impl Lower<'_> {
@@ -496,7 +500,8 @@ impl Lower<'_> {
                         .attr("validationPatternType", "custom"),
                     _ => el,
                 };
-                self.carry(hidden(el, *visible).after(responsive(*colspan)), node, owned)?
+                let el = self.subject_trigger(hidden(el, *visible).after(responsive(*colspan)), node)?;
+                self.carry(el, node, owned)?
             }
             AemNode::NumberField {
                 name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
@@ -515,7 +520,8 @@ impl Lower<'_> {
                     .attr("name", name.as_str())
                     .attr_opt("bindRef", nonempty(bind_ref));
                 let el = tail(el, attrs).attr("textIsRich", "[true,true,true]");
-                self.carry(hidden(el, *visible).after(responsive(*colspan)), node, owned::NUMERICBOX)?
+                let el = self.subject_trigger(hidden(el, *visible).after(responsive(*colspan)), node)?;
+                self.carry(el, node, owned::NUMERICBOX)?
             }
             AemNode::DatePicker {
                 name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
@@ -705,6 +711,32 @@ impl Lower<'_> {
             .attr_if(attrs.dor_exclude, "dorExclusion", "true")
             .attr("dorFieldStyling", self.var("dor_field_styling"))
             .attr_opt("dorHeaderSlot", attrs.dor_header_slot.clone())
+    }
+
+    /// A field a letter's subject names (`{NAME}` in its text): it writes the
+    /// subject again when its value commits, and on Initialize for a form
+    /// that opens with its value in it.
+    fn subject_trigger(&self, el: El, node: &AemNode) -> Result<El, LowerError> {
+        let Some((rule, fields)) = &self.subject else {
+            return Ok(el);
+        };
+        let Some(name) = node.name().filter(|n| fields.iter().any(|f| f == n)) else {
+            return Ok(el);
+        };
+        if node
+            .uuid()
+            .and_then(|u| self.pass.get(&u))
+            .is_some_and(|pt| pt.raw_children.iter().any(|c| c.contains("<fd:scripts")))
+        {
+            return Err(format!(
+                "`{name}` carries rules of its own, so the letter's subject cannot add its own to it"
+            ));
+        }
+        let event = |e| EventScript::event(name, e, rule.clone());
+        Ok(el.after(scripts(&[
+            (ScriptEvent::ValueCommit, vec![event(ScriptEvent::ValueCommit)]),
+            (ScriptEvent::Initialize, vec![event(ScriptEvent::Initialize)]),
+        ])))
     }
 
     /// A configurator choice's reset-on-change rule, when it is one.

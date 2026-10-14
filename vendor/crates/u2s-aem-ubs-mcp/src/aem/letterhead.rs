@@ -33,10 +33,47 @@ pub enum LetterParty {
     /// The source prints this address: the bank's own as the sender, or UBS as
     /// the receiver of a letter the client writes. It is prefilled and hidden on
     /// screen, and the DoR prints it.
-    Fixed { address: Box<LetterAddress> },
+    Fixed {
+        address: Box<LetterAddress>,
+        /// The receiver's opening line, per language, plain text: what the
+        /// source prints above the receiver's name ("Spettabile", "An"). The
+        /// letter prints it as the window's first line. A receiver's only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        opening: Option<AemI18nText>,
+    },
     /// The person filling in the form enters this address: the fields are shown,
     /// empty.
-    Entered,
+    Entered {
+        /// The receiver's opening line, as for a fixed address.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        opening: Option<AemI18nText>,
+    },
+}
+
+impl LetterParty {
+    /// An entered address with no opening line.
+    pub fn entered() -> Self {
+        LetterParty::Entered { opening: None }
+    }
+
+    /// The opening line printed above the address, if any.
+    pub fn opening(&self) -> Option<&AemI18nText> {
+        match self {
+            LetterParty::Fixed { opening, .. } | LetterParty::Entered { opening } => {
+                opening.as_ref()
+            }
+        }
+    }
+
+    fn with_opening(self, text: Option<AemI18nText>) -> Self {
+        match self {
+            LetterParty::Fixed { address, .. } => LetterParty::Fixed {
+                address,
+                opening: text,
+            },
+            LetterParty::Entered { .. } => LetterParty::Entered { opening: text },
+        }
+    }
 }
 
 /// A letter's address, as the letter window prints it. Either a company (with
@@ -246,6 +283,9 @@ const SENDER_INFO: &str = "AF_Sender_Info_For_Header_Slot";
 /// The DoR header slot the sender is printed in.
 pub const SENDER_SLOT: &str = "slot2";
 const SUBJECT: &str = "AF_Subject";
+/// The receiver's opening line, which the summary script prints above the
+/// receiver's name.
+const OPENING: &str = "AF_Receiver_Opening";
 const YOUR_REFERENCE: &str = "TXT_Your_Ref";
 const OUR_REFERENCE: &str = "TXT_Our_Ref";
 /// What every `bindRef` of the profile's letterhead opens with: the path of the
@@ -271,6 +311,91 @@ pub fn holds_letterhead(node: &AemNode) -> bool {
 
 /// What a letterhead's own content makes impossible to write, whatever the
 /// form around it: the addresses and the texts.
+/// The fields a subject text names, in the order it names them first: each
+/// `{NAME}`, where `NAME` is a component name (a letter or `_`, then letters,
+/// digits and `_`). `{{` and `}}` write a brace; any other brace is refused,
+/// so a reference cannot be mistyped into text.
+pub fn subject_references(text: &str) -> Result<Vec<String>, String> {
+    let mut names: Vec<String> = Vec::new();
+    let mut rest = text;
+    while let Some(at) = rest.find(['{', '}']) {
+        let (brace, after) = (&rest[at..at + 1], &rest[at + 1..]);
+        if after.starts_with(brace) {
+            rest = &after[1..];
+            continue;
+        }
+        if brace == "}" {
+            return Err(format!("a lone `}}` in {text:?}: write `}}}}` for a brace"));
+        }
+        let end = after
+            .find('}')
+            .ok_or_else(|| format!("an unclosed `{{` in {text:?}: write `{{{{` for a brace"))?;
+        let name = &after[..end];
+        let valid = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+        if !valid {
+            return Err(format!(
+                "`{{{name}}}` in {text:?} names no field: a reference is `{{FIELD_NAME}}`, \
+                 and `{{{{` writes a brace"
+            ));
+        }
+        if !names.iter().any(|n| n == name) {
+            names.push(name.to_owned());
+        }
+        rest = &after[end + 1..];
+    }
+    Ok(names)
+}
+
+/// The fields a letterhead's subject names, over all its languages.
+pub fn subject_fields(subject: &AemI18nText) -> Result<Vec<String>, String> {
+    let mut names: Vec<String> = Vec::new();
+    for text in subject.0.values() {
+        for name in subject_references(text)? {
+            if !names.contains(&name) {
+                names.push(name);
+            }
+        }
+    }
+    Ok(names)
+}
+
+/// The rule writing the subject (`scripts::letter_subject`) and the fields
+/// it names.
+pub(super) fn subject_rule(
+    subject: &AemI18nText,
+    config: &AemConfig,
+) -> Result<(String, Vec<String>), String> {
+    let fields = subject_fields(subject)?;
+    let rule = super::scripts::letter_subject(
+        &texts_by_code(subject, config),
+        &fallback(subject, config),
+        &fields,
+    );
+    Ok((rule, fields))
+}
+
+/// The subject rule of the tree's letterhead and the fields it names, when
+/// the tree holds one: what each of those fields runs on its value commit.
+pub(super) fn subject_triggers(
+    root: &AemNode,
+    config: &AemConfig,
+) -> Result<Option<(String, Vec<String>)>, String> {
+    fn find_letterhead(node: &AemNode) -> Option<&AemNode> {
+        match node {
+            AemNode::Letterhead { .. } => Some(node),
+            AemNode::Root { children, .. }
+            | AemNode::Panel { children, .. }
+            | AemNode::Repeatable { children, .. } => children.iter().find_map(find_letterhead),
+            _ => None,
+        }
+    }
+    match find_letterhead(root) {
+        Some(AemNode::Letterhead { subject, .. }) => subject_rule(subject, config).map(Some),
+        _ => Ok(None),
+    }
+}
+
 pub fn problems(
     sender: Option<&LetterParty>,
     receiver: &LetterParty,
@@ -279,9 +404,25 @@ pub fn problems(
 ) -> Vec<String> {
     let mut problems = Vec::new();
     for (side, party) in [(Side::Sender, sender), (Side::Receiver, Some(receiver))] {
-        if let Some(LetterParty::Fixed { address }) = party {
+        if let Some(LetterParty::Fixed { address, .. }) = party {
             problems.extend(address.problems(side));
         }
+    }
+    if sender.and_then(LetterParty::opening).is_some() {
+        problems.push(
+            "the letterhead's sender has an `opening`, and only the receiver window prints one: \
+             move it to the `receiver`"
+                .into(),
+        );
+    }
+    if receiver
+        .opening()
+        .is_some_and(|o| o.0.values().all(|v| v.trim().is_empty()))
+    {
+        problems.push("the receiver's `opening` is empty: leave it out instead".into());
+    }
+    if let Err(problem) = subject_fields(subject) {
+        problems.push(format!("the letterhead's `subject` {problem}"));
     }
     if subject.0.values().all(|s| s.trim().is_empty()) {
         problems.push("the letterhead's `subject` is empty".into());
@@ -289,6 +430,7 @@ pub fn problems(
     let texts = std::iter::once(("subject", Some(subject))).chain([
         ("your_reference", references[0]),
         ("our_reference", references[1]),
+        ("receiver`'s `opening", receiver.opening()),
     ]);
     for (key, text) in texts {
         for (lang, value) in text.into_iter().flat_map(|t| t.0.iter()) {
@@ -352,8 +494,18 @@ pub(super) fn render(
         }
     }
     write_party(&mut letterhead, Side::Receiver, receiver)?;
+    if let Some(opening) = receiver.opening() {
+        add_rule(named(&mut letterhead, OPENING)?, OPENING, opening, config)?;
+    }
 
-    add_rule(named(&mut letterhead, SUBJECT)?, SUBJECT, subject, config)?;
+    let (rule, _) = subject_rule(subject, config)?;
+    let rule = EventScript::event(SUBJECT, ScriptEvent::Initialize, rule);
+    add_rules(
+        named(&mut letterhead, SUBJECT)?,
+        SUBJECT,
+        ScriptEvent::Initialize,
+        vec![rule],
+    )?;
     for (field, text) in [
         (YOUR_REFERENCE, your_reference),
         (OUR_REFERENCE, our_reference),
@@ -467,11 +619,11 @@ fn bind(node: &mut RawJcrNode, letter: Option<&str>) -> Result<(), String> {
 /// One side of the letter, as `party` has it.
 fn write_party(letterhead: &mut RawJcrNode, side: Side, party: &LetterParty) -> Result<(), String> {
     let address = match party {
-        LetterParty::Entered => {
+        LetterParty::Entered { .. } => {
             set(letterhead, &side.client_type(), "_value", PERSON)?;
             return client_type_rules(letterhead, side, true);
         }
-        LetterParty::Fixed { address } => address,
+        LetterParty::Fixed { address, .. } => address,
     };
     client_type_rules(letterhead, side, false)?;
     hide_side(letterhead, side)?;
@@ -668,7 +820,12 @@ fn fallback(text: &AemI18nText, config: &AemConfig) -> String {
 pub(super) fn parse(node: &JcrNode, uuid: Uuid) -> AemNode {
     let name = node.component_name().unwrap_or("PN_LetterHead").to_owned();
     let sender = read_party(node, Side::Sender);
-    let receiver = read_party(node, Side::Receiver).unwrap_or(LetterParty::Entered);
+    let opening = find(node, &|n| n.component_name() == Some(OPENING))
+        .map(read_text)
+        .filter(|t| t.0.values().any(|v| !v.trim().is_empty()));
+    let receiver = read_party(node, Side::Receiver)
+        .unwrap_or_else(LetterParty::entered)
+        .with_opening(opening);
     let subject = find(node, &|n| n.component_name() == Some(SUBJECT))
         .map(read_text)
         .unwrap_or_default();
@@ -724,6 +881,7 @@ fn read_party(letterhead: &JcrNode, side: Side) -> Option<LetterParty> {
     if address != LetterAddress::default() {
         let bold_company = company && value(&side.bold_company()).as_deref() == Some(BOLD);
         return Some(LetterParty::Fixed {
+            opening: None,
             address: Box::new(LetterAddress {
                 bold_company,
                 ..address
@@ -743,7 +901,7 @@ fn read_party(letterhead: &JcrNode, side: Side) -> Option<LetterParty> {
             .is_some_and(|n| n.attr("dorHeaderSlot").is_some());
     match side {
         Side::Sender if !shown && !in_header => None,
-        _ => Some(LetterParty::Entered),
+        _ => Some(LetterParty::entered()),
     }
 }
 
@@ -758,7 +916,9 @@ fn read_text(field: &JcrNode) -> AemI18nText {
         .flatten()
         .find_map(|json| {
             let rule: serde_json::Value = serde_json::from_str(&json).ok()?;
-            super::scripts::localized_values(rule.pointer("/script/content")?.as_str()?)
+            let content = rule.pointer("/script/content")?.as_str()?;
+            super::scripts::localized_values(content)
+                .or_else(|| super::scripts::letter_subject_values(content))
         });
     if let Some(texts) = from_rule {
         return AemI18nText(texts);
@@ -784,6 +944,26 @@ fn find<'a>(node: &'a JcrNode, test: &dyn Fn(&JcrNode) -> bool) -> Option<&'a Jc
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_subject_names_fields_in_braces_and_doubles_a_brace() {
+        assert_eq!(
+            subject_references("Polizza n.: {TXT_PolizzaN} {TXT_A} {TXT_PolizzaN} {{x}}").unwrap(),
+            ["TXT_PolizzaN", "TXT_A"]
+        );
+        assert!(
+            subject_references("{1abc}")
+                .unwrap_err()
+                .contains("names no field")
+        );
+        assert!(subject_references("{TXT a}").is_err());
+        assert!(subject_references("a } b").unwrap_err().contains("lone"));
+        assert!(
+            subject_references("a { b")
+                .unwrap_err()
+                .contains("unclosed")
+        );
+    }
 
     #[test]
     fn markup_is_told_from_a_comparison() {
@@ -814,7 +994,7 @@ mod tests {
     fn a_company_address_reads_back_without_a_choice_value() {
         let company =
             |choice, fields| match read_party(&loaded_side(choice, fields), Side::Receiver) {
-                Some(LetterParty::Fixed { address }) => address.company.clone(),
+                Some(LetterParty::Fixed { address, .. }) => address.company.clone(),
                 other => panic!("a fixed address, got {other:?}"),
             };
         let ubs = [

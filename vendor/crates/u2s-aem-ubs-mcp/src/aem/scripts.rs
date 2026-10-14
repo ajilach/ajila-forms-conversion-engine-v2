@@ -212,6 +212,54 @@ pub fn localized_values(content: &str) -> Option<std::collections::BTreeMap<Stri
     serde_json::from_str(line.strip_suffix(';')?).ok()
 }
 
+const LETTER_SUBJECT: &str = "letter-subject";
+/// The field a letter's subject is printed from.
+pub const SUBJECT_FIELD: &str = "AF_Subject";
+
+/// The rule that writes a letter's subject: the reader's language's text
+/// (`texts` by every code the form's metadata may report the language as,
+/// `fallback` for any other) with each `{NAME}` replaced by the current value
+/// of the field `NAME` (nothing while it is empty), and `{{` / `}}` written as
+/// `{` / `}`. The same rule runs on the subject's Initialize and on the value
+/// commit (and Initialize) of every field it names, so the subject follows
+/// them. `references` are the names the texts use.
+pub fn letter_subject(
+    texts: &std::collections::BTreeMap<String, String>,
+    fallback: &str,
+    references: &[String],
+) -> String {
+    let texts = serde_json::to_string(texts).expect("a map of strings serialises");
+    let values = references
+        .iter()
+        .map(|name| format!("{}: {name}.value", js_string(name)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "{}\n{TEXTS_TOP}{texts};\nvar values = {{{values}}};\n\
+         var text = texts[window.forms.ubs.getFormMetadata().language] || {};\n\
+         {SUBJECT_FIELD}.value = text.replace(/\\{{\\{{|\\}}\\}}|\\{{([A-Za-z_][A-Za-z0-9_]*)\\}}/g, function (all, name) {{\n\
+         \x20 if (!name) {{ return all.charAt(0); }}\n\
+         \x20 var value = values[name];\n\
+         \x20 return value === null || value === undefined ? \"\" : String(value);\n\
+         }});",
+        generated(LETTER_SUBJECT),
+        js_string(fallback)
+    )
+}
+
+/// How [`letter_subject`] opens its texts, on a line of its own.
+const TEXTS_TOP: &str = "var texts = ";
+
+/// The texts a [`letter_subject`] rule writes from, by language code; `None`
+/// for any other rule.
+pub fn letter_subject_values(content: &str) -> Option<std::collections::BTreeMap<String, String>> {
+    if !content.starts_with(&generated(LETTER_SUBJECT)) {
+        return None;
+    }
+    let line = content.lines().find_map(|l| l.strip_prefix(TEXTS_TOP))?;
+    serde_json::from_str(line.strip_suffix(';')?).ok()
+}
+
 // A fragment's Initialize rules. AEM's Expression Editor hands back exactly
 // ONE SCRIPTMODEL per field and event: two sharing `this` and `Initialize` are
 // joined by a bare comma into invalid JSON, and the editor then fails the
@@ -300,6 +348,46 @@ mod tests {
         assert_eq!(localized_values(&rule.content), Some(texts));
         assert!(rule.content.contains("window.forms.ubs.getFormMetadata().language"));
         assert_eq!(localized_values("this.value = 1;"), None);
+    }
+
+    /// The subject a letter-subject rule writes, run as the form runs it, with
+    /// `values` as the named fields' current values.
+    fn run_subject(language: &str, values: &[(&str, Option<&str>)]) -> String {
+        let texts = [
+            ("it".to_owned(), "Notifica {{art}}\nPolizza n.: {TXT_PolizzaN}\nContraente: {TXT_Contraente}".to_owned()),
+            ("en".to_owned(), "Notice\nPolicy no.: {TXT_PolizzaN}".to_owned()),
+        ]
+        .into_iter()
+        .collect();
+        let names: Vec<String> = values.iter().map(|(n, _)| (*n).to_owned()).collect();
+        let rule = letter_subject(&texts, "Notifica", &names);
+        let mut source = format!(
+            "var window = {{forms: {{ubs: {{getFormMetadata: function () {{ return {{language: {}}}; }}}}}}}};\n\
+             var {SUBJECT_FIELD} = {{value: null}};\n",
+            js_string(language)
+        );
+        for (name, value) in values {
+            let value = value.map_or("null".to_owned(), js_string);
+            source.push_str(&format!("var {name} = {{value: {value}}};\n"));
+        }
+        source.push_str(&format!("(function () {{\n{rule}\n}})();\n{SUBJECT_FIELD}.value;"));
+        let mut context = boa_engine::Context::default();
+        let result = context
+            .eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|e| panic!("the rule runs: {e}\n{source}"));
+        result.to_string(&mut context).unwrap().to_std_string_escaped()
+    }
+
+    /// The subject shows the named fields' values, nothing for an empty one,
+    /// a brace for a doubled one, and reads back to the texts it was given.
+    #[test]
+    fn a_letter_subject_shows_the_fields_it_names() {
+        let values = [("TXT_PolizzaN", Some("P-123")), ("TXT_Contraente", None)];
+        assert_eq!(run_subject("it", &values), "Notifica {art}\nPolizza n.: P-123\nContraente: ");
+        assert_eq!(run_subject("en", &values), "Notice\nPolicy no.: P-123");
+        assert_eq!(run_subject("fr", &values), "Notifica");
+        let texts = [("it".to_owned(), "A {X}".to_owned())].into_iter().collect();
+        assert_eq!(letter_subject_values(&letter_subject(&texts, "A", &["X".into()])), Some(texts));
     }
 
     /// What a localized value leaves in its field, run as the form runs it.
