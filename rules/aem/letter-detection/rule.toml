@@ -18,7 +18,9 @@ with it, at least one of a date line, a subject line ("Oggetto:", "Betreff:", "R
 or a salutation ("Egregi Signori,", "Gentile Cliente,", "Sehr geehrte", "Dear"). A declaration
 addressed to UBS ("Spettabile UBS Europe SE ..." over the bank's address) is a letter the client
 writes. A form that only names UBS in its text or its title, with no receiver block, is not a
-letter.
+letter. Only the first page counts (decision 2026-10-14): a form whose letter top sits on a later page
+(a mixed form, an order or internal notes first and the letter after, as AALN_019) is not a letter,
+and its letter page is built from ordinary nodes in the source's order.
 
 When it is a letter:
 
