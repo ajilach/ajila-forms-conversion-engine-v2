@@ -37,6 +37,9 @@ pub struct Completed {
     /// aborted, or gave up at a retry prompt. The observer already said why.
     pub outcome: Option<RunOutcome>,
     pub elapsed_secs: u64,
+    /// The spending limit that stopped the run, when one did (see
+    /// [`AppSettings::budget_limits`]). The run then has no outcome.
+    pub limit_reached: Option<pipeline::BudgetExceeded>,
 }
 
 /// Run the autonomous conversion end to end on a fresh file set.
@@ -220,11 +223,7 @@ async fn drive(
         Ok(resolved) => resolved,
         Err(e) => {
             obs.emit(RunEvent::Warning(e));
-            return Completed {
-                session_id,
-                outcome: None,
-                elapsed_secs: started_at.elapsed().as_secs(),
-            };
+            return Completed::refused(session_id, started_at);
         }
     };
 
@@ -233,14 +232,26 @@ async fn drive(
         Ok(roles) => roles,
         Err(e) => {
             obs.emit(RunEvent::Warning(e));
-            return Completed {
-                session_id,
-                outcome: None,
-                elapsed_secs: started_at.elapsed().as_secs(),
-            };
+            return Completed::refused(session_id, started_at);
+        }
+    };
+    let limits = match opts.settings.budget_limits() {
+        Ok(limits) => limits,
+        Err(e) => {
+            obs.emit(RunEvent::Warning(e));
+            return Completed::refused(session_id, started_at);
         }
     };
     let mut models_described = format!("{}{}", plan.describe(), crate::turns::describe_role_models(&opts.settings));
+    if limits.max_usd.is_some() {
+        warn_about_unpriced_models(&opts.settings, obs);
+    }
+    // The run's own stop flag, which the operator's stop also sets: its
+    // spending limit stops this run only, not every form of a batch sharing
+    // the operator's flag.
+    let run_abort = opts.abort.child();
+    let budget = pipeline::RunBudget::new(limits, run_abort.clone());
+    let metered = |model: pipeline::StageModel| pipeline::StageModel { price: budget.metered(model.price), ..model };
     if opts.settings.no_judges {
         agent.skip_judged_rules();
         models_described.push_str(" · judged rules: not checked (scripted rules only)");
@@ -248,20 +259,22 @@ async fn drive(
 
     let run_config = pipeline::RunConfig {
         profile: opts.profile.clone(),
-        abort: opts.abort.clone(),
+        abort: run_abort,
         max_review_rounds: opts.settings.max_review_rounds,
         extra_instructions: crate::settings::extra_instructions_block(
             &opts.settings.agent_instructions,
         ),
         template_note,
         model: resolved.model,
-        price: resolved.price,
+        price: budget.metered(resolved.price),
         max_tokens: resolved.max_tokens,
         context_budget: resolved.context_budget,
-        reviewer_model: roles.reviewer.map(|(_, m)| m.into_stage_model()),
-        judge_model: roles.judge.map(|(_, m)| m.into_stage_model()),
+        reviewer_model: roles.reviewer.map(|(_, m)| metered(m.into_stage_model())),
+        judge_model: roles.judge.map(|(_, m)| metered(m.into_stage_model())),
+        judge_confirm_model: roles.judge_confirm.map(|(_, m)| metered(m.into_stage_model())),
         capture_review: true,
         final_rule_check: true,
+        hand_off_judging: true,
         finish_nudge: true,
         warm_up_verifier: true,
     };
@@ -291,6 +304,10 @@ async fn drive(
 
     let shared_agent: pipeline::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
     let outcome = pipeline::run(shared_agent, run_config, seed, run_obs).await;
+    let limit_reached = budget.exceeded();
+    if let Some(limit) = &limit_reached {
+        obs.emit(RunEvent::Warning(format!("Run stopped: {limit}.")));
+    }
 
     if let Some(analysis) = analysis {
         let end = crate::analysis::RunEnd {
@@ -337,6 +354,31 @@ async fn drive(
         session_id,
         outcome,
         elapsed_secs: started_at.elapsed().as_secs(),
+        limit_reached,
+    }
+}
+
+impl Completed {
+    /// A run its settings refused before it started; the observer was told
+    /// why.
+    fn refused(session_id: String, started_at: Instant) -> Self {
+        Self { session_id, outcome: None, elapsed_secs: started_at.elapsed().as_secs(), limit_reached: None }
+    }
+}
+
+/// Warns that a model the price table does not know is held only to the token
+/// limit: its spend cannot be counted in USD.
+fn warn_about_unpriced_models(settings: &AppSettings, obs: &SharedObserver) {
+    let roles = [settings.reviewer_model.as_str(), settings.judge_model.as_str()];
+    let models = std::iter::once(settings.active_model().to_string())
+        .chain(roles.iter().filter_map(|model| settings.role_endpoint(model)).map(|endpoint| endpoint.model));
+    for model in models {
+        if crate::pricing::price_for(&model).is_none() {
+            obs.emit(RunEvent::Warning(format!(
+                "{model} has no price, so its spend is not counted toward the spending limit; \
+                 only the token limit applies to it."
+            )));
+        }
     }
 }
 

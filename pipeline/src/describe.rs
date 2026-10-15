@@ -100,4 +100,5 @@ const DESCRIBE: Role = Role {
     resume: true,
     wrap_up_tool: None,
     max_output_tokens: None,
+    judges_at_hand_off: false,
 };

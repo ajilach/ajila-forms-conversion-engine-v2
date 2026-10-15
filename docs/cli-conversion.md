@@ -69,6 +69,22 @@ main model again, means no model of their own. A judge without one runs on the m
 stage that dispatched it. The model banner names the roles that have their own, e.g.
 `… · model: claude-opus-5-5 · judges: claude-haiku-5-5`, and so does the run analysis.
 
+When the judges run, and on what:
+
+- **The Author judges at its hand-over.** Its `rule_check` without `rule_ids` runs the scripted
+  rules only, at once and for nothing. `finish_authoring` judges every judged rule first, on the
+  form as it is handed over, and is refused with their verdicts when one is broken; the next call
+  judges again only what the fix changed (a verdict is kept per rule for unchanged content). The
+  Author can still have a rule judged earlier by naming it in `rule_ids`. The Reviewer and the
+  final rule check judge every rule, reusing those verdicts where the content is unchanged.
+- **Every judge shares one cached prefix.** A judge's system prompt and tools are the same for
+  every rule (the rule comes in its first message), and on a cold cache the first judge of a check
+  runs alone so the others read the prefix it wrote instead of each writing it.
+- **`--judge-confirm-model`** judges every negative verdict again; that verdict stands. With a
+  cheap `--judge-model` (e.g. `claude-haiku-5-5`) and a strong confirming model (e.g.
+  `claude-opus-5-5`), the cheap judges decide every rule and the strong one only the few they
+  find broken.
+
 ### 1.4 A profile
 
 A profile supplies the parser fonts and (in `history.db`) the reference library. `ubs` is currently the only one installed, so `--profile` can be omitted — the CLI picks it automatically when exactly one profile exists. It errors rather than guessing if several are installed, and a resumed session inherits the profile it was created with.
@@ -267,6 +283,7 @@ nothing.
 | `--model <ID>` | the app's setting, then `claude-opus-5` | The Author's, and the other roles' unless they have their own |
 | `--reviewer-model <ID>` | the app's setting, else `--model` | Same provider and key as `--model` |
 | `--judge-model <ID>` | the app's setting, else the dispatching stage's | Same provider and key as `--model` |
+| `--judge-confirm-model <ID>` | the app's setting, else none | Judges every negative verdict again; its verdict stands. Pair with a cheap `--judge-model` |
 | `--max-review-rounds <N>` | 3 | Reviewer → Author-fix rounds before finalizing |
 | `--no-judges` | off | Check the scripted rules only: no judge runs in any stage or in the final check; judge afterwards with `--assess --max-review-rounds 0` |
 | `--instructions <TEXT>` | the app's setting | Appended to every role's system prompt |
@@ -290,12 +307,14 @@ cargo run --release -p blueprint-cli -- convert form.pdf --out ./out
 ANTHROPIC_API_KEY=sk-… cargo run --release -p blueprint-cli -- convert form.pdf \
   --model claude-opus-5
 
-# Through an OpenAI-compatible endpoint. Note: no prompt-cache breakpoints are
-# sent on this path, so a long run costs more input tokens; the model must
-# support tool calling and image input.
+# Through OpenRouter. A Claude model gets prompt-cache breakpoints on the system
+# prompt and on the conversation (runner::openrouter_cache), so a turn reads its
+# history from the cache as on Anthropic's own API; other vendors cache a
+# repeated prefix on their own. Another OpenAI-compatible gateway gets no
+# breakpoints. The model must support tool calling and image input.
 OPENAI_API_KEY=sk-or-… cargo run --release -p blueprint-cli -- convert form.pdf \
   --provider openai --base-url https://openrouter.ai/api/v1 \
-  --model anthropic/claude-opus-4.1
+  --model anthropic/claude-opus-5.5
 
 # Steer the agent and allow more review rounds
 cargo run --release -p blueprint-cli -- convert form.pdf \

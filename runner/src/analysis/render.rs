@@ -258,6 +258,7 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
             wrapped_up,
             duration_ms,
             spend,
+            confirmation,
             ..
         } => {
             let number = stats.check_number(*check);
@@ -268,13 +269,18 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
                 format!("; tools: {}", calls.join(", "))
             };
             let wrapped = if *wrapped_up { " (held to its verdict on its last turn)" } else { "" };
+            let confirmed = match confirmation {
+                Some(pipeline::trace::JudgeVerdict::Positive) => ", a negative the confirming judge overturned",
+                Some(pipeline::trace::JudgeVerdict::Negative) => ", a negative the confirming judge confirmed",
+                _ => "",
+            };
             let outcome = match (verdict, unchecked_reason) {
                 (pipeline::trace::JudgeVerdict::Negative, _) => format!("negative ({violations} violation(s))"),
                 (_, Some(reason)) => format!("unchecked: {}", excerpt(&format::one_line(reason), 200)),
                 (v, None) => v.label().to_string(),
             };
             format!(
-                "- {at} judge `{rule_name}` (rule_check {number}) → {outcome}{wrapped}; {turns} turn(s), {}, {}{tools}\n",
+                "- {at} judge `{rule_name}` (rule_check {number}) → {outcome}{confirmed}{wrapped}; {turns} turn(s), {}, {}{tools}\n",
                 duration(*duration_ms),
                 usd(spend.cost_usd),
             )
@@ -744,10 +750,10 @@ fn judges(out: &mut String, stats: &Stats) {
     }
     out.push_str(
         "## Judges\n\n\
-         Each judged rule (a rule without a `check.js`) is decided by a judge agent that `rule_check` \
-         dispatches, several at once. Their spend is part of the stage that called `rule_check` (the \
-         Stages table splits it out; the final rule check after the last stage has a row of its own); \
-         their time overlaps, so it is summed here, not wall time. \"By rule\" counts each judge's own \
+         Each judged rule (a rule without a `check.js`) is decided by a judge agent that a rule check \
+         dispatches, several at once. The controller checks every rule before each review and once \
+         after the last stage; those checks have the Stages table's `Rule checks` row, and a check a \
+         stage itself ran (in older runs) is split out of that stage's cost. Their time overlaps, so it is summed here, not wall time. \"By rule\" counts each judge's own \
          verdict; a check whose document changed while it judged reports every rule unchecked, which \
          \"By rule_check\" shows.\n\n\
          ### By rule\n\n\

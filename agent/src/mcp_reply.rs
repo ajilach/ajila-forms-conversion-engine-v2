@@ -9,6 +9,13 @@ use serde_json::Value;
 
 use crate::conversion::{ReplyBlock, ToolReply};
 
+/// The most text one tool reply may carry. A reply stays in the stage's
+/// history and is re-sent on every later turn, so one larger than this costs
+/// more than its own turn many times over (a whole form's `xfa_controls`,
+/// about 300,000 characters, re-read for 80 turns). A larger reply is refused
+/// rather than cut: cut JSON is broken JSON, and the call can ask for less.
+pub const MAX_MCP_REPLY_CHARS: usize = 200_000;
+
 /// Converts a u2s tool result into what the model sees. A server that pairs
 /// its content with structured metadata (a verifier's whole report next to a
 /// one-line summary, a render's warning next to the images) gets that
@@ -62,6 +69,14 @@ pub fn reply_from_result(result: CallToolResult, blobs: Option<&Path>) -> ToolRe
             message
         });
     }
+    let chars = text().len();
+    if chars > MAX_MCP_REPLY_CHARS {
+        return ToolReply::Error(format!(
+            "the reply was {chars} characters, more than the {MAX_MCP_REPLY_CHARS} one reply may \
+             carry, so it was not delivered. Ask for less in one call: filter it (for example \
+             `kinds`), page through it with a smaller `limit` and `offset`, or use a narrower tool."
+        ));
+    }
     if blocks.iter().all(|b| matches!(b, ReplyBlock::Text(_))) {
         ToolReply::Text(text())
     } else {
@@ -109,6 +124,23 @@ fn add_blob_paths(value: &mut Value, blobs: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A reply too large to keep in a history is refused, saying how to ask
+    /// for less; one within the limit passes untouched.
+    #[test]
+    fn an_oversized_reply_is_refused_and_a_large_one_passes() {
+        let structured = |chars: usize| CallToolResult::structured(serde_json::json!({ "text": "x".repeat(chars) }));
+        match reply_from_result(structured(300_000), None) {
+            ToolReply::Error(e) => {
+                assert!(e.contains("not delivered") && e.contains("limit"), "{e}");
+            }
+            other => panic!("a 300,000-character reply must be refused: {other:?}"),
+        }
+        match reply_from_result(structured(50_000), None) {
+            ToolReply::Text(text) => assert_eq!(text.len(), 50_000 + r#"{"text":""}"#.len()),
+            other => panic!("a 50,000-character reply passes: {other:?}"),
+        }
+    }
 
     #[test]
     fn results_keep_their_order_and_errors_stay_errors() {

@@ -183,6 +183,9 @@ pub struct JudgeRecord {
     pub duration_ms: u64,
     pub revision: u64,
     pub spend: Spend,
+    /// The confirming judge's verdict on this judge's negative, when the run
+    /// has a confirming model: `positive` overturned it.
+    pub confirmation: Option<JudgeVerdict>,
 }
 
 /// One `rule_check`, with judged rules or not.
@@ -309,9 +312,10 @@ pub struct Stats {
     pub failed_requests: Vec<FailedRequest>,
     pub judges: Vec<JudgeRecord>,
     pub rule_checks: Vec<RuleCheckRecord>,
-    /// The final rule check the controller runs after the last stage, which
-    /// is no stage of its own in the trace: its judges and their spend, so
-    /// they are not filed under the stage that ended before it.
+    /// The rule checks the controller runs between stages (before each
+    /// review) and after the last one, which are no stages of their own in
+    /// the trace: their judges and their spend, so they are not filed under
+    /// the stage that ended before them.
     pub final_check: Option<StageStats>,
     pub warnings: Vec<(u64, String)>,
     /// The run's cumulative spend, as last reported.
@@ -352,15 +356,15 @@ impl Stats {
         self.check_numbers.get(&check).copied().unwrap_or(0)
     }
 
-    /// The stage a `rule_check` and its judges belong to: the running one,
-    /// or — when none is running — the final rule check.
+    /// The stage a rule check and its judges belong to: the running one,
+    /// or — when none is running — the controller's own rule checks.
     fn checking_stage(&mut self) -> &mut StageStats {
         if self.stages.last().is_some_and(|s| s.ended.is_none()) {
             return self.stages.last_mut().expect("checked above");
         }
         self.final_check.get_or_insert_with(|| StageStats {
-            name: pipeline::run::FINAL_CHECK.into(),
-            doing: "checking every rule".into(),
+            name: pipeline::run::RULE_CHECKS.into(),
+            doing: "checking every rule before each review and at the end".into(),
             ..StageStats::default()
         })
     }
@@ -593,6 +597,7 @@ impl Stats {
                 duration_ms,
                 revision,
                 spend,
+                confirmation,
                 ..
             } => {
                 let number = self.check_number(*check);
@@ -628,6 +633,7 @@ impl Stats {
                     duration_ms: *duration_ms,
                     revision: *revision,
                     spend: *spend,
+                    confirmation: *confirmation,
                 });
             }
             TraceEvent::RuleCheckFinished {
@@ -1135,6 +1141,7 @@ mod tests {
             duration_ms: 10_000,
             revision: 7,
             spend: Spend { input_tokens: 1_000, cost_usd: Some(cost), ..Spend::default() },
+            confirmation: None,
         }
     }
 

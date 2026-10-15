@@ -25,6 +25,7 @@ pub mod artifacts;
 pub mod cache_refresh;
 pub mod client;
 pub mod models;
+pub mod openrouter_cache;
 pub mod pricing;
 pub mod history_hygiene;
 pub mod provider;

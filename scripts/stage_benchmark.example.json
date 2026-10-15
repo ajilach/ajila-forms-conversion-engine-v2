@@ -5,6 +5,8 @@
   "base_url": "https://openrouter.ai/api/v1",
   "api_key_env": "OPENROUTER_API_KEY",
   "repeats": 2,
+  "max_spend_per_run": 60,
+  "max_tokens_per_run": 0,
   "targets": "baseline",
   "baseline": {
     "author": "anthropic/claude-opus-5.5",

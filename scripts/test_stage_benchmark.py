@@ -158,6 +158,7 @@ class Bench(unittest.TestCase):
         self.assertEqual(review[review.index("--judge-model") + 1], "a/opus")
         self.assertEqual(review[review.index("--reviewer-model") + 1], "g/flash", "not the app's saved one")
         self.assertIn("--no-judges", author)
+        self.assertEqual(author[author.index("--max-spend") + 1], "0", "the app's limits never decide")
         self.assertIn("--no-judges", review)
         score = sb.command(config, {"phase": "score", "model": "a/opus", "target": "S"}, run_dir)
         self.assertEqual(score[score.index("--max-review-rounds") + 1], "0")

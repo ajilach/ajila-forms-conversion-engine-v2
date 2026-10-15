@@ -733,6 +733,12 @@ impl AgentHook for StageHook {
             *spend
         };
         self.obs.emit(RunEvent::Spend(spend));
+        // Pricing this turn may have passed the run's spending limit, which
+        // sets the flag (see `crate::budget`): stop before the next request
+        // is sent rather than at its first streamed chunk.
+        if self.abort.is_aborted() {
+            return ModelTurnAction::stop("aborted");
+        }
 
         let had_tool_calls = event
             .content
@@ -884,10 +890,9 @@ const AUTHOR: &str = "Author";
 /// What an Author that stopped without `finish_authoring` is told, once.
 pub(crate) const FINISH_NUDGE: &str = "\
 You stopped without calling finish_authoring, so the Reviewer would get a form you have not checked. \
-Do not stop yet: run rule_check WITHOUT rule_ids so it covers every rule on the document as it \
-stands, fix what it reports (or, for a rule that cannot be kept, give the reason in \
-finish_authoring's waivers), complete the verification finish_authoring asks for, and call \
-finish_authoring. If you stop again without it, the Reviewer takes over as things are.";
+Do not stop yet: hold the document to every rule (rule_list, rule_get), complete the verification \
+finish_authoring asks for, and call finish_authoring. If you stop again without it, the Reviewer \
+takes over as things are.";
 
 tokio::task_local! {
     /// Whether the Author stages run inside [`nudging_unfinished`] answer an
@@ -1099,6 +1104,7 @@ mod tests {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
+        judges_at_hand_off: false,
     };
 
     /// A role with no stuck tool, so a test's repeated calls never trip the
@@ -1114,6 +1120,7 @@ mod tests {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
+        judges_at_hand_off: false,
     };
 
     fn agent_with(model: MockCompletionModel) -> Agent {

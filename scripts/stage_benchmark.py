@@ -100,6 +100,11 @@ def load_config(path: Path) -> dict:
     config.setdefault("repeats", 2)
     config.setdefault("targets", "baseline")
     config.setdefault("extra_args", [])
+    # Each run's own limits (`convert --max-spend/--max-tokens`, 0 = none).
+    # Named on every run so the desktop app's defaults (USD 100, 20 M tokens)
+    # do not decide where a candidate is cut off.
+    config.setdefault("max_spend_per_run", 0)
+    config.setdefault("max_tokens_per_run", 0)
     for role in ("author", "reviewer", "judge"):
         if role not in config["baseline"]:
             sys.exit(f"{path}: baseline.{role} is missing")
@@ -333,6 +338,7 @@ def command(config: dict, run: dict, run_dir: Path) -> list[str]:
     else:  # score, judge
         cmd += ["--session", run["target"], "--assess", "--max-review-rounds", "0",
                 "--model", base["reviewer"], "--reviewer-model", base["reviewer"], "--judge-model", model]
+    cmd += ["--max-spend", str(config["max_spend_per_run"]), "--max-tokens", str(config["max_tokens_per_run"])]
     return cmd + list(config["extra_args"])
 
 
