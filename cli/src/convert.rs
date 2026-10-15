@@ -101,6 +101,13 @@ pub struct RunArgs {
     #[arg(long, value_name = "ID")]
     judge_model: Option<String>,
 
+    /// A model that judges every negative verdict again before it stands,
+    /// e.g. a strong model behind a cheap --judge-model: the cheap judges
+    /// decide every rule, this one only the few they find broken. Defaults to
+    /// the one configured in the desktop app; empty means no second look.
+    #[arg(long, value_name = "ID")]
+    judge_confirm_model: Option<String>,
+
     /// Reviewer → Author-fix rounds to allow before finalizing.
     #[arg(long, value_name = "N")]
     max_review_rounds: Option<usize>,
@@ -549,6 +556,9 @@ pub(crate) fn resolve_settings(args: &RunArgs) -> Result<AppSettings, Box<dyn Er
     }
     if let Some(model) = &args.judge_model {
         settings.judge_model = model.trim().to_string();
+    }
+    if let Some(model) = &args.judge_confirm_model {
+        settings.judge_confirm_model = model.trim().to_string();
     }
     if settings.active_model().is_empty() {
         return Err(format!(

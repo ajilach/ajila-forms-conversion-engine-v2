@@ -65,6 +65,11 @@ pub struct RunConfig {
     /// The judges' own model, when it is not the model of the stage that
     /// dispatches them. The final rule check's judges run on it too.
     pub judge_model: Option<crate::StageModel>,
+    /// The model a judge's negative verdict is judged again on before it
+    /// stands, when the run names one: a cheap judge decides every rule, and
+    /// a strong one only the few it finds broken, so a cheap judge's false
+    /// alarm costs one strong judge rather than an Author fix round.
+    pub judge_confirm_model: Option<crate::StageModel>,
     /// Whether the run ends by verifying its final build once more and
     /// keeping what that looked like ([`RunOutcome::review`]). Off only where
     /// no verifier may be booted: the controller tests.
@@ -74,6 +79,12 @@ pub struct RunConfig {
     /// tests that pin a run's stages and model calls, since every judged rule
     /// costs a judge's turns.
     pub final_rule_check: bool,
+    /// Whether the Author judges at its hand-over: its `rule_check` without
+    /// `rule_ids` runs the scripted rules only, and `finish_authoring` judges
+    /// the judged ones first (see `crate::roles::Role::judges_at_hand_off`).
+    /// Off, every Author `rule_check` judges, as it used to. Off only in the
+    /// controller tests that pin a run's model calls.
+    pub hand_off_judging: bool,
     /// Whether an Author that stops without `finish_authoring` is told to
     /// check every rule and hand over, and carries on once before the
     /// Reviewer takes over (see [`crate::hooks::FINISH_NUDGE`]). Off only in
@@ -548,7 +559,8 @@ async fn run_rule_check(
         config.judge_model.as_ref(),
         config.abort.clone(),
         obs.clone(),
-    );
+    )
+    .confirming_on(config.judge_confirm_model.as_ref());
     let reply = crate::judge::rule_check(shared_agent, &judges, &serde_json::json!({})).await;
     judges.fold_spend(spend);
     match reply {
@@ -810,6 +822,8 @@ pub(crate) async fn run_stage(
         total_spend,
         &caller,
         None,
+        None,
+        false,
     )
     .await
 }
@@ -846,6 +860,8 @@ async fn run_role_stage(
         total_spend,
         &stage_caller(role),
         config.judge_model.as_ref(),
+        config.judge_confirm_model.as_ref(),
+        config.hand_off_judging,
     )
     .await
 }
@@ -868,6 +884,12 @@ pub(crate) async fn run_stage_as(
     caller: &agent::Caller,
     // The model the stage's judges run on, when not the stage's own.
     judge: Option<&crate::StageModel>,
+    // The model a judge's negative verdict is judged again on, when the run
+    // names one.
+    confirm: Option<&crate::StageModel>,
+    // Whether a role that judges at its hand-over does so in this run (see
+    // `RunConfig::hand_off_judging`).
+    hand_off_judging: bool,
 ) -> Option<String> {
     let started = std::time::Instant::now();
     let spend_before = *total_spend;
@@ -878,7 +900,7 @@ pub(crate) async fn run_stage_as(
         (agent.tools_for_stage(role.scope), agent.session_id().to_string())
     };
     // What a `rule_check` of this stage needs to dispatch its judges.
-    let sub_stages = crate::substage::SubStageContext::for_stage(
+    let mut sub_stages = crate::substage::SubStageContext::for_stage(
         model.clone(),
         price.clone(),
         max_tokens,
@@ -886,7 +908,9 @@ pub(crate) async fn run_stage_as(
         judge,
         abort.clone(),
         obs.clone(),
-    );
+    )
+    .confirming_on(confirm);
+    sub_stages.defer_judged = role.judges_at_hand_off && hand_off_judging;
     obs.trace(TraceEvent::StageStarted {
         stage: role.name.to_string(),
         system_prompt: system.to_string(),
@@ -2063,8 +2087,10 @@ mod controller {
             context_budget: no_budget(),
             reviewer_model: None,
             judge_model: None,
+            judge_confirm_model: None,
             capture_review: false,
             final_rule_check: false,
+            hand_off_judging: false,
             finish_nudge: false,
             warm_up_verifier: false,
         }
@@ -2860,6 +2886,7 @@ mod controller {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
+        judges_at_hand_off: false,
     };
 
     /// A restart after a turn already succeeded must not lose what that turn
@@ -3301,6 +3328,7 @@ mod controller {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
+        judges_at_hand_off: false,
     };
 
     async fn traced_stage(

@@ -317,6 +317,10 @@ pub enum TraceEvent {
         duration_ms: u64,
         revision: u64,
         spend: Spend,
+        /// The confirming judge's verdict, when this judge's negative was
+        /// judged again on the run's confirming model: `positive` overturned
+        /// it, `negative` confirmed it. `verdict` is the one that stood.
+        confirmation: Option<JudgeVerdict>,
     },
     /// A `rule_check`'s judges all ended. `judges_spend` is what they spent
     /// together; `outdated` says the document changed while they judged, so

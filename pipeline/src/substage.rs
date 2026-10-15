@@ -41,6 +41,13 @@ pub(crate) struct SubStageContext {
     /// What the sub-stages spent, which the dispatching stage folds into the
     /// run's total when it ends. Shared because sub-stages run concurrently.
     pub(crate) spend: Arc<Mutex<Spend>>,
+    /// The dispatching stage judges at its hand-over (see
+    /// `crate::roles::Role::judges_at_hand_off`): its `rule_check` without
+    /// `rule_ids` sends no judge.
+    pub(crate) defer_judged: bool,
+    /// The model a negative verdict is judged again on before it stands, when
+    /// the run names one (see [`crate::RunConfig::judge_confirm_model`]).
+    pub(crate) confirm: Option<StageModel>,
 }
 
 impl SubStageContext {
@@ -54,7 +61,25 @@ impl SubStageContext {
         obs: SharedObserver,
     ) -> Self {
         let spend = Arc::new(Mutex::new(Spend::default()));
-        Self { model, price, max_tokens, context_budget, abort, obs, spend }
+        Self { model, price, max_tokens, context_budget, abort, obs, spend, defer_judged: false, confirm: None }
+    }
+
+    /// This context with its judges' negatives judged again on `confirm`.
+    pub(crate) fn confirming_on(mut self, confirm: Option<&StageModel>) -> Self {
+        self.confirm = confirm.cloned();
+        self
+    }
+
+    /// This context running on `model` instead: the confirming judge's.
+    pub(crate) fn on_model(&self, model: &StageModel) -> Self {
+        Self {
+            model: model.model.clone(),
+            price: model.price.clone(),
+            max_tokens: model.max_tokens,
+            context_budget: model.context_budget.clone(),
+            confirm: None,
+            ..self.clone()
+        }
     }
 
     /// A context whose sub-stages run on `judge` rather than the stage's own
@@ -103,6 +128,16 @@ pub(crate) struct SubStageEnd {
 }
 
 impl SubStageEnd {
+    /// Adds what a second sub-stage on the same work took (a confirming
+    /// judge) to this one's turns, spend and tool calls.
+    pub(crate) fn absorb(&mut self, other: SubStageEnd) {
+        self.turns += other.turns;
+        self.spend.merge(&other.spend);
+        for (tool, calls) in other.tool_calls {
+            *self.tool_calls.entry(tool).or_default() += calls;
+        }
+    }
+
     /// Why a `who` that left no `result` has none: it failed, was stopped,
     /// or ended without one.
     pub(crate) fn why_no(&self, who: &str, result: &str) -> String {
@@ -152,6 +187,8 @@ pub(crate) async fn run_sub_stage(
         caller,
         // A judge dispatches no judges of its own.
         None,
+        None,
+        false,
     )
     .await;
     ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
@@ -261,6 +298,8 @@ pub(crate) mod test_support {
             abort,
             obs: SharedObserver::new(crate::observer::NullObserver),
             spend: Arc::default(),
+            defer_judged: false,
+            confirm: None,
         }
     }
 }
