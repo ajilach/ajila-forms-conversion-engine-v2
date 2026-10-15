@@ -104,10 +104,13 @@ pub fn model_for(endpoint: &LlmEndpoint) -> Result<ModelHandle, String> {
         // reports usage details per response and takes explicit cache
         // breakpoints. Any other host is somebody's OpenAI-compatible gateway.
         Provider::OpenAi if is_openrouter(&endpoint.base_url) => {
+            // rig marks only the system prompt for the cache; `CacheTail`
+            // marks the conversation too, which Claude needs to read a turn's
+            // history from the cache (see `crate::openrouter_cache`).
             let client = openrouter::Client::builder()
                 .api_key(endpoint.api_key.clone())
                 .base_url(endpoint.base_url.clone())
-                .http_client(http_client())
+                .http_client(crate::openrouter_cache::CacheTail::new(http_client()))
                 .build()
                 .map_err(|e| format!("OpenRouter client: {e}"))?;
             // Opt-in, unlike Anthropic's: rig only writes a `cache_control`
