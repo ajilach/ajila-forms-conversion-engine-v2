@@ -25,6 +25,9 @@ FAKE_BLUEPRINT = r'''#!/usr/bin/env python3
 import json, sys, uuid
 from pathlib import Path
 args = sys.argv[1:]
+if "x/broken" in args:
+    print("error: the Author turn failed: 401 Unauthorized")
+    sys.exit(1)
 def opt(name, default=None):
     return args[args.index(name) + 1] if name in args else default
 analysis = Path(opt("--analysis-dir")) / "2026-10-15_run"
@@ -73,6 +76,8 @@ class Bench(unittest.TestCase):
         self.config_path = root / "bench.json"
         self.config_path.write_text(json.dumps({
             "form": [str(self.pdf)], "out": str(root / "out"), "blueprint": str(self.fake), "repeats": 2,
+            # Not OpenRouter, so no key check goes over the network.
+            "base_url": "http://gateway.invalid/v1",
             "baseline": {"author": "a/opus", "reviewer": "a/opus", "judge": "a/opus"},
             "candidates": {"author": ["a/opus", "g/flash"], "reviewer": ["a/opus", "g/flash"],
                            "judge": ["a/opus", "g/flash"]},
@@ -149,6 +154,8 @@ class Bench(unittest.TestCase):
         self.assertIn("--assess", review)
         self.assertEqual(review[review.index("--max-review-rounds") + 1], "1")
         self.assertEqual(review[review.index("--judge-model") + 1], "a/opus")
+        self.assertEqual(review[review.index("--reviewer-model") + 1], "g/flash", "not the app's saved one")
+        self.assertEqual(author[author.index("--reviewer-model") + 1], "a/opus")
         judge = sb.command(config, {"phase": "judge", "model": "g/flash", "target": "S"}, run_dir)
         self.assertEqual(judge[judge.index("--max-review-rounds") + 1], "0")
         self.assertEqual(judge[judge.index("--judge-model") + 1], "g/flash")
@@ -190,6 +197,20 @@ class Bench(unittest.TestCase):
                                        {"check": 2, "rule_name": "x", "verdict": "positive"},
                                        {"check": 2, "rule_name": "y", "verdict": "negative"}]}}
         self.assertEqual(sb.final_check(summary)["verdicts"], {"x": "positive", "y": "negative"})
+
+    def test_a_phase_stops_after_two_runs_that_fail_at_once(self):
+        config = json.loads(self.config_path.read_text())
+        config["candidates"]["author"] = ["x/broken", "a/opus"]
+        self.config_path.write_text(json.dumps(config))
+        with self.assertRaises(SystemExit) as stopped:
+            self.bench("run", "--config", str(self.config_path), "--db", str(self.db), "--phase", "author")
+        self.assertIn("two author runs in a row", str(stopped.exception))
+        runs = sb.Manifest(Path(self.tmp.name) / "out").runs
+        self.assertEqual(sorted(runs), ["author/x_broken/r1", "author/x_broken/r2"], "the rest is not started")
+
+    def test_the_key_is_trimmed(self):
+        os.environ["OPENROUTER_API_KEY"] = "  sk-or-abc\n"
+        self.assertEqual(sb.api_key(sb.load_config(self.config_path)), "sk-or-abc")
 
     def test_grades_filled_in_become_precision_and_recall(self):
         self.bench("run", "--config", str(self.config_path), "--db", str(self.db))

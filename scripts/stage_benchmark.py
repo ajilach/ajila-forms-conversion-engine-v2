@@ -64,6 +64,8 @@ import statistics
 import subprocess
 import sys
 import threading
+import urllib.error
+import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -304,15 +306,18 @@ def command(config: dict, run: dict, run_dir: Path) -> list[str]:
     base = config["baseline"]
     cmd = [config["blueprint"], "convert", *config["form"], "--out", str(run_dir / "artefacts"),
            "--base-url", config["base_url"], "--analysis-dir", str(run_dir / "analysis")]
+    # Every role is named on every run: a role left out would take the model
+    # the desktop app has saved for it, which is not part of the benchmark.
     phase, model = run["phase"], run["model"]
     if phase == "author":
-        cmd += ["--model", model, "--judge-model", base["judge"], "--max-review-rounds", "0"]
+        cmd += ["--model", model, "--reviewer-model", base["reviewer"], "--judge-model", base["judge"],
+                "--max-review-rounds", "0"]
     elif phase in ("grade", "review"):
         cmd += ["--session", run["target"], "--assess", "--max-review-rounds", "1",
-                "--model", model, "--judge-model", base["judge"]]
+                "--model", model, "--reviewer-model", model, "--judge-model", base["judge"]]
     else:
         cmd += ["--session", run["target"], "--assess", "--max-review-rounds", "0",
-                "--model", base["reviewer"], "--judge-model", model]
+                "--model", base["reviewer"], "--reviewer-model", base["reviewer"], "--judge-model", model]
     return cmd + list(config["extra_args"])
 
 
@@ -326,7 +331,7 @@ def execute(config: dict, manifest: Manifest, run: dict, dry_run: bool) -> None:
         shutil.rmtree(run_dir)
     run_dir.mkdir(parents=True)
     env = dict(os.environ)
-    env["OPENAI_API_KEY"] = os.environ.get(config["api_key_env"], env.get("OPENAI_API_KEY", ""))
+    env["OPENAI_API_KEY"] = api_key(config)
     started = dt.datetime.now()
     print(f"[{started:%H:%M}] {run['key']} …", flush=True)
     with (run_dir / "console.log").open("w") as log:
@@ -379,11 +384,23 @@ def run_command(args: argparse.Namespace) -> None:
         print(f"── {phase}: {len(todo)} run(s) ──")
         jobs = args.jobs if phase == "judge" else 1
 
+        quick_failures = [0]
+
         def one(run: dict) -> None:
             if args.max_cost is not None and manifest.spent() >= args.max_cost:
                 print(f"Budget of USD {args.max_cost:.2f} reached: {run['key']} not started.")
                 return
+            if quick_failures[0] >= 2:
+                print(f"{run['key']} not started: the last runs failed at once.")
+                return
             execute(config, manifest, run, args.dry_run)
+            done = manifest.runs.get(run["key"], {})
+            # Two runs in a row that fail within a minute share a cause (the
+            # key, the binary, Docker): starting the rest would only repeat it.
+            if not args.dry_run and done.get("status") != "ok" and (done.get("minutes") or 0) < 1:
+                quick_failures[0] += 1
+            elif not args.dry_run:
+                quick_failures[0] = 0
 
         if jobs > 1 and not args.dry_run:
             with ThreadPoolExecutor(jobs) as pool:
@@ -391,17 +408,48 @@ def run_command(args: argparse.Namespace) -> None:
         else:
             for run in todo:
                 one(run)
+        if quick_failures[0] >= 2:
+            sys.exit(f"Stopped: two {phase} runs in a row failed within a minute. The cause is in their "
+                     "console.log (the last lines); fix it and run the same command again.")
         if args.dry_run and phase == "author":
             print("(the later phases are planned from the Author runs once they exist)")
     if not args.dry_run:
         write_report(config, manifest)
 
 
+def api_key(config: dict) -> str:
+    """The key the runs use: `api_key_env`, else $OPENAI_API_KEY, trimmed (a
+    pasted key often carries a newline, which no header can hold)."""
+    return (os.environ.get(config["api_key_env"]) or os.environ.get("OPENAI_API_KEY") or "").strip()
+
+
+def check_key(config: dict) -> None:
+    """Asks OpenRouter whether it knows the key before anything runs: a run
+    with a bad key fails on its first turn, and so does every one after it."""
+    if "openrouter.ai" not in config["base_url"]:
+        return
+    request = urllib.request.Request(config["base_url"].rstrip("/") + "/key",
+                                     headers={"Authorization": f"Bearer {api_key(config)}"})
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            data = json.load(response).get("data", {})
+    except urllib.error.HTTPError as e:
+        sys.exit(f"OpenRouter refused the key in ${config['api_key_env']} (HTTP {e.code}: "
+                 f"{e.read().decode(errors='replace')[:200]}). Export the real key and try again.")
+    except (urllib.error.URLError, TimeoutError, ValueError) as e:
+        print(f"Could not check the key with OpenRouter ({e}); going on.", file=sys.stderr)
+        return
+    left = data.get("limit_remaining")
+    print(f"OpenRouter key: {data.get('label') or 'ok'}"
+          + (f", USD {left:.2f} left on its limit" if isinstance(left, (int, float)) else ""))
+
+
 def preflight(config: dict, args: argparse.Namespace) -> None:
     if not Path(config["blueprint"]).is_file():
         sys.exit(f"{config['blueprint']} not found: cargo build --release -p blueprint-cli")
-    if not os.environ.get(config["api_key_env"]) and not os.environ.get("OPENAI_API_KEY"):
+    if not api_key(config):
         sys.exit(f"Set ${config['api_key_env']} to the OpenRouter key.")
+    check_key(config)
     db = Path(args.db) if args.db else default_db()
     if db.is_file() and not args.allow_reference:
         conn = sqlite3.connect(f"file:{db}?mode=ro", uri=True)
