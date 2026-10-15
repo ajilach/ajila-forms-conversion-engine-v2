@@ -56,25 +56,24 @@ use u2s_rules_host::protocol::CheckRequest;
 use u2s_rules_host::runner::RuleRunner;
 
 /// One active rule, pre-fetched for `rule_list`/`rule_check` to read.
-/// `script_js` is carried only for dispatch to run against -- `rule_list`
-/// never puts it in front of the model, matching the retrigger loop's own
-/// "rule titles and descriptions only" prompt discipline.
+/// A scripted rule's `script_js` and `fix_js` are carried only for dispatch
+/// to run -- `rule_list` never puts them in front of the model, matching
+/// the retrigger loop's own "rule titles and descriptions only" prompt
+/// discipline. A judged rule carries no script: a judge decides it against
+/// `description_md`.
 #[derive(Debug, Clone)]
 pub struct RuleForCheck {
     pub id: u2s_core::RuleId,
     pub title: String,
     pub description_md: String,
-    pub script_js: String,
-    /// This rule's mechanical repair, if it has one. `None` is the common
-    /// case. Carried the same way `script_js` is -- never put in front of
-    /// the model by `rule_list`, only ever run, by `rule_autofix` and the
-    /// mid-patch lint's `autofix_available` flag.
-    pub fix_js: Option<String>,
-    /// This rule's declared facts, resolved for the run's input when the
-    /// run started. `Indeterminate` means the check is never run here and
-    /// is reported as such; the values themselves are only ever handed to
-    /// the sandbox, never shown to the model.
-    pub facts: u2s_facts::FactsForCheck,
+    pub check: u2s_core::RuleCheck,
+}
+
+impl RuleForCheck {
+    /// Whether `rule_autofix` has a mechanical repair to try.
+    pub fn autofix_available(&self) -> bool {
+        self.check.fix_js().is_some()
+    }
 }
 
 /// Which native tool. A closed enum rather than a name string, so dispatch is
@@ -91,11 +90,10 @@ pub enum NativeJsonTool {
     Autofix,
     Propose,
     TryRule,
-    ListFacts,
-    GetFact,
-    ProposeFact,
+    RuleHistory,
     Verify,
     AdoptReference,
+    FlagUnusual,
 }
 
 /// Where a native tool's body actually runs.
@@ -124,10 +122,9 @@ pub enum Route {
     /// it needs the dataset's reference corpus and the sandbox runner rather
     /// than the working document -- the Rule Agent that calls it has none.
     DryRunner,
-    /// Answered by the application through `u2s_agent`'s `FactWorkbench`, because
-    /// facts live in the store and extracting one needs a model, the page
-    /// renders and the sandbox.
-    FactWorkbench,
+    /// Answered by the application through `u2s_agent`'s `RuleHistorySource`,
+    /// because a rule's recorded verdicts live in the store.
+    RuleHistory,
     /// Answered by the application through `u2s_agent`'s `ReferenceAdopter`,
     /// because the reference's output and its rule verdicts live in the
     /// store; the bridge then replaces the working document with it.
@@ -137,6 +134,9 @@ pub enum Route {
     /// target system, which takes the encoder, the verifier server and the
     /// blob store.
     Verifier,
+    /// Answered by `u2s_agent`'s run state, which records the flag and ends
+    /// the conversion after the current round. Touches no document.
+    Flag,
 }
 
 impl NativeJsonTool {
@@ -151,20 +151,27 @@ impl NativeJsonTool {
         NativeJsonTool::Autofix,
         NativeJsonTool::Propose,
         NativeJsonTool::TryRule,
-        NativeJsonTool::ListFacts,
-        NativeJsonTool::GetFact,
-        NativeJsonTool::ProposeFact,
+        NativeJsonTool::RuleHistory,
         NativeJsonTool::Verify,
         NativeJsonTool::AdoptReference,
+        NativeJsonTool::FlagUnusual,
     ];
 
-    /// What a conversion is always offered: every tool except the fact
-    /// tools and `verify_output`. Facts exist to check a conversion
-    /// independently of it, so the agent doing one may not read or propose
-    /// them -- enforced by the offer itself, not by a wiring that happens to
-    /// leave the workbench out. `verify_output` is added on top only when
-    /// the dataset has a verifier enabled: offered without one, every call
-    /// would only report that nothing can verify.
+    /// What a judge reads the output with: the readers and nothing that
+    /// changes, checks rules or reaches outside the document. A judge
+    /// decides one rule; it must not edit the output it judges nor spend
+    /// a conversion's checks.
+    pub const OFFERED_TO_JUDGES: &'static [NativeJsonTool] = &[
+        NativeJsonTool::Outline,
+        NativeJsonTool::Get,
+        NativeJsonTool::Search,
+        NativeJsonTool::Validate,
+    ];
+
+    /// What a conversion is always offered: every tool except
+    /// `verify_output`, which is added on top only when the dataset has a
+    /// verifier enabled: offered without one, every call would only report
+    /// that nothing can verify.
     pub const OFFERED_TO_RUNS: &'static [NativeJsonTool] = &[
         NativeJsonTool::Outline,
         NativeJsonTool::Get,
@@ -177,6 +184,7 @@ impl NativeJsonTool {
         NativeJsonTool::Propose,
         NativeJsonTool::TryRule,
         NativeJsonTool::AdoptReference,
+        NativeJsonTool::FlagUnusual,
     ];
 
     pub fn name(self) -> &'static str {
@@ -191,11 +199,10 @@ impl NativeJsonTool {
             NativeJsonTool::Autofix => "rule_autofix",
             NativeJsonTool::Propose => "rule_propose",
             NativeJsonTool::TryRule => "rule_try",
-            NativeJsonTool::ListFacts => "fact_list",
-            NativeJsonTool::GetFact => "fact_get",
-            NativeJsonTool::ProposeFact => "fact_propose",
+            NativeJsonTool::RuleHistory => "rule_history",
             NativeJsonTool::Verify => "verify_output",
             NativeJsonTool::AdoptReference => "reference_adopt",
+            NativeJsonTool::FlagUnusual => "flag_unusual",
         }
     }
 
@@ -227,16 +234,21 @@ impl NativeJsonTool {
                  Returns violations as JSON Pointers. Read-only."
             }
             NativeJsonTool::ListRules => {
-                "List this dataset's active rules by id, title and description. Read-only. Use \
-                 this to see what a rule_check verdict is checking before you call it."
+                "List this dataset's active rules by id, title, description and how each is \
+                 checked: \"script\" (a check script, fast) or \"judged\" (a judge reads the \
+                 document and the source, which takes a model session). Read-only. Use this to \
+                 see what a rule_check verdict is checking before you call it."
             }
             NativeJsonTool::CheckRules => {
-                "Run the current document through active rules' check scripts, the same checks \
-                 that run after you finish. Omit rule_ids to check every active rule, or name a \
-                 subset. Returns each rule's verdict and violations. Read-only -- this never \
-                 replaces the deterministic pass that actually records the run's verdicts. Every \
-                 json_patch result already tells you what changed, so you rarely need to call \
-                 this yourself -- it is here for a check you want without editing anything."
+                "Check the current document against active rules, the same checks that run \
+                 after you finish. Omit rule_ids to run every scripted rule, or name a subset. \
+                 A judged rule is checked only when you name it in rule_ids: its judge reads the \
+                 document and the source and takes a while, so name the judged rules you have \
+                 worked on rather than every one, and only once the document is ready for it. \
+                 Returns each rule's verdict (positive, negative, broken, or unchecked with the \
+                 reason) and violations. Read-only. Every json_patch result already reports the \
+                 scripted rules it changed, so call this for judged rules, or for a check \
+                 without editing anything."
             }
             NativeJsonTool::Autofix => {
                 "Apply the mechanical repair of every failing rule that has one. Requires \
@@ -267,26 +279,11 @@ impl NativeJsonTool {
                  it found. Call this before you answer, and call it again after you change the \
                  script."
             }
-            NativeJsonTool::ListFacts => {
-                "List this dataset's facts: named questions about an input, with a strict answer \
-                 schema, that an extrinsic check reads as ctx.facts.<key> after declaring it in \
-                 `const requires = [\"<key>\"]`. Returns each fact's key, question, schema, \
-                 source and how many rules read it -- never its values. Look here before \
-                 proposing a fact: reuse one that already answers your question."
-            }
-            NativeJsonTool::GetFact => {
-                "One fact's definition and a few of its extracted values on reference inputs, so \
-                 you can see what ctx.facts.<key> will hold before relying on it."
-            }
-            NativeJsonTool::ProposeFact => {
-                "Propose a new fact, or a revised question for an existing one, for the rule you \
-                 are drafting. It is extracted right away on a sample of reference inputs and \
-                 the values (or why extraction failed) are returned; nothing is saved for other \
-                 rules until this rule is saved. Ask for lists in document order, not counts. \
-                 Use source \"ingest_script\" with an `extract(ingest)` script when the input's \
-                 outline can answer mechanically; use \"llm\" otherwise. An LLM fact must give \
-                 the same answer every time: if two extractions of a sample input disagree, the \
-                 rule cannot be saved."
+            NativeJsonTool::RuleHistory => {
+                "The verdicts this rule recorded on real runs since its last review: how many \
+                 were positive, negative, broken (its script could not run) and unchecked (its \
+                 judge gave no verdict), and for each broken or unchecked one the run, its input \
+                 and the reason. Read-only. Use it to see whether the rule can reliably decide."
             }
             NativeJsonTool::Verify => {
                 "Verify the document as it stands on a real target system: it is encoded, \
@@ -303,6 +300,16 @@ impl NativeJsonTool {
                  every value in it belongs to another document and must still be replaced \
                  from your source. Discards every edit made so far. Returns the new revision \
                  and the rules the reference is known to fail, which you must fix."
+            }
+            NativeJsonTool::FlagUnusual => {
+                "Stop this conversion as unusual, because it is obvious that the source does not \
+                 match what the rules, the output schema or the dataset instructions expect: for \
+                 example a different kind of document, a different form, or a source with no \
+                 readable content. Ends the run without an output once this turn is over: no \
+                 further tool call is answered, and a person reads your reason. The reason must \
+                 name what the requirements expect and what the source actually is. Not for a \
+                 single value you cannot find or read: convert the document and say so in your \
+                 summary instead. Can be called once per run."
             }
         }
     }
@@ -324,9 +331,9 @@ impl NativeJsonTool {
             NativeJsonTool::Patch
                 | NativeJsonTool::Autofix
                 | NativeJsonTool::Propose
-                | NativeJsonTool::ProposeFact
                 | NativeJsonTool::Verify
                 | NativeJsonTool::AdoptReference
+                | NativeJsonTool::FlagUnusual
         )
     }
 
@@ -338,11 +345,10 @@ impl NativeJsonTool {
             NativeJsonTool::CheckRules | NativeJsonTool::Autofix => Route::Sandbox,
             NativeJsonTool::Propose => Route::Proposer,
             NativeJsonTool::TryRule => Route::DryRunner,
+            NativeJsonTool::RuleHistory => Route::RuleHistory,
             NativeJsonTool::Verify => Route::Verifier,
             NativeJsonTool::AdoptReference => Route::ReferenceAdopter,
-            NativeJsonTool::ListFacts | NativeJsonTool::GetFact | NativeJsonTool::ProposeFact => {
-                Route::FactWorkbench
-            }
+            NativeJsonTool::FlagUnusual => Route::Flag,
             NativeJsonTool::Outline
             | NativeJsonTool::Get
             | NativeJsonTool::Search
@@ -417,7 +423,7 @@ impl NativeJsonTool {
                 "properties": {
                     "rule_ids": {
                         "type": "array",
-                        "description": "Subset of rule ids to check; omit or empty for every active rule",
+                        "description": "Rule ids to check. Omit for every scripted rule; a judged rule is checked only when named here",
                         "items": { "type": "string" }
                     }
                 },
@@ -452,6 +458,19 @@ impl NativeJsonTool {
                 "required": ["reference_id"],
                 "additionalProperties": false
             }),
+            NativeJsonTool::FlagUnusual => json!({
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": u2s_core::MAX_FLAG_REASON_CHARS,
+                        "description": "What the requirements expect, and what the source actually is"
+                    }
+                },
+                "required": ["reason"],
+                "additionalProperties": false
+            }),
             NativeJsonTool::Propose => json!({
                 "type": "object",
                 "properties": {
@@ -470,6 +489,18 @@ impl NativeJsonTool {
                 "required": ["title", "description_md"],
                 "additionalProperties": false
             }),
+            NativeJsonTool::RuleHistory => json!({
+                "type": "object",
+                "properties": {
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 100,
+                        "description": "How many broken or unchecked verdicts to list, newest first. Default 30."
+                    }
+                },
+                "additionalProperties": false
+            }),
             NativeJsonTool::TryRule => json!({
                 "type": "object",
                 "properties": {
@@ -477,46 +508,6 @@ impl NativeJsonTool {
                     "fix_js": { "type": ["string", "null"] }
                 },
                 "required": ["check_js"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::ListFacts => json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            NativeJsonTool::GetFact => json!({
-                "type": "object",
-                "properties": {
-                    "key": { "type": "string" }
-                },
-                "required": ["key"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::ProposeFact => json!({
-                "type": "object",
-                "properties": {
-                    "key": {
-                        "type": "string",
-                        "description": "Lowercase snake case, e.g. source_fields. The name the \
-                                        check reads it under."
-                    },
-                    "question_md": {
-                        "type": "string",
-                        "description": "The question, answerable from the input alone."
-                    },
-                    "answer_schema": {
-                        "type": "object",
-                        "description": "A strict JSON Schema every answer must satisfy."
-                    },
-                    "source": { "type": "string", "enum": ["llm", "ingest_script"] },
-                    "script_js": {
-                        "type": ["string", "null"],
-                        "description": "Required for ingest_script: `function extract(ingest)` \
-                                        over ingest.files[i].{filename, page_count, outline, \
-                                        text}, where outline is [{path, kind}] or null."
-                    }
-                },
-                "required": ["key", "question_md", "answer_schema", "source"],
                 "additionalProperties": false
             }),
         }
@@ -565,12 +556,14 @@ pub enum NativeToolError {
     #[error("the script could not be tried: {detail}")]
     DryRunFailed { detail: String },
     #[error(
-        "the fact tools are unavailable because this agent has no fact workbench wired; \
-         nothing was read or proposed"
+        "rule_history is unavailable because this agent has no history source wired; nothing \
+         was read"
     )]
-    NoFactWorkbench,
-    #[error("{detail}")]
-    FactToolFailed { detail: String },
+    NoRuleHistory,
+    #[error("the rule's history could not be read: {detail}")]
+    RuleHistoryFailed { detail: String },
+    #[error("the conversion was not flagged: {detail}")]
+    FlagRefused { detail: String },
     #[error(
         "reference_adopt is unavailable because this agent has no reference adopter wired; \
          the document was not changed"
@@ -725,10 +718,11 @@ pub fn dispatch(
             })
         }
         NativeJsonTool::ListRules => {
-            // Titles and descriptions only -- never `script_js`. The
-            // retrigger loop already quotes rules to the model the same
-            // way (`RuleBrief`), and this is the same discipline applied
-            // to a tool result instead of a prompt section.
+            // Titles, descriptions and how each is checked -- never
+            // `script_js`. The retrigger loop already quotes rules to the
+            // model the same way (`RuleBrief`), and this is the same
+            // discipline applied to a tool result instead of a prompt
+            // section.
             let listed: Vec<Value> = rules
                 .iter()
                 .map(|rule| {
@@ -736,6 +730,7 @@ pub fn dispatch(
                         "id": rule.id.to_string(),
                         "title": rule.title,
                         "description": rule.description_md,
+                        "check": rule.check.kind().as_str(),
                     })
                 })
                 .collect();
@@ -762,18 +757,19 @@ pub fn dispatch(
         NativeJsonTool::TryRule => Err(NativeToolError::PatchRejected {
             detail: "rule_try is dispatched through the dry runner, not here".to_owned(),
         }),
-        NativeJsonTool::ListFacts | NativeJsonTool::GetFact | NativeJsonTool::ProposeFact => {
-            Err(NativeToolError::PatchRejected {
-                detail: "the fact tools are dispatched through the fact workbench, not here"
-                    .to_owned(),
-            })
-        }
+        NativeJsonTool::RuleHistory => Err(NativeToolError::PatchRejected {
+            detail: "rule_history is dispatched through the rule's history source, not here"
+                .to_owned(),
+        }),
         NativeJsonTool::Verify => Err(NativeToolError::PatchRejected {
             detail: "verify_output is dispatched through the output verifier, not here".to_owned(),
         }),
         NativeJsonTool::AdoptReference => Err(NativeToolError::PatchRejected {
             detail: "reference_adopt is dispatched through the reference adopter, not here"
                 .to_owned(),
+        }),
+        NativeJsonTool::FlagUnusual => Err(NativeToolError::PatchRejected {
+            detail: "flag_unusual is recorded by the run, not here".to_owned(),
         }),
     }
 }
@@ -818,25 +814,23 @@ pub async fn check_rules(
 
     // Keyed by position rather than by `RuleId` so the answer can be put
     // back in the order the rules were offered -- a stable order matters
-    // because this text goes into a prompt.
-    // An indeterminate rule has no job: its facts are missing, so running
-    // the script would be a guess (see `u2s_facts::resolve_facts`).
+    // because this text goes into a prompt. A judged rule has no job: it
+    // has no script to run.
     let jobs: Vec<(usize, CheckRequest)> = selected
         .iter()
         .enumerate()
         .filter_map(|(idx, rule)| {
-            let facts = rule.facts.ready()?;
+            let script_js = rule.check.script_js()?;
             Some((
                 idx,
                 CheckRequest::new(
-                    rule.script_js.clone(),
+                    script_js.to_owned(),
                     // `rule_check` answers without editing, so a fix is
                     // never attempted here -- only `rule_autofix` and the
                     // save gate ever set `fix_js`.
                     None,
                     output.clone(),
                     schema.clone(),
-                    facts.clone(),
                     &budget,
                 ),
             ))
@@ -849,14 +843,15 @@ pub async fn check_rules(
         .iter()
         .enumerate()
         .map(|(idx, rule)| {
-            if let u2s_facts::FactsForCheck::Indeterminate(reason) = &rule.facts {
+            if rule.check.is_judged() {
                 return json!({
                     "rule_id": rule.id.to_string(),
                     "title": rule.title,
-                    "verdict": "indeterminate",
+                    "check": "judged",
+                    "verdict": "unchecked",
                     "violations": [],
-                    // Names the facts that are missing, never their values.
-                    "indeterminate_reason": reason,
+                    "unchecked_reason": "this rule has no check script and no judge is \
+                                         available here",
                     "autofix_available": false,
                 });
             }
@@ -871,6 +866,7 @@ pub async fn check_rules(
             json!({
                 "rule_id": rule.id.to_string(),
                 "title": rule.title,
+                "check": "script",
                 "verdict": match outcome.verdict {
                     u2s_rules::CheckVerdict::Positive => "positive",
                     u2s_rules::CheckVerdict::Negative => "negative",
@@ -885,7 +881,7 @@ pub async fn check_rules(
                 // Known without evaluating anything -- `rule_check` never
                 // runs a fix script itself (see `autofix_rules`), it only
                 // says whether one exists to try.
-                "autofix_available": rule.fix_js.is_some(),
+                "autofix_available": rule.autofix_available(),
             })
         })
         .collect();
@@ -932,10 +928,10 @@ pub struct AutofixResult {
 /// carries a revision check, applied within one tool call instead of
 /// across two.
 ///
-/// A rule with no `fix_js` is skipped before it ever reaches the sandbox --
-/// there is nothing to try, so evaluating its check here would only spend
-/// budget to report the same "no fix" a reader can already see on
-/// [`RuleForCheck::fix_js`].
+/// A rule with no `fix_js` (every judged rule among them) is skipped before
+/// it ever reaches the sandbox -- there is nothing to try, so evaluating its
+/// check here would only spend budget to report the same "no fix" a reader
+/// can already see on [`RuleForCheck::autofix_available`].
 pub async fn autofix_rules(
     args: &Value,
     output: &Value,
@@ -950,10 +946,10 @@ pub async fn autofix_rules(
         .map(|ids| ids.iter().filter_map(Value::as_str).collect::<Vec<_>>());
 
     let budget = u2s_rules::ScriptBudget::default();
-    let selected: Vec<&RuleForCheck> = rules
+    let selected: Vec<(&RuleForCheck, &str, &str)> = rules
         .iter()
-        .filter(|rule| rule.fix_js.is_some())
-        .filter(|rule| match &requested {
+        .filter_map(|rule| Some((rule, rule.check.script_js()?, rule.check.fix_js()?)))
+        .filter(|(rule, _, _)| match &requested {
             Some(ids) => ids.contains(&rule.id.to_string().as_str()),
             None => true,
         })
@@ -963,28 +959,15 @@ pub async fn autofix_rules(
     let mut changed = false;
     let mut results = Vec::with_capacity(selected.len());
 
-    for rule in selected {
-        let facts = match &rule.facts {
-            u2s_facts::FactsForCheck::Ready(facts) => facts,
-            u2s_facts::FactsForCheck::Indeterminate(reason) => {
-                results.push(json!({
-                    "rule_id": rule.id.to_string(),
-                    "title": rule.title,
-                    "outcome": "indeterminate",
-                    "reason": reason,
-                }));
-                continue;
-            }
-        };
+    for (rule, script_js, fix_js) in selected {
         let outcome = runner
             .run_batch(vec![(
                 (),
                 CheckRequest::new(
-                    rule.script_js.clone(),
-                    rule.fix_js.clone(),
+                    script_js.to_owned(),
+                    Some(fix_js.to_owned()),
                     current.clone(),
                     schema.clone(),
-                    facts.clone(),
                     &budget,
                 ),
             )])
@@ -1128,16 +1111,14 @@ mod tests {
     }
 
     #[test]
-    fn a_conversion_is_never_offered_a_fact_tool() {
-        for tool in NativeJsonTool::OFFERED_TO_RUNS {
-            assert_ne!(tool.route(), Route::FactWorkbench, "{}", tool.name());
-        }
-        // Everything else is always offered: only the fact tools and the
-        // conditionally offered verifier are held back.
+    fn a_conversion_is_offered_everything_but_the_verifier_and_rule_history() {
+        // The conditionally offered verifier is held back, and so is a
+        // rule's history, which only a Rule Agent working on that one rule
+        // reads.
         for tool in NativeJsonTool::ALL {
             assert_eq!(
                 NativeJsonTool::OFFERED_TO_RUNS.contains(tool),
-                !matches!(tool.route(), Route::FactWorkbench | Route::Verifier),
+                !matches!(tool.route(), Route::Verifier | Route::RuleHistory),
                 "{}",
                 tool.name()
             );
@@ -1152,9 +1133,9 @@ mod tests {
                 NativeJsonTool::Patch
                     | NativeJsonTool::Autofix
                     | NativeJsonTool::Propose
-                    | NativeJsonTool::ProposeFact
                     | NativeJsonTool::Verify
                     | NativeJsonTool::AdoptReference
+                    | NativeJsonTool::FlagUnusual
             );
             assert_eq!(tool.is_idempotent(), !mutates, "{}", tool.name());
         }
@@ -1446,20 +1427,27 @@ mod tests {
 
     fn a_rule(title: &str, script_js: &str) -> RuleForCheck {
         RuleForCheck {
-            facts: u2s_facts::FactsForCheck::Ready(serde_json::Map::new()),
             id: u2s_core::RuleId::generate(),
             title: title.to_owned(),
             description_md: format!("{title} description"),
-            script_js: script_js.to_owned(),
-            fix_js: None,
+            check: u2s_core::RuleCheck::script(script_js),
         }
     }
 
     fn a_rule_with_fix(title: &str, script_js: &str, fix_js: &str) -> RuleForCheck {
         RuleForCheck {
-            facts: u2s_facts::FactsForCheck::Ready(serde_json::Map::new()),
-            fix_js: Some(fix_js.to_owned()),
+            check: u2s_core::RuleCheck::Script {
+                script_js: script_js.to_owned(),
+                fix_js: Some(fix_js.to_owned()),
+            },
             ..a_rule(title, script_js)
+        }
+    }
+
+    fn a_judged_rule(title: &str) -> RuleForCheck {
+        RuleForCheck {
+            check: u2s_core::RuleCheck::Judged,
+            ..a_rule(title, "")
         }
     }
 
@@ -1602,64 +1590,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rule_check_reports_an_indeterminate_rule_without_running_it_or_leaking_facts() {
+    async fn rule_check_reports_a_judged_rule_unchecked_without_a_judge() {
         let doc = a_document();
-        let throwing = "function check() { throw new Error('must not run'); }";
-        let rule = RuleForCheck {
-            facts: u2s_facts::FactsForCheck::Indeterminate(
-                "fact `source_fields` not extracted for this input".to_owned(),
-            ),
-            ..a_rule("extrinsic", throwing)
-        };
         let outcome = check_rules(
             &json!({}),
             doc.value(),
             Some(&json!({})),
-            &[rule],
+            &[a_judged_rule("judged")],
             &test_runner(),
         )
         .await
         .unwrap();
         let verdict = &outcome.value["verdicts"][0];
-        assert_eq!(verdict["verdict"], "indeterminate");
-        assert!(
-            verdict["indeterminate_reason"]
-                .as_str()
-                .unwrap()
-                .contains("source_fields")
-        );
-    }
-
-    #[tokio::test]
-    async fn rule_check_hands_ready_facts_to_the_script() {
-        let doc = a_document();
-        let script = r#"
-            const requires = ["must_fail"];
-            function check(output, ctx) {
-                return ctx.facts.must_fail
-                    ? { pass: false, violations: [{ pointer: "", message: "failed by fact" }] }
-                    : { pass: true, violations: [] };
-            }
-        "#;
-        let mut facts = serde_json::Map::new();
-        facts.insert("must_fail".to_owned(), json!(true));
-        let rule = RuleForCheck {
-            facts: u2s_facts::FactsForCheck::Ready(facts),
-            ..a_rule("extrinsic", script)
-        };
-        let outcome = check_rules(
-            &json!({}),
-            doc.value(),
-            Some(&json!({})),
-            &[rule],
-            &test_runner(),
-        )
-        .await
-        .unwrap();
-        let verdict = &outcome.value["verdicts"][0];
-        assert_eq!(verdict["verdict"], "negative", "{verdict}");
-        // The value itself never reaches the tool result.
-        assert!(!outcome.value.to_string().contains("\"must_fail\":true"));
+        assert_eq!(verdict["check"], "judged");
+        assert_eq!(verdict["verdict"], "unchecked");
+        assert!(verdict["unchecked_reason"].as_str().is_some());
+        assert_eq!(verdict["autofix_available"], false);
     }
 
     #[tokio::test]

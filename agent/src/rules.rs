@@ -187,7 +187,7 @@ pub fn rule_files() -> Vec<RuleFiles> {
         .filter_map(|dir| {
             let slug = dir.path().to_string_lossy().into_owned();
             Some(RuleFiles {
-                check_js: text(dir, "check.js")?,
+                check_js: Some(text(dir, "check.js")?),
                 rule_toml: text(dir, "rule.toml").unwrap_or_else(|| panic!("rule {slug} has a rule.toml")),
                 fix_js: text(dir, "fix.js"),
                 slug,
@@ -514,7 +514,7 @@ mod tests {
             .scripted
             .iter()
             .map(|r| json!({"rule_id": r.id.to_string(), "title": r.title, "verdict": "positive", "violations": [],
-                "broken_reason": null, "autofix_available": r.fix_js.is_some()}))
+                "broken_reason": null, "autofix_available": r.autofix_available()}))
             .collect();
         let judged: Vec<_> =
             rules.judged.iter().map(|r| (r.clone(), Ok(RuleVerdict { pass: true, violations: vec![] }))).collect();

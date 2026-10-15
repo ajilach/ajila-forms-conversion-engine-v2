@@ -213,19 +213,9 @@ fn answer(request: &WorkerRequest, budget: &ScriptBudget) -> WorkerResponse {
                 request.fix_js.as_deref(),
                 &request.output,
                 &request.schema,
-                &request.facts,
                 budget,
             )))
         }
-        WorkerRequest::Requires { script_js, .. } => WorkerResponse::Requires {
-            result: u2s_rules::read_requires(script_js, budget).map_err(|err| err.to_string()),
-        },
-        WorkerRequest::Extract {
-            script_js, ingest, ..
-        } => WorkerResponse::Extract {
-            result: u2s_rules::run_extract(script_js, ingest, budget)
-                .map_err(|err| err.to_string()),
-        },
     }
 }
 

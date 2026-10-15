@@ -4,7 +4,7 @@
 use std::time::Instant;
 
 use boa_engine::{JsValue, Source};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::budget::ScriptBudget;
 use crate::contract::{self, BrokenRule, CheckOutcome, RawCheckOutcome};
@@ -14,8 +14,6 @@ const PRELUDE: &str = include_str!("prelude.js");
 
 const OUTPUT_GLOBAL: &str = "__U2S_OUTPUT_JSON__";
 const SCHEMA_GLOBAL: &str = "__U2S_SCHEMA_JSON__";
-/// Shared with `fix.rs`, whose driver builds the same `ctx.facts`.
-pub(crate) const FACTS_GLOBAL: &str = "__U2S_FACTS_JSON__";
 
 /// Runs a generated script's `check(output, ctx)` against one output
 /// document, in a fresh sandbox built for exactly this evaluation.
@@ -24,16 +22,10 @@ pub(crate) const FACTS_GLOBAL: &str = "__U2S_FACTS_JSON__";
 /// reaches the caller as a Rust error about *this run* — it comes back as
 /// [`BrokenRule`], because a bad rule is the Rule Agent's problem, not a
 /// reason to fail whatever conversion happens to be checked against it.
-///
-/// `facts` becomes `ctx.facts`: the rule's declared facts, resolved for the
-/// input this output was converted from, and nothing else (an empty map for
-/// an intrinsic rule). The host decides beforehand whether the check can run
-/// at all; a missing fact never reaches this function.
 pub fn run_check(
     script_js: &str,
     output: &Value,
     schema: &Value,
-    facts: &Map<String, Value>,
     budget: &ScriptBudget,
 ) -> Result<CheckOutcome, BrokenRule> {
     let started = Instant::now();
@@ -44,8 +36,6 @@ pub fn run_check(
     let schema_json = serde_json::to_string(schema).expect("serde_json::Value always serializes");
     sandbox::define_global_json(&mut context, OUTPUT_GLOBAL, &output_json);
     sandbox::define_global_json(&mut context, SCHEMA_GLOBAL, &schema_json);
-    let facts_json = serde_json::to_string(facts).expect("serde_json::Map always serializes");
-    sandbox::define_global_json(&mut context, FACTS_GLOBAL, &facts_json);
 
     context
         .eval(Source::from_bytes(PRELUDE))
@@ -70,8 +60,7 @@ pub fn run_check(
            var __output = JSON.parse(globalThis.{OUTPUT_GLOBAL}); \
            var __ctx = {{ \
              schema: JSON.parse(globalThis.{SCHEMA_GLOBAL}), \
-             walk: walk, \
-             facts: __u2s_factsProxy(JSON.parse(globalThis.{FACTS_GLOBAL})) \
+             walk: walk \
            }}; \
            var __result = check(__output, __ctx); \
            return JSON.stringify(__result); \
@@ -170,10 +159,9 @@ pub fn classify_check_and_fix(
     fix_js: Option<&str>,
     output: &Value,
     schema: &Value,
-    facts: &Map<String, Value>,
     budget: &ScriptBudget,
 ) -> CheckedOutcome {
-    match run_check(script_js, output, schema, facts, budget) {
+    match run_check(script_js, output, schema, budget) {
         Ok(outcome) if outcome.pass => CheckedOutcome {
             verdict: CheckVerdict::Positive,
             violations: serde_json::to_value(&outcome.violations)
@@ -188,7 +176,6 @@ pub fn classify_check_and_fix(
                     fix_js,
                     output,
                     schema,
-                    facts,
                     &outcome.violations,
                     budget,
                 ) {
@@ -231,7 +218,6 @@ mod tests {
             script,
             &json!({ "a": 1 }),
             &json!({}),
-            &Map::new(),
             &budget(),
         )
         .unwrap();
@@ -250,7 +236,6 @@ mod tests {
             script,
             &json!({ "a": 1 }),
             &json!({}),
-            &Map::new(),
             &budget(),
         )
         .unwrap();
@@ -272,7 +257,7 @@ mod tests {
         "#;
         // A key containing both "~" and "/" exercises RFC 6901 escaping.
         let output = json!({ "a~b/c": 1, "list": [1, 2] });
-        let outcome = run_check(script, &output, &json!({}), &Map::new(), &budget()).unwrap();
+        let outcome = run_check(script, &output, &json!({}), &budget()).unwrap();
         let pointers: Vec<&str> = outcome
             .violations
             .iter()
@@ -287,7 +272,7 @@ mod tests {
     #[test]
     fn a_throwing_script_is_a_broken_rule() {
         let script = "function check(output, ctx) { throw new Error('boom'); }";
-        let err = run_check(script, &json!({}), &json!({}), &Map::new(), &budget()).unwrap_err();
+        let err = run_check(script, &json!({}), &json!({}), &budget()).unwrap_err();
         assert!(matches!(err, BrokenRule::Threw(_)));
     }
 
@@ -297,7 +282,6 @@ mod tests {
             "const x = 1;",
             &json!({}),
             &json!({}),
-            &Map::new(),
             &budget(),
         )
         .unwrap_err();
@@ -310,7 +294,6 @@ mod tests {
             "const check = 42;",
             &json!({}),
             &json!({}),
-            &Map::new(),
             &budget(),
         )
         .unwrap_err();
@@ -320,14 +303,14 @@ mod tests {
     #[test]
     fn a_malformed_return_shape_is_a_broken_rule() {
         let script = "function check(output, ctx) { return 42; }";
-        let err = run_check(script, &json!({}), &json!({}), &Map::new(), &budget()).unwrap_err();
+        let err = run_check(script, &json!({}), &json!({}), &budget()).unwrap_err();
         assert!(matches!(err, BrokenRule::MalformedResult(_)));
     }
 
     #[test]
     fn a_script_returning_nothing_is_a_broken_rule() {
         let script = "function check(output, ctx) {}";
-        let err = run_check(script, &json!({}), &json!({}), &Map::new(), &budget()).unwrap_err();
+        let err = run_check(script, &json!({}), &json!({}), &budget()).unwrap_err();
         assert!(matches!(err, BrokenRule::MalformedResult(_)));
     }
 
@@ -342,7 +325,6 @@ mod tests {
             script,
             &json!({ "a": 1 }),
             &json!({}),
-            &Map::new(),
             &budget(),
         )
         .unwrap_err();
@@ -356,7 +338,7 @@ mod tests {
             ..budget()
         };
         let script = "function check(output, ctx) { while (true) {} }";
-        let err = run_check(script, &json!({}), &json!({}), &Map::new(), &b).unwrap_err();
+        let err = run_check(script, &json!({}), &json!({}), &b).unwrap_err();
         assert!(matches!(err, BrokenRule::Threw(_)));
     }
 
@@ -372,7 +354,6 @@ mod tests {
             script,
             &json!({}),
             &json!({ "title": "Synthetic" }),
-            &Map::new(),
             &budget(),
         )
         .unwrap();
@@ -386,7 +367,6 @@ mod tests {
             None,
             &json!({}),
             &json!({}),
-            &Map::new(),
             &budget(),
         );
         assert_eq!(passing.verdict, CheckVerdict::Positive);
@@ -400,7 +380,6 @@ mod tests {
             None,
             &json!({ "a": 1 }),
             &json!({}),
-            &Map::new(),
             &budget(),
         );
         assert_eq!(failing.verdict, CheckVerdict::Negative);
@@ -416,7 +395,6 @@ mod tests {
             None,
             &json!({}),
             &json!({}),
-            &Map::new(),
             &budget(),
         );
         assert_eq!(broken.verdict, CheckVerdict::Broken);
@@ -444,7 +422,6 @@ mod tests {
             ),
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &budget(),
         );
         assert_eq!(outcome.verdict, CheckVerdict::Negative);
@@ -468,7 +445,6 @@ mod tests {
             Some("function fix(output, ctx) { return []; }"),
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &budget(),
         );
         assert_eq!(
@@ -486,109 +462,5 @@ mod tests {
             }
             other => panic!("expected a broken fix (NoOps), got {other:?}"),
         }
-    }
-
-    fn facts(pairs: &[(&str, Value)]) -> Map<String, Value> {
-        pairs
-            .iter()
-            .map(|(k, v)| ((*k).to_owned(), v.clone()))
-            .collect()
-    }
-
-    #[test]
-    fn a_declared_fact_is_readable_on_ctx() {
-        let script = r#"
-            const requires = ["source_fields"];
-            function check(output, ctx) {
-                const missing = ctx.facts.source_fields.filter(f => !(f in output));
-                return {
-                    pass: missing.length === 0,
-                    violations: missing.map(f => ({ pointer: "", message: "missing " + f })),
-                };
-            }
-        "#;
-        let outcome = run_check(
-            script,
-            &json!({ "name": 1 }),
-            &json!({}),
-            &facts(&[("source_fields", json!(["name", "iban"]))]),
-            &budget(),
-        )
-        .unwrap();
-        assert!(!outcome.pass);
-        assert_eq!(outcome.violations[0].message, "missing iban");
-    }
-
-    #[test]
-    fn reading_an_undeclared_fact_breaks_the_rule() {
-        let script = r#"
-            function check(output, ctx) {
-                const x = ctx.facts.never_declared;
-                return { pass: true, violations: [] };
-            }
-        "#;
-        let err = run_check(script, &json!({}), &json!({}), &Map::new(), &budget()).unwrap_err();
-        match err {
-            BrokenRule::Threw(message) => {
-                assert!(
-                    message.contains("undeclared fact \"never_declared\""),
-                    "{message}"
-                )
-            }
-            other => panic!("expected Threw, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn serializing_the_facts_does_not_trip_the_undeclared_key_guard() {
-        let script = r#"
-            function check(output, ctx) {
-                const text = JSON.stringify(ctx.facts);
-                return { pass: text === '{"a":1}', violations: text === '{"a":1}' ? [] : [{ pointer: "", message: text }] };
-            }
-        "#;
-        let outcome = run_check(
-            script,
-            &json!({}),
-            &json!({}),
-            &facts(&[("a", json!(1))]),
-            &budget(),
-        )
-        .unwrap();
-        assert!(outcome.pass, "{:?}", outcome.violations);
-    }
-
-    #[test]
-    fn a_fix_sees_the_same_facts_as_its_check() {
-        let check = r#"
-            function check(output, ctx) {
-                const missing = ctx.facts.required.filter(k => !(k in output));
-                return {
-                    pass: missing.length === 0,
-                    violations: missing.map(k => ({ pointer: "", message: k })),
-                };
-            }
-        "#;
-        let fix = r#"
-            function fix(output, ctx) {
-                return ctx.facts.required
-                    .filter(k => !(k in output))
-                    .map(k => ({ op: "add", path: "/" + k, value: null }));
-            }
-        "#;
-        let outcome = classify_check_and_fix(
-            check,
-            Some(fix),
-            &json!({ "a": 1 }),
-            &json!({}),
-            &facts(&[("required", json!(["a", "b"]))]),
-            &budget(),
-        );
-        assert_eq!(outcome.verdict, CheckVerdict::Negative);
-        assert!(
-            matches!(outcome.fix, Some(FixOutcome::Ops(_))),
-            "{:?}",
-            outcome.fix
-        );
     }
 }

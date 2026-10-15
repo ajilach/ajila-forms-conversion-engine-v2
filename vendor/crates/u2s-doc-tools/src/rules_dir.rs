@@ -14,7 +14,13 @@
 //!   amount-must-be-positive/
 //!     rule.toml
 //!     check.js
+//!   labels-match-the-source/
+//!     rule.toml     (no check.js: a judged rule)
 //! ```
+//!
+//! A directory with a `check.js` is a scripted rule; one without is a
+//! *judged* rule, decided by a judge against its `description`. A judged
+//! rule cannot have a `fix.js`: there is no check to prove the fix against.
 //!
 //! `rule.toml`:
 //!
@@ -44,29 +50,19 @@
 //! (`u2s-store`'s `active_rules`) that a real run goes through. A host that
 //! cares reads it itself from the same file; nothing here drops it
 //! silently, but nothing here acts on it either.
-//!
-//! # Facts
-//!
-//! A file-loaded rule has no facts system behind it, so every rule this
-//! loader produces gets [`u2s_facts::FactsForCheck::Ready`] with an empty
-//! map. A script that declares `const requires = [...]` with at least one
-//! entry is refused at load time rather than silently run with no facts: a
-//! check reading `ctx.facts.<key>` a file host can never resolve would
-//! either throw (surfacing as `Broken`, which hides the real problem: the
-//! rule cannot run *here*) or, if the sandbox let the read through, run on
-//! a wrong assumption. Refusing to load is the honest answer.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use u2s_core::RuleId;
-use u2s_rules::{BrokenRule, ScriptBudget, read_requires};
+use u2s_core::{RuleCheck, RuleId};
+use u2s_rules::{BrokenRule, ScriptBudget, parse_script};
 use uuid::Uuid;
 
 use crate::native::RuleForCheck;
 
-/// The name of a rule's check script within its subdirectory.
+/// The name of a rule's check script within its subdirectory. Absent for a
+/// judged rule.
 const CHECK_JS: &str = "check.js";
 /// The name of a rule's optional fix script within its subdirectory.
 const FIX_JS: &str = "fix.js";
@@ -135,7 +131,7 @@ pub enum RulesDirError {
     },
 
     #[error("{slug}/{CHECK_JS} could not be read: {source}")]
-    CheckJsMissing {
+    CheckJsUnreadable {
         slug: String,
         #[source]
         source: std::io::Error,
@@ -156,11 +152,10 @@ pub enum RulesDirError {
     },
 
     #[error(
-        "{slug}/{CHECK_JS} declares `requires = {requires:?}`, but a file-loaded rule has no \
-         facts system to resolve them against -- an extrinsic rule cannot be loaded from a \
-         directory"
+        "{slug} has a {FIX_JS} but no {CHECK_JS}: a judged rule has no check to prove a fix \
+         against"
     )]
-    RuleRequiresFacts { slug: String, requires: Vec<String> },
+    FixWithoutCheck { slug: String },
 
     #[error(
         "{slug}/{RULE_TOML} and {first_slug}/{RULE_TOML} both declare id {id:?}; \
@@ -181,8 +176,8 @@ pub struct RuleFiles {
     pub slug: String,
     /// The text of `rule.toml`.
     pub rule_toml: String,
-    /// The text of `check.js`.
-    pub check_js: String,
+    /// The text of `check.js`; `None` for a judged rule.
+    pub check_js: Option<String>,
     /// The text of `fix.js`, if the rule has one.
     pub fix_js: Option<String>,
 }
@@ -252,12 +247,16 @@ fn read_rule_files(slug: String, dir: &Path) -> Result<RuleFiles, RulesDirError>
             source,
         }
     })?;
-    let check_js = std::fs::read_to_string(dir.join(CHECK_JS)).map_err(|source| {
-        RulesDirError::CheckJsMissing {
-            slug: slug.clone(),
-            source,
+    let check_js = match std::fs::read_to_string(dir.join(CHECK_JS)) {
+        Ok(text) => Some(text),
+        Err(source) if source.kind() == std::io::ErrorKind::NotFound => None,
+        Err(source) => {
+            return Err(RulesDirError::CheckJsUnreadable {
+                slug: slug.clone(),
+                source,
+            });
         }
-    })?;
+    };
     let fix_js = match std::fs::read_to_string(dir.join(FIX_JS)) {
         Ok(text) => Some(text),
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => None,
@@ -283,26 +282,26 @@ fn parse_rule(
             source,
         })?;
 
-    let requires = read_requires(&files.check_js, budget).map_err(|source| {
-        RulesDirError::CheckJsInvalid {
-            slug: slug.clone(),
-            source,
+    let check = match (&files.check_js, &files.fix_js) {
+        (Some(check_js), fix_js) => {
+            parse_script(check_js, budget).map_err(|source| RulesDirError::CheckJsInvalid {
+                slug: slug.clone(),
+                source,
+            })?;
+            RuleCheck::Script {
+                script_js: check_js.clone(),
+                fix_js: fix_js.clone(),
+            }
         }
-    })?;
-    if !requires.is_empty() {
-        return Err(RulesDirError::RuleRequiresFacts {
-            slug: slug.clone(),
-            requires,
-        });
-    }
+        (None, None) => RuleCheck::Judged,
+        (None, Some(_)) => return Err(RulesDirError::FixWithoutCheck { slug: slug.clone() }),
+    };
 
     let rule = RuleForCheck {
         id: derive_rule_id(&rule_toml.id),
         title: rule_toml.title,
         description_md: rule_toml.description,
-        script_js: files.check_js.clone(),
-        fix_js: files.fix_js.clone(),
-        facts: u2s_facts::FactsForCheck::Ready(serde_json::Map::new()),
+        check,
     };
     Ok((rule_toml.id, rule))
 }
@@ -368,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn a_loaded_rule_carries_no_script_and_ready_empty_facts() {
+    fn a_loaded_rule_carries_its_scripts() {
         let tmp = tempdir();
         write_rule(
             tmp.path(),
@@ -385,11 +384,8 @@ mod tests {
         let rule = &rules[0];
         assert_eq!(rule.title, "No title");
         assert_eq!(rule.description_md, "d");
-        assert!(rule.fix_js.is_some());
-        assert_eq!(
-            rule.facts,
-            u2s_facts::FactsForCheck::Ready(serde_json::Map::new())
-        );
+        assert!(rule.autofix_available());
+        assert_eq!(rule.check.script_js(), Some(ALWAYS_POSITIVE));
     }
 
     #[test]
@@ -415,7 +411,24 @@ mod tests {
     }
 
     #[test]
-    fn missing_check_js_is_a_hard_error() {
+    fn a_rule_without_check_js_is_judged() {
+        let tmp = tempdir();
+        let dir = tmp.path().join("judged");
+        fs::create_dir_all(&dir).expect("create dir");
+        fs::write(
+            dir.join(RULE_TOML),
+            "id = \"judged\"\ntitle = \"T\"\ndescription = \"d\"\n",
+        )
+        .expect("write rule.toml");
+
+        let rules = load_rules_dir(tmp.path()).expect("load");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].check, RuleCheck::Judged);
+        assert!(!rules[0].autofix_available());
+    }
+
+    #[test]
+    fn a_fix_without_check_js_is_a_hard_error() {
         let tmp = tempdir();
         let dir = tmp.path().join("broken");
         fs::create_dir_all(&dir).expect("create dir");
@@ -424,9 +437,10 @@ mod tests {
             "id = \"broken\"\ntitle = \"T\"\ndescription = \"d\"\n",
         )
         .expect("write rule.toml");
+        fs::write(dir.join(FIX_JS), "function fix() { return []; }").expect("write fix.js");
 
         let err = load_rules_dir(tmp.path()).expect_err("must fail");
-        assert!(matches!(err, RulesDirError::CheckJsMissing { .. }), "{err}");
+        assert!(matches!(err, RulesDirError::FixWithoutCheck { .. }), "{err}");
     }
 
     #[test]
@@ -538,31 +552,6 @@ mod tests {
 
         let err = load_rules_dir(tmp.path()).expect_err("must fail");
         assert!(matches!(err, RulesDirError::CheckJsInvalid { .. }), "{err}");
-    }
-
-    #[test]
-    fn a_script_that_declares_requires_is_refused() {
-        let tmp = tempdir();
-        write_rule(
-            tmp.path(),
-            "extrinsic",
-            "extrinsic",
-            "T",
-            "d",
-            r#"
-                const requires = ["source_fields"];
-                function check(output, ctx) { return { pass: true, violations: [] }; }
-            "#,
-            None,
-        );
-
-        let err = load_rules_dir(tmp.path()).expect_err("must fail");
-        match err {
-            RulesDirError::RuleRequiresFacts { requires, .. } => {
-                assert_eq!(requires, vec!["source_fields".to_owned()]);
-            }
-            other => panic!("expected RuleRequiresFacts, got {other}"),
-        }
     }
 
     #[test]

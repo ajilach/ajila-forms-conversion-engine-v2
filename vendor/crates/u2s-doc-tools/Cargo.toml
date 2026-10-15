@@ -43,9 +43,6 @@ version = "2"
 [dependencies.u2s-core]
 path = "../u2s-core"
 
-[dependencies.u2s-facts]
-path = "../u2s-facts"
-
 [dependencies.u2s-jsondoc]
 path = "../u2s-jsondoc"
 

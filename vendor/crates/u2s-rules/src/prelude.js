@@ -27,25 +27,3 @@ function walk(node, callback) {
   }
   visit(node, "");
 }
-
-// `ctx.facts`: exactly the facts the rule declared in `requires` and the
-// host resolved for the input being checked. Reading any other name
-// throws, so a rule can never depend on a fact it did not declare (and so
-// the host's record of which facts a rule reads cannot be incomplete).
-// Symbol keys and `toJSON` pass through so `JSON.stringify(ctx.facts)` and
-// string coercion keep working.
-function __u2s_factsProxy(facts) {
-  return new Proxy(facts, {
-    get: function (target, key) {
-      if (typeof key !== "string" || key === "toJSON") {
-        return target[key];
-      }
-      if (!Object.prototype.hasOwnProperty.call(target, key)) {
-        throw new Error(
-          "undeclared fact \"" + key + "\": declare it in `const requires = [...]`"
-        );
-      }
-      return target[key];
-    },
-  });
-}

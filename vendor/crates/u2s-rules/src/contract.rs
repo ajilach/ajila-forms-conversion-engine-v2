@@ -79,15 +79,16 @@ pub enum BrokenRule {
     /// why this is detected rather than pre-empted.
     #[error("script exceeded its {0:?} wall-clock budget")]
     Timeout(std::time::Duration),
+}
 
-    /// The script's top-level `requires` is not an array of distinct fact
-    /// names -- see [`crate::requires::read_requires`].
-    #[error("invalid `requires` declaration: {0}")]
-    MalformedRequires(String),
-
-    /// An `ingest_script` fact's script defines no `extract(ingest)`.
-    #[error("an ingest_script fact must define a function named `extract(ingest)`")]
-    NoExtractFunction,
+/// Whether `pointer` is an RFC 6901 JSON Pointer that resolves inside
+/// `output`; `Err` says why not. The one test every violation's pointer
+/// must pass, whether a script or a judge named it.
+pub fn resolve_pointer(output: &serde_json::Value, pointer: &str) -> Result<(), String> {
+    let parsed: jsonptr::PointerBuf = pointer
+        .parse()
+        .map_err(|err: jsonptr::ParseError| err.to_string())?;
+    parsed.resolve(output).map(|_| ()).map_err(|err| err.to_string())
 }
 
 /// Cross-checks a freshly parsed [`RawCheckOutcome`] against the output it
@@ -105,20 +106,12 @@ pub(crate) fn validate_outcome(
     }
 
     for violation in &raw.violations {
-        let pointer: jsonptr::PointerBuf =
-            violation
-                .pointer
-                .parse()
-                .map_err(|err: jsonptr::ParseError| BrokenRule::UnresolvablePointer {
-                    pointer: violation.pointer.clone(),
-                    reason: err.to_string(),
-                })?;
-        pointer
-            .resolve(output)
-            .map_err(|err| BrokenRule::UnresolvablePointer {
+        resolve_pointer(output, &violation.pointer).map_err(|reason| {
+            BrokenRule::UnresolvablePointer {
                 pointer: violation.pointer.clone(),
-                reason: err.to_string(),
-            })?;
+                reason,
+            }
+        })?;
     }
 
     Ok(CheckOutcome {

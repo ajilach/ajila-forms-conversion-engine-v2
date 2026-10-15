@@ -24,7 +24,6 @@ fn request(script_js: &str, budget: ScriptBudget) -> CheckRequest {
         None,
         json!({ "a": 1 }),
         json!({ "type": "object" }),
-        serde_json::Map::new(),
         &budget,
     )
 }
@@ -309,7 +308,6 @@ async fn honest_scripts_do_not_inherit_each_others_cpu_time() {
         fix_js: None,
         output: json!({ "a": 1 }),
         schema: json!({}),
-        facts: serde_json::Map::new(),
         budget: (&ScriptBudget::default()).into(),
     };
     let budget = ScriptBudget::default().wall_clock;
@@ -338,77 +336,6 @@ async fn honest_scripts_do_not_inherit_each_others_cpu_time() {
             outcome.broken_reason
         );
     }
-}
-
-#[tokio::test]
-async fn facts_reach_ctx_through_the_worker() {
-    let _load = beside_others().await;
-    let script = r#"
-        const requires = ["expected"];
-        function check(output, ctx) {
-            const ok = output.a === ctx.facts.expected;
-            return { pass: ok, violations: ok ? [] : [{ pointer: "/a", message: "differs" }] };
-        }
-    "#;
-    let mut facts = serde_json::Map::new();
-    facts.insert("expected".to_owned(), json!(2));
-    let checked = CheckRequest::new(
-        script.to_owned(),
-        None,
-        json!({ "a": 1 }),
-        json!({}),
-        facts,
-        &ScriptBudget::default(),
-    );
-    let outcome = into_map(runner(1).run_batch(vec![((), checked)]).await)
-        .remove(&())
-        .unwrap();
-    assert_eq!(outcome.verdict, CheckVerdict::Negative, "{outcome:?}");
-}
-
-#[tokio::test]
-async fn a_requires_declaration_is_read_through_the_worker() {
-    let _load = beside_others().await;
-    let runner = runner(1);
-    let keys = runner
-        .read_requires(
-            "const requires = ['a', 'b']; function check() {}",
-            &ScriptBudget::default(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(keys, vec!["a".to_owned(), "b".to_owned()]);
-
-    let err = runner
-        .read_requires("const requires = 'a';", &ScriptBudget::default())
-        .await
-        .unwrap_err();
-    assert!(err.contains("requires"), "{err}");
-}
-
-#[tokio::test]
-async fn an_extract_runs_through_the_worker_and_a_runaway_one_is_stopped() {
-    let _load = alone().await;
-    let runner = runner(1);
-    let value = runner
-        .run_extract(
-            "function extract(ingest) { return ingest.files.length; }",
-            &json!({ "files": [{}, {}] }),
-            &ScriptBudget::default(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(value, json!(2));
-
-    let err = runner
-        .run_extract(
-            "function extract(ingest) { while (true) {} }",
-            &json!({}),
-            &ScriptBudget::default(),
-        )
-        .await
-        .unwrap_err();
-    assert!(!err.is_empty());
 }
 
 /// A host that is its own worker starts it with arguments

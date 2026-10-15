@@ -48,13 +48,11 @@
 mod budget;
 mod check;
 mod contract;
-mod extract;
 mod fix;
-mod requires;
+mod parse;
 mod sandbox;
 
 pub use budget::ScriptBudget;
 pub use check::{CheckVerdict, CheckedOutcome, FixOutcome, classify_check_and_fix, run_check};
-pub use contract::{BrokenFix, BrokenRule, CheckOutcome, RuleViolation};
-pub use extract::run_extract;
-pub use requires::read_requires;
+pub use contract::{BrokenFix, BrokenRule, CheckOutcome, RuleViolation, resolve_pointer};
+pub use parse::parse_script;

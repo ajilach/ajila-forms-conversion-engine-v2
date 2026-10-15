@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value};
+use serde_json::Value;
 use u2s_rules::{CheckVerdict, CheckedOutcome, FixOutcome, ScriptBudget};
 
 /// One script against one document, with an optional fix to verify if the
@@ -34,11 +34,6 @@ pub struct CheckRequest {
     pub fix_js: Option<String>,
     pub output: Value,
     pub schema: Value,
-    /// `ctx.facts`: the rule's declared facts, resolved for the input this
-    /// output came from. Empty for an intrinsic rule, which is also what an
-    /// older host that never sends the field means.
-    #[serde(default)]
-    pub facts: Map<String, Value>,
     pub budget: WireBudget,
 }
 
@@ -50,7 +45,6 @@ impl CheckRequest {
         fix_js: Option<String>,
         output: Value,
         schema: Value,
-        facts: Map<String, Value>,
         budget: &ScriptBudget,
     ) -> Self {
         Self {
@@ -58,7 +52,6 @@ impl CheckRequest {
             fix_js,
             output,
             schema,
-            facts,
             budget: budget.into(),
         }
     }
@@ -113,40 +106,27 @@ impl From<WireBudget> for ScriptBudget {
     }
 }
 
-/// One line from the host to a worker. A check is by far the common job;
-/// the other two exist because a script's top-level `requires` and an
-/// `ingest_script` fact's `extract(ingest)` are generated code too, and
-/// must run under the same isolation as a check.
+/// One line from the host to a worker. A check is the only job; the line
+/// is tagged so a new kind of job can be added without changing what a
+/// check looks like on the wire.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "job", rename_all = "snake_case")]
 pub enum WorkerRequest {
     Check(CheckRequest),
-    Requires {
-        script_js: String,
-        budget: WireBudget,
-    },
-    Extract {
-        script_js: String,
-        ingest: Value,
-        budget: WireBudget,
-    },
 }
 
 impl WorkerRequest {
     pub fn budget(&self) -> ScriptBudget {
         match self {
             Self::Check(request) => request.budget.into(),
-            Self::Requires { budget, .. } | Self::Extract { budget, .. } => (*budget).into(),
         }
     }
 
     /// How many script evaluations this job may need -- see
-    /// [`CheckRequest::eval_multiplier`]. Declarations and extractions are
-    /// one evaluation each.
+    /// [`CheckRequest::eval_multiplier`].
     pub fn eval_multiplier(&self) -> u32 {
         match self {
             Self::Check(request) => request.eval_multiplier(),
-            Self::Requires { .. } | Self::Extract { .. } => 1,
         }
     }
 }
@@ -157,8 +137,6 @@ impl WorkerRequest {
 #[serde(tag = "job", rename_all = "snake_case")]
 pub enum WorkerResponse {
     Check(CheckResponse),
-    Requires { result: Result<Vec<String>, String> },
-    Extract { result: Result<Value, String> },
 }
 
 impl WorkerResponse {
@@ -169,12 +147,6 @@ impl WorkerResponse {
         let reason = reason.into();
         match request {
             WorkerRequest::Check(_) => Self::Check(CheckResponse::broken(reason)),
-            WorkerRequest::Requires { .. } => Self::Requires {
-                result: Err(reason),
-            },
-            WorkerRequest::Extract { .. } => Self::Extract {
-                result: Err(reason),
-            },
         }
     }
 }
@@ -350,7 +322,6 @@ mod tests {
             fix_js: None,
             output: json!({}),
             schema: json!({}),
-            facts: Map::new(),
             budget: WireBudget::from(&ScriptBudget::default()),
         };
         assert_eq!(request.eval_multiplier(), 1);
@@ -363,7 +334,6 @@ mod tests {
             fix_js: Some("function fix(o,c){return []}".to_owned()),
             output: json!({}),
             schema: json!({}),
-            facts: Map::new(),
             budget: WireBudget::from(&ScriptBudget::default()),
         };
         assert!(

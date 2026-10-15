@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use u2s_rules::{CheckOutcome, ScriptBudget, run_check};
 
 fn rules_dir() -> PathBuf {
@@ -25,7 +25,6 @@ fn check(rule: &str, doc: &Value) -> CheckOutcome {
         &script,
         doc,
         &json!({}),
-        &Map::new(),
         &ScriptBudget::default(),
     )
     .unwrap_or_else(|e| panic!("{rule} breaks: {e:?}"))
@@ -277,7 +276,7 @@ fn the_compiled_rules_are_the_rule_directories() {
         .iter()
         .map(|slug| u2s_doc_tools::rules_dir::RuleFiles {
             rule_toml: read(slug, "rule.toml").unwrap(),
-            check_js: read(slug, "check.js").unwrap(),
+            check_js: Some(read(slug, "check.js").unwrap()),
             fix_js: read(slug, "fix.js"),
             slug: slug.clone(),
         })
@@ -289,7 +288,7 @@ fn the_compiled_rules_are_the_rule_directories() {
     let ids = |rules: &[u2s_doc_tools::native::RuleForCheck]| {
         rules
             .iter()
-            .map(|r| (r.id, r.script_js.clone()))
+            .map(|r| (r.id, r.check.clone()))
             .collect::<Vec<_>>()
     };
     assert_eq!(ids(&compiled), ids(&from_dir));

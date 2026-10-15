@@ -33,7 +33,7 @@ use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 use tokio::sync::Mutex;
 use u2s_rules::{CheckedOutcome, ScriptBudget};
 
-use crate::protocol::{CheckRequest, CheckResponse, WorkerRequest, WorkerResponse};
+use crate::protocol::{CheckRequest, WorkerRequest, WorkerResponse};
 
 /// The binary this host runs. Located, not configured as a full path, so it
 /// is subject to the same containment as every other program u2s spawns.
@@ -275,51 +275,6 @@ impl RuleRunner {
         results
     }
 
-    /// A script's top-level `requires` declaration, read in a worker --
-    /// see `u2s_rules::read_requires`. `Err` names why it could not be
-    /// read, including a worker that died.
-    pub async fn read_requires(
-        &self,
-        script_js: &str,
-        budget: &ScriptBudget,
-    ) -> Result<Vec<String>, String> {
-        match self
-            .run_job(WorkerRequest::Requires {
-                script_js: script_js.to_owned(),
-                budget: budget.into(),
-            })
-            .await
-        {
-            WorkerResponse::Requires { result } => result,
-            other => Err(format!(
-                "the sandbox worker answered a different job: {other:?}"
-            )),
-        }
-    }
-
-    /// An `ingest_script` fact's `extract(ingest)`, run in a worker -- see
-    /// `u2s_rules::run_extract`.
-    pub async fn run_extract(
-        &self,
-        script_js: &str,
-        ingest: &serde_json::Value,
-        budget: &ScriptBudget,
-    ) -> Result<serde_json::Value, String> {
-        match self
-            .run_job(WorkerRequest::Extract {
-                script_js: script_js.to_owned(),
-                ingest: ingest.clone(),
-                budget: budget.into(),
-            })
-            .await
-        {
-            WorkerResponse::Extract { result } => result,
-            other => Err(format!(
-                "the sandbox worker answered a different job: {other:?}"
-            )),
-        }
-    }
-
     /// One job, on a borrowed worker, under a deadline.
     async fn run_job(&self, request: WorkerRequest) -> WorkerResponse {
         let budget: ScriptBudget = request.budget();
@@ -414,7 +369,6 @@ impl RuleRunner {
                 None,
                 output.clone(),
                 schema.clone(),
-                serde_json::Map::new(),
                 budget,
             )))
             .await,
@@ -422,15 +376,10 @@ impl RuleRunner {
     }
 }
 
-/// A check's outcome from whatever the worker answered. Any other kind of
-/// answer to a check is a protocol fault, reported as a broken rule.
+/// A check's outcome from what the worker answered.
 fn check_outcome(response: WorkerResponse) -> CheckedOutcome {
     match response {
         WorkerResponse::Check(response) => response.into(),
-        other => CheckResponse::broken(format!(
-            "the sandbox worker answered a check with a different job: {other:?}"
-        ))
-        .into(),
     }
 }
 

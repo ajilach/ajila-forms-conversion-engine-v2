@@ -484,7 +484,7 @@
       "additionalProperties": false,
       "properties": {
         "rule_ids": {
-          "description": "Subset of rule ids to check; omit or empty for every active rule",
+          "description": "Rule ids to check. Omit for every scripted rule; a judged rule is checked only when named here",
           "items": {
             "type": "string"
           },

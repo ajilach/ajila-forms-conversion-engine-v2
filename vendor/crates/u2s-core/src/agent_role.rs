@@ -19,8 +19,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One of the agents in PLAN.md: the Conversion Agent, the Rule Agent and
-/// the description agent.
+/// One of the agents in PLAN.md: the Conversion Agent, the Rule Agent, the
+/// description agent and the Judge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
@@ -30,29 +30,40 @@ pub enum AgentRole {
     Rule,
     /// Writes the text description of one input. Calls no tool.
     Describe,
+    /// Decides one judged rule (a rule without a check script) against one
+    /// output and its source. Calls only reading tools: the native JSON
+    /// readers over the output, and the Conversion Agent's enabled MCP tools
+    /// that neither change anything nor differ between calls.
+    Judge,
 }
 
 /// A role name that is not one of the agents.
 #[derive(Debug, Clone, thiserror::Error)]
 #[error(
-    "unknown agent role {value:?}: expected one of conversion, rule, describe"
+    "unknown agent role {value:?}: expected one of conversion, rule, describe, judge"
 )]
 pub struct AgentRoleError {
     pub value: String,
 }
 
 impl AgentRole {
-    /// Every role, including [`AgentRole::Rule`] and [`AgentRole::Describe`].
-    /// This is the vocabulary `agent_turns.agent_role` records, because a
-    /// call by either is still a model call worth auditing and costing.
-    pub const ALL: &'static [AgentRole] =
-        &[AgentRole::Conversion, AgentRole::Rule, AgentRole::Describe];
+    /// Every role, including the ones no tool enablement may name. This is
+    /// the vocabulary `agent_turns.agent_role` records, because a call by any
+    /// of them is still a model call worth auditing and costing.
+    pub const ALL: &'static [AgentRole] = &[
+        AgentRole::Conversion,
+        AgentRole::Rule,
+        AgentRole::Describe,
+        AgentRole::Judge,
+    ];
 
     /// The roles a tool enablement may name. Excludes [`AgentRole::Rule`],
     /// which calls no *enableable* (MCP) tool, and [`AgentRole::Describe`],
     /// which calls no tool at all: enabling a tool for either would be a row
     /// that can never be read, which is worse than a row that cannot be
-    /// written.
+    /// written. Excludes [`AgentRole::Judge`] too: its MCP tools are the
+    /// Conversion Agent's reading ones, derived rather than enabled, so a
+    /// judge always reads the source through what the conversion read.
     pub const TOOL_USING: &'static [AgentRole] = &[AgentRole::Conversion];
 
     /// The wire and database spelling. Must stay in step with the Postgres
@@ -62,6 +73,7 @@ impl AgentRole {
             AgentRole::Conversion => "conversion",
             AgentRole::Rule => "rule",
             AgentRole::Describe => "describe",
+            AgentRole::Judge => "judge",
         }
     }
 
@@ -177,8 +189,9 @@ mod tests {
     fn only_the_conversion_agent_is_tool_using() {
         assert!(!AgentRole::Rule.is_tool_using());
         assert!(!AgentRole::Describe.is_tool_using());
+        assert!(!AgentRole::Judge.is_tool_using());
         assert!(AgentRole::Conversion.is_tool_using());
-        assert_eq!(AgentRole::TOOL_USING.len(), AgentRole::ALL.len() - 2);
+        assert_eq!(AgentRole::TOOL_USING, &[AgentRole::Conversion]);
     }
 
     #[test]

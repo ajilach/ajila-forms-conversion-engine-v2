@@ -25,10 +25,13 @@ pub mod agent_instructions;
 pub mod agent_role;
 pub mod base64;
 pub mod config;
+pub mod flag;
 mod format;
 pub mod ids;
 mod label;
+pub mod rule_check;
 pub mod slug;
+pub mod tag;
 pub mod text;
 
 pub use agent_instructions::{
@@ -36,12 +39,15 @@ pub use agent_instructions::{
 };
 pub use agent_role::{AgentRole, AgentRoleError, TurnPhase};
 pub use config::{ConfigError, ConfigProblem, EnvSource, ProcessEnv};
+pub use flag::{FlagReason, FlagReasonError, MAX_FLAG_REASON_CHARS};
 pub use format::{
     FormatId, FormatIdError, FormatScope, matches as format_matches, scopes_could_overlap,
 };
 pub use ids::{
-    DatasetId, FactId, FactRevisionId, InputFileId, InputId, JobId, McpServerId, McpToolId, RuleId,
-    RuleRevisionId, RunId,
+    DatasetId, InputFileId, InputId, JobId, McpServerId, McpToolId, RuleId, RuleRevisionId, RunId,
+    TagId,
 };
+pub use rule_check::{FixWithoutScript, RuleCheck, RuleCheckKind};
 pub use slug::{DatasetSlug, SlugError};
+pub use tag::{MAX_TAG_NAME_CHARS, RuleSelection, TagName, TagNameError};
 pub use text::{Windowed, window_chars};

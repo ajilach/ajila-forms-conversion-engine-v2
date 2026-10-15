@@ -12,10 +12,9 @@
 use std::time::Instant;
 
 use boa_engine::{JsValue, Source};
-use serde_json::{Map, Value};
+use serde_json::Value;
 
 use crate::budget::ScriptBudget;
-use crate::check::FACTS_GLOBAL;
 use crate::contract::{self, BrokenFix, RuleViolation};
 use crate::sandbox;
 
@@ -36,7 +35,6 @@ fn run_fix_script(
     fix_js: &str,
     output: &Value,
     schema: &Value,
-    facts: &Map<String, Value>,
     violations: &[RuleViolation],
     budget: &ScriptBudget,
 ) -> Result<Value, BrokenFix> {
@@ -50,8 +48,6 @@ fn run_fix_script(
     sandbox::define_global_json(&mut context, OUTPUT_GLOBAL, &output_json);
     sandbox::define_global_json(&mut context, SCHEMA_GLOBAL, &schema_json);
     sandbox::define_global_json(&mut context, VIOLATIONS_GLOBAL, &violations_json);
-    let facts_json = serde_json::to_string(facts).expect("serde_json::Map always serializes");
-    sandbox::define_global_json(&mut context, FACTS_GLOBAL, &facts_json);
 
     context
         .eval(Source::from_bytes(PRELUDE))
@@ -77,8 +73,7 @@ fn run_fix_script(
            var __ctx = {{ \
              schema: JSON.parse(globalThis.{SCHEMA_GLOBAL}), \
              violations: JSON.parse(globalThis.{VIOLATIONS_GLOBAL}), \
-             walk: walk, \
-             facts: __u2s_factsProxy(JSON.parse(globalThis.{FACTS_GLOBAL})) \
+             walk: walk \
            }}; \
            var __result = fix(__output, __ctx); \
            return JSON.stringify(__result); \
@@ -126,24 +121,19 @@ fn run_fix_script(
 /// `u2s_jsondoc::patch_apply` so the revision check and atomicity guarantees
 /// stay in one place); this function's job ends at proving the ops work
 /// against a disposable clone.
-///
-/// `facts` is the same `ctx.facts` the check saw, handed to both the fix and
-/// the re-check: a fix proven against different facts than the check that
-/// asked for it would prove nothing.
 pub(crate) fn verify_fix(
     check_js: &str,
     fix_js: &str,
     output: &Value,
     schema: &Value,
-    facts: &Map<String, Value>,
     violations: &[RuleViolation],
     budget: &ScriptBudget,
 ) -> Result<Value, BrokenFix> {
-    let raw_ops = run_fix_script(fix_js, output, schema, facts, violations, budget)?;
+    let raw_ops = run_fix_script(fix_js, output, schema, violations, budget)?;
     let ops = contract::parse_fix_ops(&raw_ops)?;
     let fixed = contract::apply_fix_ops(&ops, output)?;
 
-    match crate::check::run_check(check_js, &fixed, schema, facts, budget) {
+    match crate::check::run_check(check_js, &fixed, schema, budget) {
         Ok(outcome) if outcome.pass => Ok(raw_ops),
         Ok(outcome) => Err(BrokenFix::DidNotFix {
             remaining: outcome.violations,
@@ -198,7 +188,6 @@ mod tests {
             fix_js,
             &output,
             &json!({}),
-            &Map::new(),
             &violations,
             &budget(),
         )
@@ -224,7 +213,6 @@ mod tests {
             fix_js,
             &output,
             &json!({}),
-            &Map::new(),
             &violations,
             &budget(),
         )
@@ -245,7 +233,6 @@ mod tests {
             fix_js,
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &[],
             &budget(),
         )
@@ -261,7 +248,6 @@ mod tests {
             fix_js,
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &[],
             &budget(),
         )
@@ -277,7 +263,6 @@ mod tests {
             fix_js,
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &[],
             &budget(),
         )
@@ -293,7 +278,6 @@ mod tests {
             fix_js,
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &[],
             &budget(),
         )
@@ -308,7 +292,6 @@ mod tests {
             "const x = 1;",
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &[],
             &budget(),
         )
@@ -328,7 +311,6 @@ mod tests {
             fix_js,
             &json!({ "title": "x" }),
             &json!({}),
-            &Map::new(),
             &[],
             &b,
         )
@@ -356,7 +338,6 @@ mod tests {
             fix_js,
             &output,
             &json!({}),
-            &Map::new(),
             &violations,
             &budget(),
         )
