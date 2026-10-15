@@ -1823,7 +1823,6 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_status"
@@ -1833,7 +1832,6 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_package_check"
@@ -1860,7 +1858,6 @@
           "type": "boolean"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_run"
@@ -1870,7 +1867,6 @@
     "input_schema": {
       "additionalProperties": false,
       "properties": {},
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_open"
@@ -1919,7 +1915,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_controls"
@@ -1943,7 +1938,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_field"
@@ -1992,7 +1986,6 @@
           "description": "What to set it to -- one of the control's own option values (an array for a multi-select checkbox), or free text/a number."
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_set"
@@ -2016,7 +2009,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_click"
@@ -2036,7 +2028,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_next"
@@ -2056,7 +2047,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_prev"
@@ -2080,7 +2070,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_goto"
@@ -2100,7 +2089,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_reset"
@@ -2132,7 +2120,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_screenshot"
@@ -2152,7 +2139,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_submit"
@@ -2167,7 +2153,6 @@
           "type": "string"
         }
       },
-      "required": null,
       "type": "object"
     },
     "name": "aem_verify_close"

@@ -156,7 +156,10 @@ fn to_entry(spec: &Value, family: Family, siblings: &[String]) -> Entry {
     let takes_artifact = family
         .artifact_argument()
         .is_some_and(|arg| schema["properties"].get(arg).is_some());
-    if let Some(properties) = schema["properties"].as_object_mut() {
+    // `get_mut`, not indexing: `schema["required"]` on a mutable value inserts
+    // `null` for a key the server left out, and OpenAI rejects a `required`
+    // that is not an array (Anthropic lets it pass).
+    if let Some(properties) = schema.get_mut("properties").and_then(Value::as_object_mut) {
         for arg in family.supplied_arguments() {
             properties.remove(*arg);
         }
@@ -166,7 +169,7 @@ fn to_entry(spec: &Value, family: Family, siblings: &[String]) -> Entry {
             }
         }
     }
-    if let Some(required) = schema["required"].as_array_mut() {
+    if let Some(required) = schema.get_mut("required").and_then(Value::as_array_mut) {
         required.retain(|r| !r.as_str().is_some_and(|r| family.supplied_arguments().contains(&r)));
     }
 
