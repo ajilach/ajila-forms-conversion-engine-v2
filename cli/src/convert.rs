@@ -113,6 +113,13 @@ pub struct RunArgs {
     #[arg(long, value_name = "N")]
     max_review_rounds: Option<usize>,
 
+    /// Check the scripted rules only: no judge runs, in any stage or in the
+    /// final rule check, and the judged rules stay not checked. For measuring
+    /// a stage on its own; judge the form afterwards with `--session ID
+    /// --assess --max-review-rounds 0`.
+    #[arg(long)]
+    no_judges: bool,
+
     /// Extra operator instructions, appended to every role's system prompt.
     #[arg(long, value_name = "TEXT")]
     instructions: Option<String>,
@@ -180,6 +187,9 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
                 "Nothing to convert: pass a source PDF, an AEM content package, or both.".into(),
             );
         }
+    }
+    if args.assess && args.run.no_judges && args.run.max_review_rounds == Some(0) {
+        return Err("--assess --max-review-rounds 0 runs only the judges, which --no-judges turns off.".into());
     }
 
     let profile = resolve_profile(&args.run, args.session.as_deref())?;
@@ -560,6 +570,7 @@ pub(crate) fn resolve_settings(args: &RunArgs) -> Result<AppSettings, Box<dyn Er
     if let Some(rounds) = args.max_review_rounds {
         settings.max_review_rounds = rounds;
     }
+    settings.no_judges = args.no_judges;
     if let Some(text) = &args.instructions {
         settings.agent_instructions = text.clone();
     }

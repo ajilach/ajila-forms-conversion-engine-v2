@@ -50,7 +50,9 @@ elif rounds == "1":
     stages.append({"name": "Reviewer", "turns": 20, "agent_spend": {"cost_usd": 1.0},
                    "judges_spend": {"cost_usd": 0.2}})
     review = [{"round": 1, "approved": False, "report": "ISSUES\n1. Title wrong.\n2. Footer missing.\n"}]
-board = [{"rule_id": "id-" + r, "title": r, "kind": "judge", "state": "pass" if v == "positive" else "fail",
+no_judges = "--no-judges" in args
+board = [{"rule_id": "id-" + r, "title": r, "kind": "judge",
+          "state": "not_checked" if no_judges else ("pass" if v == "positive" else "fail"),
           "outdated": False} for r, v in verdicts.items()]
 board.append({"rule_id": "id-script", "title": "scripted", "kind": "script", "state": "fail", "outdated": False})
 summary = {"schema_version": 3, "run": {"session_id": session}, "finished": True,
@@ -155,10 +157,16 @@ class Bench(unittest.TestCase):
         self.assertEqual(review[review.index("--max-review-rounds") + 1], "1")
         self.assertEqual(review[review.index("--judge-model") + 1], "a/opus")
         self.assertEqual(review[review.index("--reviewer-model") + 1], "g/flash", "not the app's saved one")
+        self.assertIn("--no-judges", author)
+        self.assertIn("--no-judges", review)
+        score = sb.command(config, {"phase": "score", "model": "a/opus", "target": "S"}, run_dir)
+        self.assertEqual(score[score.index("--max-review-rounds") + 1], "0")
+        self.assertNotIn("--no-judges", score)
         self.assertEqual(author[author.index("--reviewer-model") + 1], "a/opus")
         judge = sb.command(config, {"phase": "judge", "model": "g/flash", "target": "S"}, run_dir)
         self.assertEqual(judge[judge.index("--max-review-rounds") + 1], "0")
         self.assertEqual(judge[judge.index("--judge-model") + 1], "g/flash")
+        self.assertNotIn("--no-judges", judge)
 
     def test_a_full_benchmark_runs_once_and_reports_every_stage(self):
         self.make_db(label="AAGS_only")  # the hash still matches: remove it first
@@ -170,6 +178,9 @@ class Bench(unittest.TestCase):
         # 2 authors × 2 repeats; the 3 Author results the baseline does not
         # review are graded; 2 reviewers and 2 judges × 2 repeats on the target.
         self.assertEqual(phases.count("author"), 4)
+        # The baseline judge's run on the target scores it; the other three
+        # Author results get a score run of their own.
+        self.assertEqual(phases.count("score"), 3)
         self.assertEqual(phases.count("grade"), 3)
         self.assertEqual(phases.count("review"), 4)
         self.assertEqual(phases.count("judge"), 4)

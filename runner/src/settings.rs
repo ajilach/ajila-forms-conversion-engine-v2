@@ -102,6 +102,10 @@ pub struct AppSettings {
     /// a change takes effect on the next start.
     #[serde(default)]
     pub container_engine: agent::container_engine::ContainerEngine,
+    /// This run checks the scripted rules only and sends no judge (the CLI's
+    /// `--no-judges`). Never saved: it is a property of one run.
+    #[serde(skip)]
+    pub no_judges: bool,
 }
 
 
@@ -124,6 +128,7 @@ impl Default for AppSettings {
             reviewer_model: String::new(),
             judge_model: String::new(),
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
+            no_judges: false,
             aem_verify: agent::u2s::AemVerifySettings::default(),
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),

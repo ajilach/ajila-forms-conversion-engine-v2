@@ -201,7 +201,7 @@ pub async fn verification_for(opts: &RunOptions, obs: &SharedObserver) -> Result
 
 /// Drive the controller over `agent` and record what it produced.
 async fn drive(
-    agent: ConversionAgent,
+    mut agent: ConversionAgent,
     opts: &RunOptions,
     seed: RunSeed,
     template_note: &'static str,
@@ -240,7 +240,11 @@ async fn drive(
             };
         }
     };
-    let models_described = format!("{}{}", plan.describe(), crate::turns::describe_role_models(&opts.settings));
+    let mut models_described = format!("{}{}", plan.describe(), crate::turns::describe_role_models(&opts.settings));
+    if opts.settings.no_judges {
+        agent.skip_judged_rules();
+        models_described.push_str(" · judged rules: not checked (scripted rules only)");
+    }
 
     let run_config = pipeline::RunConfig {
         profile: opts.profile.clone(),

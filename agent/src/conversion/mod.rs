@@ -286,6 +286,10 @@ pub struct ConversionAgent {
     rules: Arc<[RuleForCheck]>,
     /// The rules a judge agent decides (see [`crate::rules`]).
     judged: Arc<[crate::rules::JudgedRule]>,
+    /// Set when this run checks the scripted rules only: `rule_check` then
+    /// plans no judge, and the judged rules stay not checked (see
+    /// [`Self::skip_judged_rules`]).
+    judges_off: bool,
     /// The rule sandbox, started on the first rule call.
     runner: Option<RuleRunner>,
     /// Each rule's verdict at the last check, so an edit reports what it
@@ -376,6 +380,7 @@ impl ConversionAgent {
             schema: Arc::new(schema),
             rules: rules.scripted.into(),
             judged: rules.judged.into(),
+            judges_off: false,
             runner: None,
             lint: None,
             rule_board,
@@ -457,6 +462,19 @@ impl ConversionAgent {
     pub fn with_aem_verify(mut self, settings: &crate::u2s::AemVerifySettings) -> Result<Self, String> {
         self.u2s_tools()?.attach_aem_verify(settings)?;
         Ok(self)
+    }
+
+    /// From now on `rule_check` checks the scripted rules only and sends no
+    /// judge, in every stage and in the final check: the judged rules stay
+    /// not checked. For measuring a stage on its own, with the judging done
+    /// separately afterwards (`convert --assess --max-review-rounds 0`).
+    pub fn skip_judged_rules(&mut self) {
+        self.judges_off = true;
+    }
+
+    /// Whether [`Self::skip_judged_rules`] was called.
+    pub fn judges_off(&self) -> bool {
+        self.judges_off
     }
 
     /// Whether a verifier is attached (and not yet torn down).

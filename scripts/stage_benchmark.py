@@ -4,26 +4,32 @@
 A full conversion mixes the three roles: a weak Reviewer sends the Author into
 extra fix rounds, and the judges' verdicts change what the Author edits. So a
 full run cannot tell which role a cost or a defect belongs to. This script
-tests each role on its own, with the other two held at a baseline model:
+tests each role on its own. The Author and the Reviewer run with `--no-judges`
+(scripted rules only): the judges are measured, and do the judging, in phases
+of their own, where they cost one check per form instead of one per call.
 
-1. author   Each Author candidate converts the form with no review round
-            (`convert --max-review-rounds 0`). The run ends with the final rule
-            check, by the baseline judges, which is the first quality figure.
-2. grade    The baseline Reviewer assesses every Author result once
-            (`convert --session S --assess --max-review-rounds 1`): how many
-            issues it finds is the second quality figure for the Author.
-3. review   Each Reviewer candidate assesses the same fixed Author result(s).
+1. author   Each Author candidate converts the form with no review round and
+            no judge (`convert --max-review-rounds 0 --no-judges`). Its
+            scripted rules are the first quality figure.
+2. score    The baseline judges judge every Author result once
+            (`--assess --max-review-rounds 0`, no AEM): the judged rules that
+            fail are the second quality figure.
+3. grade    The baseline Reviewer assesses every Author result once
+            (`--assess --max-review-rounds 1 --no-judges`): how many issues it
+            finds is the third.
+4. review   Each Reviewer candidate assesses the same fixed Author result(s).
             What it found is collected side by side for grading by hand.
-4. judge    Each judge candidate judges every judged rule on the same fixed
-            Author result(s) (`--assess --max-review-rounds 0`, no AEM).
-            Agreement with the baseline judges and between repeats is computed.
-5. report   CSV per phase and `report.md`: cost, time and quality per model.
+5. judge    Each judge candidate judges every judged rule on the same fixed
+            Author result(s). Agreement with the baseline judges and between
+            repeats is computed.
+6. report   CSV per phase and `report.md`: cost, time and quality per model.
 
 Every run is one `blueprint convert` process with its own analysis folder
 (`summary.json`), listed in `<out>/runs.jsonl`. A run that already finished is
-skipped, so an interrupted benchmark carries on where it stopped. Runs go one
-at a time: each Author and Reviewer run drives the one AEM verifier. The judge
-phase boots no AEM and may run with --jobs.
+skipped, so an interrupted benchmark carries on where it stopped. The author,
+grade and review runs go one at a time: each drives the one AEM verifier. The
+score and judge phases boot no AEM and may run with --jobs, also beside an AEM
+phase in another terminal.
 
 The form must not be among the tool's reference forms, or the Author starts
 from its own answer. `refs` finds it in the reference library and removes it,
@@ -70,7 +76,9 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-PHASES = ("author", "grade", "review", "judge")
+PHASES = ("author", "score", "grade", "review", "judge")
+# The phases that boot no AEM, so their runs may go side by side.
+NO_AEM = ("score", "judge")
 REFERENCE_TABLES = ("references_", "reference_pdfs", "reference_files")
 SESSION_LINE = re.compile(r"^Session:\s*([0-9a-f-]{36})", re.M)
 ISSUE_LINE = re.compile(r"^\s*(\d+)[.)]\s+\S", re.M)
@@ -268,6 +276,13 @@ def plan(config: dict, manifest: Manifest, phases: list[str], only: str | None) 
                 add("author", model, rep)
     authors = manifest.of("author")
     targets = assessment_targets(config, authors)
+    if "score" in phases:
+        # A target the baseline judges judge in the judge phase anyway is
+        # scored by that run instead.
+        judged = set(targets) if base["judge"] in config["candidates"]["judge"] else set()
+        for a in authors:
+            if a["session"] not in judged:
+                add("score", base["judge"], 1, a["session"], author_model=a["model"])
     if "grade" in phases:
         # A target the baseline Reviewer reviews in the review phase anyway is
         # graded by that review instead.
@@ -311,11 +326,11 @@ def command(config: dict, run: dict, run_dir: Path) -> list[str]:
     phase, model = run["phase"], run["model"]
     if phase == "author":
         cmd += ["--model", model, "--reviewer-model", base["reviewer"], "--judge-model", base["judge"],
-                "--max-review-rounds", "0"]
+                "--max-review-rounds", "0", "--no-judges"]
     elif phase in ("grade", "review"):
         cmd += ["--session", run["target"], "--assess", "--max-review-rounds", "1",
-                "--model", model, "--reviewer-model", model, "--judge-model", base["judge"]]
-    else:
+                "--model", model, "--reviewer-model", model, "--judge-model", base["judge"], "--no-judges"]
+    else:  # score, judge
         cmd += ["--session", run["target"], "--assess", "--max-review-rounds", "0",
                 "--model", base["reviewer"], "--reviewer-model", base["reviewer"], "--judge-model", model]
     return cmd + list(config["extra_args"])
@@ -382,7 +397,7 @@ def run_command(args: argparse.Namespace) -> None:
         if not todo:
             continue
         print(f"── {phase}: {len(todo)} run(s) ──")
-        jobs = args.jobs if phase == "judge" else 1
+        jobs = args.jobs if phase in NO_AEM else 1
 
         quick_failures = [0]
 
@@ -533,28 +548,43 @@ def fmt(v, digits: int = 2) -> str:
     return str(v)
 
 
-def author_rows(manifest: Manifest, baseline_reviewer: str) -> list[dict]:
-    """One row per Author run. Its grade is the baseline Reviewer's verdict on
-    it: a grade run, or the first baseline review of the target."""
-    gradings = manifest.of("grade") + sorted(
-        (r for r in manifest.of("review") if r["model"] == baseline_reviewer), key=lambda r: -r["rep"])
-    grades = {g["target"]: review_of(read(g)) for g in gradings}
+def first_by_target(runs: list[dict]) -> dict[str, dict]:
+    """The lowest-repeat run per target."""
+    chosen: dict[str, dict] = {}
+    for r in sorted(runs, key=lambda r: -r["rep"]):
+        chosen[r["target"]] = r
+    return chosen
+
+
+def author_rows(manifest: Manifest, baseline: dict) -> list[dict]:
+    """One row per Author run. Its scripted rules are its own run's; its judged
+    rules are the baseline judges' verdicts on it (a score run, or the first
+    baseline judge run of the target); its grade is the baseline Reviewer's
+    (a grade run, or the first baseline review of the target)."""
+    gradings = first_by_target([r for r in manifest.of("review") if r["model"] == baseline["reviewer"]])
+    gradings.update({g["target"]: g for g in manifest.of("grade")})
+    grades = {t: review_of(read(g)) for t, g in gradings.items()}
+    scorings = first_by_target([r for r in manifest.of("judge") if r["model"] == baseline["judge"]])
+    scorings.update({g["target"]: g for g in manifest.of("score")})
+    scores = {t: (final_check(read(g)), cost(read(g).get("spend"))) for t, g in scorings.items()}
     rows = []
     for run in sorted(manifest.of("author"), key=lambda r: r["key"]):
         s = read(run)
         author, check = stage(s, "Author"), final_check(s)
         grade = grades.get(run["session"], {})
+        score, score_usd = scores.get(run["session"], ({}, None))
         rows.append({
             "model": run["model"], "rep": run["rep"], "session": run["session"],
             "finished_authoring": author.get("ended_by") == "finish_authoring",
             "author_usd": cost(author.get("agent_spend")),
             "author_judges_usd": cost(author.get("judges_spend")),
-            "total_usd": cost(s.get("spend")),
+            "total_usd": cost(s.get("spend")), "score_usd": score_usd,
             "minutes": round(s.get("time", {}).get("wall_ms", 0) / 60000, 1),
             "turns": author.get("turns"), "tool_failures": author.get("tool_failures"),
             "failed_requests": author.get("failed_requests"),
-            "scripted_failing": check.get("scripted_negative"), "judged_failing": check.get("judged_negative"),
-            "rules_unchecked": check.get("unchecked"), "rules_passing": check.get("positive"),
+            "scripted_failing": check.get("scripted_negative"),
+            "judged_failing": score.get("judged_negative"),
+            "judged_unchecked": sum(v == "unchecked" for v in score.get("verdicts", {}).values()) if score else None,
             "grade_approved": grade.get("approved"), "grade_issues": grade.get("issues"),
         })
     return rows
@@ -659,7 +689,7 @@ def write_report(config: dict, manifest: Manifest) -> None:
     out = Path(config["out"])
     grades_path = out / "review-grades.csv"
     grades = read_grades(grades_path)
-    authors = author_rows(manifest, config["baseline"]["reviewer"])
+    authors = author_rows(manifest, config["baseline"])
     reviews = review_rows(manifest, grades)
     judges, by_rule = judge_rows(manifest, config["baseline"]["judge"])
     write_csv(out / "authors.csv", authors)
@@ -675,19 +705,18 @@ def write_report(config: dict, manifest: Manifest) -> None:
           f"Spent so far: USD {manifest.spent():.2f}. Costs are USD; means over the repeats.", ""]
 
     md += ["## Author", "",
-           "Rules as the final rule check (baseline judges) left them, and the issues one baseline Reviewer "
-           "round found. Lower is better in both.", ""]
+           "The Author runs without judges. Scripted rules as its own run left them, judged rules as the "
+           "baseline judges found them afterwards, and the issues one baseline Reviewer round found. Lower is "
+           "better in all three. *Scoring USD* is what judging the result cost, not part of the Author's cost.", ""]
     md.append(table(
-        ["Model", "Runs", "Finished authoring", "Author USD", "Its judges USD", "Run USD", "Minutes",
-         "Turns", "Scripted rules failing", "Judged rules failing", "Rules unchecked", "Reviewer issues",
-         "Approved"],
+        ["Model", "Runs", "Finished authoring", "Author USD", "Minutes", "Turns", "Scripted rules failing",
+         "Judged rules failing", "Judged unchecked", "Reviewer issues", "Approved", "Scoring USD"],
         [[m, len(rs), f"{sum(r['finished_authoring'] for r in rs)}/{len(rs)}",
-          mean([r["author_usd"] for r in rs]), mean([r["author_judges_usd"] for r in rs]),
-          mean([r["total_usd"] for r in rs]), mean([r["minutes"] for r in rs]), mean([r["turns"] for r in rs]),
+          mean([r["author_usd"] for r in rs]), mean([r["minutes"] for r in rs]), mean([r["turns"] for r in rs]),
           mean([r["scripted_failing"] for r in rs]), mean([r["judged_failing"] for r in rs]),
-          mean([r["rules_unchecked"] for r in rs]),
-          mean([r["grade_issues"] for r in rs]),
-          f"{sum(1 for r in rs if r['grade_approved'])}/{sum(1 for r in rs if r['grade_approved'] is not None)}"]
+          mean([r["judged_unchecked"] for r in rs]), mean([r["grade_issues"] for r in rs]),
+          f"{sum(1 for r in rs if r['grade_approved'])}/{sum(1 for r in rs if r['grade_approved'] is not None)}",
+          mean([r["score_usd"] for r in rs])]
          for m, rs in by_model(authors).items()]) if authors else "_No Author run yet._")
 
     md += ["", "## Reviewer", "",
@@ -770,7 +799,7 @@ def main(argv: list[str] | None = None) -> None:
     run.add_argument("--config", type=Path, required=True)
     run.add_argument("--phase", choices=("all", *PHASES), default="all")
     run.add_argument("--only", help="only models whose id contains this text")
-    run.add_argument("--jobs", type=int, default=1, help="parallel runs in the judge phase (no AEM)")
+    run.add_argument("--jobs", type=int, default=1, help="parallel runs in the score and judge phases (no AEM)")
     run.add_argument("--max-cost", type=float, help="start no run once this many USD are spent")
     run.add_argument("--dry-run", action="store_true", help="print the commands only")
     run.add_argument("--allow-reference", action="store_true", help="run even if the form is a reference")

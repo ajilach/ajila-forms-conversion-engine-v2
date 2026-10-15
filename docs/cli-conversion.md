@@ -268,6 +268,7 @@ nothing.
 | `--reviewer-model <ID>` | the app's setting, else `--model` | Same provider and key as `--model` |
 | `--judge-model <ID>` | the app's setting, else the dispatching stage's | Same provider and key as `--model` |
 | `--max-review-rounds <N>` | 3 | Reviewer → Author-fix rounds before finalizing |
+| `--no-judges` | off | Check the scripted rules only: no judge runs in any stage or in the final check; judge afterwards with `--assess --max-review-rounds 0` |
 | `--instructions <TEXT>` | the app's setting | Appended to every role's system prompt |
 | `--instructions-file <PATH>` | — | Conflicts with `--instructions` |
 | `--retries <N>` | 2 | Operator-level retries after the controller's own |

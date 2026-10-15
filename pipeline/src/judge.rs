@@ -37,6 +37,12 @@ const CHANGED_WHILE_JUDGED: &str = "the document changed while it was judged: ch
 /// larger than this is named instead, for the judge to read with its tools.
 const PART_IN_PROMPT: usize = 40_000;
 
+/// What a check of a run without judges says about the judged rules, so the
+/// model does not run `rule_check` again and again to get them checked.
+const JUDGES_OFF: &str = "not checked: this run checks the scripted rules only, and the rules a judge \
+decides are checked after it. Hold the document to them yourself (rule_get describes each); running \
+rule_check again will not check them.";
+
 /// Numbers every `rule_check` of the process, so a judge's trace line names
 /// the check it belongs to even when two checks overlap.
 static CHECKS: AtomicU64 = AtomicU64::new(0);
@@ -152,6 +158,11 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
     });
     let mut report = merge_rule_report(scripted, &verdicts);
     mark_reused(&mut report, &verdicts, &cached);
+    if agent.lock().await.judges_off()
+        && let Some(object) = report.as_object_mut()
+    {
+        object.insert("judged_rules".into(), serde_json::Value::String(JUDGES_OFF.into()));
+    }
     ToolReply::Text(report.to_string())
 }
 
@@ -521,6 +532,25 @@ mod tests {
         };
         assert!(system.contains("judgement-1") && system.contains("Rule a") && system.contains("submit_rule_verdict"), "{system}");
         assert_eq!(ctx.spend.lock().unwrap().input_tokens, 100);
+    }
+
+    /// A run without judges plans none: no judge request goes out, and the
+    /// report says why the judged rules are missing from it.
+    #[tokio::test]
+    async fn a_run_without_judges_checks_the_scripted_rules_only() {
+        let model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
+        let ctx = context(model.clone(), AbortFlag::default());
+        let agent = agent_with(vec![rule("a")]);
+        agent.lock().await.skip_judged_rules();
+
+        let full = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+
+        assert_eq!(model.request_count(), 0, "no judge was sent");
+        assert!(judged(&full).is_empty(), "{full}");
+        assert!(full["judged_rules"].as_str().unwrap().starts_with("not checked"), "{full}");
+        let named = report(rule_check(&agent, &ctx, &serde_json::json!({"rule_ids": ["id-a"]})).await);
+        assert_eq!(model.request_count(), 0, "not even for a rule named on its own");
+        assert!(named["judged_rules"].is_string());
     }
 
     /// Records every event a check reports, and its trace.

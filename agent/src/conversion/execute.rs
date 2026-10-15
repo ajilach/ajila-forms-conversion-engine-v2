@@ -226,8 +226,9 @@ impl ConversionAgent {
                 .collect::<Result<_, _>>()?,
             Some(_) => return Err("rule_ids is a list of rule ids from rule_list".into()),
         };
+        let judged_of = |judged: Vec<crate::rules::JudgedRule>| if self.judges_off { Vec::new() } else { judged };
         if requested.is_empty() {
-            return Ok(RuleCheckPlan { scripted: None, judged: self.judged.to_vec() });
+            return Ok(RuleCheckPlan { scripted: None, judged: judged_of(self.judged.to_vec()) });
         }
         let scripted: Vec<String> = self
             .rules
@@ -243,7 +244,7 @@ impl ConversionAgent {
         if !unknown.is_empty() {
             return Err(format!("no rule has the id {unknown:?}; rule_list lists them"));
         }
-        Ok(RuleCheckPlan { scripted: Some(scripted), judged })
+        Ok(RuleCheckPlan { scripted: Some(scripted), judged: judged_of(judged) })
     }
 
     /// The scripted part of a `rule_check`: the scripts' verdicts, and the
