@@ -146,7 +146,7 @@ pub fn SettingsPage(
                             h3 { class: "settings-section-title", "Provider" }
                             SelectRow {
                                 label: "API",
-                                desc: "Which API the conversion agent talks to. The OpenAI-compatible option reaches any chat-completions endpoint (OpenRouter, a local gateway); it sends no prompt cache breakpoints, so a long run costs more input tokens there.",
+                                desc: "Which API the conversion agent talks to. The OpenAI-compatible option reaches any chat-completions endpoint (OpenRouter, a local gateway). Through OpenRouter, Claude models get cache breakpoints on the system prompt and the conversation, and the other vendors cache on their own; another gateway gets none, so a long run costs more input tokens there.",
                                 value: s.llm_provider.as_str().to_string(),
                                 options: Provider::ALL.iter().map(|p| p.as_str().to_string()).collect(),
                                 labels: Provider::ALL.iter().map(|p| p.label().to_string()).collect(),
