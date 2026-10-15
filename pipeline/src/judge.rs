@@ -1268,6 +1268,46 @@ mod tests {
         }
     }
 
+    /// Judges charge the run's budget as they go: the turn that passes the
+    /// limit stops every judge, and the ones still queued send nothing.
+    #[tokio::test]
+    async fn a_judge_over_the_spending_limit_stops_the_judging() {
+        let mut usage = Usage::new();
+        usage.input_tokens = 100;
+        let turns: Vec<Vec<MockStreamEvent>> = (0..20)
+            .map(|i| {
+                vec![
+                    MockStreamEvent::tool_call(format!("call-{i}"), "json_outline", serde_json::json!({})),
+                    MockStreamEvent::final_response(usage),
+                ]
+            })
+            .collect();
+        let model = MockCompletionModel::from_stream_turns(turns);
+        let run_flag = AbortFlag::default();
+        let budget = crate::RunBudget::new(
+            crate::BudgetLimits { max_usd: Some(0.5), max_tokens: None },
+            run_flag.clone(),
+        );
+        let mut ctx = context(model.clone(), run_flag.clone());
+        ctx.price = budget.metered(ctx.price.clone());
+        let rules: Vec<JudgedRule> = ["a", "b", "c", "d", "e"].into_iter().map(rule).collect();
+
+        let report = report(rule_check(&agent_with(rules), &ctx, &serde_json::json!({})).await);
+
+        assert!(run_flag.is_aborted());
+        assert!(budget.exceeded().is_some());
+        assert!(
+            model.request_count() <= JUDGES_AT_ONCE,
+            "only the judges already running sent a request: {}",
+            model.request_count()
+        );
+        let verdicts = judged(&report);
+        assert_eq!(verdicts.len(), 5);
+        for verdict in verdicts {
+            assert_eq!(verdict["unchecked_reason"], "the judge was stopped before it gave a verdict");
+        }
+    }
+
     fn violation(pointer: &str, message: &str) -> agent::rules::Violation {
         agent::rules::Violation { pointer: pointer.into(), message: message.into() }
     }

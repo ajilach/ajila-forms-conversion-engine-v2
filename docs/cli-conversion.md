@@ -294,12 +294,14 @@ cargo run --release -p blueprint-cli -- convert form.pdf --out ./out
 ANTHROPIC_API_KEY=sk-… cargo run --release -p blueprint-cli -- convert form.pdf \
   --model claude-opus-5
 
-# Through an OpenAI-compatible endpoint. Note: no prompt-cache breakpoints are
-# sent on this path, so a long run costs more input tokens; the model must
-# support tool calling and image input.
+# Through OpenRouter. A Claude model gets prompt-cache breakpoints on the system
+# prompt and on the conversation (runner::openrouter_cache), so a turn reads its
+# history from the cache as on Anthropic's own API; other vendors cache a
+# repeated prefix on their own. Another OpenAI-compatible gateway gets no
+# breakpoints. The model must support tool calling and image input.
 OPENAI_API_KEY=sk-or-… cargo run --release -p blueprint-cli -- convert form.pdf \
   --provider openai --base-url https://openrouter.ai/api/v1 \
-  --model anthropic/claude-opus-4.1
+  --model anthropic/claude-opus-5.5
 
 # Steer the agent and allow more review rounds
 cargo run --release -p blueprint-cli -- convert form.pdf \

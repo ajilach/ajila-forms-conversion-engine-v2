@@ -40,6 +40,9 @@ fn buildable_agent() -> ConversionAgent {
     agent.seed_document(doc).expect("an AEM document");
     agent.ensure_built().expect("the test document builds");
     agent.waive_evidence();
+    // No judged rules unless a test gives some: the check before every review
+    // would send their judges the turns a test scripts for its stages.
+    agent.set_judged_rules(Vec::new());
     agent
 }
 
@@ -184,11 +187,11 @@ async fn a_pipeline_run_is_recorded_into_a_readable_folder() {
     }
 }
 
-/// A judge the Author's `rule_check` dispatches: traced as one line with its
+/// The judges of the checks before each review: traced as one line each with
 /// verdict, turns and spend, tabled in the report, counted in the summary,
-/// and split out of the Author's cost — which still adds up to the stage's.
-/// The Author ends with `finish_authoring`, and the report says so rather
-/// than calling it a review.
+/// and filed under the controller's rule checks rather than a stage. The
+/// Author ends with `finish_authoring`, and the report says so rather than
+/// calling it a review.
 #[tokio::test]
 async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
     let root = std::env::temp_dir().join(format!("blueprint-run-analysis-judge-{}", std::process::id()));
@@ -210,22 +213,33 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         ]
     };
     let model = MockCompletionModel::from_stream_turns([
-        tool_turn("a1", "rule_check", serde_json::json!({}), "Checking the rules."),
-        judge_turn("judgement-1", false, 10_000),
-        // The Author fixes what its judge found, so the final check judges
-        // content no judge saw yet rather than reusing the verdict above.
         tool_turn(
-            "a2",
+            "a1",
             "json_patch",
             serde_json::json!({"expected_revision": 0, "ops": [
+                {"op": "replace", "path": "/form/children/0/title/en", "value": "Details, one table"}
+            ]}),
+            "Building the table.",
+        ),
+        tool_turn("a2", "finish_authoring", serde_json::json!({"summary": "done"}), "Handing over."),
+        // The check before the first review, with its judge.
+        judge_turn("judgement-1", false, 10_000),
+        review_turn(false, "Split the table."),
+        // The Author fixes what the judge found, so the next check judges
+        // content no judge saw yet rather than reusing the verdict above.
+        tool_turn(
+            "a3",
+            "json_patch",
+            serde_json::json!({"expected_revision": 1, "ops": [
                 {"op": "replace", "path": "/form/children/0/title/en", "value": "Details, split"}
             ]}),
             "Splitting the table.",
         ),
-        tool_turn("a3", "finish_authoring", serde_json::json!({"summary": "done"}), "Handing over."),
-        review_turn(true, "Looks complete."),
-        // The final rule check after the review, with its own judge.
+        tool_turn("a4", "finish_authoring", serde_json::json!({"summary": "done"}), "Handing over."),
+        // The check before the second review, with its own judge; the final
+        // check after it keeps that verdict.
         judge_turn("judgement-2", true, 20_000),
+        review_turn(true, "Looks complete."),
     ]);
     let mut agent = buildable_agent();
     agent.set_judged_rules(vec![agent::rules::JudgedRule {
@@ -254,6 +268,7 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         finish_nudge: false,
         warm_up_verifier: false,
     };
+    let config = RunConfig { max_review_rounds: 2, ..config };
     let meta = RunMeta {
         label: "TEST_002_DE.pdf".into(),
         session_id: "it-judge".into(),
@@ -281,56 +296,45 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         &caller,
     );
 
-    // trace.jsonl: the check and its one judge, filed under the Author.
+    // trace.jsonl: one judge per check before a review; the final check
+    // keeps the second one's verdict.
     let trace: Vec<serde_json::Value> = std::fs::read_to_string(dir.join("trace.jsonl"))
         .unwrap()
         .lines()
         .map(|l| serde_json::from_str(l).unwrap())
         .collect();
     let judges: Vec<&serde_json::Value> = trace.iter().filter(|l| l["event"] == "judge_finished").collect();
-    assert_eq!(judges.len(), 2, "the Author's judge and the final check's");
+    assert_eq!(judges.len(), 2, "one judge per review, none in the final check");
     let judge = judges[0];
-    assert_eq!(judge["stage_index"], 1, "{judge}");
     assert_eq!(judge["rule_name"], "tables-are-split");
     assert_eq!(judge["verdict"], "negative");
     assert_eq!(judge["violations"], 1);
     assert_eq!(judge["turns"], 1);
     assert_eq!(judge["spend"]["input_tokens"], 10_000);
+    assert_eq!(judges[1]["verdict"], "positive");
     for event in ["rule_check_started", "rule_check_finished"] {
         assert!(trace.iter().any(|l| l["event"] == event), "{event} missing");
     }
 
-    // summary.json: counted, priced, and agent + judges = the stage.
+    // summary.json: counted, priced, and filed under the controller's rule
+    // checks, not under the stage that ended before them.
     let summary: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("summary.json")).unwrap()).unwrap();
     assert_eq!(summary["schema_version"], runner::analysis::SCHEMA_VERSION);
     assert_eq!(summary["judge_runs"], 2);
-    assert_eq!(summary["counts"]["rule_checks"], 2);
+    assert_eq!(summary["counts"]["rule_checks"], 3, "before each of two reviews, and the final one");
     let judge_cost = summary["judge_cost_usd"].as_f64().unwrap();
     assert!((judge_cost - 0.15).abs() < 1e-9, "{judge_cost}");
     let cost = |v: &serde_json::Value| v["cost_usd"].as_f64().unwrap();
-    // The split against an independent source: the Author's own turns, as
-    // its turn_finished lines priced them, plus its judge's 0.05.
-    let author_turns: f64 = trace
-        .iter()
-        .filter(|l| l["event"] == "turn_finished" && l["stage_index"] == 1)
-        .map(|l| l["cost_usd"].as_f64().unwrap())
-        .sum();
-    assert!(author_turns > 0.0);
-    let author = &summary["stages"][0];
-    assert!((cost(&author["agent_spend"]) - author_turns).abs() < 1e-9, "{author}");
-    assert!((cost(&author["judges_spend"]) - 0.05).abs() < 1e-9, "{author}");
-    assert!((author_turns + 0.05 - cost(&author["spend"])).abs() < 1e-9, "agent + judges = the stage: {author}");
-    // The final check's judge is not filed under the Reviewer, which ended
-    // before it.
-    let reviewer = &summary["stages"][1];
-    assert_eq!(reviewer["judge_runs"], 0, "{reviewer}");
-    assert!((cost(&reviewer["agent_spend"]) - cost(&reviewer["spend"])).abs() < 1e-9, "{reviewer}");
-    let final_check = &summary["judges"]["final_check"];
-    assert_eq!(final_check["judge_runs"], 1, "{final_check}");
-    assert!((cost(&final_check["judges_spend"]) - 0.10).abs() < 1e-9, "{final_check}");
-    assert_eq!(judges[1]["verdict"], "positive");
-    assert_eq!(author["ended_by"], "finish_authoring");
+    for stage in summary["stages"].as_array().unwrap() {
+        assert_eq!(stage["judge_runs"], 0, "{stage}");
+        assert!((cost(&stage["agent_spend"]) - cost(&stage["spend"])).abs() < 1e-9, "{stage}");
+    }
+    let checks = &summary["judges"]["final_check"];
+    assert_eq!(checks["name"], pipeline::run::RULE_CHECKS);
+    assert_eq!(checks["judge_runs"], 2, "{checks}");
+    assert!((cost(&checks["judges_spend"]) - 0.15).abs() < 1e-9, "{checks}");
+    assert_eq!(summary["stages"][0]["ended_by"], "finish_authoring");
     let run_total = summary["spend"]["cost_usd"].as_f64().unwrap();
     assert!((summary["agent_cost_usd"].as_f64().unwrap() + judge_cost - run_total).abs() < 1e-9);
     assert_eq!(summary["judges"]["by_rule"][0]["negative"], 1);
@@ -343,8 +347,8 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         "### By rule",
         "| `tables-are-split` | 2 | 1 | 1 | 0 |",
         "### By rule_check",
-        "| 2 | Final check | all |",
-        "- Judges: 2 run(s) over 2 rule_check(s), USD 0.15",
+        "| 1 | Rule checks | all |",
+        "- Judges: 2 run(s) over 3 rule_check(s), USD 0.15",
         "called finish_authoring",
         "submitted a review",
     ] {

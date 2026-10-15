@@ -8,6 +8,10 @@ rust-version.workspace = true
 agent = { path = "../agent" }
 pipeline = { path = "../pipeline" }
 base64 = { workspace = true }
+# The OpenRouter request body and headers `openrouter_cache` rewrites; the
+# versions rig-core already uses.
+bytes = "1"
+http = "1"
 # Local timestamps in the run-analysis files.
 chrono = { workspace = true }
 # The default run-analysis folder, under the config directory.

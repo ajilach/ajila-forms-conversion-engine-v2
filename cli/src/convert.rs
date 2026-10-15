@@ -94,10 +94,10 @@ pub struct RunArgs {
     #[arg(long, value_name = "ID")]
     reviewer_model: Option<String>,
 
-    /// The judges' own model id at the selected provider (the agents
-    /// rule_check dispatches, one per judged rule). Defaults to the one
-    /// configured in the desktop app; an empty value means the model of the
-    /// stage that dispatches them.
+    /// The judges' own model id at the selected provider (the agents that
+    /// check the judged rules, one per rule, before each review and at the
+    /// end). Defaults to the one configured in the desktop app; an empty value
+    /// means the run's model.
     #[arg(long, value_name = "ID")]
     judge_model: Option<String>,
 
@@ -111,6 +111,18 @@ pub struct RunArgs {
     /// Reviewer → Author-fix rounds to allow before finalizing.
     #[arg(long, value_name = "N")]
     max_review_rounds: Option<usize>,
+
+    /// What the run may spend, in USD, before it is stopped (0: no limit).
+    /// Defaults to the one configured in the desktop app, USD 100 unless
+    /// changed.
+    #[arg(long, value_name = "USD", value_parser = parse_usd)]
+    max_spend: Option<f64>,
+
+    /// The tokens the run may use before it is stopped (0: no limit): fresh
+    /// input, cache writes and output, not cache reads. Defaults to the one
+    /// configured in the desktop app, 20000000 unless changed.
+    #[arg(long, value_name = "N")]
+    max_tokens: Option<u64>,
 
     /// Extra operator instructions, appended to every role's system prompt.
     #[arg(long, value_name = "TEXT")]
@@ -267,6 +279,15 @@ pub(crate) fn stop_on_ctrl_c(abort: AbortFlag) {
     });
 }
 
+/// A USD amount from the command line: a finite number of 0 or more.
+fn parse_usd(text: &str) -> Result<f64, String> {
+    let usd: f64 = text.trim().parse().map_err(|_| format!("{text:?} is not a USD amount"))?;
+    if !usd.is_finite() || usd < 0.0 {
+        return Err(format!("{text:?} is not a USD amount of 0 or more"));
+    }
+    Ok(usd)
+}
+
 /// Reports a finished run and writes what it produced to `out`: its session
 /// (printed first: a run that stopped early still recorded its history under
 /// it, and that is what a resume needs), what it cost, and its artefacts. An
@@ -296,6 +317,9 @@ pub(crate) fn finish(
         }
     }
 
+    if let Some(limit) = &completed.limit_reached {
+        return Err(format!("Run stopped: {limit}.").into());
+    }
     let Some(outcome) = &completed.outcome else {
         // Aborted, or the retry budget ran out. The observer said why.
         return Err("The run stopped before producing a result.".into());
@@ -556,6 +580,12 @@ pub(crate) fn resolve_settings(args: &RunArgs) -> Result<AppSettings, Box<dyn Er
     if let Some(rounds) = args.max_review_rounds {
         settings.max_review_rounds = rounds;
     }
+    if let Some(usd) = args.max_spend {
+        settings.max_spend_usd = usd;
+    }
+    if let Some(tokens) = args.max_tokens {
+        settings.max_run_tokens = tokens;
+    }
     if let Some(text) = &args.instructions {
         settings.agent_instructions = text.clone();
     }
@@ -570,6 +600,19 @@ pub(crate) fn resolve_settings(args: &RunArgs) -> Result<AppSettings, Box<dyn Er
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A spending limit is a USD amount of 0 or more; anything else is refused
+    /// where it is typed, not read as some other limit.
+    #[test]
+    fn a_spending_limit_must_be_a_non_negative_amount() {
+        assert_eq!(parse_usd("100"), Ok(100.0));
+        assert_eq!(parse_usd("2.5"), Ok(2.5));
+        assert_eq!(parse_usd("0"), Ok(0.0));
+        assert!(parse_usd("-1").is_err());
+        assert!(parse_usd("NaN").is_err());
+        assert!(parse_usd("inf").is_err());
+        assert!(parse_usd("ten").is_err());
+    }
 
     /// The full file name has to survive: the agent splits sources from an
     /// attached content package on the `.pdf` extension, so a stem would leave

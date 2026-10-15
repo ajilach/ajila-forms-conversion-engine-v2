@@ -146,7 +146,7 @@ pub fn SettingsPage(
                             h3 { class: "settings-section-title", "Provider" }
                             SelectRow {
                                 label: "API",
-                                desc: "Which API the conversion agent talks to. The OpenAI-compatible option reaches any chat-completions endpoint (OpenRouter, a local gateway); it sends no prompt cache breakpoints, so a long run costs more input tokens there.",
+                                desc: "Which API the conversion agent talks to. The OpenAI-compatible option reaches any chat-completions endpoint (OpenRouter, a local gateway). Through OpenRouter, Claude models get cache breakpoints on the system prompt and the conversation, and the other vendors cache on their own; another gateway gets none, so a long run costs more input tokens there.",
                                 value: s.llm_provider.as_str().to_string(),
                                 options: Provider::ALL.iter().map(|p| p.as_str().to_string()).collect(),
                                 labels: Provider::ALL.iter().map(|p| p.label().to_string()).collect(),
@@ -243,7 +243,7 @@ pub fn SettingsPage(
                                 }
                                 TextRow {
                                     label: "Judge model",
-                                    desc: "Model id for the judges (one per judged rule in every rule_check) at this endpoint. Empty = the model of the stage that calls them.",
+                                    desc: "Model id for the judges (one per judged rule, before each review and at the end) at this endpoint. Empty = the run's model.",
                                     value: s.judge_model.clone(),
                                     placeholder: "",
                                     secret: false,
@@ -272,10 +272,10 @@ pub fn SettingsPage(
                                 }
                                 SelectRow {
                                     label: "Judge model",
-                                    desc: "The model the judges run on: one per judged rule in every rule_check, each reading a part of the document and the source. They are most of a run's model calls, so a cheaper model here saves the most.",
+                                    desc: "The model the judges run on: one per judged rule, before each review and at the end, each reading a part of the document and the source. They are most of a run's model calls, so a cheaper model here saves the most.",
                                     value: s.judge_model.clone(),
-                                    options: role_options(&model_list(), "Same as the stage that calls them").0,
-                                    labels: role_options(&model_list(), "Same as the stage that calls them").1,
+                                    options: role_options(&model_list(), "Same as the run's model").0,
+                                    labels: role_options(&model_list(), "Same as the run's model").1,
                                     on_change: move |v: String| update.call(Box::new(move |s| s.judge_model = v)),
                                 }
                                 SelectRow {
@@ -298,6 +298,26 @@ pub fn SettingsPage(
                                 step: 1,
                                 on_change: move |v: usize| {
                                     update.call(Box::new(move |s| s.max_review_rounds = v.max(1)))
+                                },
+                            }
+                            NumberRow {
+                                label: "Spending limit (USD)",
+                                desc: "What one conversion may spend before it is stopped. 0 removes the limit.",
+                                value: s.max_spend_usd.round() as usize,
+                                min: 0,
+                                step: 10,
+                                on_change: move |v: usize| {
+                                    update.call(Box::new(move |s| s.max_spend_usd = v as f64))
+                                },
+                            }
+                            NumberRow {
+                                label: "Token limit",
+                                desc: "The tokens one conversion may use before it is stopped: fresh input, cache writes and output, not cache reads. 0 removes the limit.",
+                                value: s.max_run_tokens as usize,
+                                min: 0,
+                                step: 1_000_000,
+                                on_change: move |v: usize| {
+                                    update.call(Box::new(move |s| s.max_run_tokens = v as u64))
                                 },
                             }
                         }

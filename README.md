@@ -59,7 +59,11 @@ The CLI binary is defined in the `cli` crate. It has three subcommands: `convert
 
 `blueprint convert` runs the same autonomous conversion the desktop app runs (Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts are written to `--out` instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
-The API key, model, review-round cap, extra instructions and AEM credentials default to the app's settings; every one can be overridden per invocation.
+The Author and the Reviewer read the rules (`rule_list`, `rule_get`) but do not check them. The pipeline checks every rule, judged ones included, once per hand-over: before each review, with the result pinned in the Reviewer's prompt, and once more after the review. Only the Reviewer can approve with a rule broken, by waiving it with a reason; the waivers go into the result's warnings.
+
+Every run is held to a spending limit (USD 100) and a token limit (20,000,000 tokens of fresh input, cache writes and output; cache reads do not count). A run that passes either stops with no result and says which limit it reached; in a batch, the other forms carry on. Both limits are app settings, can be overridden with `--max-spend` and `--max-tokens`, and `0` removes a limit. A model the price table does not know is held to the token limit only.
+
+The API key, model, review-round cap, spending limits, extra instructions and AEM credentials default to the app's settings; every one can be overridden per invocation.
 
 ```sh
 # Convert a form (multilingual sources allowed)
@@ -77,6 +81,9 @@ OPENAI_API_KEY=sk-or-… cargo run --release -p blueprint-cli -- convert path/to
 
 # Steer the agent and allow more review rounds
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --instructions "Keep every footnote." --max-review-rounds 5
+
+# Stop the run once it has spent USD 20
+cargo run --release -p blueprint-cli -- convert path/to/form.pdf --max-spend 20
 
 # Modify an existing AEM package instead of authoring from scratch
 cargo run --release -p blueprint-cli -- convert form_DE.pdf template-package.zip
@@ -176,7 +183,7 @@ layout and how to use the files with an AI assistant: [docs/run-analysis.md](doc
 
 The app is built with [Dioxus](https://dioxuslabs.com/) and targets the desktop. This is the recommended way of running the migration engine.
 
-It bundles an AI conversion agent that drives the engine's tools turn by turn to convert a form interactively. The agent uses the Anthropic API by default — set the API key and model in the app's settings, under AI Model. The same settings tab switches the agent to any OpenAI-compatible chat-completions endpoint (OpenRouter, a local gateway) by entering a base URL, key and model id; that path sends no prompt-cache breakpoints, so a long run costs more input tokens there, and the model has to support tool calling and image input. Every tree change is versioned into a local edit-history SQLite database, so conversions can be reviewed and resumed.
+It bundles an AI conversion agent that drives the engine's tools turn by turn to convert a form interactively. The agent uses the Anthropic API by default — set the API key and model in the app's settings, under AI Model. The same settings tab switches the agent to any OpenAI-compatible chat-completions endpoint (OpenRouter, a local gateway) by entering a base URL, key and model id; through OpenRouter, Claude models get prompt-cache breakpoints on the system prompt and the conversation (other vendors cache on their own), another gateway gets none, and the model has to support tool calling and image input. Every tree change is versioned into a local edit-history SQLite database, so conversions can be reviewed and resumed.
 
 Reopening the app restores the conversions that were open, sources and all, but never restarts them: a reopened tab sits on its result with a Continue button, and the agent runs only once that is pressed. Continue carries the session on as it stands — the agent finishes the tree the previous run left and rebuilds the outputs, which are not kept between sessions. The feedback field is the other way in, for when there is something specific to change. At startup and whenever settings are saved, the app runs a readiness check and shows a banner under the header listing any setup problems with a Re-check button; Start is disabled until the machine is ready.
 

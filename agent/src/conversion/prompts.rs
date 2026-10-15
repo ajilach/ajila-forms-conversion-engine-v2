@@ -17,11 +17,12 @@ macro_rules! review_procedure {
 source does and shows, not by what the document intends. The steps marked (gated) must be done in \
 your own stage on the current build, or your stage's terminal call (an approving one, for the \
 Reviewer) is refused with the list of what is missing. \
-(a) RULES: run rule_check. It holds the document to every rule, running the scripted ones and \
-handing the rules no script decides to judge agents, so it takes longer than the patch reports; \
-name `rule_ids` to re-check only some. The report names the rules that hold and spells out the \
-rest (rule_get gives a rule's description): every negative verdict is a defect, with its violations. An unchecked verdict is no \
-finding (its judge failed or the document changed meanwhile): run rule_check again for that rule. \
+(a) RULES: the rules are checked for you, not by you. The scripted ones run on every edit (the \
+reply to an edit reports what it broke), and once the Author hands over, every rule is \
+checked, judged ones included, and the Reviewer gets the result as THE RULE REPORT. rule_list and \
+rule_get give every rule's text: hold the document to all of them while you work. In the rule \
+report, every negative verdict is a defect, with its violations; an unchecked verdict (its judge \
+failed) is no finding about the document. \
 (b) COVERAGE: a judge reads the source too, but finding what is missing is still the review's work. \
 coverage_check lists per language every source text the document does not carry (a lead to look \
 up on the rendered page, not a verdict: a text a referenced fragment renders, or one only scripts \
@@ -241,8 +242,9 @@ original.\n\n\
 After ANY edit to the document, the package is invalidated: rebuild with build_aem_package before \
 reviewing or verifying. Consult reference documentation when unsure: \
 list_reference_docs, read_reference_doc, grep_reference_docs.\n\n\
-Before stopping, run rule_check once more over every rule and fix every negative verdict. When the \
-form is complete, end with finish_authoring and summarise what you built. Keep tool inputs minimal \
+Before stopping, hold the document to every rule (rule_list, rule_get) and fix what the json_patch \
+replies report broken: every rule is checked once you hand over, and the Reviewer sends back what \
+breaks. When the form is complete, end with finish_authoring and summarise what you built. Keep tool inputs minimal \
 and valid JSON.\n\n", review_procedure!());
 
 // ── Multi-agent role prompts ─────────────────────────────────────────────────
@@ -289,12 +291,12 @@ start without any account of how the Author worked, on purpose: judge the form f
 alone. Read the document with json_outline / json_get / json_search, run json_validate, inspect the \
 package with get_package_info / read_package_file, then follow THE REVIEW PROCEDURE below in full. \
 Every defect it finds is an authorable issue to return (with the node path and what to change), \
-except an ENGINE DEFECT (below). A rule that stays unchecked after a re-run is reported as such, \
-not as the Author's issue. Judge ANALOGY to the source, and confirm every point in any prior \
+except an ENGINE DEFECT (below). A rule THE RULE REPORT leaves unchecked (its judge failed) is not \
+the Author's issue. Judge ANALOGY to the source, and confirm every point in any prior \
 REVIEW FEEDBACK is now fixed; it is a list of points to re-verify, not a verdict. \
 Some defects come from the engine itself and the Author cannot change them by editing the \
 document: the UBS writer guarantees a set of shapes by construction, every build checks the \
-package for them, rule_check lists a broken one as `package_findings`, and each is an ENGINE \
+package for them, THE RULE REPORT lists a broken one as `package_findings`, and each is an ENGINE \
 DEFECT to report. \
 ENGINE-INTRINSIC issues: some defects come from the conversion engine itself (fixed writer output, \
 resourceType assignments, lowering behaviour) and CANNOT be changed by the Author editing the document. \
@@ -315,8 +317,11 @@ A conflict is two rules contradicting each other, not a fix that has to satisfy 
 are all that keep the form from approval, call submit_review with approved=false, the rule_conflicts \
 and a report that holds nothing but the ENGINE DEFECTS heading and its list, if any: the run then \
 stops for a person instead of starting another round. End by calling submit_review with approved=true ONLY if every \
-remaining issue is either resolved or engine-intrinsic (not authorable) and every rule_check verdict is \
-positive; otherwise approved=false and \
+remaining issue is either resolved or engine-intrinsic (not authorable) and every rule of THE RULE \
+REPORT is positive or waived. Only you waive a rule: name it in submit_review's waivers with why it \
+cannot be kept on this form (it misfires on a structure the source has, or its judge could not \
+check it); a rule the Author can keep by editing the document is not waived but sent back. \
+Otherwise approved=false and \
 report = a detailed, actionable message listing every AUTHORABLE issue (with node paths where possible), \
 the BEHAVIOUR PARITY differences among them, \
 noting any engine-intrinsic limitations separately. Do not fix anything yourself.\n\n", review_procedure!());
@@ -329,7 +334,10 @@ PDF, and you change nothing. The document's format is given below; the rule, wit
 id your verdict goes under, is given in the first message. Read the document with json_outline, json_get and json_search. When the rule is about the \
 source (its texts, its structure, its languages), read the source too: get_source_info for each \
 PDF's doc_path, then xfa_page_text, xfa_search and xfa_render_pages, and xfa_open with xfa_set to \
-reveal a configurator variant. Look at everything the rule covers, not a sample. Then call \
+reveal a configurator variant. Read the source's controls with xfa_controls a page at a time: \
+the default `limit` (100), `kinds` when the rule covers only some kinds of control, then \
+`next_offset`; a whole form at once is too large to deliver. Look at everything the rule covers, \
+not a sample. Then call \
 submit_rule_verdict once, last: pass=true when the document keeps the rule everywhere, otherwise \
 pass=false with one violation per place that breaks it, each with the JSON Pointer of the node and \
 what to change there. Report only breaks of THIS rule.";

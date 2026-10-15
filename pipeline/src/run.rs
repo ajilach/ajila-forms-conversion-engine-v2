@@ -166,6 +166,11 @@ pub struct RunOutcome {
 
 /// The stage name the run's closing check of every rule reports under.
 pub const FINAL_CHECK: &str = "Final check";
+/// The stage name the check of every rule before a review reports under.
+pub const RULE_CHECK: &str = "Rule check";
+/// What a run's analysis files the controller's own rule checks under, the
+/// ones before each review and the final one together.
+pub const RULE_CHECKS: &str = "Rule checks";
 
 /// Sequence the pipeline over `shared_agent`.
 ///
@@ -286,14 +291,18 @@ async fn run_stages(
                          and verify before finishing:\n{e}"
                     ),
                     rule_conflicts: Vec::new(),
+                    waived: Vec::new(),
                 })
             }
             Ok(()) => {
+                // Every rule, judged ones included, on the build the Reviewer
+                // gets: the one rule check of this hand-over (no stage runs one).
+                let rule_report = check_every_rule(shared_agent, config, obs, &mut spend).await;
                 begin_stage(shared_agent, obs, "Reviewer", format!("reviewing (round {})", round + 1)).await;
                 run_role_stage(
                     shared_agent,
                     &roles::REVIEWER,
-                    &roles::sys_reviewer(extra, &reviews),
+                    &roles::sys_reviewer(extra, &rule_report, &reviews),
                     "Review the built form end to end against the source, then finish by calling \
                      submit_review.",
                     config,
@@ -315,6 +324,17 @@ async fn run_stages(
             Some(r) if r.approved => {
                 approved = true;
                 obs.emit(RunEvent::Thought("Reviewer approved the form.".into()));
+                if !r.waived.is_empty() {
+                    warn(
+                        obs,
+                        &mut warnings,
+                        format!(
+                            "Approved with {} rule(s) left broken, with the Reviewer's reasons:\n- {}",
+                            r.waived.len(),
+                            r.waived.join("\n- ")
+                        ),
+                    );
+                }
                 break;
             }
             Some(r) if r.needs_operator() => {
@@ -498,6 +518,39 @@ async fn final_rule_check(
     warnings: &mut Vec<String>,
 ) {
     obs.emit(RunEvent::Stage { role: FINAL_CHECK, doing: "checking every rule".into() });
+    if let Err(e) = run_rule_check(shared_agent, config, obs, spend).await {
+        warn(obs, warnings, format!("The final rule check did not run: {e}"));
+    }
+}
+
+/// Checks every rule, judged ones included, on the document as it stands, and
+/// returns the report the Reviewer is handed. A check that cannot run at all
+/// is said so in the report: the rule board then shows the rules unchecked,
+/// which an approving review cannot pass.
+async fn check_every_rule(
+    shared_agent: &SharedAgent,
+    config: &RunConfig,
+    obs: &SharedObserver,
+    spend: &mut Spend,
+) -> String {
+    obs.emit(RunEvent::Stage { role: RULE_CHECK, doing: "checking every rule for the review".into() });
+    match run_rule_check(shared_agent, config, obs, spend).await {
+        Ok(report) => report,
+        Err(e) => {
+            obs.emit(RunEvent::Warning(format!("The rule check before the review did not run: {e}")));
+            format!("The rule check did not run: {e}. Report this under ENGINE DEFECTS.")
+        }
+    }
+}
+
+/// One full rule check, its judges on the run's judge model (or the run's
+/// own), their spend folded into `spend`.
+async fn run_rule_check(
+    shared_agent: &SharedAgent,
+    config: &RunConfig,
+    obs: &SharedObserver,
+    spend: &mut Spend,
+) -> Result<String, String> {
     let judges = crate::substage::SubStageContext::for_stage(
         config.model.clone(),
         config.price.clone(),
@@ -508,10 +561,13 @@ async fn final_rule_check(
         obs.clone(),
     )
     .confirming_on(config.judge_confirm_model.as_ref());
-    if let agent::ToolReply::Error(e) = crate::judge::rule_check(shared_agent, &judges, &serde_json::json!({})).await {
-        warn(obs, warnings, format!("The final rule check did not run: {e}"));
-    }
+    let reply = crate::judge::rule_check(shared_agent, &judges, &serde_json::json!({})).await;
     judges.fold_spend(spend);
+    match reply {
+        agent::ToolReply::Text(report) => Ok(report),
+        agent::ToolReply::Error(e) => Err(e),
+        agent::ToolReply::Blocks(_) => Err("the rule check replied with images".into()),
+    }
 }
 
 /// An Author stage that ended without `finish_authoring` (its turn budget, the
@@ -1991,6 +2047,10 @@ mod controller {
         agent.seed_document(doc).expect("an AEM document");
         agent.ensure_built().expect("the test document builds");
         agent.waive_evidence();
+        // No judged rules unless a test gives some: every review starts with
+        // a check of every rule, and a judge would take the model turns a
+        // test scripts for its stages.
+        agent.set_judged_rules(Vec::new());
         agent
     }
 
@@ -2164,7 +2224,7 @@ mod controller {
         let outcome = run(bare_agent(), config(AbortFlag::default(), 2, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_some(), "an approved run produces a result");
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
         assert_eq!(model.request_count(), 2);
         // Approval means no "finalizing without a clean review" warning.
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
@@ -2196,7 +2256,8 @@ mod controller {
                 MockStreamEvent::final_response(Usage::new()),
             ],
             text_turn("BUILT"),
-            review_turn(true, ""),
+            // The check before the review judges the judged rule; the final
+            // check keeps that verdict, the document being unchanged.
             vec![
                 MockStreamEvent::tool_call(
                     "verdict",
@@ -2205,6 +2266,7 @@ mod controller {
                 ),
                 MockStreamEvent::final_response(Usage::new()),
             ],
+            review_turn(true, ""),
         ]);
         let (obs, rec) = recorder();
         let config = RunConfig { final_rule_check: true, ..config(AbortFlag::default(), 1, model.clone()) };
@@ -2212,7 +2274,7 @@ mod controller {
         let outcome = run(agent, config, RunSeed::Fresh, obs).await.expect("the run finishes");
 
         let rec = rec.lock().unwrap();
-        assert_eq!(rec.stages(), ["Author", "Reviewer", FINAL_CHECK]);
+        assert_eq!(rec.stages(), ["Author", RULE_CHECK, "Reviewer", FINAL_CHECK]);
         assert_eq!(model.request_count(), 4, "one judge for the one judged rule");
         // The first stage reports the board before its first call.
         let first_board = rec.events.iter().position(|e| matches!(e, RunEvent::Rules(_))).unwrap();
@@ -2331,7 +2393,7 @@ mod controller {
 
         assert!(outcome.is_some());
         assert_eq!(model.request_count(), 2, "the Author must get no turn after finish_authoring");
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(!warnings.iter().any(|w| w.contains("finish_authoring")), "{warnings:?}");
 
@@ -2365,7 +2427,7 @@ mod controller {
         assert_eq!(model.request_count(), 3, "the nudged Author gets one more turn, then the Reviewer one");
         let requests = model.requests();
         assert!(!nudged(&requests[0]) && nudged(&requests[1]), "the second Author turn carries the nudge");
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
         let nudges = |rec: &Recorder| rec.controls().iter().filter(|(k, _)| *k == ControlKind::FinishNudge).count();
         assert_eq!(nudges(&rec.lock().unwrap()), 1);
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
@@ -2377,7 +2439,7 @@ mod controller {
         let nudging = RunConfig { finish_nudge: true, ..config(AbortFlag::default(), 1, model.clone()) };
         run(bare_agent(), nudging, RunSeed::Fresh, obs).await;
         assert_eq!(model.request_count(), 3);
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
         assert_eq!(nudges(&rec.lock().unwrap()), 1);
         let warnings = rec.lock().unwrap().warnings().iter().map(|w| w.to_string()).collect::<Vec<_>>();
         assert!(warnings.iter().any(|w| w.contains("without finish_authoring")), "{warnings:?}");
@@ -2397,7 +2459,7 @@ mod controller {
         let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await;
 
         assert!(outcome.is_some());
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer", "Author"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer", "Author"]);
         let fix_request = &model.requests()[2];
         let fix_system = turn_system(fix_request);
         assert!(
@@ -2446,7 +2508,7 @@ mod controller {
             .await
             .expect("a run stopped for a person still produces its result");
 
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"], "no fix round for a conflict");
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"], "no fix round for a conflict");
         assert_eq!(model.requests().len(), 2);
         let needs = outcome.warnings.iter().find(|w| w.starts_with("Needs a person")).unwrap_or_else(|| panic!("{:?}", outcome.warnings));
         assert!(needs.contains("sub-headings-are-title-draws vs 2943a027 at /body/0"), "{needs}");
@@ -2473,7 +2535,7 @@ mod controller {
 
         let outcome = run(bare_agent(), config(AbortFlag::default(), 3, model), RunSeed::Fresh, obs).await.unwrap();
 
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
         assert!(outcome.warnings.iter().any(|w| w.starts_with("Needs a person")), "{:?}", outcome.warnings);
     }
 
@@ -2490,7 +2552,7 @@ mod controller {
 
         let outcome = run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs).await.unwrap();
 
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer", "Author"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer", "Author"]);
         let fix_system = turn_system(&model.requests()[2]);
         assert!(fix_system.contains("The footer is missing."), "{fix_system}");
         assert!(fix_system.contains("RULE CONFLICTS — do NOT change these points"), "{fix_system}");
@@ -2501,7 +2563,7 @@ mod controller {
     /// Without conflicts the fix round is pinned the report unchanged.
     #[test]
     fn the_fix_round_review_is_the_report_alone_without_conflicts() {
-        let review = agent::ReviewResult { approved: false, report: "fix x".into(), rule_conflicts: Vec::new() };
+        let review = agent::ReviewResult { approved: false, report: "fix x".into(), rule_conflicts: Vec::new(), waived: Vec::new() };
         assert_eq!(fix_round_review(&review), "fix x");
     }
 
@@ -2596,7 +2658,7 @@ mod controller {
         )
         .await;
 
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
         let author_system = turn_system(&model.requests()[0]);
         assert!(
             author_system.contains("Make the title bigger."),
@@ -2614,7 +2676,7 @@ mod controller {
 
         run(bare_agent(), config(AbortFlag::default(), 1, model.clone()), RunSeed::Continue, obs).await;
 
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
         let author_request = &model.requests()[0];
         let author_system = turn_system(author_request);
         assert!(
@@ -2663,6 +2725,120 @@ mod controller {
         assert_eq!(model.request_count(), 0, "no turn should be attempted");
     }
 
+    /// A turn that passes the run's spending limit ends the run there: no
+    /// further request, no outcome, and the operator's flag (which a batch's
+    /// other forms share) left alone.
+    #[tokio::test]
+    async fn a_run_over_its_spending_limit_stops_with_no_outcome() {
+        let mut usage = Usage::new();
+        usage.input_tokens = 200;
+        let model = MockCompletionModel::from_stream_turns([
+            vec![
+                MockStreamEvent::tool_call("call-rules", "rule_list", serde_json::json!({})),
+                MockStreamEvent::final_response(usage),
+            ],
+            text_turn("BUILT"),
+            review_turn(true, ""),
+        ]);
+        let (obs, rec) = recorder();
+        let operator = AbortFlag::default();
+        let run_flag = operator.child();
+        let budget = crate::RunBudget::new(
+            crate::BudgetLimits { max_usd: Some(1.0), max_tokens: None },
+            run_flag.clone(),
+        );
+        let mut cfg = config(run_flag, 1, model.clone());
+        cfg.price = budget.metered(Arc::new(|usage| Some(usage.input_tokens as f64 * 0.01)));
+        cfg.final_rule_check = true;
+
+        let outcome = run(bare_agent(), cfg, RunSeed::Fresh, obs).await;
+
+        assert!(outcome.is_none(), "a run stopped by its limit has nothing to publish");
+        assert_eq!(model.request_count(), 1, "no request after the turn that passed the limit");
+        assert!(matches!(budget.exceeded(), Some(crate::BudgetExceeded::Usd { .. })));
+        assert!(!operator.is_aborted(), "the limit stops this run only");
+        assert!(rec.lock().unwrap().aborted());
+    }
+
+    /// Every rule is checked once before the review, and the Reviewer gets the
+    /// report in its prompt: it holds the judge's negative verdict. An
+    /// approval that waives every broken rule goes through, and the waivers
+    /// reach the result as a warning.
+    #[tokio::test]
+    async fn the_reviewer_gets_the_rule_report_and_its_waivers_reach_the_result() {
+        let judged = agent::rules::JudgedRule {
+            id: "id-judged".into(),
+            name: "judged".into(),
+            title: "Judged".into(),
+            description: "Judge me.".into(),
+            ..Default::default()
+        };
+        let agent = bare_agent();
+        // The scripted rules this document breaks, which the Reviewer waives
+        // too: the document does not change during the run.
+        let mut broken: Vec<String> = {
+            let mut guard = agent.lock().await;
+            guard.set_judged_rules(vec![judged]);
+            let plan = guard.rule_check_plan(&serde_json::json!({})).unwrap();
+            guard.check_scripted(&plan).await.unwrap();
+            guard
+                .rule_board()
+                .into_iter()
+                .filter(|r| matches!(r.state, agent::RuleState::Fail { .. } | agent::RuleState::Unchecked { .. }))
+                .map(|r| r.rule_id)
+                .collect()
+        };
+        broken.push("id-judged".into());
+        let waivers: Vec<serde_json::Value> =
+            broken.iter().map(|id| serde_json::json!({ "rule": id, "why": "misfires on this source" })).collect();
+        let model = MockCompletionModel::from_stream_turns([
+            text_turn("BUILT"),
+            vec![
+                MockStreamEvent::tool_call(
+                    "verdict",
+                    "submit_rule_verdict",
+                    serde_json::json!({
+                        "judgement": "judgement-1",
+                        "pass": false,
+                        "violations": [{"pointer": "/form", "message": "split the table"}]
+                    }),
+                ),
+                MockStreamEvent::final_response(Usage::new()),
+            ],
+            vec![
+                MockStreamEvent::tool_call(
+                    "call-review",
+                    "submit_review",
+                    serde_json::json!({"approved": true, "report": "", "waivers": waivers}),
+                ),
+                MockStreamEvent::final_response(Usage::new()),
+            ],
+        ]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(agent, config(AbortFlag::default(), 1, model.clone()), RunSeed::Fresh, obs)
+            .await
+            .expect("the run finishes");
+
+        let rec = rec.lock().unwrap();
+        let reviewer_prompt = rec
+            .traces
+            .iter()
+            .find_map(|t| match t {
+                TraceEvent::StageStarted { stage, system_prompt, .. } if stage == "Reviewer" => Some(system_prompt),
+                _ => None,
+            })
+            .expect("the Reviewer ran");
+        assert!(reviewer_prompt.contains("## THE RULE REPORT"), "the report is pinned");
+        assert!(reviewer_prompt.contains("split the table"), "the judge's violation reaches the Reviewer");
+        let waived = outcome
+            .warnings
+            .iter()
+            .find(|w| w.starts_with("Approved with"))
+            .unwrap_or_else(|| panic!("the waivers are in the result: {:?}", outcome.warnings));
+        assert!(waived.contains("id-judged") && waived.contains("misfires on this source"), "{waived}");
+    }
+
     /// A permanent failure pauses the run and asks. Answering Cancel ends it
     /// with no result — and, critically, without retrying.
     #[tokio::test]
@@ -2693,7 +2869,7 @@ mod controller {
         assert_eq!(rec.lock().unwrap().prompts, 1);
         assert_eq!(model.request_count(), 3);
         // The retried turn is the Author's, not a fresh stage.
-        assert_eq!(rec.lock().unwrap().stages(), ["Author", "Reviewer"]);
+        assert_eq!(rec.lock().unwrap().stages(), ["Author", RULE_CHECK, "Reviewer"]);
     }
 
     /// A role with a turn budget tight enough to reach in two scripted turns,
