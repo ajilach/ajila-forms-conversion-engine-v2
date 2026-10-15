@@ -13,6 +13,14 @@ const SETTINGS_KEY: &str = "app";
 /// Default cap on Reviewer → Author-fix rounds in the conversion pipeline.
 pub const DEFAULT_MAX_REVIEW_ROUNDS: usize = 3;
 
+/// Default limit on what one run may spend, in USD.
+pub const DEFAULT_MAX_SPEND_USD: f64 = 100.0;
+
+/// Default limit on the tokens one run may use (fresh input, cache writes and
+/// output; see [`pipeline::budget::billed_tokens`]): the USD default at USD 5
+/// per million tokens, so it also bounds a model the price table does not know.
+pub const DEFAULT_MAX_RUN_TOKENS: u64 = 20_000_000;
+
 /// Render operator-configured extra instructions as a prompt section, or an
 /// empty string when none are set. Appended after the built-in guidance so the
 /// hard constraints still take precedence.
@@ -63,9 +71,9 @@ pub struct AppSettings {
     /// was picked for, so switching the provider means picking again.
     #[serde(default)]
     pub reviewer_model: String,
-    /// The judges' model at the selected provider (the agents `rule_check`
-    /// dispatches, one per judged rule), when it is not the model of the stage
-    /// that dispatches them. Empty = the same model.
+    /// The judges' model at the selected provider (the agents that check the
+    /// judged rules, one per rule), when it is not the run's model. Empty =
+    /// the run's model.
     #[serde(default)]
     pub judge_model: String,
     /// Maximum Reviewer → Author-fix rounds in the conversion pipeline before
@@ -73,6 +81,12 @@ pub struct AppSettings {
     /// [`DEFAULT_MAX_REVIEW_ROUNDS`] in [`AppSettings::load`].
     #[serde(default)]
     pub max_review_rounds: usize,
+    /// What one run may spend, in USD, before it is stopped. `0` is no limit,
+    /// kept as set (not normalized to the default).
+    pub max_spend_usd: f64,
+    /// The tokens one run may use before it is stopped (fresh input, cache
+    /// writes and output, not cache reads). `0` is no limit, kept as set.
+    pub max_run_tokens: u64,
     /// The Docker-hosted AEM the UBS verifier boots for a run. Stored flat
     /// (`aem_verify_*`).
     #[serde(flatten)]
@@ -124,6 +138,8 @@ impl Default for AppSettings {
             reviewer_model: String::new(),
             judge_model: String::new(),
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
+            max_spend_usd: DEFAULT_MAX_SPEND_USD,
+            max_run_tokens: DEFAULT_MAX_RUN_TOKENS,
             aem_verify: agent::u2s::AemVerifySettings::default(),
             max_concurrent_requests: default_max_concurrent_requests(),
             agent_instructions: String::new(),
@@ -175,6 +191,21 @@ impl AppSettings {
             Provider::Anthropic => self.anthropic_model.trim(),
             Provider::OpenAi => self.openai_model.trim(),
         }
+    }
+
+    /// The run's spending limits, `0` meaning none. A negative or non-finite
+    /// USD limit is refused rather than read as some limit.
+    pub fn budget_limits(&self) -> Result<pipeline::BudgetLimits, String> {
+        if !self.max_spend_usd.is_finite() || self.max_spend_usd < 0.0 {
+            return Err(format!(
+                "The spending limit must be a USD amount of 0 or more (0 is no limit), not {}.",
+                self.max_spend_usd
+            ));
+        }
+        Ok(pipeline::BudgetLimits {
+            max_usd: (self.max_spend_usd > 0.0).then_some(self.max_spend_usd),
+            max_tokens: (self.max_run_tokens > 0).then_some(self.max_run_tokens),
+        })
     }
 
     /// Coerce missing/zero values to their real defaults. Guards against configs
@@ -232,6 +263,27 @@ mod tests {
             openai_model: "anthropic/claude-opus-4.1".to_string(),
             ..AppSettings::default()
         }
+    }
+
+    /// Settings saved before the limits existed get the defaults; a 0 is kept
+    /// as "no limit", and a negative amount is refused.
+    #[test]
+    fn the_spending_limits_default_and_keep_an_explicit_zero() {
+        let mut old: AppSettings = serde_json::from_str(r#"{"max_review_rounds": 2}"#).unwrap();
+        old.normalize();
+        assert_eq!(
+            old.budget_limits().unwrap(),
+            pipeline::BudgetLimits { max_usd: Some(DEFAULT_MAX_SPEND_USD), max_tokens: Some(DEFAULT_MAX_RUN_TOKENS) }
+        );
+
+        let mut off = AppSettings { max_spend_usd: 0.0, max_run_tokens: 0, ..AppSettings::default() };
+        off.normalize();
+        assert_eq!(off.budget_limits().unwrap(), pipeline::BudgetLimits { max_usd: None, max_tokens: None });
+
+        let negative = AppSettings { max_spend_usd: -1.0, ..AppSettings::default() };
+        assert!(negative.budget_limits().is_err());
+        let nan = AppSettings { max_spend_usd: f64::NAN, ..AppSettings::default() };
+        assert!(nan.budget_limits().is_err());
     }
 
     /// A role's own model reuses the selected provider's endpoint and key; an

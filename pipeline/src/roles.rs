@@ -103,9 +103,9 @@ pub(crate) const AUTHOR: Role = Role {
 /// (one turn per page, per field group, per language) and driving every source
 /// control the form's scripts read, not just the package checks.
 ///
-/// It builds nothing, so its stall watch is on rule_check instead: the
-/// document cannot change under it, so the same report three times running
-/// means it is going in circles. It resumes nothing either: every round starts
+/// It builds nothing and checks no rules (the pipeline hands it the rule
+/// report), so it has no stall watch: its turn budget and the run's spending
+/// limit bound it. It resumes nothing either: every round starts
 /// fresh from the source, unbiased by how an earlier round (or the Author) saw
 /// the form; the prior reports pinned in its system prompt are all it carries
 /// over.
@@ -113,8 +113,8 @@ pub(crate) const REVIEWER: Role = Role {
     name: "Reviewer",
     scope: agent::scope::REVIEWER,
     max_iterations: 90,
-    stuck_tool: Some("rule_check"),
-    stuck_activity: "the rule check",
+    stuck_tool: None,
+    stuck_activity: "the review",
     max_tokens_nudge: MAX_TOKENS_NUDGE,
     remember: true,
     resume: false,
@@ -172,10 +172,10 @@ pub(crate) fn judge_role(max_turns: Option<usize>) -> &'static Role {
 pub(crate) const AUTHOR_DOING: &str = "building the AEM form";
 /// Seed message that starts a fresh Author stage.
 pub(crate) const AUTHOR_SEED: &str = "Inspect the source form, then author the full form in the \
-                                      document, then rule_check and build_aem_package.";
+                                      document, then build_aem_package.";
 /// Seed message for an Author stage that applies review feedback.
 pub(crate) const AUTHOR_FIX_SEED: &str = "Apply the REVIEW FEEDBACK in your instructions to the \
-                                          document, then rule_check and build_aem_package.";
+                                          document, then build_aem_package.";
 /// Seed message for an Author stage carrying on from a previous run's document.
 ///
 /// Distinct from [`AUTHOR_SEED`], which tells the Author to *begin* from the
@@ -184,7 +184,7 @@ pub(crate) const AUTHOR_FIX_SEED: &str = "Apply the REVIEW FEEDBACK in your inst
 pub(crate) const AUTHOR_CONTINUE_SEED: &str = "The document already holds what an earlier run \
                                                built for this form. Inspect it against the source \
                                                with json_outline, finish whatever is missing or \
-                                               incomplete, then rule_check and build_aem_package. \
+                                               incomplete, then build_aem_package. \
                                                Do not start over.";
 
 // ── Per-role system-prompt composition (reviews pinned in `system`) ──────────
@@ -209,9 +209,15 @@ pub(crate) fn sys_author(extra: &str, template_note: &str, reviews: &[String]) -
     s
 }
 
-pub(crate) fn sys_reviewer(extra: &str, reviews: &[String]) -> String {
+/// The Reviewer's prompt pins `rule_report`, every rule checked on the build
+/// under review (see `crate::run`), after the format and before the earlier
+/// rounds' reports.
+pub(crate) fn sys_reviewer(extra: &str, rule_report: &str, reviews: &[String]) -> String {
     let mut s = format!("{SHARED_PREAMBLE}{extra}\n\n{REVIEWER_ADDENDUM}");
     s.push_str(&format_note());
+    s.push_str(&format!(
+        "\n\n## THE RULE REPORT — every rule, checked on the build under review\n{rule_report}"
+    ));
     append_reviews(
         &mut s,
         "## PRIOR REVIEW FEEDBACK (points to re-verify; review the whole form regardless)",
@@ -336,7 +342,7 @@ mod tests {
     #[test]
     fn the_author_prose_only_names_tools_the_author_is_offered() {
         let offered = agent::tools_for(AUTHOR.scope);
-        for tool in ["build_aem_package", "rule_check", "json_outline", "json_patch"] {
+        for tool in ["build_aem_package", "rule_list", "rule_get", "finish_authoring", "json_outline", "json_patch"] {
             assert!(
                 offered.iter().any(|t| t["name"].as_str() == Some(tool)),
                 "the Author prose names '{tool}', which it cannot call"
@@ -357,7 +363,7 @@ mod tests {
             description: "d".into(),
             scope: Default::default(),
         };
-        for prompt in [sys_author("", "", &[]), sys_reviewer("", &[]), sys_judge(&rule, "judgement-1", "", 8)] {
+        for prompt in [sys_author("", "", &[]), sys_reviewer("", "", &[]), sys_judge(&rule, "judgement-1", "", 8)] {
             assert!(prompt.contains("UBS AEM document"), "{prompt}");
         }
     }

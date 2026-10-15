@@ -34,7 +34,6 @@ pub(crate) const DOCUMENT_TOOLS: &[NativeJsonTool] = &[
     NativeJsonTool::Patch,
     NativeJsonTool::Validate,
     NativeJsonTool::ListRules,
-    NativeJsonTool::CheckRules,
     NativeJsonTool::Autofix,
 ];
 
@@ -76,6 +75,9 @@ pub struct ReviewResult {
     pub report: String,
     /// Where rules ask for opposite things: for a person, not the Author.
     pub rule_conflicts: Vec<crate::review::RuleConflict>,
+    /// The rules an approving review leaves broken, one line each with the
+    /// Reviewer's reason. Empty unless approved.
+    pub waived: Vec<String>,
 }
 
 /// The form's own content XML in an unzipped package: the `cq:Page` under
@@ -986,9 +988,9 @@ mod tests {
         assert!(after.contains("/form/children"), "{after}");
     }
 
-    /// rule_list holds every rule and says which kind each is; rule_check
-    /// runs the scripts and, with no judge agent here, reports a judged rule
-    /// unchecked; an id no rule has is refused.
+    /// rule_list holds every rule and says which kind each is; the pipeline's
+    /// rule check plans every rule (or the ones named) and runs the scripts;
+    /// an id no rule has is refused.
     #[tokio::test]
     async fn rule_tools_cover_scripted_and_judged_rules() {
         let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
@@ -1010,20 +1012,16 @@ mod tests {
         assert_eq!(got["rules"][0]["description"], "Judge me.");
         assert!(matches!(agent.execute("rule_get", &json!({"ids": ["nope"]})).await, ToolReply::Error(_)));
 
-        let checked: Value = serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({})).await)).unwrap();
-        let verdicts = checked["verdicts"].as_array().unwrap();
-        let scripted = checked["summary"].as_object().unwrap().values().filter_map(Value::as_u64).sum::<u64>();
-        assert!(scripted > 1, "the scripts' verdicts are counted: {checked}");
-        let unjudged = verdicts.iter().find(|v| v["rule_id"] == "judged-id").expect("the judged rule is reported");
-        assert_eq!(unjudged["verdict"], "unchecked");
+        let plan = agent.rule_check_plan(&json!({})).unwrap();
+        assert!(plan.judged.iter().any(|r| r.id == "judged-id"), "every judged rule is planned");
+        let checked = agent.check_scripted(&plan).await.unwrap();
+        assert!(checked["verdicts"].as_array().unwrap().len() > 1, "the scripts' verdicts are reported: {checked}");
 
-        let only: Value =
-            serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({"rule_ids": ["judged-id"]})).await))
-                .unwrap();
-        assert_eq!(only["verdicts"].as_array().unwrap().len(), 1);
+        let only = agent.rule_check_plan(&json!({"rule_ids": ["judged-id"]})).unwrap();
+        assert_eq!(only.judged.len(), 1);
+        assert!(agent.check_scripted(&only).await.unwrap()["verdicts"].as_array().unwrap().is_empty());
 
-        let refused = agent.execute("rule_check", &json!({"rule_ids": ["nope"]})).await;
-        assert!(matches!(refused, ToolReply::Error(e) if e.contains("nope")));
+        assert!(agent.rule_check_plan(&json!({"rule_ids": ["nope"]})).is_err_and(|e| e.contains("nope")));
     }
 
     /// coverage_check compares the run's own source PDFs with its document: a
@@ -1067,9 +1065,10 @@ mod tests {
         let built = reply_text(agent.execute("build_aem_package", &json!({})).await);
         assert!(built.contains("Built package") && built.contains("Package valid"), "{built}");
         // The writer's package is checked against the guard on every build, and
-        // rule_check reports the same for the current build.
+        // the rule check reports the same for the current build.
         assert!(!built.contains("ENGINE DEFECTS"), "{built}");
-        let checked: Value = serde_json::from_str(&reply_text(agent.execute("rule_check", &json!({})).await)).unwrap();
+        let plan = agent.rule_check_plan(&json!({})).unwrap();
+        let checked = agent.check_scripted(&plan).await.unwrap();
         assert_eq!(checked["package_findings"], json!([]), "{checked}");
         let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
         assert!(files.iter().any(|(_, c)| c.contains("TXT_LastName")));
@@ -1112,19 +1111,24 @@ mod tests {
 
         reply_text(agent.execute("build_aem_package", &json!({})).await);
         verify_everything(&mut agent);
-        reply_text(agent.execute("submit_review", &approve).await);
-        assert!(agent.take_review().is_some_and(|r| r.approved));
-        // The hand-over also needs every rule checked on this document and
-        // every broken one justified (see `execute`'s rule gate).
-        reply_text(agent.execute("rule_check", &json!({})).await);
+        // An approval also needs every rule checked on this document and every
+        // broken one waived (see `execute`'s rule gate).
+        let plan = agent.rule_check_plan(&json!({})).unwrap();
+        agent.check_scripted(&plan).await.unwrap();
+        let revision = agent.revision();
+        let judged: Vec<_> = plan.judged.into_iter().map(|rule| (rule, Err("not run here".to_string()))).collect();
+        agent.record_judged(&judged, revision);
         let waivers: Vec<Value> = agent
             .rule_board()
             .into_iter()
             .filter(|r| matches!(r.state, RuleState::Fail { .. } | RuleState::Unchecked { .. }))
             .map(|r| json!({ "rule": r.rule_id, "why": "not this test's concern" }))
             .collect();
-        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done", "waivers": waivers })).await);
-        assert!(agent.take_finish().is_some_and(|summary| summary.starts_with("done")));
+        let approve_waived = json!({ "approved": true, "report": "", "waivers": waivers });
+        reply_text(agent.execute("submit_review", &approve_waived).await);
+        assert!(agent.take_review().is_some_and(|r| r.approved));
+        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done" })).await);
+        assert!(agent.take_finish().is_some_and(|summary| summary == "done"));
 
         // A new stage earns its own.
         agent.begin_stage();

@@ -744,10 +744,10 @@ fn judges(out: &mut String, stats: &Stats) {
     }
     out.push_str(
         "## Judges\n\n\
-         Each judged rule (a rule without a `check.js`) is decided by a judge agent that `rule_check` \
-         dispatches, several at once. Their spend is part of the stage that called `rule_check` (the \
-         Stages table splits it out; the final rule check after the last stage has a row of its own); \
-         their time overlaps, so it is summed here, not wall time. \"By rule\" counts each judge's own \
+         Each judged rule (a rule without a `check.js`) is decided by a judge agent that a rule check \
+         dispatches, several at once. The controller checks every rule before each review and once \
+         after the last stage; those checks have the Stages table's `Rule checks` row, and a check a \
+         stage itself ran (in older runs) is split out of that stage's cost. Their time overlaps, so it is summed here, not wall time. \"By rule\" counts each judge's own \
          verdict; a check whose document changed while it judged reports every rule unchecked, which \
          \"By rule_check\" shows.\n\n\
          ### By rule\n\n\

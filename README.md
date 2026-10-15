@@ -59,7 +59,11 @@ The CLI binary is defined in the `cli` crate. It has three subcommands: `convert
 
 `blueprint convert` runs the same autonomous conversion the desktop app runs (Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts are written to `--out` instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
-The API key, model, review-round cap, extra instructions and AEM credentials default to the app's settings; every one can be overridden per invocation.
+The Author and the Reviewer read the rules (`rule_list`, `rule_get`) but do not check them. The pipeline checks every rule, judged ones included, once per hand-over: before each review, with the result pinned in the Reviewer's prompt, and once more after the review. Only the Reviewer can approve with a rule broken, by waiving it with a reason; the waivers go into the result's warnings.
+
+Every run is held to a spending limit (USD 100) and a token limit (20,000,000 tokens of fresh input, cache writes and output; cache reads do not count). A run that passes either stops with no result and says which limit it reached; in a batch, the other forms carry on. Both limits are app settings, can be overridden with `--max-spend` and `--max-tokens`, and `0` removes a limit. A model the price table does not know is held to the token limit only.
+
+The API key, model, review-round cap, spending limits, extra instructions and AEM credentials default to the app's settings; every one can be overridden per invocation.
 
 ```sh
 # Convert a form (multilingual sources allowed)
@@ -77,6 +81,9 @@ OPENAI_API_KEY=sk-or-… cargo run --release -p blueprint-cli -- convert path/to
 
 # Steer the agent and allow more review rounds
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --instructions "Keep every footnote." --max-review-rounds 5
+
+# Stop the run once it has spent USD 20
+cargo run --release -p blueprint-cli -- convert path/to/form.pdf --max-spend 20
 
 # Modify an existing AEM package instead of authoring from scratch
 cargo run --release -p blueprint-cli -- convert form_DE.pdf template-package.zip

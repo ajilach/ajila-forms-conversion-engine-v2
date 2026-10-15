@@ -22,22 +22,38 @@ use serde::{Deserialize, Serialize};
 /// An atomic rather than a field on any state object: the network layer polls it
 /// from inside a streamed response, where a UI's signals are out of reach, and a
 /// long turn has to stop there rather than at the next turn boundary.
+///
+/// A flag may have a parent ([`Self::child`]): it then also reads as aborted
+/// once the parent is, while aborting it leaves the parent alone. A run's
+/// spending limit stops that run through a child of the operator's flag,
+/// which a batch shares between all its forms.
 #[derive(Clone, Debug, Default)]
-pub struct AbortFlag(Arc<AtomicBool>);
+pub struct AbortFlag {
+    cell: Arc<AtomicBool>,
+    parent: Option<Arc<AtomicBool>>,
+}
 
 impl AbortFlag {
     /// Ask the run to stop at its next checkpoint.
     pub fn abort(&self) {
-        self.0.store(true, Ordering::Relaxed);
+        self.cell.store(true, Ordering::Relaxed);
     }
 
     pub fn is_aborted(&self) -> bool {
-        self.0.load(Ordering::Relaxed)
+        self.cell.load(Ordering::Relaxed) || self.parent.as_ref().is_some_and(|p| p.load(Ordering::Relaxed))
     }
 
-    /// Clear the flag so the next run starts un-aborted.
+    /// Clear the flag so the next run starts un-aborted. A parent is not
+    /// cleared.
     pub fn reset(&self) {
-        self.0.store(false, Ordering::Relaxed);
+        self.cell.store(false, Ordering::Relaxed);
+    }
+
+    /// A flag of its own that also reads as aborted once this one is.
+    /// Only one level deep: a child of a child follows its own parent's
+    /// cell, not the grandparent's.
+    pub fn child(&self) -> Self {
+        Self { cell: Arc::default(), parent: Some(self.cell.clone()) }
     }
 }
 
@@ -45,7 +61,7 @@ impl AbortFlag {
 /// prop needs to know, and what comparing the booleans would get wrong.
 impl PartialEq for AbortFlag {
     fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
+        Arc::ptr_eq(&self.cell, &other.cell)
     }
 }
 
@@ -277,6 +293,23 @@ impl RunObserver for NullObserver {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A run's own flag stops with the operator's, but stopping the run (its
+    /// spending limit) leaves the operator's flag, and so a batch's other
+    /// forms, running.
+    #[test]
+    fn a_child_flag_follows_its_parent_but_not_the_other_way() {
+        let operator = AbortFlag::default();
+        let run = operator.child();
+        let other_run = operator.child();
+        run.abort();
+        assert!(run.is_aborted());
+        assert!(!operator.is_aborted());
+        assert!(!other_run.is_aborted());
+        operator.abort();
+        assert!(other_run.is_aborted());
+        assert_ne!(run, other_run);
+    }
 
     /// The Abort button holds one handle and the run another; setting the flag
     /// on either has to be visible to the other, or the button does nothing.

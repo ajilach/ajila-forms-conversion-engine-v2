@@ -328,6 +328,13 @@ fn apply_completed(state: &mut ProcessingState, completed: Result<runner::Comple
         }
     };
 
+    // A run its spending limit stopped failed, and says which limit: unlike an
+    // operator's stop, nobody chose to end it.
+    if let Some(limit) = completed.limit_reached {
+        state.error = Some(format!("Run stopped: {limit}."));
+        return None;
+    }
+
     // Aborted, or the user gave up at a retry prompt. The observer has already
     // recorded why; there is no result to publish. The session is deliberately
     // not adopted — nothing can resume a run that produced no snapshot yet, and
@@ -656,7 +663,12 @@ mod tests {
 
         apply_completed(
             &mut state,
-            Ok(runner::Completed { session_id: "s-1".into(), outcome: Some(outcome), elapsed_secs: 3 }),
+            Ok(runner::Completed {
+                session_id: "s-1".into(),
+                outcome: Some(outcome),
+                elapsed_secs: 3,
+                limit_reached: None,
+            }),
         );
 
         assert_eq!(state.rules, rules);
@@ -677,6 +689,7 @@ mod tests {
                 session_id: "s-1".into(),
                 outcome: None,
                 elapsed_secs: 12,
+                limit_reached: None,
             }),
         );
 
@@ -684,5 +697,29 @@ mod tests {
         assert_eq!(state.agent_steps.len(), 1);
         assert_eq!(state.error, None, "aborting is not a failure");
         assert_ne!(state.step, ProcessingStep::Complete);
+    }
+
+    /// A run its spending limit stopped is shown as failed, naming the limit,
+    /// with what it managed to do still readable.
+    #[test]
+    fn a_run_stopped_by_its_limit_is_a_failure_naming_the_limit() {
+        let mut state = run_in_flight();
+
+        let session = apply_completed(
+            &mut state,
+            Ok(runner::Completed {
+                session_id: "s-1".into(),
+                outcome: None,
+                elapsed_secs: 12,
+                limit_reached: Some(pipeline::BudgetExceeded::Usd { spent: 100.5, limit: 100.0 }),
+            }),
+        );
+
+        assert_eq!(session, None);
+        assert_eq!(state.agent_steps.len(), 1);
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Run stopped: the spending limit of USD 100.00 was reached (USD 100.50 spent).")
+        );
     }
 }

@@ -451,6 +451,7 @@ mod tests {
                     why: "they disagree".into(),
                 })
                 .collect(),
+            waived: Vec::new(),
         }
     }
 

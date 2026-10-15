@@ -19,6 +19,7 @@
 //! by rig's own [`rig_core::test_utils::MockCompletionModel`] and a recording
 //! observer, with no network and no desktop runtime.
 
+pub mod budget;
 pub mod describe;
 pub mod hooks;
 mod judge;
@@ -31,6 +32,7 @@ pub mod tools;
 pub mod trace;
 pub mod turns;
 
+pub use budget::{BudgetExceeded, BudgetLimits, RunBudget};
 pub use hooks::PriceFn;
 pub use memory::ContextBudget;
 pub use observer::{AbortFlag, NullObserver, RetryAction, RunEvent, RunObserver, SharedObserver, Spend};

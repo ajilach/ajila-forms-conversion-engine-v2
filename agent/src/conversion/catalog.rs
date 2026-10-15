@@ -16,12 +16,11 @@ pub mod scope {
     /// The read-only pass that writes a reference form's description. Sees the
     /// source and the package; edits nothing.
     pub const DESCRIBE: Mask = 1 << 2;
-    /// A judge agent checking one rule `rule_check` handed it: reads the
+    /// A judge agent checking one rule the pipeline's rule check handed it: reads the
     /// document and the source, edits nothing, ends with its verdict.
     pub const JUDGE: Mask = 1 << 3;
 
-    /// The Author and the Reviewer: the stages the pipeline runs in turn, which
-    /// dispatch judges.
+    /// The Author and the Reviewer: the stages the pipeline runs in turn.
     pub const MAIN_STAGES: Mask = AUTHOR | REVIEWER;
     pub const ALL_STAGES: Mask = MAIN_STAGES | JUDGE;
     /// Every caller, the read-only describe pass included.
@@ -166,7 +165,6 @@ const SCOPING: &[(&str, scope::Mask, Access)] = {
         ("json_validate",                     MAIN_STAGES | JUDGE, Read),
         ("rule_list",                         MAIN_STAGES, Read),
         ("rule_get",                          MAIN_STAGES, Read),
-        ("rule_check",                        MAIN_STAGES, Write),
         ("rule_autofix",                      AUTHOR, Write),
 
         // §3 building the output through the UBS encoders.
@@ -236,17 +234,13 @@ fn rule_tool_description(tool: u2s_doc_tools::native::NativeJsonTool) -> Option<
              judge agent reads the document against the description). rule_get gives the \
              descriptions, which say what is required, how it is judged and how to fix a break.",
         ),
-        NativeJsonTool::CheckRules => Some(
-            "Check the document against its rules. `summary` counts the verdicts by kind and \
-             `positive` names the rules that hold; `verdicts` spells out every other one: \
-             `negative` with its violations (a JSON Pointer and what to fix), `unchecked` or \
-             `broken` with the reason. A scripted rule runs its script; a judged rule is handed to \
-             a judge agent, several in parallel, which takes longer and costs a model run per rule, \
-             so name the rules you need with rule_ids when you do not need them all. A judged rule \
-             whose part of the document has not changed since a judge last checked it keeps that \
-             verdict without a new judge (`cached`). Where no judge runs, a judged rule comes back \
-             `unchecked`. When the document has a current build, `package_findings` lists what its \
-             package breaks. Read-only.",
+        NativeJsonTool::Autofix => Some(
+            "Apply the mechanical repair of every failing rule that has one. Requires \
+             expected_revision, the same as json_patch, and is refused on the same terms if the \
+             document has moved on. Only ever touches a rule marked autofix_available in a \
+             json_patch result or the rule report -- a rule with no mechanical repair, or whose \
+             repair does not actually resolve it, is reported and left untouched, never guessed \
+             at. Omit rule_ids to attempt every fixable rule, or name a subset.",
         ),
         _ => None,
     }
@@ -286,7 +280,7 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 "rule_get",
                 "The full text of the rules you name: id, title, `check` and the description, which says \
                  what is required, how it is judged and how to fix a break. Name the ids from rule_list \
-                 or from a rule_check verdict; omit ids for every rule.",
+                 or from the rule report; omit ids for every rule.",
                 serde_json::json!({
                     "ids": {"type": "array", "items": {"type": "string"}, "description": "Rule ids from rule_list; omit for every rule."}
                 }),
@@ -338,24 +332,11 @@ fn tool_specs() -> Vec<serde_json::Value> {
                  verified it yourself. Refused, with the list of what is missing, until this stage \
                  has used the current build on its verifier, read the PDF that produced, rendered \
                  the source pages and set every source control the form's scripts read; do \
-                 those and call it again. Also refused until every rule has a verdict on the \
-                 document as it stands (run rule_check WITHOUT rule_ids after your last edit) and \
-                 every rule it leaves broken is either fixed or named in waivers with the reason it \
-                 cannot be kept. Ends your stage and hands the form to the Reviewer.",
+                 those and call it again. Ends your stage: every rule is then checked on the \
+                 document, judged rules included, and the form goes to the Reviewer with that \
+                 rule report.",
                 serde_json::json!({
-                    "summary": {"type": "string", "description": "What you compared against the source, what you changed, and what the verification showed."},
-                    "waivers": {
-                        "type": "array",
-                        "description": "One entry per rule you hand over broken (negative, or without a verdict), with why it cannot be kept, e.g. it conflicts with another rule. The Reviewer reads them.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "rule": {"type": "string", "description": "The rule's id, as rule_check reports it."},
-                                "why": {"type": "string", "description": "Why the rule cannot be kept here."}
-                            },
-                            "required": ["rule", "why"]
-                        }
-                    }
+                    "summary": {"type": "string", "description": "What you compared against the source, what you changed, and what the verification showed."}
                 }),
                 serde_json::json!(["summary"]),
             ),
@@ -381,10 +362,22 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "submit_review",
-                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
+                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read. approved=true is also refused while a rule of the rule report is negative or has no verdict, unless waivers names it with why it cannot be kept on this form. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry or waivers given with it. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
                 serde_json::json!({
                     "approved": {"type": "boolean"},
                     "report": {"type": "string", "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible."},
+                    "waivers": {
+                        "type": "array",
+                        "description": "Only with approved=true: one entry per rule of the rule report that is negative or has no verdict, with why it cannot be kept on this form (for example, it misfires on a structure the source has). They go into the run's result.",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "rule": {"type": "string", "description": "The rule's id, as the rule report gives it."},
+                                "why": {"type": "string", "description": "Why the rule cannot be kept here."}
+                            },
+                            "required": ["rule", "why"]
+                        }
+                    },
                     "rule_conflicts": {
                         "type": "array",
                         "description": "Places where the rules contradict each other, so that whatever the author does there one of them breaks. Not issues for the author; only with approved=false.",
@@ -658,7 +651,15 @@ mod catalog_guards {
         }
         assert!(has(scope::AUTHOR, "rule_autofix"));
         assert!(has(scope::AUTHOR, "build_aem_package"));
-        assert!(has(scope::REVIEWER, "rule_check"));
+        // Rules are checked by the pipeline, once per hand-over, not by a
+        // stage: both read the rules, neither runs the checks.
+        assert!(
+            !catalog().iter().any(|t| t.name() == "rule_check"),
+            "no stage checks the rules itself"
+        );
+        for stage in [scope::AUTHOR, scope::REVIEWER] {
+            assert!(has(stage, "rule_list") && has(stage, "rule_get"));
+        }
 
         // The run is ended by the controller. A stage ends with its own
         // gated terminal call (`finish_authoring`, `submit_review`); the old
@@ -677,7 +678,7 @@ mod catalog_guards {
 
         // A judge reads, never edits, never dispatches judges of its own, and
         // ends with its verdict.
-        for barred in ["json_patch", "rule_check", "rule_autofix", "submit_review", "build_aem_package"] {
+        for barred in ["json_patch", "rule_autofix", "submit_review", "build_aem_package"] {
             assert!(!has(scope::JUDGE, barred), "a judge must not have {barred}");
         }
         for needed in ["submit_rule_verdict", "json_get", "json_outline", "xfa_page_text", "get_source_info"] {
