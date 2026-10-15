@@ -657,8 +657,20 @@ impl ConversionAgent {
         crate::db::insert_edit(&crate::session::document_session(&self.session), label, &json);
     }
 
+    /// The reference a tool call asks for, if any. An empty one means the
+    /// uploaded form: GPT models fill in `{"reference": ""}` for an optional
+    /// `source` instead of leaving it out, and kept failing on it.
+    fn requested_reference(input: &Value) -> Option<&str> {
+        input
+            .get("source")
+            .and_then(|source| source.get("reference"))
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|id| !id.is_empty())
+    }
+
     fn source_key(input: &Value) -> String {
-        match input["source"]["reference"].as_str() {
+        match Self::requested_reference(input) {
             Some(id) => format!("reference:{id}"),
             None => "current".to_string(),
         }
@@ -667,7 +679,7 @@ impl ConversionAgent {
     /// The PDFs of the requested source: the uploaded form, or a reference's
     /// input.
     fn source_pdfs(&self, input: &Value) -> Result<Vec<(String, Vec<u8>)>, String> {
-        match input["source"]["reference"].as_str() {
+        match Self::requested_reference(input) {
             Some(id) => {
                 let bytes = crate::references::store().get_reference_pdf_bytes(id, 0)?;
                 Ok(vec![(format!("{id}.pdf"), bytes)])
@@ -1472,6 +1484,10 @@ mod tests {
             ConversionAgent::source_key(&json!({"source": {"reference": "abc"}})),
             "reference:abc"
         );
+        // An empty reference (or an empty source) is the uploaded form too.
+        for input in [json!({"source": {"reference": ""}}), json!({"source": {"reference": " "}}), json!({"source": {}})] {
+            assert_eq!(ConversionAgent::source_key(&input), "current", "{input}");
+        }
     }
 
     /// The pure windowing behind `read_package_file`: a source
