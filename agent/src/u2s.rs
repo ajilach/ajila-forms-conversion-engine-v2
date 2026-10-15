@@ -109,6 +109,54 @@ pub(crate) fn takes_artifact(name: &str) -> bool {
     entry(name).is_some_and(|e| e.takes_artifact)
 }
 
+/// `input` without the optional arguments a model filled in with nothing: an
+/// empty or blank string, `null`, an empty list, or an object left empty once
+/// its own blanks are gone. GPT models answer every property of a schema, so
+/// `xfa_controls` got `"session": ""` beside its `doc_path` and refused the
+/// pair ("supply exactly one"), and `get_source_info` an empty reference. A
+/// required argument is kept as given, blank or not, for the server to judge.
+/// `revision` goes with the `session` it qualifies when that one was blank.
+fn without_blank_optionals(input: &Value, schema: &Value) -> Value {
+    let Some(object) = input.as_object() else {
+        return input.clone();
+    };
+    let required: Vec<&str> = schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|r| r.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    let properties = schema.get("properties");
+    let mut kept = serde_json::Map::new();
+    for (key, value) in object {
+        if required.contains(&key.as_str()) {
+            kept.insert(key.clone(), value.clone());
+            continue;
+        }
+        let value = match value {
+            Value::Object(_) => {
+                let nested = properties.and_then(|p| p.get(key)).unwrap_or(&Value::Null);
+                without_blank_optionals(value, nested)
+            }
+            other => other.clone(),
+        };
+        let blank = match &value {
+            Value::Null => true,
+            Value::String(text) => text.trim().is_empty(),
+            Value::Array(items) => items.is_empty(),
+            Value::Object(fields) => fields.is_empty(),
+            _ => false,
+        };
+        if !blank {
+            kept.insert(key.clone(), value);
+        }
+    }
+    let takes_session = properties.is_some_and(|p| p.get("session").is_some());
+    if takes_session && !kept.contains_key("session") && !required.contains(&"revision") {
+        kept.remove("revision");
+    }
+    Value::Object(kept)
+}
+
 fn entry(name: &str) -> Option<&'static Entry> {
     entries().iter().find(|e| e.spec["name"] == name)
 }
@@ -1521,6 +1569,7 @@ impl U2sTools {
         let Some(entry) = entry(name) else {
             return Err(ToolReply::Error(format!("Unknown tool: {name}")));
         };
+        let input = &without_blank_optionals(input, &entry.spec["input_schema"]);
         if let Err(e) = self.check_document(input) {
             return Err(ToolReply::Error(e));
         }
@@ -1753,6 +1802,35 @@ fn fallback_font(fonts: &[(String, &'static [u8])]) -> Option<&'static [u8]> {
 mod tests {
     use super::*;
     use crate::conversion::ReplyBlock;
+
+    /// What GPT sent `xfa_controls` on the AAOV run: every property filled in.
+    /// The blanks go, the real arguments stay, and so does a required one.
+    #[test]
+    fn blank_optional_arguments_are_dropped() {
+        let schema = entry("xfa_controls").expect("in the catalog").spec["input_schema"].clone();
+        let sent = serde_json::json!({
+            "doc_path": "/blobs/AAOV.pdf",
+            "kinds": ["radio", "dropdown"],
+            "limit": 100,
+            "offset": 0,
+            "revision": 0,
+            "session": "",
+            "state": { "selections": [], "steps": [] }
+        });
+        assert_eq!(
+            without_blank_optionals(&sent, &schema),
+            serde_json::json!({ "doc_path": "/blobs/AAOV.pdf", "kinds": ["radio", "dropdown"], "limit": 100, "offset": 0 })
+        );
+        // A live session keeps its revision.
+        let live = serde_json::json!({ "session": "sess_a", "revision": 3, "doc_path": null });
+        assert_eq!(without_blank_optionals(&live, &schema), serde_json::json!({ "session": "sess_a", "revision": 3 }));
+        // A required argument is the server's to judge, blank or not.
+        let schema = serde_json::json!({ "properties": { "doc_path": {}, "note": {} }, "required": ["doc_path"] });
+        assert_eq!(
+            without_blank_optionals(&serde_json::json!({ "doc_path": "", "note": " " }), &schema),
+            serde_json::json!({ "doc_path": "" })
+        );
+    }
 
     /// A daemon that never answers is reported within the deadline, as hung,
     /// and a failed connection carries its own error.
