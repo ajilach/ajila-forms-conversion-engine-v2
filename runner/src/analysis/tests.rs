@@ -157,6 +157,13 @@ fn a_recorded_run_leaves_every_file_and_the_report_names_what_repeated() {
             form_code: Some("AAOS".into()),
             outputs: Vec::new(),
             warnings: vec![],
+            rules: vec![agent::RuleView {
+                rule_id: "r1".into(),
+                title: "A judged rule".into(),
+                kind: agent::RuleKind::Judge,
+                state: agent::RuleState::Fail { violations: 2 },
+                outdated: false,
+            }],
         },
         &caller,
     );
@@ -227,6 +234,10 @@ fn a_recorded_run_leaves_every_file_and_the_report_names_what_repeated() {
     assert_eq!(summary["counts"]["failed_tool_calls"], 2);
     assert_eq!(summary["stages"][0]["model_ms"], 8_000);
     assert_eq!(summary["repeated_calls"][0]["distinct_results"], 1);
+    // The final rule board, reused verdicts included, is what a benchmark
+    // compares judges on.
+    assert_eq!(summary["outcome"]["rules"][0]["state"], "fail");
+    assert_eq!(summary["outcome"]["rules"][0]["kind"], "judge");
 
     let _ = std::fs::remove_dir_all(root);
 }
@@ -369,6 +380,7 @@ fn a_failure_mid_run_is_reported_once_and_the_ending_is_honest() {
             form_code: None,
             outputs: Vec::new(),
             warnings: vec![],
+            rules: Vec::new(),
         },
         &caller,
     );

@@ -113,6 +113,10 @@ pub struct RunEnd {
     /// The artefacts the run produced (package, schema, SQL dump).
     pub outputs: Vec<String>,
     pub warnings: Vec<String>,
+    /// Where every rule stands on the final document, after the final rule
+    /// check: the verdicts it reused from earlier checks included, which its
+    /// judges' lines alone do not show.
+    pub rules: Vec<agent::RuleView>,
 }
 
 impl RunEnd {

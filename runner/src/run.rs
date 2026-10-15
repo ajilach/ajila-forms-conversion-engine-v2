@@ -129,7 +129,7 @@ pub async fn resume(
     // A continuation with nothing restored has no brief at all: the seeded
     // document *is* the instruction, and the Author would be told to finish work
     // it was never handed. Feedback still carries one, so only this case is fatal.
-    if matches!(prior, agent::session::Restored::Nothing) && matches!(seed, RunSeed::Continue) {
+    if matches!(prior, agent::session::Restored::Nothing) && matches!(seed, RunSeed::Continue | RunSeed::Assess) {
         return Err(no_prior_state(&session_id));
     }
 
@@ -265,8 +265,10 @@ async fn drive(
     // A session's review images show its last finished run. This run will
     // change what was built, so the previous run's images go now: a run that
     // ends without capturing any, or never ends, must not leave an older build
-    // on show as this one.
-    if agent::db::store_review(&session_id, &agent::review::Review::default()).is_none() {
+    // on show as this one. An assessment changes nothing, so they stay.
+    if !matches!(seed, RunSeed::Assess)
+        && agent::db::store_review(&session_id, &agent::review::Review::default()).is_none()
+    {
         obs.emit(RunEvent::Warning(
             "The previous review images could not be cleared, so the review may show an older build.".into(),
         ));
@@ -292,6 +294,7 @@ async fn drive(
             form_code: outcome.as_ref().and_then(|o| o.form_code.clone()),
             outputs: outcome.as_ref().map(produced_outputs).unwrap_or_default(),
             warnings: outcome.as_ref().map(|o| o.warnings.clone()).unwrap_or_default(),
+            rules: outcome.as_ref().map(|o| o.rules.clone()).unwrap_or_default(),
         };
         analysis.finish(end, obs);
     }
@@ -351,6 +354,7 @@ fn run_meta(
                 crate::analysis::format::excerpt(&crate::analysis::format::one_line(text), 300)
             ),
             RunSeed::Continue => "continuation".into(),
+            RunSeed::Assess => "assessment".into(),
         },
         started: chrono::Local::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, false),
         profile: opts.profile.clone().unwrap_or_else(|| "(none)".into()),

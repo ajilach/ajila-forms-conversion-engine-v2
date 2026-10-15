@@ -53,6 +53,14 @@ pub struct ConvertArgs {
     #[arg(long, value_name = "ID")]
     session: Option<String>,
 
+    /// Judge the form held in --session and change nothing: no Author stage
+    /// and no fix round. With --max-review-rounds 1 (or more) one Reviewer
+    /// round runs and its verdict ends the run; with --max-review-rounds 0
+    /// only the final rule check runs, i.e. the judges. For comparing the
+    /// Reviewer's and the judges' models on one fixed form.
+    #[arg(long, requires = "session", conflicts_with = "feedback")]
+    assess: bool,
+
     #[command(flatten)]
     run: RunArgs,
 }
@@ -164,6 +172,9 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
         if args.feedback.is_some() {
             return Err("Applying feedback needs the run's source PDF(s) as well.".into());
         }
+        if args.assess {
+            return Err("Assessing a form needs the run's source PDF(s) as well.".into());
+        }
         if agent::conversion::template_of(&files).is_none() {
             return Err(
                 "Nothing to convert: pass a source PDF, an AEM content package, or both.".into(),
@@ -207,8 +218,11 @@ pub fn run(args: ConvertArgs) -> Result<(), Box<dyn Error>> {
             // feedback is a continuation rather than an empty instruction, which
             // is what `resuming` decides.
             Some(session) => {
-                let seed =
-                    pipeline::RunSeed::resuming(args.feedback.as_deref().unwrap_or_default());
+                let seed = if args.assess {
+                    pipeline::RunSeed::Assess
+                } else {
+                    pipeline::RunSeed::resuming(args.feedback.as_deref().unwrap_or_default())
+                };
                 runner::resume(seed, pdfs, &opts, session, &obs).await
             }
             None => {

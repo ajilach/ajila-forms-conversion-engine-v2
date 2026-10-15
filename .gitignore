@@ -24,4 +24,5 @@ AAHA_019_merged.zip
 # Bytecode left by running the scripts' tests.
 __pycache__/
 
-/run-analysis
+/run-analysis/
+/benchmark/

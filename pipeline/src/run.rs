@@ -97,6 +97,13 @@ pub enum RunSeed {
     Fresh,
     Feedback(String),
     Continue,
+    /// Judge the session's document as it stands and change nothing: no
+    /// Author stage and no fix round. With review rounds, one Reviewer round
+    /// runs (the document cannot change, so a second would judge the same
+    /// thing) and its verdict ends the run. With none, the final rule check is
+    /// all that runs — the judges alone. Made for comparing the Reviewer's and
+    /// the judges' models on one fixed document.
+    Assess,
 }
 
 impl RunSeed {
@@ -129,7 +136,7 @@ fn author_seed_for(seed: &RunSeed, reviews: &[String]) -> &'static str {
         return roles::AUTHOR_FIX_SEED;
     }
     match seed {
-        RunSeed::Continue => roles::AUTHOR_CONTINUE_SEED,
+        RunSeed::Continue | RunSeed::Assess => roles::AUTHOR_CONTINUE_SEED,
         RunSeed::Fresh | RunSeed::Feedback(_) => roles::AUTHOR_SEED,
     }
 }
@@ -166,7 +173,10 @@ pub async fn run(
     seed: RunSeed,
     obs: SharedObserver,
 ) -> Option<RunOutcome> {
-    if config.warm_up_verifier {
+    // An assessment without a review round only judges the document: the
+    // judges read it and the source, and nothing boots AEM.
+    let needs_verifier = !(matches!(seed, RunSeed::Assess) && config.max_review_rounds == 0);
+    if config.warm_up_verifier && needs_verifier {
         warm_up_verifier(&shared_agent, &obs).await;
     }
     let outcome = run_stages(&shared_agent, &config, seed, &obs).await;
@@ -233,24 +243,30 @@ async fn run_stages(
         reviews.push(format!("User feedback to apply to the form:\n{fb}"));
     }
 
+    // An assessment judges the document it was seeded with and changes
+    // nothing: no Author stage, and no fix round after a review.
+    let assess = matches!(seed, RunSeed::Assess);
+
     // ── Stage 1: Author → build the artefact ────────────────────────────────
-    let author_seed = author_seed_for(&seed, &reviews);
-    begin_stage(shared_agent, obs, "Author", roles::AUTHOR_DOING.into()).await;
-    crate::hooks::nudging_unfinished(
-        config.finish_nudge,
-        run_role_stage(
-            shared_agent,
-            &roles::AUTHOR,
-            &roles::sys_author(extra, config.template_note, &reviews),
-            author_seed,
-            config,
-            None,
-            obs,
-            &mut spend,
-        ),
-    )
-    .await?;
-    warn_unless_finished(shared_agent, obs, &mut warnings).await;
+    if !assess {
+        let author_seed = author_seed_for(&seed, &reviews);
+        begin_stage(shared_agent, obs, "Author", roles::AUTHOR_DOING.into()).await;
+        crate::hooks::nudging_unfinished(
+            config.finish_nudge,
+            run_role_stage(
+                shared_agent,
+                &roles::AUTHOR,
+                &roles::sys_author(extra, config.template_note, &reviews),
+                author_seed,
+                config,
+                None,
+                obs,
+                &mut spend,
+            ),
+        )
+        .await?;
+        warn_unless_finished(shared_agent, obs, &mut warnings).await;
+    }
 
     // ── Stage 2: Reviewer → (Author fix)* ───────────────────────────────────
     let mut approved = false;
@@ -315,6 +331,14 @@ async fn run_stages(
                 needs_operator = Some(r.rule_conflicts);
                 break;
             }
+            Some(_) if assess => {
+                obs.emit(RunEvent::Thought(format!(
+                    "Reviewer requested changes (round {}). An assessment changes nothing, so the \
+                     run ends here.",
+                    round + 1
+                )));
+                break;
+            }
             Some(r) => {
                 obs.emit(RunEvent::Thought(format!(
                     "Reviewer requested changes (round {}). Returning to the author.",
@@ -358,7 +382,7 @@ async fn run_stages(
 
     if let Some(conflicts) = &needs_operator {
         warn(obs, &mut warnings, needs_operator_warning(conflicts));
-    } else if !approved {
+    } else if !approved && !(assess && config.max_review_rounds == 0) {
         warn(
             obs,
             &mut warnings,
@@ -367,15 +391,19 @@ async fn run_stages(
     }
 
     tool_step(shared_agent, "finalize-build", "build_aem_package", obs).await;
-    if config.final_rule_check && !config.abort.is_aborted() {
+    // An assessment either reviews or judges: its final rule check is the
+    // judging one, without a review round.
+    let final_check = config.final_rule_check && !(assess && config.max_review_rounds > 0);
+    if final_check && !config.abort.is_aborted() {
         final_rule_check(shared_agent, config, obs, &mut spend, &mut warnings).await;
     }
 
     let mut outcome = finalize(shared_agent, config, warnings).await;
     // After the final build and before `run` tears the verifier down: the
     // only moment the images can show what ships.
+    // An assessment leaves the session's build as it was, and so its images.
     let built = outcome.aem_package.is_some();
-    if config.capture_review && built && !config.abort.is_aborted() {
+    if config.capture_review && built && !assess && !config.abort.is_aborted() {
         outcome.review = capture_review(shared_agent, &config.abort, obs, &mut outcome.warnings).await;
     }
     Some(outcome)
@@ -2606,6 +2634,35 @@ mod controller {
             author_asked.contains("Do not start over"),
             "the Author was opened with {author_asked:?}"
         );
+    }
+
+    /// An assessment runs no Author, and a rejecting Reviewer ends it rather
+    /// than sending the form back: one Reviewer stage, one model call, even
+    /// with rounds to spare.
+    #[tokio::test]
+    async fn an_assessment_reviews_once_and_changes_nothing() {
+        let model = MockCompletionModel::from_stream_turns([review_turn(false, "The title is wrong.")]);
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 3, model.clone()), RunSeed::Assess, obs).await;
+
+        assert!(outcome.is_some(), "an assessment still ends with a result");
+        assert_eq!(rec.lock().unwrap().stages(), ["Reviewer"]);
+        assert_eq!(model.request_count(), 1, "no fix round after the review");
+    }
+
+    /// With no review rounds an assessment sends nothing to the stage model:
+    /// what is left is the final rule check, the judges alone.
+    #[tokio::test]
+    async fn an_assessment_without_rounds_runs_no_stage() {
+        let model = MockCompletionModel::from_stream_turns(Vec::<Vec<MockStreamEvent>>::new());
+        let (obs, rec) = recorder();
+
+        let outcome = run(bare_agent(), config(AbortFlag::default(), 0, model.clone()), RunSeed::Assess, obs).await;
+
+        assert!(outcome.is_some());
+        assert!(rec.lock().unwrap().stages().is_empty());
+        assert_eq!(model.request_count(), 0);
     }
 
     /// Blank feedback must not become a pinned review with nothing in it: the

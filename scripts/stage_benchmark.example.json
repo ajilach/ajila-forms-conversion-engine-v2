@@ -1,0 +1,35 @@
+{
+  "form": ["forms/AAOV_033_IT.pdf"],
+  "out": "benchmark/AAOV",
+  "blueprint": "target/release/blueprint",
+  "base_url": "https://openrouter.ai/api/v1",
+  "api_key_env": "OPENROUTER_API_KEY",
+  "repeats": 2,
+  "targets": "baseline",
+  "baseline": {
+    "author": "anthropic/claude-opus-5.5",
+    "reviewer": "anthropic/claude-opus-5.5",
+    "judge": "anthropic/claude-opus-5.5"
+  },
+  "candidates": {
+    "author": [
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-sonnet-5.5",
+      "openai/gpt-6.1-sol",
+      "google/gemini-3.8-flash"
+    ],
+    "reviewer": [
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-sonnet-5.5",
+      "openai/gpt-6.1-sol",
+      "google/gemini-3.8-flash"
+    ],
+    "judge": [
+      "anthropic/claude-opus-5.5",
+      "anthropic/claude-haiku-5.5",
+      "deepseek/deepseek-v4.1-flash",
+      "google/gemini-3.8-flash"
+    ]
+  },
+  "extra_args": []
+}

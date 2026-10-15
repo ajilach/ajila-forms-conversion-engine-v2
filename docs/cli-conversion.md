@@ -237,7 +237,18 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> 
 ```
 
 Either way the source PDFs must be passed again; the run replays them through the
-agent. `--feedback` requires `--session`. A continuation against a session that
+agent.
+
+**Assess** — judge the session's form as it stands and change nothing: no Author
+stage and no fix round. `--max-review-rounds 1` runs one Reviewer round, whose
+verdict ends the run (no final rule check); `--max-review-rounds 0` runs only the
+final rule check, the judges alone, without booting AEM. It is how one fixed form is judged by different
+Reviewer or judge models (see `scripts/stage_benchmark.py`):
+
+```sh
+cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> \
+  --assess --max-review-rounds 1 --reviewer-model claude-sonnet-5-5
+``` `--feedback` requires `--session`. A continuation against a session that
 holds no saved form is a hard error, not a run that bills a stage to produce
 nothing.
 
@@ -262,6 +273,7 @@ nothing.
 | `--retries <N>` | 2 | Operator-level retries after the controller's own |
 | `--session <ID>` | — | Resume an earlier session |
 | `--feedback <TEXT>` | — | Requires `--session` |
+| `--assess` | off | Requires `--session`: judge its form without changing it (see §3) |
 | `--analysis` | off | Record the run for analysis into `run-analysis/` in this repository |
 | `--analysis-dir <DIR>` | `run-analysis/` in this repository | Where the run's analysis folder is created; implies `--analysis` |
 

@@ -142,6 +142,7 @@ async fn a_pipeline_run_is_recorded_into_a_readable_folder() {
             form_code: None,
             outputs: Vec::new(),
             warnings: vec![],
+            rules: Vec::new(),
         },
         &caller,
     );
@@ -273,6 +274,7 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
             form_code: None,
             outputs: Vec::new(),
             warnings: vec![],
+            rules: Vec::new(),
         },
         &caller,
     );
