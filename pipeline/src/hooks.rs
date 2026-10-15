@@ -1099,6 +1099,7 @@ mod tests {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
+        judges_at_hand_off: false,
     };
 
     /// A role with no stuck tool, so a test's repeated calls never trip the
@@ -1114,6 +1115,7 @@ mod tests {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
+        judges_at_hand_off: false,
     };
 
     fn agent_with(model: MockCompletionModel) -> Agent {

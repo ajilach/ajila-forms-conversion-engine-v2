@@ -37,6 +37,30 @@ const CHANGED_WHILE_JUDGED: &str = "the document changed while it was judged: ch
 /// larger than this is named instead, for the judge to read with its tools.
 const PART_IN_PROMPT: usize = 40_000;
 
+/// What an Author's `rule_check` without `rule_ids` says of the judged rules
+/// (see `crate::roles::Role::judges_at_hand_off`).
+const AT_HAND_OFF: &str = "judged at the hand-over: this check ran the scripted rules only. \
+finish_authoring judges every judged rule first and is refused, with their verdicts, when one is \
+broken; to check one now (after fixing what a judge found), name it in rule_ids.";
+
+/// How long the judges' shared prefix (their tools and system prompt) stays
+/// cached once a check has written it: under the five minutes of the
+/// shortest cache lifetime, so a check this soon after the last one finds it
+/// warm and starts every judge at once.
+const PREFIX_WARM_FOR: std::time::Duration = std::time::Duration::from_secs(4 * 60);
+
+/// When the last judge of the process ended, for [`PREFIX_WARM_FOR`].
+static LAST_JUDGE_ENDED: std::sync::Mutex<Option<Instant>> = std::sync::Mutex::new(None);
+
+/// Whether a judge ended recently enough that the judges' prefix is still
+/// cached.
+fn prefix_warm() -> bool {
+    LAST_JUDGE_ENDED
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .is_some_and(|ended| ended.elapsed() < PREFIX_WARM_FOR)
+}
+
 /// Numbers every `rule_check` of the process, so a judge's trace line names
 /// the check it belongs to even when two checks overlap.
 static CHECKS: AtomicU64 = AtomicU64::new(0);
@@ -55,12 +79,19 @@ pub(crate) async fn report_rules(agent: &SharedAgent, obs: &SharedObserver) {
 /// judges the check sent: a reused verdict costs nothing and traces nothing.
 pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input: &serde_json::Value) -> ToolReply {
     let started = Instant::now();
+    let mut deferred = false;
     let (plan, scripted, revision, views, cached, first_pages) = {
         let mut guard = agent.lock().await;
-        let plan = match guard.rule_check_plan(input) {
+        let mut plan = match guard.rule_check_plan(input) {
             Ok(plan) => plan,
             Err(e) => return ToolReply::Error(e),
         };
+        // A stage that judges at its hand-over checks its scripts only, unless
+        // it names the rules it wants judged now.
+        if ctx.defer_judged && !is_partial(input) && !plan.judged.is_empty() {
+            plan.judged.clear();
+            deferred = true;
+        }
         let scripted = match guard.check_scripted(&plan).await {
             Ok(scripted) => scripted,
             Err(e) => return ToolReply::Error(e),
@@ -104,12 +135,23 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
         judged: to_judge.len(),
         revision,
     });
+    // Every judge's tools and system prompt are the same, one cached prefix.
+    // Started together on a cold cache, each would write it (at more than the
+    // input price); the first judge goes alone instead, and the rest read
+    // what it wrote. A check soon after the last one finds it still warm.
+    let mut queue = to_judge.into_iter().enumerate();
+    let mut judged: Vec<(usize, Judged)> = Vec::new();
+    if queue.len() > 1 && !prefix_warm()
+        && let Some((index, (rule, view))) = queue.next()
+    {
+        judged.push((index, judge(agent, ctx, rule, view, first_pages.clone(), revision, check).await));
+    }
     // `buffer_unordered`: a judge starts as soon as any slot frees up. With
     // `buffered`, a slow judge at the head of the queue held back every judge
     // after it (one judge ran alone for five minutes while twelve waited).
     // Each judge carries its position, so the report still keeps the rules'
     // order.
-    let mut judged: Vec<(usize, Judged)> = futures_util::stream::iter(to_judge.into_iter().enumerate())
+    let rest: Vec<(usize, Judged)> = futures_util::stream::iter(queue)
         .map(|(index, (rule, view))| {
             let pages = first_pages.clone();
             async move { (index, judge(agent, ctx, rule, view, pages, revision, check).await) }
@@ -117,6 +159,7 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
         .buffer_unordered(JUDGES_AT_ONCE)
         .collect()
         .await;
+    judged.extend(rest);
     judged.sort_by_key(|(index, _)| *index);
     let judged: Vec<Judged> = judged.into_iter().map(|(_, one)| one).collect();
     let mut judges_spend = Spend::default();
@@ -152,7 +195,66 @@ pub(crate) async fn rule_check(agent: &SharedAgent, ctx: &SubStageContext, input
     });
     let mut report = merge_rule_report(scripted, &verdicts);
     mark_reused(&mut report, &verdicts, &cached);
+    if deferred && let Some(object) = report.as_object_mut() {
+        object.insert("judged_rules".into(), serde_json::Value::String(AT_HAND_OFF.into()));
+    }
     ToolReply::Text(report.to_string())
+}
+
+/// `finish_authoring` of a stage that judges at its hand-over: the judged
+/// rules are judged first, on the document as it is handed over, and the
+/// call then goes to the agent, whose rule gate reads their verdicts off the
+/// board like any others. A refusal carries the check's report, so the stage
+/// sees which rule broke and why.
+///
+/// No judge is sent while the hand-over would be refused anyway: when the
+/// stage still lacks its verification evidence, or a scripted rule is broken
+/// (and not waived) or has no verdict on the current document. Judging a
+/// document that is about to change again is what this saves.
+pub(crate) async fn finish_with_judges(agent: &SharedAgent, ctx: &SubStageContext, input: &serde_json::Value) -> ToolReply {
+    let ready = {
+        let guard = agent.lock().await;
+        guard.missing_evidence().is_empty() && scripts_hand_over(&guard.rule_board(), input)
+    };
+    let mut checked = None;
+    if ready {
+        let mut judging = ctx.clone();
+        judging.defer_judged = false;
+        match rule_check(agent, &judging, &serde_json::json!({})).await {
+            ToolReply::Text(report) => checked = Some(report),
+            refused => return refused,
+        }
+    }
+    let reply = {
+        let mut guard = agent.lock().await;
+        let reply = guard.execute_as("finish_authoring", input, &Caller::Stage).await;
+        ctx.obs.emit(RunEvent::Rules(guard.rule_board()));
+        reply
+    };
+    match (reply, checked) {
+        (ToolReply::Error(e), Some(report)) => ToolReply::Error(format!(
+            "{e}\n\nThe hand-over's rule check, the judged rules included:\n{report}"
+        )),
+        (reply, _) => reply,
+    }
+}
+
+/// Whether every scripted rule has a verdict on the current document that
+/// lets the hand-over through: a pass, or a fail `input` waives.
+fn scripts_hand_over(board: &[agent::RuleView], input: &serde_json::Value) -> bool {
+    let waived: Vec<&str> = input
+        .get("waivers")
+        .and_then(serde_json::Value::as_array)
+        .map(|w| w.iter().filter_map(|e| e["rule"].as_str()).collect())
+        .unwrap_or_default();
+    board.iter().filter(|r| r.kind == agent::RuleKind::Script).all(|r| {
+        !r.outdated
+            && match &r.state {
+                agent::RuleState::Pass => true,
+                agent::RuleState::Fail { .. } => waived.contains(&r.rule_id.as_str()),
+                _ => false,
+            }
+    })
 }
 
 /// Names the judged rules whose verdict came from the cache rather than a
@@ -214,9 +316,26 @@ async fn judge(
     let _ended = JudgingEnds { obs: &ctx.obs, rule_id: rule.id.clone() };
     let started = Instant::now();
     let handed = handed_sections(&rule, &view, first_pages.as_deref().map(String::as_str));
-    let (outcome, end) = judge_rule(agent, ctx, &rule, &handed).await;
-    let (outcome, incomplete) = read_not_checked(outcome);
+    let (outcome, mut end) = judge_rule(agent, ctx, &rule, &handed).await;
+    let (mut outcome, mut incomplete) = read_not_checked(outcome);
     let wrapped_up = end.turns >= crate::roles::judge_role(rule.scope.max_turns).max_iterations;
+    // A negative is judged again on the confirming model, when the run names
+    // one, and that judge's verdict stands. One that gives none leaves the
+    // first verdict standing: a broken rule is not waved through because
+    // its second look failed.
+    let mut confirmation = None;
+    if let (Ok(verdict), Some(strong)) = (&outcome, &ctx.confirm)
+        && !verdict.pass
+    {
+        let (second, second_end) = judge_rule(agent, &ctx.on_model(strong), &rule, &handed).await;
+        let (second, second_incomplete) = read_not_checked(second);
+        end.absorb(second_end);
+        if let Ok(verdict) = &second {
+            confirmation = Some(if verdict.pass { JudgeVerdict::Positive } else { JudgeVerdict::Negative });
+            outcome = second;
+            incomplete = second_incomplete;
+        }
+    }
     let duration_ms = trace::elapsed_ms(started);
     let mut guard = agent.lock().await;
     // The judge read the live document. An edit made while it did means its
@@ -233,7 +352,8 @@ async fn judge(
     drop(guard);
     let (rule, outcome) = judged;
     let judged = Judged { rule, outcome, spend: end.spend };
-    ctx.obs.trace(judge_finished(check, &judged, &end, wrapped_up, duration_ms, revision));
+    ctx.obs.trace(judge_finished(check, &judged, &end, wrapped_up, duration_ms, revision, confirmation));
+    *LAST_JUDGE_ENDED.lock().unwrap_or_else(|p| p.into_inner()) = Some(Instant::now());
     ctx.obs.emit(RunEvent::Rules(board));
     judged
 }
@@ -338,6 +458,7 @@ fn judge_finished(
     wrapped_up: bool,
     duration_ms: u64,
     revision: u64,
+    confirmation: Option<JudgeVerdict>,
 ) -> TraceEvent {
     let rule = &judged.rule;
     let (verdict, violations, unchecked_reason) = match &judged.outcome {
@@ -360,6 +481,7 @@ fn judge_finished(
         duration_ms,
         revision,
         spend: judged.spend,
+        confirmation,
     }
 }
 
@@ -419,8 +541,8 @@ async fn judge_rule(
         agent,
         ctx,
         role,
-        &crate::roles::sys_judge(rule, &judgement, handed, role.max_iterations),
-        &format!("Judge the rule \"{}\", then call submit_rule_verdict with judgement {judgement}.", rule.title),
+        &crate::roles::sys_judge(),
+        &crate::roles::judge_brief(rule, &judgement, handed, role.max_iterations),
         &Caller::Judge,
         format!("judge: {}", rule.title),
     )
@@ -456,6 +578,36 @@ mod tests {
 
     fn context(model: MockCompletionModel, abort: AbortFlag) -> SubStageContext {
         test_support::context(model, abort)
+    }
+
+    /// A judge request's system prompt.
+    fn system(request: &rig_core::completion::CompletionRequest) -> String {
+        let in_history = request.chat_history.iter().find_map(|m| match m {
+            rig_core::message::Message::System { content } => Some(content.clone()),
+            _ => None,
+        });
+        in_history.or_else(|| request.preamble.clone()).unwrap_or_default()
+    }
+
+    /// The text of a judge request's first user message: its brief.
+    fn brief(request: &rig_core::completion::CompletionRequest) -> String {
+        request
+            .chat_history
+            .iter()
+            .find_map(|m| match m {
+                rig_core::message::Message::User { content } => Some(
+                    content
+                        .iter()
+                        .filter_map(|c| match c {
+                            rig_core::message::UserContent::Text(t) => Some(t.text.clone()),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>()
+                        .join("\n"),
+                ),
+                _ => None,
+            })
+            .unwrap_or_default()
     }
 
     /// The verdicts of the judged rules in `report`: there are scripted rules too, whose
@@ -514,12 +666,11 @@ mod tests {
         assert_eq!(verdict["check"], "agent");
         assert_eq!(verdict["verdict"], "negative");
         assert_eq!(verdict["violations"][0]["message"], "split the table");
-        // The judge was told its rule.
-        let system = match model.requests()[0].chat_history.first() {
-            Some(rig_core::message::Message::System { content }) => content.clone(),
-            _ => String::new(),
-        };
-        assert!(system.contains("judgement-1") && system.contains("Rule a") && system.contains("submit_rule_verdict"), "{system}");
+        // The judge was told its rule, in its first message; its system
+        // prompt is the one every judge shares.
+        let brief = brief(&model.requests()[0]);
+        assert!(brief.contains("judgement-1") && brief.contains("Rule a") && brief.contains("submit_rule_verdict"), "{brief}");
+        assert_eq!(system(&model.requests()[0]), crate::roles::sys_judge());
         assert_eq!(ctx.spend.lock().unwrap().input_tokens, 100);
     }
 
@@ -732,6 +883,90 @@ mod tests {
         assert_eq!(verdict["unchecked_reason"], "the judge ended without a verdict");
     }
 
+    /// A stage that judges at its hand-over sends no judge from a check of
+    /// every rule, says so in the report, and still judges a rule it names.
+    #[tokio::test]
+    async fn a_hand_off_stage_judges_only_the_rules_it_names() {
+        let model = MockCompletionModel::from_stream_turns([verdict_turn("judgement-1", true)]);
+        let mut ctx = context(model.clone(), AbortFlag::default());
+        ctx.defer_judged = true;
+        let agent = agent_with(vec![rule("a")]);
+
+        let all = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        assert_eq!(model.request_count(), 0, "no judge for a check of every rule");
+        assert!(all["judged_rules"].as_str().unwrap().starts_with("judged at the hand-over"), "{all}");
+
+        let named = report(rule_check(&agent, &ctx, &serde_json::json!({"rule_ids": ["id-a"]})).await);
+        assert_eq!(model.request_count(), 1, "a named rule is judged now");
+        assert_eq!(judged(&named)[0]["verdict"], "positive");
+        assert!(named.get("judged_rules").is_none());
+    }
+
+    /// `finish_authoring` of a hand-off stage judges the judged rules first,
+    /// then hands over; before the scripted rules have a verdict on the
+    /// current document it sends no judge (the hand-over would be refused).
+    #[tokio::test]
+    async fn the_hand_over_judges_first() {
+        let model = MockCompletionModel::from_stream_turns([verdict_turn("judgement-1", true)]);
+        let mut ctx = context(model.clone(), AbortFlag::default());
+        ctx.defer_judged = true;
+        let agent = agent_with(vec![rule("a")]);
+        agent.lock().await.waive_evidence();
+        let input = serde_json::json!({"summary": "built it"});
+
+        let early = finish_with_judges(&agent, &ctx, &input).await;
+        assert_eq!(model.request_count(), 0, "no judge before the scripts have run: {early:?}");
+
+        report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
+        // The scripted rules an empty document breaks are waived, as an
+        // Author would for a rule it cannot keep.
+        let board = agent.lock().await.rule_board();
+        let waivers: Vec<serde_json::Value> = board
+            .iter()
+            .filter(|r| r.kind == agent::RuleKind::Script && matches!(r.state, agent::RuleState::Fail { .. }))
+            .map(|r| serde_json::json!({"rule": r.rule_id, "why": "the test document is empty"}))
+            .collect();
+        assert!(
+            board.iter().filter(|r| r.kind == agent::RuleKind::Script).all(|r| !r.outdated
+                && matches!(r.state, agent::RuleState::Pass | agent::RuleState::Fail { .. })),
+            "{board:?}"
+        );
+        let input = serde_json::json!({"summary": "built it", "waivers": waivers});
+        let reply = finish_with_judges(&agent, &ctx, &input).await;
+        assert_eq!(model.request_count(), 1, "the hand-over sent the judge");
+        assert!(matches!(&reply, ToolReply::Text(t) if t.contains("Authoring finished")), "{reply:?}");
+        let board = agent.lock().await.rule_board();
+        assert!(board.iter().any(|r| r.rule_id == "id-a" && r.state == agent::RuleState::Pass), "{board:?}");
+    }
+
+    /// A negative is judged again on the confirming model and its verdict
+    /// stands; a positive is not. The trace says what the second look found.
+    #[tokio::test]
+    async fn a_negative_is_confirmed_on_the_strong_model() {
+        // Each agent opens its own judgements: the second check's is
+        // judgement-1 again.
+        let cheap = MockCompletionModel::from_stream_turns([verdict_turn("judgement-1", false), verdict_turn("judgement-1", true)]);
+        let strong = MockCompletionModel::from_stream_turns([verdict_turn("judgement-2", true)]);
+        let recorder = Recorder::default();
+        let mut ctx = context(cheap.clone(), AbortFlag::default())
+            .confirming_on(Some(&test_support::stage_model(strong.clone(), 0.001)));
+        ctx.obs = SharedObserver::new(recorder.clone());
+
+        let overturned = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
+        assert_eq!((cheap.request_count(), strong.request_count()), (1, 1));
+        assert_eq!(judged(&overturned)[0]["verdict"], "positive", "the strong judge's verdict stands");
+        let traced = recorder.1.lock().unwrap().clone();
+        assert!(
+            traced.iter().any(|e| matches!(e, TraceEvent::JudgeFinished { confirmation: Some(JudgeVerdict::Positive), .. })),
+            "{traced:?}"
+        );
+
+        // A second agent, so nothing is cached: a positive is not looked at again.
+        let kept = report(rule_check(&agent_with(vec![rule("a")]), &ctx, &serde_json::json!({})).await);
+        assert_eq!((cheap.request_count(), strong.request_count()), (2, 1));
+        assert_eq!(judged(&kept)[0]["verdict"], "positive");
+    }
+
     /// A judge's turn that gives `rule`'s judgement the verdict `pass`.
     fn verdict_turn(judgement: &str, pass: bool) -> Vec<MockStreamEvent> {
         let violations = if pass {
@@ -856,12 +1091,9 @@ mod tests {
         };
         let agent = agent_with(vec![scoped]);
         report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
-        let system = match model.requests()[0].chat_history.first() {
-            Some(rig_core::message::Message::System { content }) => content.clone(),
-            _ => String::new(),
-        };
-        assert!(system.contains("## WHAT THE RULE READS") && system.contains("\"/form/children\": []"), "{system}");
-        assert!(system.contains("do not read the source"), "{system}");
+        let handed = brief(&model.requests()[0]);
+        assert!(handed.contains("## WHAT THE RULE READS") && handed.contains("\"/form/children\": []"), "{handed}");
+        assert!(handed.contains("do not read the source"), "{handed}");
 
         edit(&agent, serde_json::from_str(ADD_HEADER).unwrap()).await;
         let after = report(rule_check(&agent, &ctx, &serde_json::json!({})).await);
@@ -1107,12 +1339,8 @@ mod tests {
         assert_eq!(offered, ["submit_rule_verdict"]);
         assert!(last.documents.iter().any(|d| d.text.contains("last turn")), "{:?}", last.documents);
         assert!(requests[..budget - 1].iter().all(|r| r.documents.is_empty()), "no note before the last turn");
-        let preamble = requests[0].chat_history.iter().find_map(|m| match m {
-            rig_core::message::Message::System { content } => Some(content.clone()),
-            _ => None,
-        });
         assert!(
-            requests[0].preamble.iter().chain(preamble.iter()).any(|p| p.contains("NOT CHECKED:")),
+            brief(&requests[0]).contains("NOT CHECKED:"),
             "the judge knows its budget and how to report what it left from the first turn"
         );
         assert!(requests[0].tools.len() > 1, "earlier turns keep every tool");

@@ -114,8 +114,10 @@ async fn a_pipeline_run_is_recorded_into_a_readable_folder() {
         context_budget: Arc::new(NoBudget),
         reviewer_model: None,
         judge_model: None,
+        judge_confirm_model: None,
         capture_review: false,
         final_rule_check: false,
+        hand_off_judging: false,
         finish_nudge: false,
         warm_up_verifier: false,
     };
@@ -245,8 +247,10 @@ async fn a_judge_is_recorded_and_split_out_of_its_stages_cost() {
         context_budget: Arc::new(NoBudget),
         reviewer_model: None,
         judge_model: None,
+        judge_confirm_model: None,
         capture_review: false,
         final_rule_check: true,
+        hand_off_judging: false,
         finish_nudge: false,
         warm_up_verifier: false,
     };

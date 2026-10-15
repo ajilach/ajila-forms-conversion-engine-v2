@@ -256,8 +256,10 @@ async fn drive(
         context_budget: resolved.context_budget,
         reviewer_model: roles.reviewer.map(|(_, m)| m.into_stage_model()),
         judge_model: roles.judge.map(|(_, m)| m.into_stage_model()),
+        judge_confirm_model: roles.judge_confirm.map(|(_, m)| m.into_stage_model()),
         capture_review: true,
         final_rule_check: true,
+        hand_off_judging: true,
         finish_nudge: true,
         warm_up_verifier: true,
     };

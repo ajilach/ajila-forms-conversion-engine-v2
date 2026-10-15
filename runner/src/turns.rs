@@ -67,12 +67,23 @@ impl ResolvedModel {
 pub struct RoleModels {
     pub reviewer: Option<(TurnPlan, ResolvedModel)>,
     pub judge: Option<(TurnPlan, ResolvedModel)>,
+    /// The model judges' negatives are judged again on; see
+    /// [`AppSettings::judge_confirm_model`].
+    pub judge_confirm: Option<(TurnPlan, ResolvedModel)>,
 }
 
 impl RoleModels {
     /// Resolves the roles' own models of `settings`, each rate-limited with the
     /// run's endpoint (they share its gate: one account, one limit).
     pub fn for_settings(settings: &AppSettings) -> Result<Self, String> {
+        let resolve_endpoint = |endpoint: LlmEndpoint, role: &str| -> Result<Option<(TurnPlan, ResolvedModel)>, String> {
+            let plan = TurnPlan {
+                max_concurrent: settings.max_concurrent_requests,
+                ..TurnPlan::for_endpoint(endpoint)
+            };
+            let resolved = plan.resolve().map_err(|e| format!("The {role} model cannot be used: {e}"))?;
+            Ok(Some((plan, resolved)))
+        };
         let resolve = |model: &str, role: &str| -> Result<Option<(TurnPlan, ResolvedModel)>, String> {
             let Some(endpoint) = settings.role_endpoint(model) else {
                 return Ok(None);
@@ -84,9 +95,19 @@ impl RoleModels {
             let resolved = plan.resolve().map_err(|e| format!("The {role} model cannot be used: {e}"))?;
             Ok(Some((plan, resolved)))
         };
+        // The confirming model is one even when it is the run's own: a cheap
+        // judge confirmed by the Author's model is the point. Only the judges'
+        // own model again would be no second look.
+        let confirm = settings.judge_confirm_model.trim();
+        let judge_confirm = if confirm.is_empty() || confirm == settings.judge_model.trim() {
+            None
+        } else {
+            resolve_endpoint(LlmEndpoint { model: confirm.to_string(), ..settings.llm_endpoint() }, "confirming judge")?
+        };
         Ok(Self {
             reviewer: resolve(&settings.reviewer_model, "Reviewer")?,
             judge: resolve(&settings.judge_model, "judge")?,
+            judge_confirm,
         })
     }
 }
@@ -99,6 +120,10 @@ pub fn describe_role_models(settings: &AppSettings) -> String {
         if let Some(endpoint) = settings.role_endpoint(model) {
             text.push_str(&format!(" · {role}: {}", endpoint.model));
         }
+    }
+    let confirm = settings.judge_confirm_model.trim();
+    if !confirm.is_empty() {
+        text.push_str(&format!(" · negatives confirmed by: {confirm}"));
     }
     text
 }

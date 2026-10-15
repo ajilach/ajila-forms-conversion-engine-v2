@@ -83,6 +83,12 @@ pub(crate) fn dynamic_tools_with_sub_stages(
             Some("rule_check") => Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
                 Box::pin(async move { crate::judge::rule_check(&agent, &ctx, &args).await })
             })),
+            // A stage that judges at its hand-over judges in its terminal call.
+            Some("finish_authoring") if sub_stages.defer_judged => {
+                Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
+                    Box::pin(async move { crate::judge::finish_with_judges(&agent, &ctx, &args).await })
+                }))
+            }
             _ => dynamic_tool_from(agent, spec, caller.clone(), rules.clone()),
         })
         .collect()
