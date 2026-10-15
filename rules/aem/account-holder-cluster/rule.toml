@@ -28,6 +28,12 @@ Germany, Tipo in Italy) that decides who the parties are. In such a form the clu
   it. Count the signers the source shows against what the form
   collects: a summary that says "two signature blocks" is not evidence of two.
 
+The bank's own signatories (a letter's officers under its entity line) are not a party and are
+outside the cluster: they are ubs-aem-letter-bank-signature's. A signer in a form with no
+configurator (the client of a client letter, the heirs of a declaration) is a signature Repeatable
+of its own, paired with no party: `RCP_SGN_<stem>` wrapping `PN_SGN_<stem>` with a stem that is
+none of the party codes (`RCP_SGN_Client`, `RCP_SGN_Heir`), so its Add and Remove are its own.
+
 In a form with NO configurator a partner generic is a defect: the form has no parties to
 configure, so use plain `TXT_` fields.
 

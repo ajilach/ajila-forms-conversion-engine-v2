@@ -446,14 +446,15 @@ mod tests {
     }
 
     /// The real AEM index stays small: the descriptions are what made the old
-    /// list 75'000 characters long.
+    /// list 75'000 characters long. Raised from 6'000 when the four letter
+    /// rules joined (2026-10-13).
     #[test]
     fn the_aem_rule_index_is_small() {
         let rules = rules().unwrap();
         let listed: Vec<Value> =
             rules.scripted.iter().map(|r| json!({"id": r.id.to_string(), "title": r.title})).collect();
         let index = list_with_judged(json!({ "rules": listed }), &rules.judged).to_string();
-        assert!(index.len() < 6_000, "rule_list is {} characters", index.len());
+        assert!(index.len() < 6_500, "rule_list is {} characters", index.len());
     }
 
     #[test]
@@ -504,7 +505,8 @@ mod tests {
     }
 
     /// A report where every rule holds fits in a couple of thousand
-    /// characters, whatever the rules are.
+    /// characters, whatever the rules are. Raised from 2'000 when the four
+    /// letter rules joined (2026-10-13).
     #[test]
     fn an_all_positive_report_is_small() {
         let rules = rules().unwrap();
@@ -517,7 +519,7 @@ mod tests {
         let judged: Vec<_> =
             rules.judged.iter().map(|r| (r.clone(), Ok(RuleVerdict { pass: true, violations: vec![] }))).collect();
         let report = merge_rule_report(json!({ "verdicts": scripted, "package_findings": [] }), &judged).to_string();
-        assert!(report.len() < 2_000, "an all-positive rule_check is {} characters", report.len());
+        assert!(report.len() < 2_200, "an all-positive rule_check is {} characters", report.len());
     }
 
     #[test]

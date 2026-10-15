@@ -176,7 +176,8 @@ fn visit_bind_ref_slots(node: &mut AemNode, f: &mut impl FnMut(Uuid, &mut Option
         | AemNode::Dropdown { uuid, bind_ref, .. }
         | AemNode::Checkbox { uuid, bind_ref, .. }
         | AemNode::RadioButton { uuid, bind_ref, .. }
-        | AemNode::Fragment { uuid, bind_ref, .. } => slot!(uuid, bind_ref),
+        | AemNode::Fragment { uuid, bind_ref, .. }
+        | AemNode::Letterhead { uuid, bind_ref, .. } => slot!(uuid, bind_ref),
         AemNode::TextDraw { .. }
         | AemNode::TitleDraw { .. }
         | AemNode::HtmlDisplayer { .. }
@@ -497,6 +498,7 @@ fn node_kind(node: &AemNode) -> &'static str {
         AemNode::MessageBox { .. } => "messagebox",
         AemNode::HtmlDisplayer { .. } => "htmldisplayer",
         AemNode::Preface { .. } => "preface",
+        AemNode::Letterhead { .. } => "letterhead",
         AemNode::FootnotePlaceholder { .. } => "footnoteplaceholder",
     }
 }
@@ -622,6 +624,35 @@ fn classify(node: &AemNode, next: Option<&AemNode>, ctx: &Ctx) -> Emit {
             .map(|spec| spec.to_occurs(profile.max_occurs_value))
             .unwrap_or(default)
     };
+
+    // A letterhead is one element of the type library's own letter type: its
+    // fields are bound to paths under it (`letterhead.xml`), which that type
+    // declares. The element is the profile's to name.
+    if let AemNode::Letterhead { .. } = node {
+        let Some(name) = rule_element else {
+            log::warn!("No XSD element for the letterhead; omitted from the schema");
+            return Emit::Skip;
+        };
+        let occurs = occurs(Occurs::optional());
+        return match rule.and_then(|r| r.type_ref.clone()) {
+            Some(type_ref) => Emit::Leaf {
+                name,
+                type_ref,
+                occurs,
+            },
+            None if ctx.config.is_global_element(&name) => Emit::Ref {
+                name,
+                occurs,
+                include_hint: None,
+            },
+            None => {
+                log::warn!(
+                    "The letterhead's element {name} is no global element; omitted from the schema"
+                );
+                Emit::Skip
+            }
+        };
+    }
 
     // A fragment is a leaf in the schema: its internals live in its own type.
     if let Some(frag_ref) = node_frag_ref(node) {

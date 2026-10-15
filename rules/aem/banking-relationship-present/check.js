@@ -11,6 +11,24 @@ function plain(text) {
   return String(text).replace(/<[^>]+>/g, " ").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
+// The entity line, as Germany ("UBS Europe SE") and Italy ("Per UBS Europe SE (Succursale Italia)",
+// with a comma, a dash or a full stop) write it: the feedback repo's ENTITY_LINE
+// (`find_subtitle_detector.py`), tested on the first non-empty line, as it does, so the unit or the
+// address under it does not hide it.
+const ENTITY_LINE = /^\s*(?:per\s+)?ubs\s+europe\s+se\b[\s,()\-–]*(?:succursale\s+italia)?[\s,()\-–.]*$/i;
+
+function firstLine(html) {
+  const lines = String(html).split(/<\/p>|<br\s*\/?>|\n/i).map(plain).filter(function (l) { return l !== ""; });
+  return lines.length > 0 ? lines[0] : "";
+}
+
+// A repeatable of the bank's officers: it wraps the signature generic.
+function signsBelow(node) {
+  return node.type === "Repeatable" && (node.children || []).some(function (c) {
+    return c.type === "Fragment" && typeof c.frag_ref === "string" && /affrg_SignatureGeneric1$/.test(c.frag_ref);
+  });
+}
+
 function check(output, ctx) {
   const violations = [];
   const top = output.form.children || [];
@@ -21,7 +39,9 @@ function check(output, ctx) {
   const firstPointer = first < 0 ? null : "/form/children/" + first;
   let seen = 0;
   const entityDraws = [];
-  function visit(node, pointer) {
+  // In a letter the closing entity line above the bank's officers is body text (decision 2026-10-14).
+  const isLetter = JSON.stringify(output.form).indexOf('"type":"Letterhead"') >= 0;
+  function visit(node, pointer, closing) {
     if (node.type === "Preface") {
       seen += 1;
       if (seen > 1) {
@@ -38,23 +58,27 @@ function check(output, ctx) {
     }
     // A DoR header slot draw is the master-page line itself, not a body line.
     const isBody = node.type === "TextDraw" || node.type === "TitleDraw" || node.type === "MessageBox";
-    if (isBody && !node.dor_header_slot) {
+    if (isBody && !node.dor_header_slot && !closing) {
       const content = node.content || {};
       for (const lang of Object.keys(content)) {
-        if (plain(content[lang]) === "ubs europe se") {
+        if (ENTITY_LINE.test(firstLine(content[lang]))) {
           entityDraws.push({
             pointer: pointer + "/content/" + lang,
-            message: "`" + node.name + "` is the line \"UBS Europe SE\", which the banking relationship fragment " +
+            message: "`" + node.name + "` opens with the entity line \"" + firstLine(content[lang]) + "\", which the banking relationship fragment " +
               "renders itself: delete the draw (the entity reaches the Document of Record header as the " +
-              "`slot2` draw; where it heads the bank's signature block, it is that signature Repeatable's `title`)",
+              "`slot2` draw, or in a letter as the letterhead's sender; where it heads the bank's signature " +
+              "block, it is that signature Repeatable's `title`)",
           });
         }
       }
     }
     const children = node.children || [];
-    for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i);
+    for (let i = 0; i < children.length; i++) {
+      const officersFollow = isLetter && children.slice(i + 1).some(signsBelow);
+      visit(children[i], pointer + "/children/" + i, officersFollow);
+    }
   }
-  visit(output.form, "/form");
+  visit(output.form, "/form", false);
   // Without a banking relationship the fragment renders no entity line, so a
   // body line is no duplicate of it.
   if (seen > 0) {

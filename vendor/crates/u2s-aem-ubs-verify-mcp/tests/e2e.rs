@@ -507,7 +507,7 @@ async fn verify_run_submits_a_ubs_wizard_and_downloads_the_redacto_pdf() {
 /// server's blob dir and asserts it has a page, draws something on it
 /// (`u2s_verify_core::pdf_content::blank_pdf`, the same check `verify_run`
 /// itself reports `download_blank` from) and carries the value the wizard
-/// walker types into required fields (`U2S`, `wizard_js::AUTO_FILL_REQUIRED`
+/// walker types into required fields (`UtwoS`, `wizard_js::PLACEHOLDER`
 /// in `u2s-aem-verify-core`), so the submitted data visibly reached the
 /// rendered document without this test naming a single field of the form.
 ///
@@ -515,11 +515,11 @@ async fn verify_run_submits_a_ubs_wizard_and_downloads_the_redacto_pdf() {
 /// before anything is asserted: a failing render is diagnosed from its
 /// bytes, which the blob dir does not outlive the test by.
 fn assert_rendered_pdf(server: &ServerUnderTest, report: &serde_json::Value) {
-    assert_rendered_pdf_with(server, report, Some("U2S"));
+    assert_rendered_pdf_with(server, report, Some(u2s_aem_verify_core::flow::wizard_js::PLACEHOLDER));
 }
 
 /// [`assert_rendered_pdf`] for a submit whose required fields were filled
-/// with `marker` rather than `verify_run`'s `U2S`; `None` when no text
+/// with `marker` rather than `verify_run`'s `UtwoS`; `None` when no text
 /// field was filled, so there is no value to look for.
 fn assert_rendered_pdf_with(
     server: &ServerUnderTest,

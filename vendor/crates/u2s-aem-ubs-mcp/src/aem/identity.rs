@@ -63,9 +63,12 @@ impl FormIdentity {
         format!("AF_{}", self.code)
     }
 
-    /// The region's DoR template the print settings name.
-    pub fn meta_template_ref(&self) -> String {
+    /// The DoR template the print settings name: the letter's for a form that
+    /// is a letter (it holds a letterhead), whatever its region, and otherwise
+    /// the region's.
+    pub fn meta_template_ref(&self, letter: bool) -> String {
         let template = match self.entity() {
+            _ if letter => "UBS_Blank_Letter_DoR.xdp",
             "019" => "UBS_General_Germany_DOR.xdp",
             "033" => "UBS_General_Italy_DOR.xdp",
             _ => "UBS_Blank_DoR.xdp",
@@ -98,7 +101,8 @@ impl FormIdentity {
             ("entity_dir", self.entity_dir().to_owned()),
             ("prefix_dir", self.prefix_dir()),
             ("form_code", self.code.clone()),
-            ("meta_template_ref", self.meta_template_ref()),
+            ("meta_template_ref", self.meta_template_ref(false)),
+            ("letter_meta_template_ref", self.meta_template_ref(true)),
             ("dor_template_ref", self.dor_template_ref()),
             ("metadata_master_language", self.metadata_master_language().to_owned()),
         ]
@@ -129,7 +133,8 @@ mod tests {
             id.dor_template_ref(),
             "/content/dam/formsanddocuments/afforms_italy_all/af_aa/AF_AAOS/jcr:content/renditions/dorTemplate"
         );
-        assert!(id.meta_template_ref().ends_with("UBS_General_Italy_DOR.xdp"));
+        assert!(id.meta_template_ref(false).ends_with("UBS_General_Italy_DOR.xdp"));
+        assert!(id.meta_template_ref(true).ends_with("/02_forms/UBS_Blank_Letter_DoR.xdp"));
         assert_eq!(id.metadata_master_language(), "IT");
     }
 
@@ -137,7 +142,7 @@ mod tests {
     fn a_form_of_another_region_falls_back_to_the_global_folders() {
         let id = identity("BXYZ", "");
         assert_eq!(id.form_path(), "afforms_global_all/af_bx");
-        assert!(id.meta_template_ref().ends_with("UBS_Blank_DoR.xdp"));
+        assert!(id.meta_template_ref(false).ends_with("UBS_Blank_DoR.xdp"));
         assert_eq!(id.metadata_master_language(), "EN");
     }
 

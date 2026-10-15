@@ -1,8 +1,8 @@
-//! [`DatasetSlug`]: the one place untrusted slug text (a path segment, a
-//! Keycloak group-path component, a form field) becomes a value that cannot
-//! hold anything but a valid slug. `u2s-auth` keys grants on this type and
-//! `u2s-store` stores it in the immutable `datasets.slug` column — one
-//! definition, shared, so the two can never validate a slug differently.
+//! [`DatasetSlug`]: the one place untrusted slug text (a URL or API path
+//! segment, a form field) becomes a value that cannot hold anything but a
+//! valid slug. `u2s-server` routes on this type and `u2s-store` stores it in
+//! the immutable `datasets.slug` column: one definition, shared, so the two
+//! can never validate a slug differently.
 //!
 //! The pattern matches the database's `CHECK` constraint on `datasets.slug`
 //! exactly (see `migrations/`): lowercase alphanumeric segments joined by
@@ -25,11 +25,13 @@ pub struct SlugError {
     pub value: String,
 }
 
-/// An immutable, URL- and group-path-safe dataset identifier, distinct from
+/// An immutable, URL-safe dataset identifier, distinct from
 /// [`crate::ids::DatasetId`] (the store's opaque primary key). Two datasets
-/// never share a slug (`datasets.slug` is `UNIQUE`), and a slug is never
-/// reused after a dataset using it is deleted — reuse would let a stale
-/// Keycloak group grant silently start meaning something else.
+/// never share a slug (`datasets.slug` is `UNIQUE`), and a slug never
+/// changes and is never reused after its dataset is deleted, because UI URLs,
+/// API paths and external references (scripts, bookmarks, MCP calls) key on
+/// it: reuse would let a stale reference silently start meaning another
+/// dataset.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct DatasetSlug(String);
 
@@ -141,7 +143,7 @@ mod tests {
 
     #[test]
     fn rejects_underscore() {
-        // Hyphen only, to match Keycloak group-path segments and DNS labels.
+        // Hyphen only, to match DNS labels (RFC 1123).
         assert!(DatasetSlug::parse("de_mo").is_err());
     }
 

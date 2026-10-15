@@ -1,0 +1,66 @@
+id = "ubs-aem-letter-detection"
+title = "A letter source gets the letter layout"
+output_formats = ["aem-ubs"]
+description = """
+Some source forms are letters: the bank writes to a client, an heir or an authority, or a client
+writes to the bank. Their Document of Record has to print as a letter: the sender in the header,
+the receiver in the address window, the date and references under it, the subject in bold, and no
+form title. UBS's renderer has that layout, and a form switches it on through its metadata
+component (`redactoLayout="letterDor"`). The switch in the document is the `Letterhead` node: the
+writer turns the letter layout on exactly when the form holds one. It also selects the letter DoR
+template, prints the sender in the header slot and keeps the letterhead's fields out of the body.
+
+Detect it from the source PDF, not from a template package: a package loaded as a template may
+carry a letterhead or a letter flag of its own, and decides nothing. The source is a letter when
+the first page of its PDF has a letter top: a block for the receiver's address (a window, an
+address field or address lines, often opened by "Spettabile", "An", "To", "Gentile Cliente") and,
+with it, at least one of a date line, a subject line ("Oggetto:", "Betreff:", "Re:", "Subject:")
+or a salutation ("Egregi Signori,", "Gentile Cliente,", "Sehr geehrte", "Dear"). A declaration
+addressed to UBS ("Spettabile UBS Europe SE ..." over the bank's address) is a letter the client
+writes. A form that only names UBS in its text or its title, with no receiver block, is not a
+letter. Only the first page counts (decision 2026-10-14): a form whose letter top sits on a later page
+(a mixed form, an order or internal notes first and the letter after, as AALN_019) is not a letter,
+and its letter page is built from ordinary nodes in the source's order.
+
+When it is a letter:
+
+- The document holds exactly one `Letterhead` (its shape and place: ubs-aem-letter-letterhead).
+- The sender follows the source, and only what the PDF prints. The bank writes: `receiver` is
+  `Entered`, and `sender` is `Fixed` with the bank's address verbatim where the PDF prints one
+  (usually its master page, top of the first page), or `null` where it prints none. Never fill in
+  the bank's address from elsewhere: with no sender the header shows the banking relationship, as
+  the source does. The client writes: `receiver` is `Fixed` with the bank's address from the letter
+  top, and `sender` is `Entered` where the source asks for the client's address or `null` where it
+  prints none.
+- The subject line is the letterhead's `subject`, in every language as each language's PDF prints
+  it. The letter layout prints it in bold under the date. It is not repeated as a draw in the body,
+  and it is not a page `title`.
+- A reference the letter top asks for ("Prot. n.", "Rif.:", "Unser Zeichen") is `your_reference`
+  or `our_reference`, labelled with the source's caption. The date is the letterhead's own date
+  field: no date input of the document's own.
+- The line a source prints above the receiver's address ("Spettabile", "An", "To") is not carried:
+  the letter layout prints the address only, as the letters UBS ships do (decision 2026-10-14). Its
+  absence is not a break, and it is never typed into an address field.
+- The salutation, the body, the closing ("Distinti saluti") and the attachments line stay body
+  text, in the source's order.
+
+How to judge: read the first page of each source PDF (given in the prompt; xfa_render_pages for
+the layout) and decide whether it has a letter top. Then compare with the document
+(json_search for `"type":"Letterhead"`, json_outline for the body).
+
+A break is any of these:
+
+- a letter with no `Letterhead`, so the letter layout stays off;
+- a `Letterhead` in a form whose source is not a letter;
+- a sender or receiver whose kind does not match who writes, or a sender the PDF does not print;
+- a prefilled address that differs from the source;
+- a subject missing from the letterhead, or repeated in the body or as a page title;
+- a reference the source asks for that is missing.
+
+Fix: add the `Letterhead` to the first page, fill its parties and subject from the PDF, and
+delete the body draws, inputs and page titles that repeated the subject, date or address.
+Delete a `Letterhead` from a form that is not a letter.
+"""
+
+[judge]
+source = "first_page"

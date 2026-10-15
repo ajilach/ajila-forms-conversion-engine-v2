@@ -48,8 +48,9 @@ const REQUIRED_VARIABLES: &[&str] = &[
     "css_htmldisplayer", "css_numericbox", "css_radiobutton", "css_telephone", "css_textbox",
     "css_textbox_multiline", "custom_resource_type_base", "default_layout", "dor_field_styling",
     "dor_type", "email_validate_clause", "email_validate_message", "form_code", "form_type",
-    "meta_template_ref", "metadata_master_language", "page_resource_type", "resource_type_base",
-    "tel_validate_clause", "tel_validate_message", "template_path", "use_summary", "wizard_layout",
+    "letter_meta_template_ref", "meta_template_ref", "metadata_master_language", "page_resource_type",
+    "resource_type_base", "tel_validate_clause", "tel_validate_message", "template_path", "use_summary",
+    "wizard_layout",
 ];
 
 /// The profile variables an attribute is written for only when they are set.
@@ -89,6 +90,8 @@ pub(super) fn form_xml(
         index,
         pass,
         vars: &vars,
+        letter: super::letterhead::holds_letterhead(root),
+        subject: super::letterhead::subject_triggers(root, config)?,
     };
     let form = lower.form(root)?;
     let form = form
@@ -297,6 +300,12 @@ struct Lower<'a> {
     index: &'a RenderIndex,
     pass: &'a HashMap<Uuid, Passthrough>,
     vars: &'a HashMap<String, String>,
+    /// Whether the form is a letter: it holds a letterhead, so its DoR is
+    /// rendered in the letter layout, from the letter template.
+    letter: bool,
+    /// A letter's subject rule and the fields it names: each of them runs it
+    /// when its value commits, and on Initialize, so the subject shows them.
+    subject: Option<(String, Vec<String>)>,
 }
 
 impl Lower<'_> {
@@ -491,7 +500,8 @@ impl Lower<'_> {
                         .attr("validationPatternType", "custom"),
                     _ => el,
                 };
-                self.carry(hidden(el, *visible).after(responsive(*colspan)), node, owned)?
+                let el = self.subject_trigger(hidden(el, *visible).after(responsive(*colspan)), node)?;
+                self.carry(el, node, owned)?
             }
             AemNode::NumberField {
                 name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
@@ -510,7 +520,8 @@ impl Lower<'_> {
                     .attr("name", name.as_str())
                     .attr_opt("bindRef", nonempty(bind_ref));
                 let el = tail(el, attrs).attr("textIsRich", "[true,true,true]");
-                self.carry(hidden(el, *visible).after(responsive(*colspan)), node, owned::NUMERICBOX)?
+                let el = self.subject_trigger(hidden(el, *visible).after(responsive(*colspan)), node)?;
+                self.carry(el, node, owned::NUMERICBOX)?
             }
             AemNode::DatePicker {
                 name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
@@ -684,6 +695,7 @@ impl Lower<'_> {
             AemNode::Repeatable { .. } => self.repeatable(node)?,
             AemNode::Fragment { .. } => self.fragment(node)?,
             AemNode::Preface { .. } => self.preface(node, &[])?,
+            AemNode::Letterhead { .. } => self.letterhead(node)?,
             AemNode::Root { .. } | AemNode::Panel { .. } => {
                 return Err(format!("`{tag}` is not a leaf"));
             }
@@ -699,6 +711,32 @@ impl Lower<'_> {
             .attr_if(attrs.dor_exclude, "dorExclusion", "true")
             .attr("dorFieldStyling", self.var("dor_field_styling"))
             .attr_opt("dorHeaderSlot", attrs.dor_header_slot.clone())
+    }
+
+    /// A field a letter's subject names (`{NAME}` in its text): it writes the
+    /// subject again when its value commits, and on Initialize for a form
+    /// that opens with its value in it.
+    fn subject_trigger(&self, el: El, node: &AemNode) -> Result<El, LowerError> {
+        let Some((rule, fields)) = &self.subject else {
+            return Ok(el);
+        };
+        let Some(name) = node.name().filter(|n| fields.iter().any(|f| f == n)) else {
+            return Ok(el);
+        };
+        if node
+            .uuid()
+            .and_then(|u| self.pass.get(&u))
+            .is_some_and(|pt| pt.raw_children.iter().any(|c| c.contains("<fd:scripts")))
+        {
+            return Err(format!(
+                "`{name}` carries rules of its own, so the letter's subject cannot add its own to it"
+            ));
+        }
+        let event = |e| EventScript::event(name, e, rule.clone());
+        Ok(el.after(scripts(&[
+            (ScriptEvent::ValueCommit, vec![event(ScriptEvent::ValueCommit)]),
+            (ScriptEvent::Initialize, vec![event(ScriptEvent::Initialize)]),
+        ])))
     }
 
     /// A configurator choice's reset-on-change rule, when it is one.
@@ -1129,6 +1167,33 @@ impl Lower<'_> {
         Ok(outer)
     }
 
+    /// The profile's letterhead component, written for this letter
+    /// (`super::letterhead::render`). It is the profile's whole, so nothing a
+    /// loaded package carried on it is kept.
+    fn letterhead(&self, node: &AemNode) -> Result<El, LowerError> {
+        let template = self
+            .config
+            .letterhead_template
+            .as_deref()
+            .ok_or("the form holds a letterhead, and the profile has no letterhead template")?;
+        let raw = super::letterhead::render(raw_from_xml(template)?, node, self.config)?;
+        let name = raw
+            .attributes
+            .get("name")
+            .cloned()
+            .ok_or("the letterhead has no name")?;
+        let mut el = El::new(node.element_name(), name);
+        el.attrs = raw.attributes.into_iter().collect();
+        el.before = raw.children;
+        Ok(el)
+    }
+
+    /// The DoR template the print settings name: the letter's for a letter
+    /// (`identity::FormIdentity::meta_template_ref`).
+    fn meta_template_ref(&self) -> String {
+        self.var(if self.letter { "letter_meta_template_ref" } else { "meta_template_ref" })
+    }
+
     /// Is this a German form (`formrange_entity` 019)? Its banking
     /// relationship is preset (feedback #104).
     fn is_german(&self) -> bool {
@@ -1451,7 +1516,7 @@ impl Lower<'_> {
                 ("fontFamily", "Arial"),
                 ("hidePanelDescriptions", "true"),
                 ("includeUnboundFields", "true"),
-                ("metaTemplateRef", &self.var("meta_template_ref")),
+                ("metaTemplateRef", &self.meta_template_ref()),
                 ("optionSeparator", ", "),
                 ("optionsNumberInHorizontalAlign", "4"),
                 ("showSelectedOptions", "false"),
@@ -1594,6 +1659,8 @@ impl Lower<'_> {
             .attr("formrange_aftype", "Single")
             .attr("formrange_code", self.var("form_code"))
             .attr("guideNodeClass", "guideTextDraw")
+            // The summary script lays a letter's DoR out as a letter from this.
+            .attr_if(self.letter, "redactoLayout", "letterDor")
             .attr("visible", "false")
             .after(raw("entities", &[nt], vec![entity]));
         let summary = self

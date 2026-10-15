@@ -21,8 +21,9 @@ reviewed wording is an ordinary field and is judged in full. For a field inside 
 configurator shows, judge `visible` relative to that panel: a field the source shows once its
 option is chosen is `visible: true`, although its panel starts hidden.
 
-A field a fragment supplies (a partner generic's name, address or date of birth, a signature's
-place and date) is the bank's standard and has no node in the document: its type, options, label
+A field a fragment or the `Letterhead` supplies (a partner generic's name, address or date of
+birth, a signature's place and date, a letter's receiver, date and references) is the bank's
+standard and has no node in the document: its type, options, label
 and width are not judged here, and whether it shows is judged by ubs-aem-source-coverage.
 
 How to judge: for each field of the document (json_outline), compare it with its control in
@@ -30,6 +31,12 @@ xfa_controls and with the rendered page (xfa_render_pages): its type, its option
 values, in every language), its default, whether it is required, whether it is shown, and whether
 it shares a row with its neighbour. Read the source's own values with xfa_read where the labels
 alone do not show them.
+
+Option VALUES follow ubs-aem-options-wellformed, which wins over the source here (owner directive):
+every key is a number, kept as the source has it where its values are numbers, and numbered by
+position from 1 where they are text (a dropdown an `addItem(text)` script fills has text values). Such
+numbered keys, and a default that selects the same option by its number, are not invented and not a
+break; judge the labels, their order and which option is the default.
 
 A break is a control of the wrong type (a text box for a date, a dropdown for radio buttons), options
 missing, reordered or with invented values, a default or required state that differs from the

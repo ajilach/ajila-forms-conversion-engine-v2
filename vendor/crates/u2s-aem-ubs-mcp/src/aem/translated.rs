@@ -19,7 +19,8 @@ use uuid::Uuid;
 
 use super::{
     ComponentName,
-    AemAttrs, AemNode, AemOption, ConditionRule, OptionAlignment, Passthrough, TextFieldKind,
+    AemAttrs, AemNode, AemOption, ConditionRule, LetterParty, OptionAlignment, Passthrough,
+    TextFieldKind,
 };
 
 /// The translation dictionary shape the package writer expects:
@@ -379,6 +380,38 @@ pub enum AemNodeTranslated {
         passthrough: Passthrough,
         name: String,
     },
+    /// The letter top of a form whose source is a letter (receiver window,
+    /// date, subject): one per form, a direct child of the first page, after
+    /// the banking relationship where the page has one. The form's DoR is then
+    /// rendered as a letter, and its section headings, date picker and field
+    /// labels are the profile's. See [`AemNode::Letterhead`].
+    Letterhead {
+        uuid: Uuid,
+        name: String,
+        /// Who the letter is from: `Fixed` when the source prints the sender's
+        /// address (the bank's own, usually), `Entered` when the person filling
+        /// in writes it, `null` when the source names no sender. A sender is
+        /// printed in the DoR header's `slot2`, so no other node may take it.
+        sender: Option<LetterParty>,
+        /// Who the letter is to: `Fixed` when the source prints the receiver's
+        /// address (UBS, for a letter the client writes), `Entered` when the
+        /// person filling in writes it.
+        receiver: LetterParty,
+        /// The subject, plain text, in every language of the form; a newline
+        /// starts a new subject line. `{FIELD_NAME}` prints the current value of
+        /// the form's text or number field of that name (nothing while it is
+        /// empty), as the source's floating fields do: `"Polizza n.:
+        /// {TXT_PolizzaN}"`. `{{` and `}}` print a brace; no other brace is
+        /// allowed.
+        subject: AemI18nText,
+        /// The "your reference" line: the text the field opens with ("Prot. n."),
+        /// which the person may complete. `null` leaves it off the form.
+        #[serde(default)]
+        your_reference: Option<AemI18nText>,
+        /// The "our reference" line, like `your_reference`.
+        #[serde(default)]
+        our_reference: Option<AemI18nText>,
+    },
     FootnotePlaceholder {
         uuid: Uuid,
         /// Fidelity passthrough captured on load (empty for engine-built nodes).
@@ -567,6 +600,15 @@ impl AemNodeTranslated {
             | AemNodeTranslated::MessageBox { content, .. }
             | AemNodeTranslated::TitleDraw { content, .. }
             | AemNodeTranslated::HtmlDisplayer { content, .. } => f(content),
+            AemNodeTranslated::Letterhead {
+                subject,
+                your_reference,
+                our_reference,
+                ..
+            } => {
+                f(subject);
+                your_reference.iter().chain(our_reference).for_each(&mut *f);
+            }
             AemNodeTranslated::Preface { .. }
             | AemNodeTranslated::FootnotePlaceholder { .. } => {}
         }
@@ -652,6 +694,8 @@ impl AemNodeTranslated {
             } => {
                 record(m, uuid, passthrough);
             }
+            // The profile's whole component: nothing of a loaded one is kept.
+            AemNodeTranslated::Letterhead { .. } => {}
         }
     }
 
@@ -997,6 +1041,26 @@ impl AemNodeTranslated {
             AemNodeTranslated::Preface { uuid, name, .. } => AemNode::Preface {
                 uuid: *uuid,
                 name: name.clone(),
+            },
+            // Like an HTML block's markup, the texts stay on the node: they are
+            // field values, which the dictionary does not translate.
+            AemNodeTranslated::Letterhead {
+                uuid,
+                name,
+                sender,
+                receiver,
+                subject,
+                your_reference,
+                our_reference,
+            } => AemNode::Letterhead {
+                uuid: *uuid,
+                name: name.clone(),
+                sender: sender.clone(),
+                receiver: receiver.clone(),
+                subject: subject.clone(),
+                your_reference: your_reference.clone(),
+                our_reference: our_reference.clone(),
+                bind_ref: None,
             },
             AemNodeTranslated::FootnotePlaceholder {
                 uuid,

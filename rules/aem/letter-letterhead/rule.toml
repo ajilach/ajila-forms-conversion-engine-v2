@@ -1,0 +1,16 @@
+id = "ubs-aem-letter-letterhead"
+title = "One Letterhead, atop the first page"
+output_formats = ["aem-ubs"]
+description = """
+The `Letterhead` node renders the UBS letterhead component and switches the letter layout of the
+Document of Record on (ubs-aem-letter-detection). Its receiver, date and subject are printed at
+the top of the letter, so it belongs at the top of the first page: among the children of the
+first `Panel` under `form`, after the `Preface` where the form has one and before every other
+node. A second letterhead would print a second set of receiver lines into one letter.
+
+Reported: a second `Letterhead`; a `Letterhead` that is not a direct child of the first page; one
+that a node other than the `Preface` precedes there.
+
+Fix: delete the second letterhead, and move the letterhead to the top of the first page, right
+after the `Preface`.
+"""

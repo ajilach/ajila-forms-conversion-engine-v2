@@ -13,8 +13,11 @@ function check(output, ctx) {
   const violations = [];
   const slotted = [];
   let preface = false;
+  // A letter's sender prints in slot2, through the letterhead's own sender field.
+  let sender = null;
   function visit(node, pointer) {
     if (node.type === "Preface") preface = true;
+    if (node.type === "Letterhead" && node.sender) sender = node.name;
     if (typeof node.dor_header_slot === "string") slotted.push({ node: node, pointer: pointer });
     const children = node.children || [];
     for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i);
@@ -30,6 +33,14 @@ function check(output, ctx) {
         pointer: at,
         message: "`" + node.name + "` prints in the header slot `" + slot + "`, which is none of " +
           SLOTS.join(", ") + ": the legal entity is `slot2` and the validity line `slot3`",
+      });
+      continue;
+    }
+    if (slot === "slot2" && sender !== null) {
+      violations.push({
+        pointer: at,
+        message: "`" + node.name + "` takes `slot2`, which in a letter is the sender's: the letterhead `" +
+          sender + "` prints the sender there, so take it out of the slot (a draw's text belongs in the letterhead's sender)",
       });
       continue;
     }

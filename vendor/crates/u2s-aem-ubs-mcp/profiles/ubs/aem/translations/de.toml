@@ -30,3 +30,29 @@
 # two variants.
 "Please enter a valid email address (e.g., max.muster@beispiel.ch)." = "Bitte geben Sie eine gültige E-Mail-Adresse ein (z. B. max.muster@beispiel.ch)."
 "Please enter a valid phone number incl. country code (e.g., +41)." = "Bitte geben Sie eine gültige Telefonnummer einschließlich Ländervorwahl (z. B. +41) ein."
+
+# The letterhead component's own texts (`letterhead.xml`): its section
+# headings, as the rich text they are written as, and the labels of the
+# fields a person fills in. Shipped only with a form that holds a letterhead.
+# Corpus wordings where the issued letters have one.
+[letterhead]
+"<p><b>Sender</b></p>" = "<p><b>Absender</b></p>"
+"<p><b>Receiver</b></p>" = "<p><b>Empfänger</b></p>"
+"<p><b>Date and references</b></p>" = "<p><b>Datum und Quellen</b></p>"
+"<p><b>Letter content</b></p>" = "<p><b>Briefinhalt</b></p>"
+"Individual" = "Privatperson"
+"Company/Entity" = "Firma/Rechtseinheit"
+"Last name" = "Nachname"
+"First name(s)" = "Vorname(n)"
+"Company/Entity name" = "Firmenname"
+"Street" = "Straße"
+"No." = "Nr."
+"Additional address details" = "Adresszusatz"
+"Postal code" = "PLZ"
+"City" = "Stadt"
+"Canton/State/Province" = "Kanton/Staat/Provinz"
+"Country" = "Land"
+"Date" = "Datum"
+"Your reference" = "Ihr Zeichen"
+"Our reference" = "Unser Zeichen"
+"Subject" = "Betreff"

@@ -2,7 +2,7 @@
 //! validates at its edge: [`crate::DatasetSlug`] and [`crate::FormatId`].
 //!
 //! Defined once so the two can never validate differently (CLAUDE.md: do not
-//! duplicate logic) — a `DatasetSlug` is a Keycloak group-path segment, a
+//! duplicate logic) — a `DatasetSlug` is a URL and API path segment, a
 //! `FormatId` is a registry key used identically on `rules` and `mcp_tools`
 //! (PLAN.md's `FormatScope`), and both need the same RFC 1123 label shape:
 //! lowercase alphanumeric segments joined by single hyphens, 1 to 63

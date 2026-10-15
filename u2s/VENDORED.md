@@ -3,7 +3,7 @@
 Source: `ajilach/ajila-forms-conversion-engine-v3` (local checkout usually at
 `../unstructured-to-structured`).
 
-Upstream commit: `2fd976c067479e6d2a0be0b2707ce4a47bdc9e63`
+Upstream commit: `6d76f7603f319cff45e8cc15f632cf8b0d921bb0`
 
 The u2s crates are git dependencies at that one revision (`[workspace.dependencies]` in the root
 `Cargo.toml`, which `agent` inherits), and their sources are checked in under `vendor/crates/`,

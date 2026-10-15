@@ -1146,6 +1146,28 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
     // Without the fragment there is nothing to duplicate.
     let alone = doc_with(vec![page("PN_A", "A", vec![entity])]);
     assert!(violations("banking-relationship-present", &alone).is_empty());
+
+    // Italy writes the whole line with its qualifier, the way a letter closes above its officers;
+    // a sentence that only mentions the bank is no entity line.
+    let italy = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![
+            preface(),
+            draw("TextDraw", "ST_Closing", "<p>UBS Europe SE (Succursale Italia)</p>"),
+            draw("TextDraw", "ST_Comma", "UBS Europe SE, Succursale Italia"),
+            draw("TextDraw", "ST_Mention", "UBS Europe SE (Succursale Italia) con sede in Milano"),
+            // The closing as Italian letters write it, with a dash, and with its unit under it: the
+            // feedback guard's ENTITY_LINE reads the first line only.
+            draw("TextDraw", "ST_Per", "<p>Per UBS Europe SE (Succursale Italia)</p>"),
+            draw("TextDraw", "ST_Dash", "UBS Europe SE \u{2013} Succursale Italia."),
+            draw("TextDraw", "ST_Unit", "<p>UBS Europe SE (Succursale Italia)</p><p>Front Support Office</p>"),
+        ],
+    )]);
+    assert_eq!(
+        violations("banking-relationship-present", &italy),
+        [1, 2, 4, 5, 6].map(|i| format!("/form/children/0/children/{i}/content/en")).to_vec()
+    );
 }
 
 /// A master-page line authored for the DoR header `slot`, with the flags that
@@ -1694,4 +1716,102 @@ fn html_in_css_columns_is_multi_column_text() {
         let doc = aaev_with(&format!("{page}/children"), html(clean));
         assert!(violations("single-column-text", &doc).is_empty(), "{clean}");
     }
+}
+
+/// A letter's letterhead: the bank writes (`sender` fixed) to a receiver the person enters.
+fn letterhead(name: &str) -> Value {
+    json!({
+        "type": "Letterhead", "uuid": UUID, "name": name,
+        "sender": {"kind": "Fixed", "address": {"company": "UBS Europe SE (Succursale Italia)",
+            "street": "Via del Vecchio Politecnico", "street_no": "3", "postal_code": "20121", "city": "Milano"}},
+        "receiver": {"kind": "Entered"},
+        "subject": {"en": "Oggetto: Notifica"},
+        "your_reference": null, "our_reference": null
+    })
+}
+
+#[test]
+fn a_letter_has_one_letterhead_at_the_top_of_its_first_page() {
+    let body = || draw("TextDraw", "ST_Body", "Egregi Signori,");
+    let ok = doc_with(vec![page("PN_A", "A", vec![preface(), letterhead("PN_LetterHead"), body()])]);
+    assert!(violations("letter-letterhead", &ok).is_empty());
+    let alone = doc_with(vec![page("PN_A", "A", vec![letterhead("PN_LetterHead"), body()])]);
+    assert!(violations("letter-letterhead", &alone).is_empty());
+
+    let twice = doc_with(vec![page("PN_A", "A", vec![letterhead("PN_LetterHead"), letterhead("PN_Second")])]);
+    assert_eq!(violations("letter-letterhead", &twice), vec!["/form/children/0/children/1".to_string()]);
+
+    let late = doc_with(vec![page("PN_A", "A", vec![body()]), page("PN_B", "B", vec![letterhead("PN_LetterHead")])]);
+    assert_eq!(violations("letter-letterhead", &late), vec!["/form/children/1/children/0".to_string()]);
+
+    let below = doc_with(vec![page("PN_A", "A", vec![body(), letterhead("PN_LetterHead")])]);
+    assert_eq!(violations("letter-letterhead", &below), vec!["/form/children/0/children/1".to_string()]);
+
+    // The banking relationship opens the page, the letterhead follows it.
+    let ahead = doc_with(vec![page("PN_A", "A", vec![letterhead("PN_LetterHead"), preface(), body()])]);
+    assert_eq!(violations("letter-letterhead", &ahead), vec!["/form/children/0/children/0".to_string()]);
+
+    // A panel under `form` that is no wizard step (the form metadata) is not the first page.
+    let metadata = panel("FormMetadata", "", false, false, vec![]);
+    let after_metadata = doc_with(vec![metadata, page("PN_A", "A", vec![letterhead("PN_LetterHead"), body()])]);
+    assert!(violations("letter-letterhead", &after_metadata).is_empty());
+}
+
+#[test]
+fn a_letters_sender_takes_slot2_so_no_draw_does() {
+    let entity = || header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b> (Succursale Italia)</p>");
+    let validity = || header_line("ST_HeaderSlot3", "slot3", "<p>Valido dal 09.10.2025</p>");
+    let taken = doc_with(vec![page("PN_A", "A", vec![preface(), letterhead("PN_LetterHead"), entity(), validity()])]);
+    assert_eq!(violations("dor-header-slots", &taken), vec!["/form/children/0/children/2/dor_header_slot".to_string()]);
+
+    // Nor does a field: the sender has slot2 to itself.
+    let mut account = text_field("TXT_Account", "Account no.", None);
+    account["dor_header_slot"] = json!("slot2");
+    let field = doc_with(vec![page("PN_A", "A", vec![preface(), letterhead("PN_LetterHead"), account])]);
+    assert_eq!(violations("dor-header-slots", &field), vec!["/form/children/0/children/2/dor_header_slot".to_string()]);
+
+    // A letter whose source prints no sender leaves slot2 to the entity line.
+    let mut silent = letterhead("PN_LetterHead");
+    silent["sender"] = Value::Null;
+    let free = doc_with(vec![page("PN_A", "A", vec![preface(), silent, entity(), validity()])]);
+    assert!(violations("dor-header-slots", &free).is_empty());
+}
+
+/// A repeatable of signatures is named after who signs, which may be an entity line of up to eight
+/// words (the writer's `MAX_SIGNATURE_SUBJECT_WORDS`); any other repeatable keeps four.
+#[test]
+fn a_signature_block_takes_an_entity_line_as_its_title() {
+    let signature = || fragment("PN_SGN_UBS", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1");
+    let bank = doc_with(vec![page(
+        "PN_A",
+        "",
+        vec![repeatable("RCP_SGN_UBS", "UBS Europe SE (Succursale Italia)", vec![signature()])],
+    )]);
+    assert!(violations("repeatable-title", &bank).is_empty());
+
+    let rows = doc_with(vec![page(
+        "PN_A",
+        "",
+        vec![repeatable("RCP_Rows", "UBS Europe SE (Succursale Italia)", vec![text_field("TXT_Row", "Row", None)])],
+    )]);
+    assert_eq!(violations("repeatable-title", &rows), vec!["/form/children/0/children/0/title".to_string()]);
+}
+
+/// A letter closes with its entity line, then a unit line, then the bank's officers: there the
+/// closing lines are body text in the source's order, and the officers' repeatable takes their
+/// own caption as title (decision 2026-10-14). Outside a letter the title precedence stands.
+#[test]
+fn a_letters_closing_entity_line_is_body_text_above_the_officers() {
+    let signature = || fragment("PN_SGN_UBS", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1");
+    let closing = || draw("TextDraw", "ST_Closing", "<p>UBS Europe SE (Succursale Italia)</p><p>Front Support Office</p>");
+    let letter = doc_with(vec![page(
+        "PN_A",
+        "",
+        vec![preface(), letterhead("PN_LetterHead"), closing(), repeatable("RCP_SGN_UBS", "Cognome/Nome", vec![signature()])],
+    )]);
+    assert!(violations("banking-relationship-present", &letter).is_empty());
+
+    // Without officers below it the line is still the fragment's duplicate, letter or not.
+    let alone = doc_with(vec![page("PN_A", "", vec![preface(), letterhead("PN_LetterHead"), closing()])]);
+    assert_eq!(violations("banking-relationship-present", &alone), vec!["/form/children/0/children/2/content/en".to_string()]);
 }

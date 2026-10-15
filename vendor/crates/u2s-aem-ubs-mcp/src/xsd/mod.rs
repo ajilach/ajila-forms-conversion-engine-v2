@@ -388,9 +388,9 @@ fn default_group_page_panels() -> bool {
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct AemElementRule {
     // --- match keys ---
-    /// Node kind: `panel`, `repeatable`, `fragment`, `textbox`, `numericbox`,
-    /// `datepicker`, `dropdownlist`, `checkbox`, `radiobutton`, or
-    /// `field` for any data leaf.
+    /// Node kind: `panel`, `repeatable`, `fragment`, `letterhead`, `textbox`,
+    /// `numericbox`, `datepicker`, `dropdownlist`, `checkbox`, `radiobutton`,
+    /// or `field` for any data leaf.
     #[serde(default)]
     pub kind: Option<String>,
     /// Substring match against the node's `fragRef`.
@@ -968,6 +968,14 @@ pub fn parse_schema(content: &str) -> ParsedSchema {
                 let local_name = e.local_name();
                 let tag = std::str::from_utf8(local_name.as_ref()).unwrap_or("");
 
+                // An extension that adds nothing (`ReceiverAddressType`) is
+                // still the base's children.
+                if tag == "extension"
+                    && in_complex_type
+                    && let Some(base) = get_attr(e, b"base")
+                {
+                    current_ct_base = Some(base);
+                }
                 if tag == "element" {
                     if in_complex_type {
                         if let Some(ref_name) = get_attr(e, b"ref") {
@@ -1215,6 +1223,28 @@ pub fn build_xsd_config_from_type_sources(
 #[cfg(test)]
 mod tests {
     use super::{build_registered_types, parse_schema, to_pascal_case, to_xsd_element_name};
+
+    /// A type that extends another and adds nothing (`<xs:extension base=".."/>`,
+    /// as LetterAddress.xsd's `ReceiverAddressType`) has its base's children.
+    #[test]
+    fn an_extension_that_adds_nothing_inherits_the_base() {
+        let schema = r#"<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+    <xs:complexType name="BaseType">
+        <xs:sequence>
+            <xs:element name="Street" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+    <xs:complexType name="EmptyExtensionType">
+        <xs:complexContent>
+            <xs:extension base="BaseType"/>
+        </xs:complexContent>
+    </xs:complexType>
+</xs:schema>"#;
+        let (types, _, _) = build_registered_types(&[(parse_schema(schema), "a.xsd".into())]);
+        let names: Vec<&str> = types["EmptyExtensionType"].elements.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["Street"]);
+    }
 
     #[test]
     fn to_xsd_element_name_joins_words_without_separators() {

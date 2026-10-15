@@ -64,8 +64,8 @@ macro_rules! uuid_id {
 }
 
 uuid_id!(
-    /// A dataset's store identity — `datasets.id`. The Keycloak-facing name
-    /// is [`crate::slug::DatasetSlug`]; the two are looked up together and
+    /// A dataset's store identity — `datasets.id`. The externally visible
+    /// name (URLs, API paths) is [`crate::slug::DatasetSlug`]; the two are looked up together and
     /// neither substitutes for the other.
     DatasetId
 );

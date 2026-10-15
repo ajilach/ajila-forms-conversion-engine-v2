@@ -15,6 +15,15 @@ too. They are not on the form's pages but in the Document of Record's header: ea
 `TextDraw` in its header slot (ubs-aem-dor-header-slots), the legal entity in `slot2` and the
 validity line in `slot3`, in every language the form ships, read from that language's master page.
 
+In a letter (ubs-aem-letter-detection, decided by the first page only; the letter page of a mixed form
+is ordinary nodes) the letter top is the `Letterhead`'s: the receiver block,
+the date, the references and the subject line are covered by its `receiver`, its date field, its
+`your_reference` and `our_reference`, and its `subject`, and the sender block the master page
+prints (the bank's name, address and telephone) by its `sender`, which the letter layout prints in
+the header. The letterhead's own captions ("Sender", "Street", "Postal code") are the component's
+text, like a fragment's, and are not judged. The line above the receiver's address ("Spettabile",
+"An") is not carried by a letter and is an expected miss.
+
 A party's source fields (name, address, date of birth, nationality, company name) and a
 signature's (place, date, name) are collected by the party's partner generic and by
 `affrg_SignatureGeneric1`, which have no children in the document: such a field's counterpart is
