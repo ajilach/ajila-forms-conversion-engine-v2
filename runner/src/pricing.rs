@@ -10,7 +10,20 @@
 //! Rates are USD per million tokens, matching how both providers bill. Verified
 //! against OpenRouter's published Anthropic pricing on 2026-09-04; Opus 5.5,
 //! Sonnet 5.5 and Fable 5.1 against Anthropic's published pricing on
-//! 2026-10-02, and Sonnet 5.5's cache read and Haiku 5.5 on 2026-10-09.
+//! 2026-10-02, and Sonnet 5.5's cache read and Haiku 5.5 on 2026-10-09. The
+//! other vendors' rows ([`crate::models::OPENROUTER_MODELS`]) are each vendor's
+//! own published rates on 2026-10-13: OpenRouter passes a provider's price
+//! through, and a provider it routes to may charge less than the vendor.
+//!
+//! The two endpoints count a prompt differently. Anthropic reports fresh input,
+//! cache reads and cache writes as three disjoint buckets; an OpenAI-compatible
+//! endpoint (OpenRouter included) reports `prompt_tokens` as the whole prompt,
+//! with the cached and written tokens as a breakdown of it. Pricing the second
+//! as if it were the first bills every cached token twice, once at the input
+//! rate. [`disjoint_usage`] brings it to Anthropic's shape, and the run's
+//! context budget applies it to every turn's usage as it arrives (see
+//! `pipeline::memory::ContextBudget::reported_usage`), so this table, the
+//! spend, the context gauge and the run analysis all read the same buckets.
 
 /// What one model costs, in USD per million tokens.
 pub struct Price {
@@ -44,8 +57,41 @@ pub struct LongPrompt {
     pub cache_write: f64,
 }
 
-/// Published rates for the models in [`crate::models::KNOWN_MODELS`].
+/// Published rates for the models in [`crate::models::KNOWN_MODELS`] and
+/// [`crate::models::OPENROUTER_MODELS`].
 pub const PRICES: &[Price] = &[
+    // OpenAI. Cache writes are billed (2.50), unlike earlier GPT generations.
+    Price {
+        id: "openai/gpt-6.1-sol",
+        input: 2.00,
+        output: 10.00,
+        cache_read: 0.10,
+        cache_write: 2.50,
+        long_prompt: None,
+    },
+    // Google. Introductory rates, valid to 2026-12-31; from 2027-01-01 they
+    // double (1.50 / 7.50 / 0.15). Implicit caching bills no write, so a
+    // written token costs the input rate; cache storage per hour is not
+    // modelled.
+    Price {
+        id: "google/gemini-3.8-flash",
+        input: 0.75,
+        output: 3.75,
+        cache_read: 0.075,
+        cache_write: 0.75,
+        long_prompt: None,
+    },
+    // DeepSeek. Peak rates: off-peak (outside 01-04 and 06-10 UTC on weekdays,
+    // and all weekend) is half of these, so a run is reported at most at what
+    // it cost. No write is billed; a cache miss is the input rate.
+    Price {
+        id: "deepseek/deepseek-v4.1-flash",
+        input: 0.30,
+        output: 1.20,
+        cache_read: 0.006,
+        cache_write: 0.30,
+        long_prompt: None,
+    },
     Price {
         id: "claude-opus-5-5",
         input: 4.00,
@@ -129,13 +175,25 @@ pub const PRICES: &[Price] = &[
 /// The published rates for `model`, or `None` for an id this build has never
 /// heard of.
 ///
-/// A leading vendor segment is stripped first, so the same table prices
-/// `claude-opus-5` on the Anthropic path and `anthropic/claude-opus-5` routed
-/// through OpenRouter. Beyond that the match is exact: a family guess would be
-/// a made-up number presented as a bill.
+/// Ids are compared as [`crate::models::canonical_id`] spells them, so the
+/// same table prices `claude-opus-5-5` on the Anthropic path and
+/// `anthropic/claude-opus-5.5` routed through OpenRouter. Beyond that the
+/// match is exact: a family guess would be a made-up number presented as a
+/// bill.
 pub fn price_for(model: &str) -> Option<&'static Price> {
-    let bare = model.rsplit('/').next().unwrap_or(model);
-    PRICES.iter().find(|p| p.id == bare)
+    let wanted = crate::models::canonical_id(model);
+    PRICES.iter().find(|p| crate::models::canonical_id(p.id) == wanted)
+}
+
+/// `usage` from an OpenAI-compatible endpoint, in Anthropic's disjoint
+/// buckets: the fresh input is what is left of the prompt once the cached and
+/// written tokens are taken out. See the module docs.
+pub fn disjoint_usage(usage: &rig_core::completion::Usage) -> rig_core::completion::Usage {
+    let mut disjoint = *usage;
+    disjoint.input_tokens = usage
+        .input_tokens
+        .saturating_sub(usage.cached_input_tokens + usage.cache_creation_input_tokens);
+    disjoint
 }
 
 /// What one call's token buckets cost in USD, or `None` when the model has no
@@ -218,6 +276,46 @@ mod tests {
             price_for("claude-opus-5").map(|p| p.input)
         );
         assert!(price_for("openai/gpt-5").is_none());
+    }
+
+    /// OpenRouter spells Anthropic's versions with dots; they must price the
+    /// same as Anthropic's dashed ids, or an OpenRouter run reports no cost.
+    #[test]
+    fn a_dotted_openrouter_id_prices_the_same() {
+        assert_eq!(price_for("anthropic/claude-opus-5.5").map(|p| p.input), Some(4.00));
+        assert_eq!(price_for("anthropic/claude-haiku-5.5").map(|p| p.id), Some("claude-haiku-5-5"));
+    }
+
+    /// Every OpenRouter model the limits table knows is priced too.
+    #[test]
+    fn every_openrouter_model_has_a_price() {
+        for model in crate::models::OPENROUTER_MODELS {
+            assert!(price_for(model.id).is_some(), "{} has no row in PRICES", model.id);
+        }
+        assert_eq!(price_for("gpt-6.1-sol").map(|p| p.output), Some(10.00));
+    }
+
+    /// An OpenAI-compatible prompt of 1M tokens, 800k of them cached and 100k
+    /// written, is 100k fresh: priced as reported it would bill the cached
+    /// tokens at the input rate on top of the cache-read rate.
+    #[test]
+    fn an_openai_style_prompt_is_split_before_it_is_priced() {
+        let reported = Usage {
+            input_tokens: 1_000_000,
+            cached_input_tokens: 800_000,
+            cache_creation_input_tokens: 100_000,
+            output_tokens: 0,
+            ..Usage::new()
+        };
+        let disjoint = disjoint_usage(&reported);
+        assert_eq!(disjoint.input_tokens, 100_000);
+        assert_eq!(disjoint.cached_input_tokens, 800_000);
+        let cost = cost_usd("openai/gpt-6.1-sol", &disjoint).unwrap();
+        // 0.1 * 2.00 + 0.8 * 0.10 + 0.1 * 2.50
+        assert!((cost - 0.53).abs() < 1e-9, "got {cost}");
+        // A gateway that reports no breakdown leaves the prompt as it is.
+        let plain = Usage { input_tokens: 500, ..Usage::new() };
+        assert_eq!(disjoint_usage(&plain).input_tokens, 500);
     }
 
     /// The arithmetic, on round numbers: a million input tokens of Opus is its

@@ -20,7 +20,7 @@ const CONTEXT_SAFETY_MARGIN: usize = 48_000;
 /// the context-window banner and gauge denominator. Only known-small models
 /// (Haiku, pre-4 families) default to 200K.
 pub fn context_window_for(model: &str) -> usize {
-    if let Some(known) = KNOWN_MODELS.iter().find(|m| m.id == model) {
+    if let Some(known) = known_model(model) {
         return known.context_window;
     }
     let m = model.to_ascii_lowercase();
@@ -101,6 +101,54 @@ pub const KNOWN_MODELS: &[ModelInfo] = &[
 /// The model used when none has been chosen.
 pub const DEFAULT_MODEL: &str = KNOWN_MODELS[0].id;
 
+/// Models of other vendors, reached through OpenRouter, that this app knows
+/// the limits of. Kept apart from [`KNOWN_MODELS`] because that table is also
+/// the Anthropic picker's offline fallback, which must not offer them.
+///
+/// Ids are OpenRouter's. Verified on 2026-10-13 against each vendor's own
+/// model page (OpenAI, Google, DeepSeek). An id that is not here falls back to
+/// [`DEFAULT_MAX_OUTPUT_TOKENS`], which cuts a large authoring turn short, so
+/// a model is worth adding before it is tried as the Author.
+pub const OPENROUTER_MODELS: &[ModelInfo] = &[
+    ModelInfo {
+        id: "openai/gpt-6.1-sol",
+        context_window: 1_050_000,
+        max_output_tokens: 128_000,
+    },
+    ModelInfo {
+        id: "google/gemini-3.8-flash",
+        context_window: 1_048_576,
+        max_output_tokens: 65_536,
+    },
+    ModelInfo {
+        id: "deepseek/deepseek-v4.1-flash",
+        context_window: 1_000_000,
+        max_output_tokens: 384_000,
+    },
+];
+
+/// A model id in the one spelling the tables are compared in: no vendor
+/// segment, lower case, dots as dashes.
+///
+/// OpenRouter names Anthropic's models with a vendor prefix and dotted
+/// versions (`anthropic/claude-opus-5.5`) where Anthropic's API uses dashes
+/// (`claude-opus-5-5`). Without this the same model resolved to its limits on
+/// one endpoint and to a guess on the other, and went unpriced through
+/// OpenRouter.
+pub fn canonical_id(model: &str) -> String {
+    let bare = model.rsplit('/').next().unwrap_or(model);
+    bare.to_ascii_lowercase().replace('.', "-")
+}
+
+/// The table entry for `model`, in any spelling [`canonical_id`] accepts.
+pub fn known_model(model: &str) -> Option<&'static ModelInfo> {
+    let wanted = canonical_id(model);
+    KNOWN_MODELS
+        .iter()
+        .chain(OPENROUTER_MODELS)
+        .find(|m| canonical_id(m.id) == wanted)
+}
+
 /// Families whose models carry a 1M-token context window. Only consulted for ids
 /// absent from [`KNOWN_MODELS`] — the API serves models newer than any table we
 /// ship, so these are deliberately generation-agnostic: a not-yet-released Opus
@@ -138,7 +186,7 @@ const DEFAULT_MAX_OUTPUT_TOKENS: u32 = 16_000;
 /// [`DEFAULT_MAX_OUTPUT_TOKENS`]. Lives here next to [`context_window_for`] so
 /// the two model tables stay in one place.
 pub fn max_output_tokens_for(model: &str) -> u32 {
-    if let Some(known) = KNOWN_MODELS.iter().find(|m| m.id == model) {
+    if let Some(known) = known_model(model) {
         return known.max_output_tokens;
     }
     let m = model.to_ascii_lowercase();
@@ -231,6 +279,35 @@ mod known_models {
             max_output_tokens_for("some-other-vendor-model"),
             DEFAULT_MAX_OUTPUT_TOKENS
         );
+    }
+
+    /// OpenRouter's spelling of an Anthropic model resolves to the same
+    /// limits as Anthropic's own.
+    #[test]
+    fn an_openrouter_id_resolves_to_the_same_limits() {
+        assert_eq!(known_model("anthropic/claude-opus-5.5").map(|m| m.id), Some("claude-opus-5-5"));
+        assert_eq!(known_model("anthropic/claude-haiku-4.5").map(|m| m.id), Some("claude-haiku-4-5"));
+        assert_eq!(max_output_tokens_for("anthropic/claude-haiku-4.5"), 64_000);
+        assert_eq!(context_window_for("anthropic/claude-haiku-4.5"), 200_000);
+    }
+
+    /// Every OpenRouter model resolves to its table limits, in its own
+    /// spelling and without the vendor segment.
+    #[test]
+    fn every_openrouter_model_resolves_to_its_own_limits() {
+        for model in OPENROUTER_MODELS {
+            let bare = model.id.rsplit('/').next().unwrap();
+            for id in [model.id, bare] {
+                assert_eq!(context_window_for(id), model.context_window, "{id}");
+                assert_eq!(max_output_tokens_for(id), model.max_output_tokens, "{id}");
+            }
+        }
+    }
+
+    /// The fallback picker offers Anthropic's models only.
+    #[test]
+    fn the_anthropic_table_holds_no_other_vendor() {
+        assert!(KNOWN_MODELS.iter().all(|m| m.id.starts_with("claude-")));
     }
 
     #[test]

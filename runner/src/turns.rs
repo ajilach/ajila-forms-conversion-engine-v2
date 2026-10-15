@@ -154,6 +154,11 @@ impl TurnPlan {
         let model = crate::ratelimit::wrap(model, &self.endpoint, self.max_concurrent);
         let model_id = self.endpoint.model.clone();
         let mut context_budget = crate::token_counter::RunnerContextBudget::new(self.prompt_target);
+        // An OpenAI-compatible endpoint counts cached tokens inside the
+        // prompt; the budget splits them out before anything reads the usage.
+        if self.endpoint.provider != Provider::Anthropic {
+            context_budget = context_budget.with_inclusive_usage();
+        }
         // Only Anthropic's cache is refreshed: it is the provider whose
         // five-minute tail cache a slow tool outlasts, and a refresh on a
         // provider without one would only cost a request.
