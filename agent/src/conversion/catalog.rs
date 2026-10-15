@@ -732,6 +732,34 @@ mod catalog_guards {
         }
     }
 
+    /// Every tool's input schema is one the strictest provider accepts:
+    /// OpenAI rejects the whole request when a `required` is not an array of
+    /// property names or `properties` is not an object, which Anthropic lets
+    /// pass (GPT on OpenRouter failed on `aem_verify_*` with `required: null`).
+    #[test]
+    fn every_input_schema_is_well_formed() {
+        for spec in specs() {
+            let name = spec["name"].as_str().unwrap_or_default();
+            let schema = &spec["input_schema"];
+            assert_eq!(schema["type"], "object", "{name}: input_schema type");
+            if let Some(properties) = schema.get("properties") {
+                assert!(properties.is_object(), "{name}: properties is {properties}");
+            }
+            if let Some(required) = schema.get("required") {
+                let required = required
+                    .as_array()
+                    .unwrap_or_else(|| panic!("{name}: required is {required}"));
+                for field in required {
+                    let field = field.as_str().unwrap_or_else(|| panic!("{name}: required holds {field}"));
+                    assert!(
+                        schema["properties"].get(field).is_some(),
+                        "{name}: required `{field}` is not a property"
+                    );
+                }
+            }
+        }
+    }
+
     /// The catalog is prompt surface: an accidental wording or schema change
     /// silently alters how the model behaves. Pin it.
     #[test]
