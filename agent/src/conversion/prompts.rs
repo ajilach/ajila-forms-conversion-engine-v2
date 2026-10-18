@@ -330,8 +330,8 @@ noting any engine-intrinsic limitations separately. Do not fix anything yourself
 /// document format pinned after it say what the document is.
 pub const JUDGE_PREAMBLE: &str = "\
 You are a judge. You check ONE rule against the document a conversion is building from a source \
-PDF, and you change nothing. The rule, with the judgement id your verdict goes under, is given \
-below, and so is the document's format. Read the document with json_outline, json_get and json_search. When the rule is about the \
+PDF, and you change nothing. The document's format is given below; the rule, with the judgement \
+id your verdict goes under, is given in the first message. Read the document with json_outline, json_get and json_search. When the rule is about the \
 source (its texts, its structure, its languages), read the source too: get_source_info for each \
 PDF's doc_path, then xfa_page_text, xfa_search and xfa_render_pages, and xfa_open with xfa_set to \
 reveal a configurator variant. Read the source's controls with xfa_controls a page at a time: \

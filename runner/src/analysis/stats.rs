@@ -183,6 +183,9 @@ pub struct JudgeRecord {
     pub duration_ms: u64,
     pub revision: u64,
     pub spend: Spend,
+    /// The confirming judge's verdict on this judge's negative, when the run
+    /// has a confirming model: `positive` overturned it.
+    pub confirmation: Option<JudgeVerdict>,
 }
 
 /// One `rule_check`, with judged rules or not.
@@ -594,6 +597,7 @@ impl Stats {
                 duration_ms,
                 revision,
                 spend,
+                confirmation,
                 ..
             } => {
                 let number = self.check_number(*check);
@@ -629,6 +633,7 @@ impl Stats {
                     duration_ms: *duration_ms,
                     revision: *revision,
                     spend: *spend,
+                    confirmation: *confirmation,
                 });
             }
             TraceEvent::RuleCheckFinished {
@@ -1136,6 +1141,7 @@ mod tests {
             duration_ms: 10_000,
             revision: 7,
             spend: Spend { input_tokens: 1_000, cost_usd: Some(cost), ..Spend::default() },
+            confirmation: None,
         }
     }
 

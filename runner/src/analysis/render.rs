@@ -258,6 +258,7 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
             wrapped_up,
             duration_ms,
             spend,
+            confirmation,
             ..
         } => {
             let number = stats.check_number(*check);
@@ -268,13 +269,18 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
                 format!("; tools: {}", calls.join(", "))
             };
             let wrapped = if *wrapped_up { " (held to its verdict on its last turn)" } else { "" };
+            let confirmed = match confirmation {
+                Some(pipeline::trace::JudgeVerdict::Positive) => ", a negative the confirming judge overturned",
+                Some(pipeline::trace::JudgeVerdict::Negative) => ", a negative the confirming judge confirmed",
+                _ => "",
+            };
             let outcome = match (verdict, unchecked_reason) {
                 (pipeline::trace::JudgeVerdict::Negative, _) => format!("negative ({violations} violation(s))"),
                 (_, Some(reason)) => format!("unchecked: {}", excerpt(&format::one_line(reason), 200)),
                 (v, None) => v.label().to_string(),
             };
             format!(
-                "- {at} judge `{rule_name}` (rule_check {number}) → {outcome}{wrapped}; {turns} turn(s), {}, {}{tools}\n",
+                "- {at} judge `{rule_name}` (rule_check {number}) → {outcome}{confirmed}{wrapped}; {turns} turn(s), {}, {}{tools}\n",
                 duration(*duration_ms),
                 usd(spend.cost_usd),
             )

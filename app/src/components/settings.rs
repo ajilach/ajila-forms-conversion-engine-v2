@@ -146,7 +146,7 @@ pub fn SettingsPage(
                             h3 { class: "settings-section-title", "Provider" }
                             SelectRow {
                                 label: "API",
-                                desc: "Which API the conversion agent talks to. The OpenAI-compatible option reaches any chat-completions endpoint (OpenRouter, a local gateway); it sends no prompt cache breakpoints, so a long run costs more input tokens there.",
+                                desc: "Which API the conversion agent talks to. The OpenAI-compatible option reaches any chat-completions endpoint (OpenRouter, a local gateway). Through OpenRouter, Claude models get cache breakpoints on the system prompt and the conversation, and the other vendors cache on their own; another gateway gets none, so a long run costs more input tokens there.",
                                 value: s.llm_provider.as_str().to_string(),
                                 options: Provider::ALL.iter().map(|p| p.as_str().to_string()).collect(),
                                 labels: Provider::ALL.iter().map(|p| p.label().to_string()).collect(),
@@ -251,6 +251,16 @@ pub fn SettingsPage(
                                         update.call(Box::new(move |s| s.judge_model = v.trim().to_string()))
                                     },
                                 }
+                                TextRow {
+                                    label: "Confirming judge model",
+                                    desc: "Model id that judges every negative verdict again before it stands, e.g. a strong model behind a cheap judge model. Empty = no second look.",
+                                    value: s.judge_confirm_model.clone(),
+                                    placeholder: "",
+                                    secret: false,
+                                    on_change: move |v: String| {
+                                        update.call(Box::new(move |s| s.judge_confirm_model = v.trim().to_string()))
+                                    },
+                                }
                             } else {
                                 SelectRow {
                                     label: "Reviewer model",
@@ -267,6 +277,14 @@ pub fn SettingsPage(
                                     options: role_options(&model_list(), "Same as the run's model").0,
                                     labels: role_options(&model_list(), "Same as the run's model").1,
                                     on_change: move |v: String| update.call(Box::new(move |s| s.judge_model = v)),
+                                }
+                                SelectRow {
+                                    label: "Confirming judge model",
+                                    desc: "A model that judges every negative verdict again before it stands. With a cheap judge model above, the cheap judges decide every rule and this one only the few they find broken, so a false alarm costs one strong judge instead of an Author fix round.",
+                                    value: s.judge_confirm_model.clone(),
+                                    options: role_options(&model_list(), "No second look").0,
+                                    labels: role_options(&model_list(), "No second look").1,
+                                    on_change: move |v: String| update.call(Box::new(move |s| s.judge_confirm_model = v)),
                                 }
                             }
                         }

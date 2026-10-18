@@ -76,6 +76,12 @@ pub struct AppSettings {
     /// the run's model.
     #[serde(default)]
     pub judge_model: String,
+    /// The model a judge's negative verdict is judged again on before it
+    /// stands, at the selected provider. Empty = no second look. Pairs with a
+    /// cheap [`Self::judge_model`]: the cheap judges decide every rule, this
+    /// one only the few they find broken.
+    #[serde(default)]
+    pub judge_confirm_model: String,
     /// Maximum Reviewer → Author-fix rounds in the conversion pipeline before
     /// finalizing with whatever is built. Missing/0 is normalized to
     /// [`DEFAULT_MAX_REVIEW_ROUNDS`] in [`AppSettings::load`].
@@ -137,6 +143,7 @@ impl Default for AppSettings {
             openai_model: String::new(),
             reviewer_model: String::new(),
             judge_model: String::new(),
+            judge_confirm_model: String::new(),
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
             max_spend_usd: DEFAULT_MAX_SPEND_USD,
             max_run_tokens: DEFAULT_MAX_RUN_TOKENS,
