@@ -151,12 +151,12 @@ pub struct VerdictRecord {
 }
 
 impl VerdictRecord {
-    /// "approved", "changes requested", "no verdict".
+    /// "accepted", "sent back", "no decision".
     pub fn describe(&self) -> &'static str {
         match self.approved {
-            Some(true) => "approved",
-            Some(false) => "changes requested",
-            None => "no verdict",
+            Some(true) => "accepted",
+            Some(false) => "sent back",
+            None => "no decision",
         }
     }
 }
@@ -166,8 +166,8 @@ impl VerdictRecord {
 pub struct JudgeRecord {
     pub seq: u64,
     pub at_ms: u64,
-    /// The stage whose `rule_check` dispatched the judge (0: the final rule
-    /// check, which runs after the last stage).
+    /// The stage whose `rule_check` dispatched the judge (0: the controller's
+    /// rule checks, which run after each Author stage).
     pub stage_index: usize,
     pub stage: String,
     /// The run's number for the check (1-based), as the report's
@@ -197,8 +197,6 @@ pub struct RuleCheckRecord {
     pub at_ms: u64,
     pub stage_index: usize,
     pub stage: String,
-    /// A check of chosen `rule_ids` rather than of every rule.
-    pub partial: bool,
     pub scripted: usize,
     pub judged: usize,
     pub revision: u64,
@@ -364,7 +362,7 @@ impl Stats {
         }
         self.final_check.get_or_insert_with(|| StageStats {
             name: pipeline::run::RULE_CHECKS.into(),
-            doing: "checking every rule before each review and at the end".into(),
+            doing: "checking every rule after each Author stage".into(),
             ..StageStats::default()
         })
     }
@@ -556,7 +554,6 @@ impl Stats {
             }
             TraceEvent::RuleCheckStarted {
                 check,
-                partial,
                 scripted,
                 judged,
                 revision,
@@ -573,7 +570,6 @@ impl Stats {
                     at_ms,
                     stage_index,
                     stage,
-                    partial: *partial,
                     scripted: *scripted,
                     judged: *judged,
                     revision: *revision,
@@ -1111,14 +1107,13 @@ mod tests {
         stats.record(0, 0, &stage("Reviewer"));
         verdict(&mut stats, 1, None);
         assert_eq!(stats.approved(), None);
-        assert_eq!(stats.verdicts[0].describe(), "no verdict");
+        assert_eq!(stats.verdicts[0].describe(), "no decision");
     }
 
     fn check_started(check: u64, judged: usize) -> TraceEvent {
         TraceEvent::RuleCheckStarted {
             stage: "Judge".into(),
             check,
-            partial: false,
             scripted: 3,
             judged,
             revision: 7,

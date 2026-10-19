@@ -1,10 +1,11 @@
 //! What a stage has verified, for the gate on its terminal call.
 //!
-//! The Author's `finish_authoring` and the Reviewer's approving `submit_review`
-//! are refused until the stage itself has done the review procedure the
-//! prompts describe: used the current build on its verifier, read the PDF
-//! that produced, looked at the source pages, and (AEM) driven every source
-//! control the form's scripts read. A rejecting review is never gated.
+//! The Author's `finish_authoring` is refused until the stage itself has done
+//! the review procedure its prompt describes: used the current build on its
+//! verifier, read the PDF that produced, looked at the source pages, and (AEM)
+//! driven every source control the form's scripts read. The Reviewer's
+//! `submit_review` is not gated here: it decides on the rule report, and only
+//! the rules gate it.
 //!
 //! The evidence is recorded from the tool calls and replies, and owned by the
 //! [`ConversionAgent`](super::ConversionAgent): it is cleared when a stage

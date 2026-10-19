@@ -5,10 +5,10 @@
 //! holds:
 //!
 //! - **scripted**: `rule.toml` and `check.js` (optionally `fix.js`). Its script
-//!   decides it; it runs on every edit and in `rule_check`.
-//! - **judged**: `rule.toml` alone. No script can decide it, so `rule_check`
-//!   hands its description to a judge agent (the pipeline's, see
-//!   `pipeline::judge`); without one it is reported unchecked.
+//!   decides it; it runs on every edit and in the pipeline's rule check.
+//! - **judged**: `rule.toml` alone. No script can decide it, so the pipeline's
+//!   rule check hands its description to a judge agent (see `pipeline::judge`);
+//!   without one it is reported unchecked.
 //!
 //! They live here rather than in the vendored UBS layer, which keeps the
 //! templates, the writer and the normalize passes: `specs/feedback/rule-coverage.md`
@@ -156,8 +156,8 @@ pub enum SourceNeed {
 /// description.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct JudgedRule {
-    /// The id `rule_list` and `rule_check` use, from the same scheme as a
-    /// scripted rule's (`derive_rule_id` over the `rule.toml` id).
+    /// The id `rule_list` and the rule check's report use, from the same
+    /// scheme as a scripted rule's (`derive_rule_id` over the `rule.toml` id).
     pub id: String,
     /// The `rule.toml` id, e.g. `ubs-aem-option-dependent-fields`.
     pub name: String,

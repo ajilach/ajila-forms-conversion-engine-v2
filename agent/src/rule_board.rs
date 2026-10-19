@@ -2,10 +2,10 @@
 //! run: the latest verdict each rule got, and the revision it got it on.
 //!
 //! The board only records what the existing checks found (the lint after
-//! every edit, `rule_check`'s scripts and judges); it never checks anything
+//! every edit, the rule check's scripts and judges); it never checks anything
 //! itself. A scripted rule is re-checked on every edit, so its verdict is
-//! always current once it has one; a judged rule is only checked when a
-//! `rule_check` dispatches its judge, so its verdict goes out of date with the
+//! always current once it has one; a judged rule is only checked when a rule
+//! check dispatches its judge, so its verdict goes out of date with the
 //! next edit, and [`RuleBoard::snapshot`] says so.
 
 use serde::{Deserialize, Serialize};

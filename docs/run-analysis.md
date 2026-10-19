@@ -2,8 +2,8 @@
 
 When switched on, every AI conversion — from the desktop app or from
 `blueprint convert` — is recorded into a folder of its own: where the run spent its time, what every
-agent was told and did, which calls it repeated, which errors recurred and what
-the Reviewer found. The files are plain Markdown and JSON Lines, written for a
+agent was told and did, which calls it repeated, which errors recurred, which
+rules broke and what the Reviewer decided on them. The files are plain Markdown and JSON Lines, written for a
 person to read and for an AI assistant to be handed as they are.
 
 The point is to answer, after the fact, the questions a long run raises:
@@ -40,7 +40,7 @@ folders by hand when they are no longer needed.
 | File | What it is |
 |---|---|
 | `README.md` | What each file is, how to read `trace.jsonl`, and questions to ask an AI assistant about the run. |
-| `report.md` | The analysis: time split between the model, the tools, failed requests, context shaping and everything else; a table per stage and per tool; failed requests; the slowest model turns and tool calls; repeated identical calls and long streaks of one tool; recurring errors; the largest tool results; edit activity per stage; every review verdict with its report; every control event (nudges, retries, stuck-watch stops, exhausted budgets). Rewritten after every stage and every review verdict, so an unfinished run has one too. |
+| `report.md` | The analysis: time split between the model, the tools, failed requests, context shaping and everything else; a table per stage and per tool; failed requests; the slowest model turns and tool calls; repeated identical calls and long streaks of one tool; recurring errors; the largest tool results; edit activity per stage; every Reviewer decision with its report; every control event (nudges, retries, stuck-watch stops, exhausted budgets). Rewritten after every stage and every review verdict, so an unfinished run has one too. |
 | `timeline.md` | Every model turn and tool call in order, with the time since the start, duration, tokens, cost and short excerpts. |
 | `transcript/NN-<Stage>.md` | One file per stage, split into parts of about 1.5 MB: the system prompt, every model message and reasoning, every tool call's arguments and result in full (a single block is cut at 30,000 characters, with a pointer to the complete text in the trace). |
 | `trace.jsonl` | Everything, one JSON object per line: nothing is truncated except images, which are replaced by a placeholder with their size. |
@@ -64,7 +64,7 @@ milliseconds against model turns that take seconds to minutes.
 `scripts/analyze_runs.py` reads the `summary.json` of any number of runs and
 writes one overview: time per stage kind across forms, tool cost across forms,
 errors that recur across forms, repeated calls that learned nothing, control
-events, and every change the Reviewer asked for.
+events, and every form the Reviewer sent back, with what it asked for.
 
 ```sh
 python3 scripts/analyze_runs.py run-analysis --out runs-overview.md

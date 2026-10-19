@@ -278,15 +278,14 @@ pub enum TraceEvent {
         kind: ControlKind,
         detail: String,
     },
-    /// A `rule_check` ran its scripts and is about to hand its judged rules
-    /// to judges. `stage` is the judges' stage name; the stage that called
-    /// `rule_check` is the one the recorder files the line under. `check`
-    /// numbers the checks of the process, so a judge's line finds its check;
-    /// `partial` is a check of chosen `rule_ids` rather than of every rule.
+    /// A rule check ran its scripts and is about to hand its judged rules to
+    /// judges. `stage` is the judges' stage name; the rule check stage the
+    /// controller runs after every Author stage is the one the recorder files
+    /// the line under. `check` numbers the checks of the process, so a
+    /// judge's line finds its check.
     RuleCheckStarted {
         stage: String,
         check: u64,
-        partial: bool,
         scripted: usize,
         judged: usize,
         /// The document revision the check runs on.

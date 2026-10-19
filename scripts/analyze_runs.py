@@ -6,7 +6,7 @@ Every AI conversion the engine runs is recorded into a run-analysis folder
 holding its figures as data. This script reads the `summary.json` of many runs
 and writes one overview in Markdown: where the time goes across forms, which
 tools cost the most, which errors recur across forms, which calls the agents
-repeat for nothing, and what the Reviewer keeps finding.
+repeat for nothing, and which broken rules the Reviewer keeps sending back.
 
 That overview is the input for questions no single run can answer — which
 fixes would pay off across the remaining forms, which work a deterministic

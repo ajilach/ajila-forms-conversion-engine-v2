@@ -20,8 +20,8 @@ Decodes PDFs and extracts structured data for automated forms conversion.
 |---|---|
 | `cli` | Command-line interface: the `convert` subcommand runs the AI conversion the app runs headless; `sessions` lists resumable conversions; `verify` checks setup. |
 | `app` | Dioxus desktop application: drag-and-drop upload driving the autonomous conversion agent. |
-| `agent` | Headless conversion-agent engine — the tool catalog/executor, edit-history store, reference store, and adapter over vendored u2s tools. No UI or LLM dependency, shared by the app and the pipeline. |
-| `pipeline` | The conversion controller: the Author → Reviewer stage sequencing, retry recovery and abort handling. Depends on neither a UI framework nor an LLM provider — the consumer supplies a `TurnProvider` and a `RunObserver`. |
+| `agent` | Headless conversion-agent engine — the tool catalog/executor, edit-history store, reference store (for the app's References page), and adapter over vendored u2s tools. No UI or LLM dependency, shared by the app and the pipeline. |
+| `pipeline` | The conversion controller: the Author → rule check → Reviewer sequencing, the rule check's judges, retry recovery and abort handling. Depends on neither a UI framework nor an LLM provider — the consumer supplies the models and a `RunObserver`. |
 | `runner` | The host side of a run, shared by the app and the CLI: the two LLM transports (the Anthropic Messages API with prompt caching, and any OpenAI-compatible endpoint), history eviction, the operator settings, and the entry points that build the agent, open an edit-history session and record the result. |
 
 ## Prerequisites
@@ -57,9 +57,9 @@ The CLI binary is defined in the `cli` crate. It has three subcommands: `convert
 
 ### AI conversion from the console
 
-`blueprint convert` runs the same autonomous conversion the desktop app runs (Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts are written to `--out` instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
+`blueprint convert` runs the same autonomous conversion the desktop app runs (Author → rule check → Reviewer → fix rounds). Progress prints as it happens, and artefacts are written to `--out` instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
-The Author and the Reviewer read the rules (`rule_list`, `rule_get`) but do not check them. The pipeline checks every rule, judged ones included, once per hand-over: before each review, with the result pinned in the Reviewer's prompt, and once more after the review. Only the Reviewer can approve with a rule broken, by waiving it with a reason; the waivers go into the result's warnings.
+Three roles, one job each. The **Author** builds the form and verifies it on the verifier; it sees the scripted rules' verdicts on every edit and can apply their autofixes, but never runs a judge. The **rule check** follows every Author round: the pipeline checks every rule, starting one judge per judged rule at once. When every rule passes, the run finalizes. Otherwise the **Reviewer** decides on the broken rules, reading the source, the document and the built form but checking no rule itself: it sends the form back to the Author with what to fix, or accepts it by waiving each rule that cannot be kept on this form, with a reason that goes into the result's warnings. The Reviewer keeps its conversation across rounds (and later runs of the session), so a rule that flips back and forth shows as the conflict it is. `--max-review-rounds` caps how often it sends the form back; after the last Author round it can only accept or leave the rules broken.
 
 Every run is held to a spending limit (USD 100) and a token limit (20,000,000 tokens of fresh input, cache writes and output; cache reads do not count). A run that passes either stops with no result and says which limit it reached; in a batch, the other forms carry on. Both limits are app settings, can be overridden with `--max-spend` and `--max-tokens`, and `0` removes a limit. A model the price table does not know is held to the token limit only.
 
@@ -110,15 +110,15 @@ while the first one's conversions run.
 
 ### Verification setup
 
-Every conversion requires verification: the Author and Reviewer drive the built form
-with verification tools, not with a browser.
+Every conversion requires verification: the Author drives the built form with
+verification tools, not with a browser, and the Reviewer can too, to confirm a decision.
 Verification uses the vendored u2s verifier linked into the binaries (source in
 `vendor/crates/`, see `u2s/VENDORED.md`). Every run checks whether verification is set up before it
 starts and refuses to run if it is not.
 
 The verifier boots its own AEM Forms instance plus a headless
 Chromium, both in Docker, installs the built package there, and lets the Author and
-Reviewer drive the form with the `aem_verify_*` tools (open, interact with controls,
+the Reviewer drive the form with the `aem_verify_*` tools (open, interact with controls,
 set values, advance pages, submit, close, screenshot). The PDF a submission produces
 is read with the `pdf_*` tools. The source form is read with the `xfa_*` tools.
 

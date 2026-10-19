@@ -1,8 +1,8 @@
-//! How a stage runs the sub-stages it dispatches: the judges of its
-//! `rule_check` ([`crate::judge`]). A sub-stage is a stage of its own on the
-//! run's model and the run's one agent. It is one-shot (no stored conversation), it never
-//! prompts the operator (one that fails gives up, and the dispatching tool
-//! says so), and its spend is folded into the stage that dispatched it.
+//! How the pipeline's rule check runs its sub-stages, the judges
+//! ([`crate::judge`]). A sub-stage is a stage of its own on the judges' model
+//! and the run's one agent. It is one-shot (no stored conversation), it never
+//! prompts the operator (one that fails gives up, and the rule check says
+//! so), and its spend is folded into the run's total by the rule check.
 
 use std::sync::{Arc, Mutex};
 
@@ -29,7 +29,7 @@ pub struct StageModel {
     pub context_budget: Arc<dyn ContextBudget>,
 }
 
-/// What a sub-stage needs from the stage that dispatches it.
+/// What a sub-stage needs from the rule check that dispatches it.
 #[derive(Clone)]
 pub(crate) struct SubStageContext {
     pub(crate) model: ModelHandle,
@@ -38,13 +38,9 @@ pub(crate) struct SubStageContext {
     pub(crate) context_budget: Arc<dyn ContextBudget>,
     pub(crate) abort: AbortFlag,
     pub(crate) obs: SharedObserver,
-    /// What the sub-stages spent, which the dispatching stage folds into the
-    /// run's total when it ends. Shared because sub-stages run concurrently.
+    /// What the sub-stages spent, which the rule check folds into the run's
+    /// total when it ends. Shared because sub-stages run concurrently.
     pub(crate) spend: Arc<Mutex<Spend>>,
-    /// The dispatching stage judges at its hand-over (see
-    /// `crate::roles::Role::judges_at_hand_off`): its `rule_check` without
-    /// `rule_ids` sends no judge.
-    pub(crate) defer_judged: bool,
     /// The model a negative verdict is judged again on before it stands, when
     /// the run names one (see [`crate::RunConfig::judge_confirm_model`]).
     pub(crate) confirm: Option<StageModel>,
@@ -61,7 +57,7 @@ impl SubStageContext {
         obs: SharedObserver,
     ) -> Self {
         let spend = Arc::new(Mutex::new(Spend::default()));
-        Self { model, price, max_tokens, context_budget, abort, obs, spend, defer_judged: false, confirm: None }
+        Self { model, price, max_tokens, context_budget, abort, obs, spend, confirm: None }
     }
 
     /// This context with its judges' negatives judged again on `confirm`.
@@ -82,10 +78,10 @@ impl SubStageContext {
         }
     }
 
-    /// A context whose sub-stages run on `judge` rather than the stage's own
-    /// model when the run gives judges a model of their own.
+    /// A context whose sub-stages run on `judge` when the run gives judges a
+    /// model of their own, and on the run's `model` otherwise.
     #[allow(clippy::too_many_arguments)]
-    pub(crate) fn for_stage(
+    pub(crate) fn for_run(
         model: ModelHandle,
         price: PriceFn,
         max_tokens: u32,
@@ -185,10 +181,6 @@ pub(crate) async fn run_sub_stage(
         &obs,
         &mut spend,
         caller,
-        // A judge dispatches no judges of its own.
-        None,
-        None,
-        false,
     )
     .await;
     ctx.spend.lock().unwrap_or_else(|p| p.into_inner()).merge(&spend);
@@ -201,11 +193,11 @@ pub(crate) async fn run_sub_stage(
 /// What a sub-stage reports to the run's observer: its tool timeline and its
 /// warnings and thoughts, labelled with what it was handed. Not its stage
 /// header, its spend (cumulative per stage, so it would read as the run's
-/// total; the dispatching stage folds it in instead) or its context fill, and
-/// never a retry prompt: a sub-stage that fails permanently gives up. Nor its
-/// trace: several run at once inside the dispatching stage's tool call, so
-/// their stages would interleave with it; the dispatcher traces each one as a
-/// whole instead (see `crate::judge`), from the turns kept here.
+/// total; the rule check folds it in instead) or its context fill, and never a
+/// retry prompt: a sub-stage that fails permanently gives up. Nor its trace:
+/// several run at once, so their stages would interleave; the rule check
+/// traces each one as a whole instead (see `crate::judge`), from the turns
+/// kept here.
 struct SubStageObserver {
     inner: SharedObserver,
     label: String,
@@ -272,7 +264,7 @@ pub(crate) mod test_support {
 
     /// An agent without sources, holding `rules` as its judged ones.
     pub(crate) fn agent_with_judged(rules: Vec<agent::rules::JudgedRule>) -> SharedAgent {
-        let mut agent = agent::ConversionAgent::new(None, Vec::new(), String::new())
+        let mut agent = agent::ConversionAgent::new(Vec::new(), String::new())
             .expect("an agent without sources starts");
         agent.set_judged_rules(rules);
         Arc::new(tokio::sync::Mutex::new(agent))
@@ -298,7 +290,6 @@ pub(crate) mod test_support {
             abort,
             obs: SharedObserver::new(crate::observer::NullObserver),
             spend: Arc::default(),
-            defer_judged: false,
             confirm: None,
         }
     }

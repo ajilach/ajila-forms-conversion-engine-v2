@@ -6,9 +6,9 @@
 //!
 //! Building the agent, opening the edit-history session and driving the
 //! controller live in [`runner::run`] — shared with the CLI, so both start a run
-//! the same way. The stage sequencing itself — Author → (Reviewer →
-//! Author-fix)* — lives in `pipeline::run`, where it can be tested without a
-//! desktop runtime.
+//! the same way. The stage sequencing itself — Author → rule check →
+//! (Reviewer → Author fix → rule check)* — lives in `pipeline::run`, where it
+//! can be tested without a desktop runtime.
 //!
 //! The run and the UI never share a lock. The run, on a worker thread, sends
 //! [`UiUpdate`]s down an unbounded channel and carries on; [`show_progress`], on
@@ -359,14 +359,12 @@ fn apply_completed(state: &mut ProcessingState, completed: Result<runner::Comple
 /// wrapper only supplies the transport and swallows progress, since the
 /// references page reports status itself.
 pub async fn describe_reference(
-    profile: &str,
     pdfs: Vec<(String, Vec<u8>)>,
     package_zip: Vec<u8>,
     endpoint: LlmEndpoint,
 ) -> Result<String, String> {
     let resolved = TurnPlan::for_endpoint(endpoint).resolve()?;
     pipeline::describe::describe_reference(
-        profile,
         pdfs,
         package_zip,
         &AbortFlag::default(),
@@ -637,11 +635,11 @@ mod tests {
         );
     }
 
-    /// A finished run shows its final rule check, and no agent at work.
+    /// A finished run shows its last rule check, and no agent at work.
     #[test]
     fn a_finished_run_shows_its_final_rules_and_no_working_agent() {
         let mut state = run_in_flight();
-        state.stage = Some(StageInfo { role: "Final check".into(), doing: "checking every rule".into() });
+        state.stage = Some(StageInfo { role: pipeline::run::RULE_CHECK.into(), doing: "checking every rule".into() });
         state.judging.insert("r".into());
         let rules = vec![agent::RuleView {
             rule_id: "r".into(),

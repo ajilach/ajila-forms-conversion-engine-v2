@@ -95,8 +95,7 @@ pub struct RunArgs {
     reviewer_model: Option<String>,
 
     /// The judges' own model id at the selected provider (the agents that
-    /// check the judged rules, one per rule, before each review and at the
-    /// end). Defaults to the one configured in the desktop app; an empty value
+    /// check the judged rules, one per rule, after each Author round). Defaults to the one configured in the desktop app; an empty value
     /// means the run's model.
     #[arg(long, value_name = "ID")]
     judge_model: Option<String>,
@@ -108,7 +107,8 @@ pub struct RunArgs {
     #[arg(long, value_name = "ID")]
     judge_confirm_model: Option<String>,
 
-    /// Reviewer → Author-fix rounds to allow before finalizing.
+    /// How many times the Reviewer may send the form back to the Author
+    /// before finalizing.
     #[arg(long, value_name = "N")]
     max_review_rounds: Option<usize>,
 
