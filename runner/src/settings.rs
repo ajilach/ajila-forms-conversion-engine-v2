@@ -10,7 +10,14 @@ use crate::provider::{DEFAULT_OPENAI_BASE_URL, LlmEndpoint, Provider};
 /// Key under which the serialized settings are stored.
 const SETTINGS_KEY: &str = "app";
 
-/// Default cap on Reviewer → Author-fix rounds in the conversion pipeline.
+/// Which revision of the role model defaults ([`crate::models::DEFAULT_ROLE_MODELS`])
+/// the stored settings have had applied. Settings saved under an older one
+/// get the current defaults once, over what they held (see
+/// [`AppSettings::load`]); bump it to roll new defaults out to existing
+/// installs.
+const MODEL_DEFAULTS_REVISION: u32 = 1;
+
+/// Default cap on how often the Reviewer may send the form back to the Author.
 pub const DEFAULT_MAX_REVIEW_ROUNDS: usize = 3;
 
 /// Default limit on what one run may spend, in USD.
@@ -50,7 +57,8 @@ pub struct AppSettings {
     pub llm_provider: Provider,
     /// Anthropic API key used for AI features. Stored in the settings file on disk.
     pub anthropic_api_key: String,
-    /// Anthropic model used for AI features (e.g. "claude-opus-4-8").
+    /// Anthropic model used for AI features, the Author's (e.g.
+    /// "claude-sonnet-5-5").
     pub anthropic_model: String,
     /// API root of the OpenAI-compatible endpoint, without a trailing
     /// `/chat/completions`. Blank is normalized to [`DEFAULT_OPENAI_BASE_URL`]
@@ -82,6 +90,11 @@ pub struct AppSettings {
     /// one only the few they find broken.
     #[serde(default)]
     pub judge_confirm_model: String,
+    /// The revision of the role model defaults these settings have had
+    /// applied (see [`MODEL_DEFAULTS_REVISION`]). Missing in settings saved
+    /// before it existed, which reads as 0: none.
+    #[serde(default)]
+    pub model_defaults_revision: u32,
     /// Maximum Reviewer → Author-fix rounds in the conversion pipeline before
     /// finalizing with whatever is built. Missing/0 is normalized to
     /// [`DEFAULT_MAX_REVIEW_ROUNDS`] in [`AppSettings::load`].
@@ -141,9 +154,10 @@ impl Default for AppSettings {
             openai_base_url: DEFAULT_OPENAI_BASE_URL.to_string(),
             openai_api_key: String::new(),
             openai_model: String::new(),
-            reviewer_model: String::new(),
-            judge_model: String::new(),
+            reviewer_model: crate::models::DEFAULT_ROLE_MODELS.reviewer.to_string(),
+            judge_model: crate::models::DEFAULT_ROLE_MODELS.judge.to_string(),
             judge_confirm_model: String::new(),
+            model_defaults_revision: MODEL_DEFAULTS_REVISION,
             max_review_rounds: DEFAULT_MAX_REVIEW_ROUNDS,
             max_spend_usd: DEFAULT_MAX_SPEND_USD,
             max_run_tokens: DEFAULT_MAX_RUN_TOKENS,
@@ -237,12 +251,44 @@ impl AppSettings {
         }
     }
 
+    /// Puts the role model defaults ([`crate::models::DEFAULT_ROLE_MODELS`])
+    /// in place of the Author's, the Reviewer's and the judges' models, in
+    /// the selected provider's spelling: the Anthropic API's ids, or
+    /// OpenRouter's for an OpenAI-compatible endpoint. The other provider's
+    /// main model and the confirming judge are left as they are. Returns
+    /// whether it changed anything, which is the case for settings of an
+    /// older [`MODEL_DEFAULTS_REVISION`] only.
+    fn apply_model_defaults(&mut self) -> bool {
+        if self.model_defaults_revision >= MODEL_DEFAULTS_REVISION {
+            return false;
+        }
+        let defaults = crate::models::DEFAULT_ROLE_MODELS;
+        let spelled = |id: &str| match self.llm_provider {
+            Provider::Anthropic => id.to_string(),
+            Provider::OpenAi => crate::models::openrouter_id(id),
+        };
+        let (author, reviewer, judge) = (spelled(defaults.author), spelled(defaults.reviewer), spelled(defaults.judge));
+        match self.llm_provider {
+            Provider::Anthropic => self.anthropic_model = author,
+            Provider::OpenAi => self.openai_model = author,
+        }
+        self.reviewer_model = reviewer;
+        self.judge_model = judge;
+        self.model_defaults_revision = MODEL_DEFAULTS_REVISION;
+        true
+    }
+
     /// Load settings from the database, falling back to defaults on any error.
+    /// Settings saved under an older revision of the role model defaults get
+    /// the current ones, and are saved with them, once.
     pub fn load() -> Self {
         if let Some(json) = agent::db::get_setting(SETTINGS_KEY)
             && let Ok(mut settings) = serde_json::from_str::<AppSettings>(&json)
         {
             settings.normalize();
+            if settings.apply_model_defaults() {
+                settings.save();
+            }
             return settings;
         }
 
@@ -270,6 +316,46 @@ mod tests {
             openai_model: "anthropic/claude-opus-4.1".to_string(),
             ..AppSettings::default()
         }
+    }
+
+    /// Settings saved before the role model defaults get them once, over
+    /// what they held, in the selected provider's spelling; settings that
+    /// have had them keep whatever the operator picked since.
+    #[test]
+    fn the_role_model_defaults_overwrite_older_settings_once() {
+        let mut old: AppSettings = serde_json::from_str(
+            r#"{"anthropic_model": "claude-opus-5-5", "reviewer_model": "claude-sonnet-5", "judge_model": "",
+                "judge_confirm_model": "claude-opus-5-5", "openai_model": "openai/gpt-6.1-sol"}"#,
+        )
+        .unwrap();
+        assert_eq!(old.model_defaults_revision, 0);
+        assert!(old.apply_model_defaults());
+        assert_eq!(
+            (old.anthropic_model.as_str(), old.reviewer_model.as_str(), old.judge_model.as_str()),
+            ("claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5")
+        );
+        assert_eq!(old.judge_confirm_model, "claude-opus-5-5", "the confirming judge is not a default");
+        assert_eq!(old.openai_model, "openai/gpt-6.1-sol", "the other provider's model stays");
+
+        old.reviewer_model = "claude-fable-5-1".into();
+        assert!(!old.apply_model_defaults(), "applied once");
+        assert_eq!(old.reviewer_model, "claude-fable-5-1");
+
+        let mut routed: AppSettings =
+            serde_json::from_str(r#"{"llm_provider": "open_ai", "anthropic_model": "claude-opus-5"}"#).unwrap();
+        assert!(routed.apply_model_defaults());
+        assert_eq!(
+            (routed.openai_model.as_str(), routed.reviewer_model.as_str(), routed.judge_model.as_str()),
+            ("anthropic/claude-sonnet-5.5", "anthropic/claude-opus-5.5", "anthropic/claude-haiku-5.5")
+        );
+        assert_eq!(routed.anthropic_model, "claude-opus-5");
+
+        let fresh = AppSettings::default();
+        assert_eq!(
+            (fresh.anthropic_model.as_str(), fresh.reviewer_model.as_str(), fresh.judge_model.as_str()),
+            ("claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5")
+        );
+        assert!(!fresh.clone().apply_model_defaults(), "fresh settings already have them");
     }
 
     /// Settings saved before the limits existed get the defaults; a 0 is kept

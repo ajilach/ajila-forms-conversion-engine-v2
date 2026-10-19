@@ -63,6 +63,8 @@ Three roles, one job each. The **Author** builds the form and verifies it on the
 
 Every run is held to a spending limit (USD 100) and a token limit (20,000,000 tokens of fresh input, cache writes and output; cache reads do not count). A run that passes either stops with no result and says which limit it reached; in a batch, the other forms carry on. Both limits are app settings, can be overridden with `--max-spend` and `--max-tokens`, and `0` removes a limit. A model the price table does not know is held to the token limit only.
 
+Each role has its own model: by default the Author runs on `claude-sonnet-5-5`, the Reviewer on `claude-opus-5-5` and the judges on `claude-haiku-5-5` (the OpenRouter spellings through an OpenAI-compatible endpoint). They are set in the app under AI Model → Models per role, or per invocation with `--model`, `--reviewer-model` and `--judge-model`.
+
 The API key, model, review-round cap, spending limits, extra instructions and AEM credentials default to the app's settings; every one can be overridden per invocation.
 
 ```sh

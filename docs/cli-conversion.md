@@ -60,13 +60,20 @@ If all three are empty the run stops before spending anything, naming the
 environment variable it looked for.
 
 The model resolves the same way minus the environment step: `--model`, else the
-app's setting, else the built-in default `claude-opus-5`.
+app's setting, else the built-in default `claude-sonnet-5-5`.
 
 The Author runs on that model. The Reviewer and the judges (one agent per judged rule in every
-rule check) run on it too unless they have one of their own: `--reviewer-model` and
-`--judge-model`, else the app's settings (AI Model → Models per role). An empty value, or the
-main model again, means no model of their own. The model banner names the roles that have their
-own, e.g. `… · model: claude-opus-5-5 · judges: claude-haiku-5-5`, and so does the run analysis.
+rule check) have models of their own: `--reviewer-model` and `--judge-model`, else the app's
+settings (AI Model → Models per role). An empty value, or the main model again, means they run on
+the Author's. The model banner names the roles that have their own, e.g.
+`… · model: claude-sonnet-5-5 · Reviewer: claude-opus-5-5 · judges: claude-haiku-5-5`, and so
+does the run analysis.
+
+The defaults are `claude-sonnet-5-5` for the Author, `claude-opus-5-5` for the Reviewer (its
+waivers ship rules broken, so it gets the strongest model) and `claude-haiku-5-5` for the judges
+(the most calls of a run). Through OpenRouter they are spelled `anthropic/claude-sonnet-5.5` and so
+on. Settings saved before these defaults existed were switched to them once; a model picked after
+that is kept.
 
 When the judges run, and on what:
 
@@ -278,9 +285,9 @@ nothing.
 | `--provider <anthropic\|openai>` | the app's setting | `openai` means any OpenAI-compatible endpoint |
 | `--base-url <URL>` | `https://openrouter.ai/api/v1` | Implies `--provider openai` |
 | `--api-key <KEY>` | `$ANTHROPIC_API_KEY` / `$OPENAI_API_KEY`, then the app | |
-| `--model <ID>` | the app's setting, then `claude-opus-5` | The Author's, and the other roles' unless they have their own |
-| `--reviewer-model <ID>` | the app's setting, else `--model` | Same provider and key as `--model` |
-| `--judge-model <ID>` | the app's setting, else `--model` | Same provider and key as `--model` |
+| `--model <ID>` | the app's setting, then `claude-sonnet-5-5` | The Author's, and the other roles' when theirs is empty |
+| `--reviewer-model <ID>` | the app's setting (`claude-opus-5-5`), empty = `--model` | Same provider and key as `--model` |
+| `--judge-model <ID>` | the app's setting (`claude-haiku-5-5`), empty = `--model` | Same provider and key as `--model` |
 | `--judge-confirm-model <ID>` | the app's setting, else none | Judges every negative verdict again; its verdict stands. Pair with a cheap `--judge-model` |
 | `--max-review-rounds <N>` | 3 | How often the Reviewer may send the form back to the Author before finalizing |
 | `--instructions <TEXT>` | the app's setting | Appended to every role's system prompt |
