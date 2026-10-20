@@ -637,6 +637,7 @@ fn passthrough_snapshot_back_compat_deserializes() {
         dor_colspan: None,
         bind_ref: None,
         kind: u2s_aem_ubs_mcp::aem::TextFieldKind::Plain,
+        input: Default::default(),
     };
     let mut value = serde_json::to_value(&node).unwrap();
     fn drop_passthrough(v: &mut serde_json::Value) {
@@ -700,6 +701,7 @@ fn passthrough_survives_serde_snapshot_round_trip() {
             dor_colspan: None,
             bind_ref: None,
             kind: u2s_aem_ubs_mcp::aem::TextFieldKind::Plain,
+            input: Default::default(),
         }],
     };
 

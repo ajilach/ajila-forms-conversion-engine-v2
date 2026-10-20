@@ -4,9 +4,9 @@ output_formats = ["aem-ubs"]
 description = """
 Letters and declarations print values inside their running text: a policy number in the subject
 ("Polizza n.: ___"), an IBAN or account number in a sentence, the client advisor's name in a
-closing paragraph. In the XFA these are floating fields: the draw's text holds a reference to a
-field, and the value is typed somewhere else, often in a "Form configurator" area at the top that
-only collects these values (it is not a choice between addressees). AEM cannot place an input
+closing paragraph. In the source these are floating fields: the sentence prints the current value
+of a field, and the value is typed somewhere else, often in a "Form configurator" area at the top
+that only collects these values (it is not a choice between addressees). AEM cannot place an input
 inside a paragraph.
 
 Each such value is ONE input:
@@ -23,11 +23,13 @@ Never author the value twice (an input in the configurator area and a copy in th
 add a rule that copies one field into another: the second field is a duplicate the reader has to
 keep in step, and the Document of Record prints both.
 
-How to judge: find the source's floating fields (xfa_search for the field references in draw
-texts, xfa_controls for the inputs that feed them, xfa_read of their scripts) and compare with the
-tree (json_outline, json_search for the caption).
+How to judge: find the source's floating fields. xfa_page_text prints a sentence with the value
+the form put into it; in a session (xfa_open), set each input that may feed one (xfa_set, often a
+screen-only input of the configurator band) and read the page text again: the sentence that changes
+prints that input. Then
+compare with the tree (json_outline, json_search for the caption).
 
-A break is a value collected twice, a copying rule in a `passthrough`, a sentence split into
+A break is a value collected twice, a copying rule (`copy_from`, `calculate`), a sentence split into
 several draws around a value, a value without its own input, or a label that is not the source's
 caption.
 

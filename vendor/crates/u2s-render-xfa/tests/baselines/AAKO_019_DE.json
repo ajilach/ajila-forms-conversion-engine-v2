@@ -1,0 +1,507 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Bankbeziehung\n0319 00\nName und Adresse des Kunden\nUBS Europe SE\nOperational Tax\nPostfach 52\nBockenheimer Landstraße 2 - 4\n60306 Frankfurt am Main\nForm configurator\nOperational Tax\nObige Adresse Kunde mit Versand in Papierform\nAnschrift TAX oder NL\nZweitanfertigung an\nPrivate Person\nFormular Adressat\nfür das Jahr\n15. Januar 2026\nVerlustmeldung Jahressteuerbescheinigung\nInhaber (Nachname, Vorname)\nSehr geehrte Damen und Herren,\nich versichere, dass mir die Steuerbescheinigung von der oben genannten Bankbeziehung nicht vorliegt und bitte um Erstellung und Zusendung einer Ersatzbescheinigung an die obige Anschrift.\nMit freundlichen Grüßen\nInhaber (Nachname, Vorname)\n0101664600101001501202601013\n66460\nDE\nV0\n019\nAAKO\n20.08.2020\nN1\n15.01.2026\nSeite 1/1"
+  ],
+  "raster": [
+    "a3f1482d1efed7d1"
+  ],
+  "controls": {
+    "UBSForms.MPs.MP.Barcode": {
+      "value": "0101664600101001501202601013",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66460",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AAKO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "DE",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "20.08.2020",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Sender_Address.Sender_Address_1": {
+      "value": "Name und Adresse des Kunden",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Barcode": {
+      "value": "0101664600101001501202601013",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66460",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AAKO",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "DE",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerModDate": {
+      "value": "20.08.2020",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Sender_Address.Sender_Address_1": {
+      "value": "Name und Adresse des Kunden",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          389.80002,
+          48.8,
+          155.90001,
+          63.8
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.Page1.Address.STP_Address.Address": {
+      "value": "UBS Europe SE\nOperational Tax\nPostfach 52\nBockenheimer Landstraße 2 - 4\n60306 Frankfurt am Main",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          85.0,
+          113.4,
+          167.2,
+          68.0
+        ]
+      ]
+    },
+    "UBSForms.Page1.Address.STP_Address.Contact.Branch": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Address.STP_Address.Contact.Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Address.STP_Address.Contact.Phone": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Address.STP_Address.Contact.Postal_code": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Address.STP_Address.Contact.Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Body.STP_Name.Name_officers": {
+      "value": "Mehrzeilige Eingabe möglich",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Commission_Payment.STP_Commission_Body.Sender_Date": {
+      "value": "15. Januar 2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          346.80002,
+          127.6,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page1.Commission_Payment.STP_Commission_Body.ffName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Dear.STP_Dear_DYN.FamilyName_FirstName.TF_FamilyName": {
+      "value": "Inhaber (Nachname, Vorname)",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          398.7,
+          496.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page1.Dear.STP_Dear_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          552.0,
+          396.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page1.Dear.STP_Dear_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          569.10004,
+          396.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page1.Footer.STP_Name_1.Name1": {
+      "value": "Name des gesetzlichen Vertreters 2",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Footer.STP_Name_1.Name_officers": {
+      "value": "Name des gesetzlichen Vertreters 1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Footer.STP_Name_2.Name1": {
+      "value": "Name des Vertretungsberechtigten 2",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Footer.STP_Name_2.Name_officers": {
+      "value": "Name des Vertretungsberechtigten 1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.Footer.STP_Name_Officers.STP_Officers_DYN.Name_officers": {
+      "value": "Inhaber (Nachname, Vorname)",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          581.7,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.Client.Client": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.ClientType.CL_ClientType": {
+      "value": "Private Person",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          239.1,
+          240.90001,
+          12.3
+        ]
+      ]
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.ClientType.ffDesClientType": {
+      "value": "Formular Adressat",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.Das_Jahr.Fur_Das_Jahr": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          239.1,
+          240.90001,
+          12.3
+        ]
+      ]
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.Das_Jahr.ffDesShortCode": {
+      "value": "Niederlassung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.LocationShortCode.CL_ShortCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.LocationShortCode.ffDesShortCode": {
+      "value": "Niederlassung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.Tax_Code.Tax_Oder": {
+      "value": "Operational Tax",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          209.8,
+          240.90001,
+          12.3
+        ]
+      ]
+    },
+    "UBSForms.Page1.FormConfigurator_Branch.Zweitanfertigung.Zweitanfertigung": {
+      "value": "Obige Adresse Kunde mit Versand in Papierform",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          209.8,
+          240.90001,
+          12.3
+        ]
+      ]
+    }
+  },
+  "warning": null
+}

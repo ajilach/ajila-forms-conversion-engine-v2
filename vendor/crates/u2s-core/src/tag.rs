@@ -81,7 +81,7 @@ impl<'de> Deserialize<'de> for TagName {
 /// An input's enabled rules are the intersection over its `Only` tags; an
 /// input with no `Only` tag has every rule enabled. The database function
 /// `rule_enabled_for_input` is the one implementation of that rule.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(tag = "mode", rename_all = "snake_case")]
 pub enum RuleSelection {
     /// Every rule, including ones created later. The default.

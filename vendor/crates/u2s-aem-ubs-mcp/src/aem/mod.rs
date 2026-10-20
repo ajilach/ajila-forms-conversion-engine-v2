@@ -13,6 +13,7 @@
 //!        └──────── aem_to_translated() ◄── unexpand() ◄── parse_aem_zip() ◄─────────┘
 //! ```
 
+pub mod fragment_init;
 pub mod fragment_parser;
 pub mod identity;
 pub mod letterhead;
@@ -22,6 +23,7 @@ mod package_writer;
 pub mod parser;
 pub mod partner;
 pub mod profile;
+pub mod quotes;
 pub mod script_engine;
 pub mod scripts;
 pub mod text_shape;
@@ -683,6 +685,15 @@ pub struct AemAttrs {
     /// `always_in_pdf`, `show_if_hidden` and `summary_exclude`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dor_header_slot: Option<String>,
+    /// The languages this node shows in, when only some of the form's language
+    /// sources have it (CNV-TXT-4): the writer gives it an Initialize rule that
+    /// shows it, on screen and in the DoR, only when the form is read in one of
+    /// them, and hides it otherwise. Codes as in the document's `languages`
+    /// (`es` also matches the platform's `sp`). Empty: every language. An
+    /// input, a draw, a message box, an HTML block or a plain Panel takes it;
+    /// wrap anything else in a Panel.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub only_languages: Vec<String>,
 }
 
 impl AemAttrs {
@@ -720,6 +731,51 @@ fn default_true() -> bool {
     true
 }
 
+/// What an input opens with, whether the person filling in the form can
+/// change it, and where its value comes from when other inputs decide it.
+///
+/// One struct rather than a field per variant, flattened into each input's
+/// JSON object like [`AemAttrs`]: every input component of the corpus carries
+/// `_value` and `enabled` alike, and any input can copy another's value. Like
+/// an option's `value`, none of it is translated: a value is the same in every
+/// language.
+#[derive(
+    Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct InputProps {
+    /// `_value`: what the input opens with, as the source sets it. For a radio
+    /// button group, a drop-down or a checkbox, the `value` of one of its
+    /// options (a single checkbox opens ticked with its one option's value);
+    /// for a date picker, `YYYY-MM-DD`; for a text or number field, the text.
+    /// `None` opens it empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<String>,
+    /// `enabled="{Boolean}false"`: shown, printed and submitted, but nobody
+    /// filling in the form can change it. A value the source protects.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub read_only: bool,
+    /// A Calculate rule: the input always holds this text, with each `{NAME}`
+    /// replaced by the current value of the input named `NAME` (nothing while
+    /// that is empty), and `{{` / `}}` written as a brace. `"{TXT_A}"` copies
+    /// `TXT_A`; `"0319 {TXT_Account}"` prefixes it. A value the source computes
+    /// from other inputs into one that cannot be changed, so it goes with
+    /// `read_only`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calculate: Option<String>,
+    /// The input whose value is copied into this one each time it changes;
+    /// this one stays editable. Two inputs that name each other share one
+    /// value, whichever of them is filled in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub copy_from: Option<ComponentName>,
+}
+
+impl InputProps {
+    /// Nothing set: an input that opens empty, editable, with a value of its own.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
+    }
+}
+
 
 /// The AEM `name` of a component, as a script names it: a letter or `_`, then
 /// letters, digits and `_`. Anything else is refused on the way in, so a name
@@ -754,6 +810,92 @@ impl TryFrom<String> for ComponentName {
 impl From<ComponentName> for String {
     fn from(name: ComponentName) -> String {
         name.0
+    }
+}
+
+/// A component inside a fragment, as a script reaches it from the fragment's
+/// own panel: [`ComponentName`]s joined by `.`, the first a component directly
+/// under the fragment's root panel (`PN_Address`), each further one a
+/// component inside the one before, across the fragments it references
+/// (`PN_Address.PN_AddressBlock.TXT_City_AddressBlock`). Anything else is
+/// refused on the way in, so a path can be written into a generated rule as it
+/// is, after `this.`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+#[serde(try_from = "String", into = "String")]
+pub struct ComponentPath(String);
+
+impl ComponentPath {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    /// Whether it names a component directly under the fragment's root panel:
+    /// a partner generic's sub-panels are these.
+    pub fn is_direct(&self) -> bool {
+        !self.0.contains('.')
+    }
+}
+
+impl TryFrom<String> for ComponentPath {
+    type Error = String;
+
+    fn try_from(path: String) -> Result<Self, String> {
+        if path.split('.').all(|segment| ComponentName::try_from(segment.to_owned()).is_ok()) {
+            Ok(Self(path))
+        } else {
+            Err(format!("{path:?} is not a component path (component names joined by `.`)"))
+        }
+    }
+}
+
+impl From<ComponentPath> for String {
+    fn from(path: ComponentPath) -> String {
+        path.0
+    }
+}
+
+/// What a fragment's Initialize rule does to the components inside it when the
+/// form starts, beyond what the profile does for the fragment's kind (see
+/// [`scripts::fragment_init`]). Every entry is a [`ComponentPath`] from the
+/// fragment's own panel, checked against the fragment library before the
+/// package is built. Flattened into the fragment's JSON object like
+/// [`AemAttrs`], so a fragment written before these existed still loads.
+#[derive(
+    Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
+pub struct FragmentInit {
+    /// Components hidden, on screen and in the DoR: one `hideAFHideDor` call
+    /// each. A partner generic's sub-panels (`PN_EntityBasic`), a field the
+    /// source does not show, a heading the fragment prints that the source
+    /// does not (`PN_AccountNo.ST_AccountNo`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub init_hide: Vec<ComponentPath>,
+    /// Components the fragment ships hidden, or that the profile hides for its
+    /// kind, that the form shows, on screen and in the DoR: one
+    /// `showAFShowDor` call each. A partner generic's hidden sub-panels
+    /// (`PN_DOBNationality`), an address field the source shows
+    /// (`PN_AddressBlock.TXT_State_AddressBlock`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub init_show: Vec<ComponentPath>,
+    /// Inputs that must be filled in, as the source requires: one
+    /// `setMandatory(..., true)` call each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub init_required: Vec<ComponentPath>,
+    /// Inputs that need not be filled in, as the source does not require them
+    /// although the fragment does: one `setMandatory(..., false)` call each.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub init_optional: Vec<ComponentPath>,
+    /// On the signature generic (`affrg_SignatureGeneric1`) in a repeatable:
+    /// place and date are one value for all its rows, so the first row asks
+    /// them and the further rows hide them, on screen and in the DoR.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub shared_place_date: bool,
+}
+
+impl FragmentInit {
+    /// Nothing authored: the fragment's Initialize rule is the profile's alone.
+    pub fn is_empty(&self) -> bool {
+        *self == Self::default()
     }
 }
 
@@ -829,6 +971,10 @@ pub enum AemNode {
         /// variants existed still load.
         #[serde(default)]
         kind: TextFieldKind,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
 
     /// Numeric input (`guideNumericBox`).
@@ -846,6 +992,18 @@ pub enum AemNode {
         dor_colspan: Option<u32>,
         /// XSD path for `bindRef` attribute.
         bind_ref: Option<String>,
+        /// `leadDigits`: at most this many digits before the decimal
+        /// separator, as the source limits the number's length.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lead_digits: Option<u32>,
+        /// `fracDigits`: at most this many digits after it; `0` takes whole
+        /// numbers only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frac_digits: Option<u32>,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
 
     /// Date picker (`guideDatePicker`).
@@ -863,6 +1021,10 @@ pub enum AemNode {
         dor_colspan: Option<u32>,
         /// XSD path for `bindRef` attribute.
         bind_ref: Option<String>,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
 
     /// Drop-down / select list (`guideDropDownList`).
@@ -883,6 +1045,10 @@ pub enum AemNode {
         conditions: Vec<ConditionRule>,
         /// XSD path for `bindRef` attribute.
         bind_ref: Option<String>,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
 
     /// Checkbox group (`guideCheckBox`).
@@ -904,6 +1070,21 @@ pub enum AemNode {
         conditions: Vec<ConditionRule>,
         /// XSD path for `bindRef` attribute.
         bind_ref: Option<String>,
+        /// `mandatory="true"`: one of the options must be ticked, as the
+        /// source requires (a confirmation that has to be given). Defaults
+        /// to `false` so documents written before it existed still load.
+        #[serde(default, skip_serializing_if = "is_false")]
+        mandatory: bool,
+        /// `hideTitle="true"` on a checkbox list whose label is not printed
+        /// above it, because a heading or text right above already asks the
+        /// question. The title is hidden anyway when the label is empty, and
+        /// on a single checkbox whose one option is its label.
+        #[serde(default, skip_serializing_if = "is_false")]
+        hide_title: bool,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
 
     /// Radio button group (`guideRadioButton`).
@@ -925,6 +1106,16 @@ pub enum AemNode {
         conditions: Vec<ConditionRule>,
         /// XSD path for `bindRef` attribute.
         bind_ref: Option<String>,
+        /// `hideTitle="true"`: the group's label is not shown above its
+        /// options, because a heading or subtitle right above already asks
+        /// the question. Its label still names it in the summary and to a
+        /// screen reader. Only radio button and checkbox groups take it.
+        #[serde(default, skip_serializing_if = "is_false")]
+        hide_title: bool,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
 
     /// Static text / heading (`guideTextDraw`).
@@ -1059,17 +1250,10 @@ pub enum AemNode {
         visible: bool,
         /// XSD path for `bindRef` attribute.
         bind_ref: Option<String>,
-        /// Sub-panels of the fragment hidden, on screen and in the DoR, when the
-        /// form starts: one `hideAFHideDor` call each, in the fragment's
-        /// Initialize rule. Only a partner generic takes them.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        init_hide: Vec<ComponentName>,
-        /// Sub-panels the fragment ships hidden that the form shows, on screen
-        /// and in the DoR, when it starts: one `showAFShowDor` call each, in the
-        /// same Initialize rule as `init_hide`. Only a partner generic takes
-        /// them, and only for a sub-panel it ships hidden.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        init_show: Vec<ComponentName>,
+        /// What its Initialize rule hides, shows and makes mandatory or optional
+        /// inside it when the form starts. See [`FragmentInit`].
+        #[serde(default, flatten)]
+        init: FragmentInit,
     },
 
     /// Optional profile-driven snippet inserted as the first item in the
@@ -1219,6 +1403,29 @@ impl AemNode {
             | AemNode::Repeatable { attrs, .. }
             | AemNode::Fragment { attrs, .. } => Some(attrs),
             AemNode::Root { .. }
+            | AemNode::Preface { .. }
+            | AemNode::Letterhead { .. }
+            | AemNode::FootnotePlaceholder { .. } => None,
+        }
+    }
+
+    /// An input's [`InputProps`], or `None` for a node that takes no input.
+    pub fn input(&self) -> Option<&InputProps> {
+        match self {
+            AemNode::TextField { input, .. }
+            | AemNode::NumberField { input, .. }
+            | AemNode::DatePicker { input, .. }
+            | AemNode::Dropdown { input, .. }
+            | AemNode::Checkbox { input, .. }
+            | AemNode::RadioButton { input, .. } => Some(input),
+            AemNode::Root { .. }
+            | AemNode::Panel { .. }
+            | AemNode::TextDraw { .. }
+            | AemNode::TitleDraw { .. }
+            | AemNode::HtmlDisplayer { .. }
+            | AemNode::MessageBox { .. }
+            | AemNode::Repeatable { .. }
+            | AemNode::Fragment { .. }
             | AemNode::Preface { .. }
             | AemNode::Letterhead { .. }
             | AemNode::FootnotePlaceholder { .. } => None,

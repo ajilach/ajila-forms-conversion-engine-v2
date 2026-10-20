@@ -272,8 +272,10 @@ fn a_remove_button_inside_an_instance_removes_that_instance() {
 
 #[test]
 fn a_new_instance_is_initialized_before_index_change_fires() {
-    let row_events = r#"<event activity="initialize"><script contentType="application/x-javascript">Log.rawValue = String(Log.rawValue) + 'i' + this.instanceIndex;</script></event>
-<event activity="indexChange"><script contentType="application/x-javascript">Log.rawValue = String(Log.rawValue) + 'x' + this.instanceIndex;</script></event>"#;
+    // An empty `Log` reads null (XFA 3.3 §2), which `String()` would spell
+    // out, so the scripts start from "" as a real form's would.
+    let row_events = r#"<event activity="initialize"><script contentType="application/x-javascript">Log.rawValue = (Log.rawValue || '') + 'i' + this.instanceIndex;</script></event>
+<event activity="indexChange"><script contentType="application/x-javascript">Log.rawValue = (Log.rawValue || '') + 'x' + this.instanceIndex;</script></event>"#;
     let mut form = rows_form(
         r#"max="-1""#,
         row_events,

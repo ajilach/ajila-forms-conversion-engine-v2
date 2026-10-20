@@ -1,0 +1,56 @@
+id = "ubs-aem-account-numbers"
+title = "Account numbers: fragment, full width, once"
+output_formats = ["aem-ubs"]
+description = """
+An account number whose parts the source shows (a clearing number, as an input or as a fixed
+number printed before the input such as "0319 00", the account number, and optionally an object
+number after a dot) is an account block, in the body, in tables and in repeating rows alike
+(UBS-ACC-2). A single account field without such parts is a `TextField`.
+
+- Its parts all entered, it is one `Fragment` of its kind from `afforms_ubs_fragmentlib`: account
+  `affrg_Account1`, custody `affrg_CustodyAccount1` (clearing and account number default from the
+  banking relationship, the object number is entered), safekeeping `affrg_SafekepingAccount1`,
+  product `affrg_Product1`, safe deposit box `affrg_SafeDepositBox1` (backlog "Fragment gaps").
+- A part the source fixes cannot be set inside a fragment: such an account number is a full-width
+  row `Panel` of `TextField`s, the fixed part `read_only` with its printed number as
+  `default_value`, the entered parts with the source's captions (otherwise "Clearing no.",
+  "Account no.", "Object no.") and `max_chars`.
+- Its heading is the source's heading or column header ("Konto-Nr.", "Zugehöriges Konto"), and
+  none where the source shows none (types B6, backlog "Account numbers", "Block titles"). Each
+  fragment prints a bold heading of its own: `PN_AccountNo.ST_AccountNo` ("Account no.") in
+  `affrg_Account1`, `PN_CustodyAccountNo.ST_CustodyAccountNo` ("Custody account no.") in
+  `affrg_CustodyAccount1`, `PN_SafeAccountNo.ST_CustodyAccountNo` ("Safekeeping account no.") in
+  `affrg_SafekepingAccount1`, `PN_ProductNo.ST_ProductNo` ("Product number") in `affrg_Product1`,
+  `ST_SafeDepositBox` ("Safe deposit box") in `affrg_SafeDepositBox1`, `PN_IBAN.ST_IBAN` ("IBAN") in
+  the IBAN fragments. Where the source's heading is that text, in every language, the fragment's
+  heading stays and nothing is added. Otherwise the fragment's heading goes into the fragment's
+  `init_hide`, and the source's heading, if it shows one, is a `TitleDraw` right before the fragment,
+  level 4 or as the context needs.
+- The fragment's number parts are mandatory; a part the source does not require goes into
+  `init_optional` by its path (`PN_AccountNo.TXT_Account3` for an object number the source leaves
+  optional), as required follows the source (CNV-INP-7).
+- It always takes the full width: no panel between the page and the block is narrower than 12.
+- A banking relationship the source repeats in the body for another party (path hints
+  `Banking_Relationship_BO`, `BankingRelationship_Formset`) is an account block of kind account in
+  that party's section, never a second `Preface` (UBS-ACC-4).
+- The same custody account number is captured once, where it first appears; a later place that only
+  shows it, possibly under another label ("Debit account"), gets no second block (UBS-ACC-5).
+  Different account numbers are separate blocks.
+
+An IBAN input (caption "IBAN", path hints `IBAN`, `TF_IBAN`) is one input (UBS-ACC-3).
+`affrg_IBAN1` holds the IBAN of the banking relationship and `affrg_IBAN2` that of the custody
+account: each copies it into the Document of Record header's field of that account, so each is
+used once and only for that account. An IBAN the client enters for another account (a beneficiary,
+a payee) has no fragment: it is a `TextField` `TXT_IBAN` with the source's caption.
+
+A fixed number printed before an input that is not part of an account number is a `TextDraw`, and
+the input sits beside it on the same row with a short label such as "Nr." (UBS-ACC-6).
+
+Reported: a panel narrower than 12 columns holding an account or IBAN fragment; a second
+`affrg_CustodyAccount1`, `affrg_IBAN1` or `affrg_IBAN2` shown under the same conditions, outside a
+repeating row. Whether the source's account numbers became the right blocks is judged by
+ubs-aem-standard-sections-are-fragments.
+
+Fix: set the panel's colspan to 12 and move the fields beside the block to rows of their own;
+delete the second copy of a number captured once.
+"""

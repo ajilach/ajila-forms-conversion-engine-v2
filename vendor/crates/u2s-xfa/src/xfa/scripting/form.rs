@@ -16,7 +16,8 @@ use super::state::Presence;
 use crate::xfa::instances::{Prototypes, materialize_initial_instances};
 
 use crate::flattened::{FieldAccess, Flattened, FlattenedNode, FlattenedNodeKind};
-use crate::xfa::{Num, XfaNode, XfaNodeKind};
+use crate::xfa::font_manager::{DocumentFonts, EmbeddedFont};
+use crate::xfa::{CheckButtonValues, Num, XfaNode, XfaNodeKind};
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -177,10 +178,14 @@ impl<'a> XfaNodeRef<'a> {
         &self.som_path
     }
 
-    /// Check if this node is visible based on its presence and ancestor presence
+    /// Whether this node is drawn: neither its own presence nor an
+    /// ancestor's keeps it off the page (XFA 3.3 "The presence property":
+    /// `hidden` and `inactive` take no part in layout, `invisible` takes
+    /// its space but is not rendered, and a container's contents inherit
+    /// its restriction).
     pub fn is_visible(&self) -> bool {
         let own_presence = self.xfa_node.get_presence();
-        if own_presence.should_skip_layout() {
+        if own_presence.should_skip_render() {
             return false;
         }
         self.ancestors_visible
@@ -225,33 +230,6 @@ impl<'a> XfaNodeRef<'a> {
         self.has_choice_list()
     }
 
-    /// Check if this dropdown's items are populated via JavaScript
-    pub fn is_script_populated_dropdown(&self) -> bool {
-        if !self.is_dropdown() {
-            return false;
-        }
-
-        for child in &self.xfa_node.children {
-            if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                && tag_name == "event"
-            {
-                for script_child in &child.children {
-                    if let XfaNodeKind::Element {
-                        tag_name: script_tag,
-                        text_content,
-                        ..
-                    } = &script_child.kind
-                        && script_tag == "script"
-                        && let Some(content) = text_content
-                        && content.contains("addItem")
-                    {
-                        return true;
-                    }
-                }
-            }
-        }
-        false
-    }
 
     /// Check if this field has a choiceList UI element
     fn has_choice_list(&self) -> bool {
@@ -295,42 +273,10 @@ impl<'a> XfaNodeRef<'a> {
         self.find_ui_child("checkButton")
     }
 
-    /// Get the dropdown options (display values and save values)
+    /// The dropdown options as (display, save) pairs; see
+    /// [`XfaNode::extract_choice_list_items`].
     pub fn dropdown_options(&self) -> Vec<(String, String)> {
-        let mut display_items: Vec<String> = Vec::new();
-        let mut save_items: Vec<String> = Vec::new();
-
-        for child in &self.xfa_node.children {
-            if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                && tag_name == "items"
-            {
-                let is_save = child
-                    .attributes
-                    .get("save")
-                    .map(|s| s == "1")
-                    .unwrap_or(false);
-                let items = Self::extract_items_values(child);
-
-                if is_save {
-                    save_items = items;
-                } else if display_items.is_empty() {
-                    display_items = items;
-                } else if save_items.is_empty() {
-                    save_items = items;
-                }
-            }
-        }
-
-        // Per XFA spec: when only one <items> element exists, display = save
-        // regardless of which attribute was set.
-        if display_items.is_empty() {
-            display_items = save_items.clone();
-        }
-        if save_items.is_empty() {
-            save_items = display_items.clone();
-        }
-
-        display_items.into_iter().zip(save_items).collect()
+        self.xfa_node.extract_choice_list_items()
     }
 
     /// Get just the display values for dropdown options
@@ -367,34 +313,7 @@ impl<'a> XfaNodeRef<'a> {
         self.dropdown_display_values().get(idx).cloned()
     }
 
-    fn extract_items_values(items_node: &XfaNode) -> Vec<String> {
-        let mut values = Vec::new();
-        for child in &items_node.children {
-            match &child.kind {
-                XfaNodeKind::Element {
-                    tag_name,
-                    text_content,
-                } => match tag_name.as_str() {
-                    "text" | "integer" | "decimal" | "float" | "boolean" | "date" | "dateTime"
-                    | "time" => {
-                        if let Some(content) = text_content {
-                            values.push(content.clone());
-                        } else {
-                            values.push(String::new());
-                        }
-                    }
-                    _ => {}
-                },
-                XfaNodeKind::Text { content } => {
-                    values.push(content.clone());
-                }
-                _ => {}
-            }
-        }
-        values
-    }
-
-    fn extract_value_from_xfa_node(node: &XfaNode) -> Option<String> {
+    pub(crate) fn extract_value_from_xfa_node(node: &XfaNode) -> Option<String> {
         node.template_value()
     }
 }
@@ -477,6 +396,8 @@ pub struct XfaForm {
     nodes: Vec<XfaNode>,
     /// The current flattened layout
     flattened: Flattened,
+    /// The document's own fonts, entered whenever the form is laid out.
+    fonts: Arc<DocumentFonts>,
     /// SOM resolver for node lookups
     som_resolver: SomResolver,
     /// Cached mapping of field names to their flattened node indices
@@ -524,22 +445,38 @@ impl XfaForm {
     /// only when this document's scripts could not be executed at all, in
     /// which case there is nothing to page through either.
     pub fn new_with_layout(
-        mut nodes: Vec<XfaNode>,
+        nodes: Vec<XfaNode>,
     ) -> Result<(Self, Option<crate::xfa::script_executor::LayoutScripts>), String> {
+        Self::new_with_layout_and_fonts(nodes, Vec::new())
+    }
+
+    /// As [`new_with_layout`](Self::new_with_layout), with the faces
+    /// `embedded` in the document's PDF, which its text is measured and
+    /// drawn in ahead of the registered ones.
+    pub fn new_with_layout_and_fonts(
+        mut nodes: Vec<XfaNode>,
+        embedded: Vec<EmbeddedFont>,
+    ) -> Result<(Self, Option<crate::xfa::script_executor::LayoutScripts>), String> {
+        let fonts = Arc::new(DocumentFonts::from_nodes(&nodes).with_embedded(embedded));
+        let _document_fonts = fonts.enter();
         // The Form DOM of an empty merge: each repeatable subform as its
         // `initial` instances (XFA 3.3 §9), before any script sees the form.
         let mut prototypes = materialize_initial_instances(&mut nodes);
-        // The template as it is before any script runs: what
-        // `xfa.host.resetData` resets a field to.
-        let pristine = nodes.clone();
 
         let script_registry = Arc::new(Self::build_script_registry(&nodes));
         let dependency_tracker = DependencyTracker::new();
 
-        // Execute scripts using ScriptExecutor, keeping the layout engine
-        // alive so page-dependent master-page scripts can be re-evaluated
-        // later without a second, independent script pass.
-        let (script_result, layout) =
+        // The document-wide script pass, in the engine this form then keeps.
+        // XFA 3.3 §10 instantiates a form's script objects and variables
+        // once, with the form, and its load events (initialize, form:ready,
+        // docReady) run in the one environment the person then interacts
+        // in: a second engine seeded with the pass's values would open with
+        // the right field values but without what the scripts left in
+        // their script objects (BADM_019_EN's ready script records the
+        // chosen client type in `soConfigClientType.selected`, which its
+        // add-client button switches on). The same engine serves the
+        // master-page pass, which needs the body's settled values anyway.
+        let (script_result, loaded) =
             crate::xfa::script_executor::ScriptExecutor::execute_with_layout(
                 &mut nodes,
                 &mut prototypes,
@@ -556,6 +493,18 @@ impl XfaForm {
         crate::xfa::script_executor::ScriptExecutor::apply_access_changes(
             &mut nodes,
             &script_result.access_changes,
+        );
+        // And the captions they set (`caption.value.#text`), so a button
+        // opens with the label its initialize script chose.
+        crate::xfa::script_executor::ScriptExecutor::apply_caption_changes(
+            &mut nodes,
+            &script_result.caption_changes,
+        );
+        // And the choice lists they built (`addItem`), so a dropdown a load
+        // script filled offers its items on a form with no saved packet.
+        crate::xfa::script_executor::ScriptExecutor::apply_item_changes(
+            &mut nodes,
+            &script_result.item_changes,
         );
 
         // Merge items from Form DOM packet into Template DOM fields.
@@ -578,30 +527,31 @@ impl XfaForm {
         let init_values = script_result.computed_values;
 
         // Flatten with the init-time computed values
-        let flattened = Flattened::from_xfa(&nodes, &init_values)?;
+        let flattened = Flattened::from_xfa_fonts(&nodes, &init_values, Arc::clone(&fonts))?;
 
         let som_resolver = SomResolver::from_nodes(&nodes);
         let field_index_cache = Self::build_field_index_cache(&flattened);
 
-        // Create persistent script engine — disable auto exclGroup sync since
-        // interactive events use select_radio_button for explicit propagation
-        let mut script_engine = XfaScriptEngine::new();
-
-        // Register fields/subforms FIRST so that script objects can reference
-        // them at initialization time (e.g., `var b = UBSForms.Page;`).
-        Self::build_som_hierarchy_with_values(
-            &nodes,
-            &init_values,
-            &prototypes,
-            &mut script_engine,
-        );
-        // Initialize engine with form context - variables like Footer_Line_txtlanguage
-        // and Footer_Line_txtformid are extracted from XFA <variables><text> elements
-        Self::extract_and_register_translations(&nodes, &mut script_engine);
-
-        let defaults = Self::template_defaults(&pristine, &mut script_engine);
-        script_engine.set_template_defaults(&defaults);
-        Self::install_value_formats(&nodes, &mut script_engine);
+        let (mut script_engine, layout) = match loaded {
+            Some(loaded) => (loaded.engine, Some(loaded.layout)),
+            None => {
+                // The pass failed and was rolled back: a fresh environment
+                // with the Form DOM registered, in which nothing has run.
+                let mut engine = XfaScriptEngine::new();
+                crate::xfa::script_executor::ScriptExecutor::prepare_engine(
+                    &nodes,
+                    &prototypes,
+                    &mut engine,
+                );
+                crate::xfa::script_executor::ScriptExecutor::settle_engine(
+                    &nodes,
+                    &nodes,
+                    &mut engine,
+                );
+                (engine, None)
+            }
+        };
+        Self::apply_form_packet(&nodes, &init_values, &mut script_engine);
 
         let mut pending_report = script_result.script_report;
         pending_report.absorb(script_engine.take_report());
@@ -610,6 +560,7 @@ impl XfaForm {
             XfaForm {
                 nodes,
                 flattened,
+                fonts,
                 som_resolver,
                 field_index_cache,
                 script_registry,
@@ -625,51 +576,6 @@ impl XfaForm {
         ))
     }
 
-    /// Every field's and exclusion group's value in `pristine`, the template
-    /// before any script ran, under each registered path. A path the
-    /// pristine tree does not reach (an instance the load scripts added) is
-    /// looked up as its first instance, since every instance of a repeated
-    /// section has the same template.
-    fn template_defaults(
-        pristine: &[XfaNode],
-        engine: &mut XfaScriptEngine,
-    ) -> HashMap<SomPath, String> {
-        engine
-            .get_field_values_by_canonical_path()
-            .into_keys()
-            .filter_map(|path| {
-                let node = Self::find_xfa_node_by_path(pristine, path.as_str()).or_else(|| {
-                    Self::find_xfa_node_by_path(pristine, path.index_free().as_str())
-                })?;
-                (node.kind.is_field() || node.kind.is_exclgroup()).then(|| {
-                    let value = XfaNodeRef::extract_value_from_xfa_node(node).unwrap_or_default();
-                    (path, value)
-                })
-            })
-            .collect()
-    }
-
-    /// Give every field's script object its `formattedValue` and
-    /// `editValue`, through the pictures its template declares.
-    fn install_value_formats(nodes: &[XfaNode], engine: &mut XfaScriptEngine) {
-        for path in engine.get_field_values_by_canonical_path().into_keys() {
-            let Some(meta) = Self::find_xfa_node_by_path(nodes, path.as_str())
-                .and_then(|node| node.field_meta.as_deref())
-            else {
-                continue;
-            };
-            let source = |p: &Option<crate::xfa::field_meta::PictureSpec>| {
-                p.as_ref().map(|p| p.source.clone())
-            };
-            engine.install_value_format(
-                &path,
-                source(&meta.format).as_deref(),
-                source(&meta.edit).as_deref(),
-                &meta.locale,
-            );
-        }
-    }
-
     /// The dialogs the form's scripts raised and the scripts that failed
     /// since the last call: the first call includes the load pass, and a
     /// call after [`refresh_paged`](Self::refresh_paged) the master-page
@@ -682,14 +588,13 @@ impl XfaForm {
 
     /// Resolve a node by SOM expression (immutable)
     pub fn resolve(&self, som_expression: &str) -> Option<XfaNodeRef<'_>> {
-        let resolved_path = self.som_resolver.resolve_node(som_expression, None)?;
+        let resolved_path = self.som_resolver.resolve_node(som_expression)?;
 
         let xfa_node = Self::find_xfa_node_by_path(&self.nodes, &resolved_path)?;
 
-        let node_name = xfa_node.name.as_ref()?;
         let flattened_node = self
             .field_index_cache
-            .get(node_name)
+            .get(resolved_path.as_str())
             .and_then(|&idx| self.flattened.iter_nodes().nth(idx));
 
         // `check_ancestors_visible` matches by leaf name alone, so on a form
@@ -711,7 +616,7 @@ impl XfaForm {
 
     /// Resolve a node by SOM expression (mutable)
     pub fn resolve_mut(&mut self, som_expression: &str) -> Option<XfaNodeRefMut<'_>> {
-        let resolved_path = self.som_resolver.resolve_node(som_expression, None)?;
+        let resolved_path = self.som_resolver.resolve_node(som_expression)?;
 
         let xfa_node = Self::find_xfa_node_by_path_mut(&mut self.nodes, &resolved_path)?;
 
@@ -749,12 +654,20 @@ impl XfaForm {
     ) -> Result<EventResult, String> {
         let resolved_path = self
             .som_resolver
-            .resolve_node(som_expression, None)
+            .resolve_node(som_expression)
             .ok_or_else(|| format!("Could not resolve SOM expression: {}", som_expression))?;
 
         let node_name = Self::find_xfa_node_by_path(&self.nodes, &resolved_path)
             .and_then(|n| n.name.clone())
             .ok_or_else(|| format!("Node has no name: {}", resolved_path))?;
+
+        // An inactive container, or one inside an inactive container, fires
+        // no events (XFA 3.3 §10 Rule 1, §2 "The presence property").
+        let inactive = super::som::walk_som_route(&self.nodes, resolved_path.as_str())
+            .is_some_and(|route| route.iter().any(|n| n.get_presence() == Presence::Inactive));
+        if inactive {
+            return Ok(EventResult::default());
+        }
 
         let scripts = self.find_node_scripts(&resolved_path, &activity);
 
@@ -923,20 +836,20 @@ impl XfaForm {
     fn press_check_button(&mut self, path: &str, is_radio: bool) -> Result<EventResult, String> {
         let resolved = self
             .som_resolver
-            .resolve_node(path, None)
+            .resolve_node(path)
             .ok_or_else(|| format!("Could not resolve field: {path}"))?;
         let mut result = self.enter(path)?;
         result.absorb(self.execute_event(path, EventActivity::MouseDown, None)?);
         if is_radio {
             result.absorb(self.select_radio_button(path)?);
         } else {
-            let (on, off) = Self::find_xfa_node_by_path(&self.nodes, resolved.as_str())
-                .map(|n| n.extract_item_values())
-                .unwrap_or((None, None));
-            let (on, off) = (on.unwrap_or_else(|| "1".to_string()), off.unwrap_or_else(|| "0".to_string()));
+            let CheckButtonValues { on, off, .. } = self.check_button_values(&resolved)?;
             let current = self.script_engine.get_field_value(&resolved).unwrap_or_default();
             let next = if current == on { off } else { on };
             result.absorb(self.set_value_as_user(path, &next)?);
+            // The press itself changed the value, whatever the scripts then
+            // did -- as `interact` reports a set.
+            result.values_changed = true;
         }
         result.absorb(self.execute_event(path, EventActivity::MouseUp, None)?);
         if is_radio {
@@ -962,7 +875,7 @@ impl XfaForm {
             return Ok(EventResult::default());
         };
         let previous = self.script_engine.get_field_value(&group).unwrap_or_default();
-        if previous != self.radio_on_value(radio) {
+        if previous != self.check_button_values(radio)?.on {
             return Ok(EventResult::default());
         }
         self.script_engine.update_field_value(&group, "");
@@ -1051,8 +964,11 @@ impl XfaForm {
             let presence: crate::xfa::Presence = presence_str.parse().unwrap();
             Self::apply_presence_by_path(&mut self.nodes, som_path, presence);
         }
-        // Calculate scripts can set `access` too.
+        // Calculate scripts can set `access` too, relabel a field, and
+        // rebuild a choice list.
         self.sync_access_from_engine();
+        self.sync_captions_from_engine();
+        self.sync_items_from_engine();
 
         Ok(self.script_engine.get_all_field_values_for_flattening())
     }
@@ -1060,7 +976,7 @@ impl XfaForm {
     /// Re-flatten the form to reflect any changes.
     pub fn refresh(&mut self) -> Result<(), String> {
         let values = self.refresh_prelude()?;
-        self.flattened = Flattened::reflatten(&self.nodes, &values)?;
+        self.flattened = Flattened::from_xfa_fonts(&self.nodes, &values, Arc::clone(&self.fonts))?;
         self.som_resolver = SomResolver::from_nodes(&self.nodes);
         self.field_index_cache = Self::build_field_index_cache(&self.flattened);
         self.dirty = false;
@@ -1071,25 +987,33 @@ impl XfaForm {
     /// master-page scripts against `layout` instead of reusing whatever they
     /// produced at the document-wide pass.
     ///
-    /// `refresh` alone has no master-page engine to call into, which is why a
-    /// form rendered through an interacted state has always shown page one's
-    /// header and footer values on every page: `reflatten` never asks a
-    /// master page's own scripts what page they are on. `layout` is the
-    /// engine `ScriptExecutor::execute_with_layout` returned when this form
-    /// was built, kept alive alongside it for exactly this call.
+    /// `refresh` alone has no master-page scripts to call into, which is why
+    /// a form rendered through an interacted state has always shown page
+    /// one's header and footer values on every page: `reflatten` never asks
+    /// a master page's own scripts what page they are on. `layout` is what
+    /// `ScriptExecutor::execute_with_layout` returned when this form was
+    /// built, kept alongside it for exactly this call; the scripts run in
+    /// this form's own engine.
     pub fn refresh_paged(
         &mut self,
         layout: &mut crate::xfa::script_executor::LayoutScripts,
     ) -> Result<(), String> {
         let values = self.refresh_prelude()?;
-        layout.sync_values(&values);
-        self.flattened = Flattened::from_xfa_paged(
+        // What ran so far (the interaction, its calculations) is reported
+        // as its own; the master-page pass below clears the engine's report
+        // before each page so that a page's failures are that page's.
+        self.pending_report.absorb(self.script_engine.take_report());
+        let engine = &mut self.script_engine;
+        let master = layout.master_state(engine);
+        self.flattened = Flattened::from_xfa_paged_fonts(
             &self.nodes,
             &values,
+            Arc::clone(&self.fonts),
             &mut |page_area, page_index, page_count| {
-                layout.evaluate(page_area, page_index, page_count)
+                layout.evaluate(engine, &master, page_area, page_index, page_count)
             },
         )?;
+        layout.restore_master(engine, &master);
         self.pending_report.errors.extend(layout.take_failures());
         self.som_resolver = SomResolver::from_nodes(&self.nodes);
         self.field_index_cache = Self::build_field_index_cache(&self.flattened);
@@ -1147,26 +1071,15 @@ impl XfaForm {
             for (parent, name) in &arrays {
                 let reconciled = self.script_engine.reconcile_instances(parent, name);
                 reindexed.extend(reconciled.moved.into_iter().map(|(_, new)| new));
-                for (path, written) in reconciled.placeholders {
-                    let node =
-                        super::som::walk_som_path(&self.nodes, path.as_str()).ok_or_else(|| {
-                            format!("new instance {path} is missing from the Form DOM")
-                        })?;
-                    let values: HashMap<SomPath, String> = written
-                        .into_iter()
-                        .map(|(rel, v)| (SomPath::new(format!("{path}.{rel}")), v))
-                        .collect();
-                    register_node_at(
-                        node,
-                        path.as_str(),
-                        parent.as_str(),
-                        &values,
+                new_instances.extend(
+                    crate::xfa::script_executor::ScriptExecutor::register_added_instances(
+                        &self.nodes,
                         &self.prototypes,
                         &mut self.script_engine,
-                        false,
-                    );
-                    new_instances.push(path);
-                }
+                        parent,
+                        reconciled.placeholders,
+                    )?,
+                );
             }
             self.som_resolver = SomResolver::from_nodes(&self.nodes);
             self.script_engine
@@ -1235,7 +1148,7 @@ impl XfaForm {
         } else {
             let resolved_path = self
                 .som_resolver
-                .resolve_node(field_path, None)
+                .resolve_node(field_path)
                 .unwrap_or_else(|| SomPath::from(field_path));
             let result = self.execute_event(field_path, EventActivity::Change, prev_value)?;
             self.cascade_calculations(&resolved_path)?;
@@ -1260,7 +1173,7 @@ impl XfaForm {
     ) -> Result<EventResult, String> {
         let resolved_path = self
             .som_resolver
-            .resolve_node(field_path, None)
+            .resolve_node(field_path)
             .ok_or_else(|| format!("Could not resolve field: {}", field_path))?;
 
         // Capture the previous value BEFORE updating so that
@@ -1282,47 +1195,39 @@ impl XfaForm {
         self.trigger_change_on_excl_group(&resolved_path, Some(&prev_value))
     }
 
-    /// Select a radio button in an exclusion group.
-    /// The value this radio button contributes to its exclGroup when selected.
-    ///
-    /// Per XFA 3.3 §4 the on-value comes from the button's `<items>` element;
-    /// falling back to deriving one from the field name only covers a button
-    /// with no `<items>` at all. Shared by `select_radio_button`, which writes
-    /// this value, and `interact`, which validates a caller's guess against it
-    /// before writing anything.
-    fn radio_on_value(&self, resolved_path: &SomPath) -> String {
-        Self::find_xfa_node_by_path(&self.nodes, resolved_path)
-            .and_then(|node| node.extract_item_values().0)
-            .unwrap_or_else(|| {
-                let button_name = resolved_path.name();
-                button_name
-                    .strip_prefix("RB_")
-                    .or_else(|| button_name.rsplit('_').next())
-                    .unwrap_or(button_name)
-                    .to_string()
-            })
+    /// The values of the check button at `path` (XFA 3.3 §17, see
+    /// [`XfaNode::check_button_values`]), shared by every press, selection
+    /// and set of a radio button or checkbox.
+    fn check_button_values(&self, path: &SomPath) -> Result<CheckButtonValues, String> {
+        let node = Self::find_xfa_node_by_path(&self.nodes, path.as_str())
+            .ok_or_else(|| format!("no field at {path}"))?;
+        let values = node.check_button_values();
+        if !values.declared {
+            log::warn!(
+                "{path} declares no <items>, so its on value is the default \"{}\"",
+                values.on
+            );
+        }
+        Ok(values)
     }
 
+    /// Select a radio button in an exclusion group: the button takes its on
+    /// value and its group the same value, which deactivates the other
+    /// members (XFA 3.3 §17 "The exclGroup element").
     pub fn select_radio_button(&mut self, radio_button_path: &str) -> Result<EventResult, String> {
         let resolved_path = self
             .som_resolver
-            .resolve_node(radio_button_path, None)
+            .resolve_node(radio_button_path)
             .ok_or_else(|| format!("Could not resolve radio button: {}", radio_button_path))?;
 
-        let button_value = self.radio_on_value(&resolved_path);
-
-        // Capture the previous value before updating for change event context.
-        let _prev_value = self
-            .script_engine
-            .get_field_value(&resolved_path)
-            .unwrap_or_default();
+        let button_value = self.check_button_values(&resolved_path)?.on;
 
         // Update engine (source of truth) and XFA node
-        self.script_engine.update_field_value(&resolved_path, "1");
+        self.script_engine.update_field_value(&resolved_path, &button_value);
 
         if let Some(node) = Self::find_xfa_node_by_path_mut(&mut self.nodes, &resolved_path) {
             node.attributes
-                .insert("rawValue".to_string(), "1".to_string());
+                .insert("rawValue".to_string(), button_value.clone());
         }
 
         let excl_group_path = self.find_parent_excl_group_by_path(&resolved_path);
@@ -1368,7 +1273,7 @@ impl XfaForm {
     pub fn interact(&mut self, field_path: &str, value: &str) -> Result<EventResult, String> {
         let resolved_path = self
             .som_resolver
-            .resolve_node(field_path, None)
+            .resolve_node(field_path)
             .ok_or_else(|| format!("Could not resolve field: {}", field_path))?;
 
         // A person cannot change a field that is not open, so neither does
@@ -1383,7 +1288,7 @@ impl XfaForm {
             .unwrap_or(false);
 
         if is_radio {
-            let on_value = self.radio_on_value(&resolved_path);
+            let on_value = self.check_button_values(&resolved_path)?.on;
             if value != on_value {
                 return Err(format!(
                     "'{value}' is not a value {field_path} can be set to; a radio button is \
@@ -1512,13 +1417,9 @@ impl XfaForm {
         }
     }
 
-    /// Find the parent exclGroup for a given field (public API)
-    pub fn find_excl_group_for_field(&self, field_name_or_path: &str) -> Option<SomPath> {
-        if field_name_or_path.contains('.') {
-            self.find_parent_excl_group_by_path(field_name_or_path)
-        } else {
-            self.find_parent_excl_group(field_name_or_path)
-        }
+    /// The exclusion group enclosing the field at `field_path`, if any.
+    pub fn find_excl_group_for_field(&self, field_path: &str) -> Option<SomPath> {
+        self.find_parent_excl_group_by_path(field_path)
     }
 
     /// Find the parent exclGroup for a given SOM path
@@ -1581,38 +1482,6 @@ impl XfaForm {
         walk_path_for_excl_group(&self.nodes, &parts, 0, None, "").map(SomPath::new)
     }
 
-    fn find_parent_excl_group(&self, field_path: &str) -> Option<SomPath> {
-        fn find_excl_group_parent(
-            nodes: &[XfaNode],
-            target_name: &str,
-            current_excl_group: Option<&str>,
-        ) -> Option<String> {
-            for node in nodes {
-                let is_excl_group = node.kind.is_exclgroup();
-
-                let excl_group_for_children = if is_excl_group {
-                    node.name.as_deref()
-                } else {
-                    current_excl_group
-                };
-
-                if node.name.as_deref() == Some(target_name) {
-                    return current_excl_group.map(|s| s.to_string());
-                }
-
-                if let Some(found) =
-                    find_excl_group_parent(&node.children, target_name, excl_group_for_children)
-                {
-                    return Some(found);
-                }
-            }
-            None
-        }
-
-        let target_name = field_path.rsplit('.').next().unwrap_or(field_path);
-        find_excl_group_parent(&self.nodes, target_name, None).map(SomPath::new)
-    }
-
     /// What a person may do with the node at `som_path`, per XFA 3.3: its
     /// own `access` combined with every enclosing subform's and exclusion
     /// group's, the most restrictive winning, because an object inherits its
@@ -1620,7 +1489,7 @@ impl XfaForm {
     /// Restrictions"; §17 `access`, precedence nonInteractive, protected,
     /// readOnly, open). `None` when the path names no node.
     pub fn effective_access(&self, som_path: &str) -> Option<EffectiveAccess> {
-        let resolved = self.som_resolver.resolve_node(som_path, None)?;
+        let resolved = self.som_resolver.resolve_node(som_path)?;
         let route = super::som::walk_som_route(&self.nodes, resolved.as_str())?;
         let (target, containers) = route.split_last()?;
         let segments: Vec<&str> = resolved.as_str().split('.').collect();
@@ -1696,11 +1565,18 @@ impl XfaForm {
             let target = parts[idx];
 
             for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
-                // Skip PageSet nodes and the XDP "form" data tree — they
-                // contain duplicates of template subform names with different
-                // (or default) presence values that would produce false
-                // positives.
+                // A pageSet is only entered when the path names it: master-
+                // page content (`TopForm.MPs.SET.MP1.Footer.Btn`) lives
+                // there, but a path that does not name it must not match
+                // the duplicates of body subform names a master page holds,
+                // with their own (or default) presence. The XDP "form"
+                // data tree is skipped for the same reason.
                 if matches!(&node.kind, XfaNodeKind::PageSet) {
+                    if node.name.as_deref().map(|n| (n, index)) == Some(target)
+                        && !node.get_presence().should_skip_render()
+                    {
+                        return walk_path(&node.children, parts, idx + 1);
+                    }
                     continue;
                 }
                 if let XfaNodeKind::Element { tag_name, .. } = &node.kind {
@@ -1709,8 +1585,11 @@ impl XfaForm {
                     }
                 }
 
+                // Not drawn, and neither is anything under it: hidden and
+                // inactive take no part in layout, invisible is laid out
+                // but not rendered, and a container's contents inherit it.
                 let node_presence = node.get_presence();
-                let is_hidden = node_presence.should_skip_layout();
+                let is_hidden = node_presence.should_skip_render();
 
                 if node.name.as_deref().map(|n| (n, index)) == Some(target) {
                     if is_hidden {
@@ -1751,11 +1630,6 @@ impl XfaForm {
         self.dirty
     }
 
-    /// Get a computed value by field name or path
-    pub fn get_computed_value(&mut self, name: &str) -> Option<String> {
-        self.script_engine.get_field_value(&SomPath::new(name))
-    }
-
     /// Get the page dimensions
     pub fn page_size(&self) -> (Num, Num) {
         (self.flattened.page.width, self.flattened.page.height)
@@ -1776,7 +1650,7 @@ impl XfaForm {
         &mut self.flattened
     }
 
-    /// Get all field names in the form
+    /// The full SOM path of every field in the layout.
     pub fn field_names(&self) -> Vec<String> {
         self.field_index_cache.keys().cloned().collect()
     }
@@ -1788,9 +1662,6 @@ impl XfaForm {
 
     /// Get the current field values from the persistent script engine.
     ///
-    /// Returns the same map used by [`refresh`] for flattening: each field's
-    /// value under its full SOM path (and, for lookups by name, its bare
-    /// name).
     /// Every field's current value, once each, under its canonical SOM path
     /// (instance indices included) -- what an interaction's before/after
     /// comparison should read.
@@ -1887,23 +1758,19 @@ impl XfaForm {
         registry
     }
 
+    /// Where each field is in the flattened layout, by its full SOM path.
     fn build_field_index_cache(flattened: &Flattened) -> HashMap<String, usize> {
-        let mut cache = HashMap::new();
-        for (idx, node) in flattened.iter_nodes().enumerate() {
-            match &node.kind {
-                FlattenedNodeKind::Field { name, .. } => {
-                    cache.insert(name.clone(), idx);
-                }
-                FlattenedNodeKind::Text {
-                    source_name: Some(name),
-                    ..
-                } => {
-                    cache.insert(name.clone(), idx);
-                }
-                _ => {}
-            }
-        }
-        cache
+        flattened
+            .iter_nodes()
+            .enumerate()
+            .filter(|(_, node)| {
+                matches!(
+                    node.kind,
+                    FlattenedNodeKind::Field { .. } | FlattenedNodeKind::Text { source_name: Some(_), .. }
+                )
+            })
+            .filter_map(|(idx, node)| Some((node.som_path()?.as_str().to_string(), idx)))
+            .collect()
     }
 
     fn find_xfa_node_by_path<'a>(nodes: &'a [XfaNode], path: &str) -> Option<&'a XfaNode> {
@@ -1924,6 +1791,20 @@ impl XfaForm {
         let changes = self.script_engine.take_access_changes();
         crate::xfa::script_executor::ScriptExecutor::apply_access_changes(&mut self.nodes, &changes);
         !changes.is_empty()
+    }
+
+    /// Write every caption text a script changed since the last sync onto
+    /// the node tree, which is what layout draws the label from.
+    fn sync_captions_from_engine(&mut self) {
+        let changes = self.script_engine.take_caption_changes();
+        crate::xfa::script_executor::ScriptExecutor::apply_caption_changes(&mut self.nodes, &changes);
+    }
+
+    /// Write every choice list a script rebuilt since the last sync onto
+    /// the node tree, which the renderer and the control listing read.
+    fn sync_items_from_engine(&mut self) {
+        let changes = self.script_engine.take_item_changes();
+        crate::xfa::script_executor::ScriptExecutor::apply_item_changes(&mut self.nodes, &changes);
     }
 
     fn apply_presence_by_path(nodes: &mut [XfaNode], som_path: &str, presence: Presence) {
@@ -1964,32 +1845,17 @@ impl XfaForm {
         }
     }
 
-    fn extract_and_register_translations(nodes: &[XfaNode], engine: &mut XfaScriptEngine) {
-        // Register <text> variables as fields using the shared helper
-        let text_vars = crate::xfa::collect_text_variables(nodes);
-        for (name, value) in &text_vars {
-            engine.register_field(name, name, value);
-        }
-
-        // Named script objects, built on first reference in their owner
-        // subform's scope (XFA 3.3 §10).
-        engine.register_script_objects(nodes);
-    }
-
-    fn build_som_hierarchy_with_values(
+    /// Apply the saved Form DOM (`<form>` packet) to the engine's already
+    /// registered entries: the merged value and the presence each saved
+    /// node opens with. Per XFA 3.3 §3 the `<form>` packet is a snapshot of
+    /// the Form DOM; on reload the Form DOM is rebuilt from the Template DOM
+    /// and then the saved content is applied as updates. No JS objects are
+    /// created here.
+    fn apply_form_packet(
         nodes: &[XfaNode],
         computed_values: &HashMap<SomPath, String>,
-        prototypes: &Prototypes,
         engine: &mut XfaScriptEngine,
     ) {
-        /// Second pass: walk `Element { tag_name: "form" }` subtrees and
-        /// update initial_presence + form_state values on entries that were
-        /// already registered by the template pass.  Does NOT create new JS
-        /// objects or touch the SOM hierarchy.
-        ///
-        /// Per XFA 3.3 §3: the `<form>` packet is a saved snapshot of the
-        /// Form DOM.  On reload the Form DOM is rebuilt from the Template DOM
-        /// and then the saved content is applied as updates.
         fn update_from_form_dom(
             nodes: &[XfaNode],
             path: &str,
@@ -2017,15 +1883,10 @@ impl XfaForm {
                     engine.update_field_presence_baseline(&som_path, &value, presence);
                 }
 
-                // Recurse into children of the form DOM subtree.
                 update_from_form_dom(&node.children, &node_path, computed_values, engine);
             }
         }
 
-        // Pass 1: Register Template DOM nodes (skip <form> subtrees).
-        register_fields(nodes, "", computed_values, prototypes, engine, false);
-
-        // Pass 2: Apply Form DOM state to already-registered entries.
         for node in nodes {
             if matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "form") {
                 update_from_form_dom(&node.children, "", computed_values, engine);
@@ -2042,147 +1903,8 @@ fn get_node_value(
     if let Some(value) = computed_values.get(path) {
         return value.clone();
     }
-    if let Some(name) = &node.name
-        && let Some(value) = computed_values.get(name.as_str())
-    {
-        return value.clone();
-    }
     if let Some(raw) = node.attributes.get("rawValue") {
         return raw.clone();
     }
     node.template_value().unwrap_or_default()
-}
-
-/// First pass: register Template DOM nodes in the SOM hierarchy.
-/// Skips `Element { tag_name: "form" }` subtrees — those are handled
-/// by the second pass below.
-fn register_fields(
-    nodes: &[XfaNode],
-    path: &str,
-    computed_values: &HashMap<SomPath, String>,
-    prototypes: &Prototypes,
-    engine: &mut XfaScriptEngine,
-    parent_is_exclgroup: bool,
-) {
-    for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
-        // Skip the Form DOM packet entirely — it is processed in a
-        // dedicated second pass that only updates existing entries.
-        if matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "form") {
-            continue;
-        }
-
-        let node_path = match &node.name {
-            Some(name) => child_som_path(path, name, index),
-            None => path.to_string(),
-        };
-        register_node_at(
-            node,
-            &node_path,
-            path,
-            computed_values,
-            prototypes,
-            engine,
-            parent_is_exclgroup,
-        );
-    }
-}
-
-/// Register one node at `node_path` (its parent at `path`), then its
-/// descendants. Split from [`register_fields`] so a single new instance of a
-/// repeated section can be registered at its own index.
-fn register_node_at(
-    node: &XfaNode,
-    node_path: &str,
-    path: &str,
-    computed_values: &HashMap<SomPath, String>,
-    prototypes: &Prototypes,
-    engine: &mut XfaScriptEngine,
-    parent_is_exclgroup: bool,
-) {
-    let node_path = node_path.to_string();
-
-    let is_excl_group = node.kind.is_exclgroup();
-
-    let is_draw = node.kind.is_draw();
-
-    let is_field = node.kind.is_field();
-    let is_subform = node.kind.is_subform();
-    // A pageSet or pageArea extends the path of what it holds, so it needs
-    // an object too: master-page content is linked into it (`$.parent` of a
-    // footer field is its pageArea), and the walk up continues to the root.
-    let is_page_container = matches!(node.kind, XfaNodeKind::PageSet | XfaNodeKind::PageArea);
-
-    if is_page_container && let Some(name) = &node.name {
-        engine.register_field_with_presence(&node_path, name, "", "visible", true);
-    }
-
-    if (is_field || is_subform || is_excl_group || is_draw)
-        && let Some(name) = &node.name
-    {
-        let value = get_node_value(node, &node_path, computed_values);
-        let initial_presence = node.get_presence().as_str();
-
-        if parent_is_exclgroup {
-            // Extract item values from <items> for exclGroup
-            // parent→child propagation (XFA 3.3 §4 pp.195-197,
-            // §17 pp.758-759).
-            let (item_key, off_value) = node.extract_item_values();
-            // A choice-list field's own <items>, seeding its
-            // addItem/clearItems/... methods (§6) -- unusual
-            // inside an exclGroup, but harmless to keep populated
-            // exactly like the non-exclGroup path below.
-            let choice_items = if is_field {
-                node.extract_choice_list_items()
-            } else {
-                Vec::new()
-            };
-
-            // Use register_xfa_node with structural exclGroup info
-            // so _exclGroupParent linkage is set up correctly.
-            engine.register_xfa_node(
-                name,
-                &node_path,
-                if path.is_empty() { None } else { Some(path) },
-                is_field,
-                &value,
-                true,
-                item_key.as_deref(),
-                off_value.as_deref(),
-                initial_presence,
-                &choice_items,
-            );
-        } else {
-            engine.register_field_with_presence(
-                &node_path,
-                name,
-                &value,
-                initial_presence,
-                is_subform,
-            );
-        }
-
-        // `access` is a property of field, exclGroup and subform only
-        // (XFA 3.3 §17); a draw has none.
-        if !is_draw {
-            engine.init_access(&node_path, node.get_access());
-        }
-
-        // Every repeatable declared under this subform gets its
-        // occurrence limits, even one with no instance yet.
-        if is_subform {
-            let parent = SomPath::new(&node_path);
-            for (child, prototype) in prototypes.repeatables_under(&parent) {
-                engine.install_instance_manager(&parent, child, &prototype.occur);
-            }
-        }
-    }
-
-    register_fields(
-        &node.children,
-        &node_path,
-        computed_values,
-        prototypes,
-        engine,
-        is_excl_group,
-    );
 }

@@ -109,13 +109,17 @@ fn the_aaaa_add_button_has_a_gradient_fill_and_round_corners() {
                 && n.border
                     .as_ref()
                     .and_then(|b| b.fill.as_ref())
-                    .is_some_and(|f| f.linear.is_some() && f.color == Some((154, 170, 113)));
+                    .is_some_and(|f| {
+                        matches!(f.kind, u2s_xfa::xfa::FillKind::Linear(_)) && f.color == Some((154, 170, 113))
+                    });
             if is_add { Some(n) } else { find_add_button(&n.children) }
         })
     }
     let button = find_add_button(&nodes).expect("an add button with a gradient fill");
     let border = button.border.as_ref().expect("border");
-    let linear = border.fill.as_ref().and_then(|f| f.linear).expect("linear");
+    let u2s_xfa::xfa::FillKind::Linear(linear) = border.fill.as_ref().expect("fill").kind else {
+        panic!("a linear fill");
+    };
     assert_eq!(linear.direction, u2s_xfa::xfa::GradientDirection::ToBottom);
     assert_eq!(linear.end, (120, 141, 65));
     let corner = border.get_corner(0).expect("corner");

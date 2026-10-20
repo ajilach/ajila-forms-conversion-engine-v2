@@ -1,0 +1,42 @@
+# Takes over the entity-line half of the former ubs-aem-banking-relationship-present and the
+# former ubs-aem-infobox-dor-copy, which mirrored `infobox_dor_copy.py` (PROBLEM-infobox-dor-copy)
+# of the feedback repo for the part the writer's normalize pass (`copy_infobox_into_the_dor`) does
+# not repair: it excludes an on-screen infobox from the DoR and adds the hidden copy when there is
+# none, but leaves a hidden infobox fragment the document already carries exactly as authored.
+id = "ubs-aem-issuer-information"
+title = "The issuer prints once; its registration text last"
+output_formats = ["aem-ubs"]
+description = """
+The issuing entity in the top right corner of page 1 ("UBS Europe SE", "UBS Europe SE (Succursale
+Italia)", "UBS Switzerland AG") is the page header's `slot2` line, and the validity line under it
+("Gültig ab 02.01.2018") its `slot3` line (ubs-aem-dor-header-slots). Neither is ever authored
+as body text (UBS-PAGE-2): not as a `TextDraw`, `TitleDraw` or `MessageBox` on a page, nor as the
+subtitle (ubs-aem-form-title). A paragraph that only mentions the bank is not the issuer. The one exception
+is the heading right above the bank's signature (UBS-SIG-6): a draw followed, past other static
+draws only, by the signature (`affrg_SignatureGeneric1`, or the Repeatable or Panel holding it).
+A letter's closing above the bank's officers is that case too (ubs-aem-letter-bank-signature).
+
+The legal registration text of the issuing entity (UBS-PAGE-6: seat, commercial register,
+supervisory authority, deposit protection; 6.5 pt master-page text, usually on the last page: a draw
+under the template's `pageSet`, xfa_search and xfa_node) is not a footnote (UBS-FN-1). For the
+Italian branch (`formrange_entity` 033) the profile defines it: it is the Italy infobox, one
+`Fragment` with `frag_ref`
+`/content/dam/formsanddocuments/afforms_italy_fragmentlib/affrg_italy_infobox`, the last component
+of the last page (the last `Panel` under `form` with `is_page: true`), on every such form, also
+where the source does not print it. Only hidden nodes, the internal-bank-use fragment and a
+footnote placeholder may follow it. No other entity's form carries that fragment. For another
+entity, a registration text the source prints is one `TextDraw` at the end of the last page.
+
+The writer excludes the on-screen infobox from the Document of Record and adds a hidden copy that
+prints it at the end of the finished document, so do not author the copy. A hidden copy already in
+the document reaches the PDF only as a `Fragment` with `visible: false`, `always_in_pdf: true` and
+`summary_exclude: true`, without `dor_exclude`, inside the last page.
+
+Reported: a body draw whose first line is an issuer line (the pattern above, or a line of the
+`slot2` draw), or whose only line is a validity line, unless it heads the bank's signature; for
+entity 033 a missing, second or misplaced infobox; for another entity any visible infobox; a
+hidden copy missing a flag, carrying `dor_exclude` or outside the last page.
+
+Fix: delete the issuer or validity draw; add, move or delete the infobox; set the copy's flags. The
+fix script adds a missing infobox and repairs a copy's flags.
+"""

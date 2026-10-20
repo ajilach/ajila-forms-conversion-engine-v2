@@ -13,8 +13,8 @@
 //!
 //! Each pass is the counterpart of one expansion in `super::lower`.
 
-use super::xml_writer::{repeat_panel_name, repeat_row_name};
-use super::{AemAttrs, AemNode};
+use super::xml_writer::{name_fill_anchor, repeat_panel_name, repeat_row_name};
+use super::{AemAttrs, AemNode, FragmentInit};
 
 /// The form metadata fragment the form chrome writes into every form.
 const FORM_METADATA: &str = "FormMetadata";
@@ -171,8 +171,7 @@ fn fold(node: AemNode) -> AemNode {
             visible,
             bind_ref,
             // Read back from the package's Initialize rule after decoding.
-            init_hide: Vec::new(),
-            init_show: Vec::new(),
+            init: FragmentInit::default(),
         },
         AemNode::Panel { .. } => match repeatable(&node) {
             Some(repeatable) => fold_children(repeatable),
@@ -276,6 +275,12 @@ fn repeatable(panel: &AemNode) -> Option<AemNode> {
     else {
         return None;
     };
+    // The hidden field a signature's name fill runs on is the writer's too.
+    let anchor = name_fill_anchor(name);
+    let children: Vec<&AemNode> = children
+        .iter()
+        .filter(|c| !matches!(c, AemNode::TextField { name, .. } if *name == anchor))
+        .collect();
     let [
         AemNode::Repeatable {
             name: repeat,

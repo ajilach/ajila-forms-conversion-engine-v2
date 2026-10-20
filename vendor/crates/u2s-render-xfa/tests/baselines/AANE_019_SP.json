@@ -1,0 +1,404 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Relación bancaria\n0319 00\nUBS Europe SE\nCarta de declaración para clientes sobre su consideración de personas estadounidenses conforme a la SEC y ERISA\nTitular de la cuenta (en lo sucesivo, el Cliente)\nEntidad\nDeclaraciones del Cliente\nEl Cliente declara y garantiza que, en la fecha de suscripción de la presente declaración y en todo momento hasta la resolución de la relación bancaria con UBS Europe SE (\"UBS\"), el Cliente no actúa ni actuará en nombre de una Persona Estadounidense. Se considera que una Persona Estadounidense es aquélla que:\n1.\nsea persona estadounidense conforme al significado que se le atribuye a este término en el Reglamento S de la Ley estadounidense de valores (Securities Act) de 1933 (17 CFR § 230.902(k));\n(i)\nsea un fideicomiso, una entidad u otra estructura que se constituyan con el fin de permitir que personas estadounidenses indirectamente realicen inversiones u obtengan servicios que de otro modo no se estarían disponibles directamente para personas estadounidenses;\n(ii)\nse encuentre en Estados Unidos conforme a la definición que se le atribuye a este concepto en la Norma 202(a) (30)-1 de la Ley estadounidense de asesores de inversión (Investment Advisers Act) de 1940, en su versión modificada; o que\n(iii)\nsea un fideicomiso, una entidad o una estructura en los cuales el 100% de los derechos sean gozados por personas estadounidenses descritas en los incisos (i), (ii) o (iii) antes mencionados.\n(iv)\nEl Cliente entiende que UBS no se encuentra autorizado para ofrecer la contratación de servicios de custodia u otros relativos a valores a personas ubicadas físicamente en Estados Unidos; asimismo, el Cliente manifiesta no haber designado, y acepta no designar, a dichas personas para que representen al Cliente cuando interactúen con UBS.\nAdemás, el Cliente declara y garantiza que en la fecha de suscripción de la presente declaración y en todo momento hasta la resolución de la relación bancaria con UBS, el Cliente no actúa ni actuará en nombre de:\n2.\nun \"plan de prestaciones para empleados\" conforme a la definición que se le atribuye a este concepto en el Artículo 3(3) de la Ley estadounidense de garantía de ingresos por jubilación del empleado (Employee Retirement Income Security Act) de 1974, en su versión modificada (\"ERISA\") supeditado al Título I de la ERISA,\n(i)\nun \"plan\" conforme a la definición que se le atribuye a este término en el Artículo 4975(e)(1) del Código fiscal de Estados Unidos (Internal Revenue Code) de 1986, en su versión modificada (\"IRC\"),\n(ii)\nuna entidad cuyos activos subyacentes incluyan \"activos de plan\" con supeditación al Título I de la ERISA o el Artículo 4975 del IRC o\n(iii)\nun plan gubernamental o de otro tipo (o una entidad cuyos activos se considere que incluyen los activos de cualesquiera tales planes gubernamentales o de otro tipo) supeditado a cualquier ley, norma o restricción análoga al Artículo 406 de la ERISA o el Artículo 4975 del IRC.\n(iv)\nEl Cliente comunicará a UBS todo caso del que tenga constancia de incumplimiento, posible o efectivo, de cualquiera de las declaraciones incluidas en la presente cláusula y entiende que en caso de que el Cliente infrinja o pudiera infringir cualesquiera tales declaraciones, es posible que UBS no pudiera prestar servicios bancarios y/o de valores al Cliente en cualquiera de sus cuentas con UBS.\nSi en cualquier momento el Cliente solicitara servicios con derivados de UBS, se solicitará al Cliente aportar carta adicional en que declare su consideración de persona no estadounidense a efectos de los servicios con derivados regulados por la CFTC.\nFirma(s)\nLugar\nFecha\nFirma del cliente\nNombre del cliente\nSólo para uso interno del banco\nFirma(s) comprobada(s) / Firmado en mi presencia\nRef. UO\nVisto\n0101665150501001501202601018\n66515\nSP\nV0\n019\nAANE\n23.08.2021\nN1\n15.01.2026\nPágina 1/1"
+  ],
+  "raster": [
+    "0333130183ebffdc"
+  ],
+  "controls": {
+    "UBSForms.MPs.MP.Barcode": {
+      "value": "0101665150501001501202601018",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AANE",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "SP",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "23.08.2021",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Página 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.txtformid": {
+      "value": "66515",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Barcode": {
+      "value": "0101665150501001501202601018",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AANE",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "SP",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerModDate": {
+      "value": "23.08.2021",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Página 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.txtformid": {
+      "value": "66515",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.OU_Ref": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          795.4,
+          112.700005,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffForInternalBankUse": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffOuRef": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffSignatureVerified": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffUpSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Account_Holder.STP_Entity.Entity": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          181.5,
+          496.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.SectionTitle.FF_Signature_s": {
+      "value": "Firma(s)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          622.7,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          594.4,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          594.4,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.ffDesDate": {
+      "value": "Fecha",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesFullName": {
+      "value": "Nombre del cliente",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesPlace": {
+      "value": "Lugar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesSignature": {
+      "value": "Firma del cliente",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

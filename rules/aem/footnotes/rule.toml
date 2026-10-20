@@ -1,24 +1,32 @@
-# Mirrors the two automatable shapes of `find_footnote_noncanonical.py`
-# (PROBLEM-footnote-modernize): `add_placeholder` (footnote references, no placeholder) and
-# `remove_placeholder` (a placeholder, no references). Its third shape, the legacy accordion
+# Mirrors the two automatable shapes of `find_footnote_noncanonical.py` (PROBLEM-footnote-modernize),
+# per page as the backlog decides ("a footnote placeholder in every step that contains a reference"):
+# `add_placeholder` and `remove_placeholder`. Its third shape, the legacy accordion
 # (`css="ubsAccordionFootnote"`), is not checked: the detector only counts it when every marker in
 # the body resolves to a footnote text in the accordion, which needs the rendered markers.
 id = "ubs-aem-footnotes"
-title = "Footnote references and the footnote placeholder go together"
+title = "Footnotes: described references, one placeholder"
 output_formats = ["aem-ubs"]
 description = """
-UBS forms model a footnote as an inline reference in a rich text,
-`<span data-af-footnote-id="ID"><sup>#</sup></span>`, followed by its hidden description
-`<p id="ID" class="footnoteDescription"><span class="footnoteDescText">TEXT</span></p>`, and show
-them all through a `FootnotePlaceholder` node ("The footnotes will appear here") on the page.
-The two stand or fall together:
+A footnote marker in the source is a digit or symbol set smaller and raised after a word
+(xfa_render_region of the line; in the template, xfa_node, a smaller `font` size or a raised
+`baselineShift`); the footnote texts are small texts (6.5 pt in UBS sources), usually master-page
+text (draws under the template's `pageSet`) of the last page, each starting with its marker (CNV-SRC-13, UBS-FN-1). The issuing entity's legal
+registration text is not a footnote.
 
-- A text in the document carries a footnote reference (`data-af-footnote-id`) but the form has no
-  `FootnotePlaceholder` node: add one to the page holding the references (usually at its end), or
-  the references number nothing and show no text.
-- The form has a `FootnotePlaceholder` node but no text carries a footnote reference: delete the
-  node.
+Each place the source shows a marker, in a text, title, label or option label, carries an inline
+reference in every language, `<span data-af-footnote-id="ID"><sup>#</sup></span>`, followed in the
+same text by its hidden description,
+`<p id="ID" class="footnoteDescription" style="display: none;"><span class="footnoteDescText">TEXT</span></p>`,
+whose TEXT is the footnote without its marker (CNV-FN-1; several footnotes fused in one source
+paragraph are split). The number is never typed. Each page holding a reference has one
+`FootnotePlaceholder` ("The footnotes will appear here"), usually at its end, and a page without
+one has none. A reference in a page `title` stays: its step-title draw renders it, and its
+description may sit in a text of that page; a panel title below page level keeps none
+(ubs-aem-headings-rendered-once).
 
-Superscript digits typed into a text (`<sup>1</sup>`, `¹`) are not footnote references; write the
-reference and its description in the shape above.
+Reported: a page with a reference and no placeholder (at each reference), a placeholder on a page
+without a reference, a second placeholder on a page, a reference with no description (or a
+description no text references), a text whose languages mark different footnotes, and a
+superscript digit typed as a character (`¹`) in rich text: a footnote marker is a reference, any
+other superscript is `<sup>` (UBS-TXT-5).
 """

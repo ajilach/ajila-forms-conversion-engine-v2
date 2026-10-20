@@ -22,7 +22,8 @@
 use crate::flattened::{FieldAccess, PageOverrides};
 use crate::xfa::instances::Prototypes;
 use crate::xfa::scripting::som::SomResolver;
-use crate::xfa::scripting::som::{child_som_path, sibling_indices};
+use crate::xfa::scripting::som::{child_som_path, sibling_indices, walk_som_path};
+use crate::xfa::scripting::form::XfaNodeRef;
 use crate::xfa::scripting::{
     EventActivity, EventRef, Presence, ScriptContentType, SomPath, XfaScript, XfaScriptEngine,
     parse_events_from_node,
@@ -47,8 +48,7 @@ type ChildNameIdPair = (String, String);
 ///   are the only ones that should run while that page is being evaluated.
 /// - post_order: this event's rank in a *post-order* (children-before-parent)
 ///   depth-first traversal of the Form DOM, used only to order Phase 1
-///   (initialize events, see that phase for why). Every other phase keeps
-///   using the vector's own (pre-order/document) position.
+///   (initialize); see that phase for why.
 type EventWithChildren = (
     String,
     String,
@@ -70,6 +70,14 @@ pub struct ScriptExecutionResult {
     /// initialize script, say), under each node's canonical SOM path, to
     /// apply with [`ScriptExecutor::apply_access_changes`].
     pub access_changes: Vec<(SomPath, FieldAccess)>,
+    /// Caption texts the scripts set (`caption.value.#text`), under each
+    /// node's canonical SOM path, to apply with
+    /// [`ScriptExecutor::apply_caption_changes`].
+    pub caption_changes: Vec<(SomPath, String)>,
+    /// Choice lists the scripts built (`addItem`, `clearItems`), under each
+    /// field's canonical SOM path, to apply with
+    /// [`ScriptExecutor::apply_item_changes`].
+    pub item_changes: Vec<(SomPath, Vec<(String, String)>)>,
     /// The dialogs the load-time scripts raised and the scripts that failed.
     pub script_report: crate::xfa::scripting::ScriptReport,
 }
@@ -80,48 +88,96 @@ pub struct PresenceChange {
     /// The node's full SOM path, instance indices included -- what tells
     /// one instance of a repeated section from another.
     pub path: String,
-    /// Its bare name, the fallback for a node the path does not reach.
-    pub name: String,
-    /// Its `id`, when it has one.
-    pub id: Option<String>,
     pub presence: Presence,
 }
 
-/// The live script engine, kept after the document-wide pass so that
-/// master-page scripts can be evaluated again once the page count is known.
+/// The master-page scripts, kept after the document-wide pass so that they
+/// can be evaluated again once the page count is known.
 ///
 /// Page-dependent scripts -- "Pagina 2 di 3", a barcode that encodes the page
 /// number, a block that appears on the first page only -- cannot be evaluated
 /// during the first pass, because how many pages there are is a *result* of
-/// laying the body out. They are therefore run once more per page, against the
-/// same engine (so the form's script objects and variables are still there),
-/// with `xfa.layout` and the pageArea's `index` pointing at that page.
+/// laying the body out. They are therefore run once more per page, in the
+/// form's own engine (the one the pass ran in, so the form's script objects
+/// and variables are still there, with every body script's effects in
+/// place), with `xfa.layout` and the pageArea's `index` pointing at that
+/// page.
 pub struct LayoutScripts {
-    engine: XfaScriptEngine,
     events: Vec<EventWithChildren>,
-    /// Which events belong to a master page: (node name, full SOM path).
-    master_keys: HashSet<(String, String)>,
+    /// The full SOM path of every node inside a pageArea, with the value
+    /// its template gives it (a field's or draw's `<value>`; `None` for
+    /// anything else).
+    master_keys: HashMap<String, Option<String>>,
     /// The master-page scripts that failed since the last
     /// [`take_failures`](Self::take_failures), each tagged with its page.
     page_failures: Vec<crate::xfa::scripting::ScriptFailure>,
 }
 
+/// The scripting environment the document-wide pass ran in, handed to the
+/// form that keeps it, with the master-page scripts to run again per page.
+pub struct LoadedScripts {
+    pub engine: XfaScriptEngine,
+    pub layout: LayoutScripts,
+}
+
+/// The master-page nodes' state as the form holds it outside the per-page
+/// pass: each field's value (what the person typed into a header field,
+/// what body scripts wrote there) and each node's presence (what a body
+/// script hid). It is taken with [`LayoutScripts::master_state`] before
+/// the pages are evaluated and put back with
+/// [`LayoutScripts::restore_master`] afterwards, so the pass leaves no
+/// page's own answers in the form.
+pub struct MasterState {
+    values: Vec<(String, String)>,
+    presence: HashMap<String, String>,
+}
+
 impl LayoutScripts {
-    /// Feed the master-page engine the body's settled values.
-    ///
-    /// This engine was built once, at the document-wide pass, and normally
-    /// only ever re-evaluates its own master-page scripts. An interaction
-    /// changes the body's values in a *different* engine (`XfaForm`'s), so
-    /// without this the master engine would keep computing footers like
-    /// "page 1 of 3" against pre-interaction values -- correct at open time,
-    /// stale after the first mutation.
-    pub fn sync_values(&mut self, values: &HashMap<SomPath, String>) {
-        for (path, value) in values {
-            self.engine.update_field_value(path.as_str(), value);
+    pub fn master_state(&self, engine: &mut XfaScriptEngine) -> MasterState {
+        let mut values = Vec::new();
+        let mut presence = HashMap::new();
+        for path in self.master_keys.keys() {
+            if let Some(value) = engine.get_som_field_value(path) {
+                values.push((path.clone(), value));
+            }
+            if let Some(p) = engine.get_js_presence(path) {
+                presence.insert(path.clone(), p);
+            }
+        }
+        MasterState { values, presence }
+    }
+
+    /// What a page's scripts start from (XFA 3.3 §8 "Master Pages": each
+    /// page's master content is instantiated afresh): a field's template
+    /// value, so a script guarded by `if (!this.rawValue)` computes this
+    /// page's footer rather than keeping the document-wide pass's; the
+    /// presence the form holds (`state`), so a block a body script hid stays
+    /// hidden on every page; `access` and caption at their baselines.
+    fn start_page(&self, engine: &mut XfaScriptEngine, state: &MasterState) {
+        for (path, template_value) in &self.master_keys {
+            engine.update_field_value(path, template_value.as_deref().unwrap_or(""));
+            engine.reset_to_baseline(path);
+        }
+        for (path, presence) in &state.presence {
+            engine.set_js_presence(&SomPath::new(path), presence);
         }
     }
 
-    /// Evaluate the master-page scripts as they stand on one page.
+    /// Put every master-page node back to `state` (its value and presence),
+    /// and its `access` and caption to their baselines: what the engine,
+    /// which the form goes on interacting in, is left with once the pages
+    /// are laid out, so a typed header value survives the pass and a master
+    /// script's per-page lock (AAGS_019_DE's account number) is not
+    /// reported as the next interaction's doing.
+    pub fn restore_master(&self, engine: &mut XfaScriptEngine, state: &MasterState) {
+        self.start_page(engine, state);
+        for (path, value) in &state.values {
+            engine.update_field_value(path, value);
+        }
+    }
+
+    /// Evaluate the master-page scripts as they stand on one page, in
+    /// `engine`, the form's own, starting from `state`.
     ///
     /// `page_area` is the name of the pageArea chosen for this page (XFA 3.3
     /// §8: each page has exactly one). Master events that belong to a
@@ -133,31 +189,23 @@ impl LayoutScripts {
     ///
     /// Returns only what this page's scripts produced, which the flattener lays
     /// over the document-wide values for that page alone.
-    pub fn evaluate(&mut self, page_area: &str, page_index: usize, page_count: usize) -> PageOverrides {
-        self.engine.set_layout_context(page_index, page_count);
-        // Whatever ran in this engine before this page (a body-value sync)
-        // is not this page's to report.
-        self.engine.take_report();
+    pub fn evaluate(
+        &mut self,
+        engine: &mut XfaScriptEngine,
+        state: &MasterState,
+        page_area: &str,
+        page_index: usize,
+        page_count: usize,
+    ) -> PageOverrides {
+        engine.set_layout_context(page_index, page_count);
+        // Whatever ran in this engine before this page is not this page's
+        // to report.
+        engine.take_report();
 
-        // Clear the master fields before each page.
-        //
-        // These scripts guard themselves with `if (!this.rawValue)`, so a value
-        // left over from the previous page -- or from the document-wide pass --
-        // would stop them recomputing and page 3 would be stamped "Pagina 1/1".
-        // Emptying them is what makes each page ask the question again; a field
-        // whose script does not refill it falls back to the document-wide value,
-        // because empty results are dropped from the overrides below.
-        //
-        // Presence is reset the same way, back to what the template declared:
-        // a page's own scripts (or another node's script reaching into this
-        // one, e.g. `mp.FIM_Off.presence = "hidden"`) must start from the
-        // template baseline each time, not from whatever the previous page's
-        // evaluation -- or the document-wide phase-1 pass -- left it at.
-        for (name, full_path) in &self.master_keys {
-            self.engine.update_field_value(full_path, "");
-            self.engine.update_field_value(name, "");
-            self.engine.reset_presence_to_template(full_path);
-        }
+        // A field whose script does not refill it falls back to the
+        // document-wide value, because empty results are dropped from the
+        // overrides below.
+        self.start_page(engine, state);
 
         let mut overrides = PageOverrides::default();
         for (field_name, full_path, child_fields, script, _presence, event_page_area, _post_order) in
@@ -174,10 +222,7 @@ impl LayoutScripts {
             ) {
                 continue;
             }
-            if !self
-                .master_keys
-                .contains(&(field_name.clone(), full_path.clone()))
-            {
+            if !self.master_keys.contains_key(full_path) {
                 continue;
             }
             // This node's master content is not on this page at all (it
@@ -191,20 +236,19 @@ impl LayoutScripts {
                 continue;
             }
 
-            self.engine
-                .set_current_field_with_children(full_path, field_name, "", child_fields);
-            self.engine
-                .update_event_context(&script.activity, full_path, None);
+            engine.set_current_field_with_children(full_path, field_name, "", child_fields);
+            engine.update_event_context(&script.activity, full_path, None);
             // A failure is recorded by the engine and collected below.
-            let _ = self.engine.execute_script(script);
+            let _ = engine.execute_script(script);
 
-            if let Some(presence) = self.engine.get_current_field_presence() {
-                overrides.presence.insert(field_name.clone(), presence);
+            if let Some(presence) = engine.get_current_field_presence() {
                 overrides.presence.insert(full_path.clone(), presence);
             }
             for (child_name, _) in child_fields {
-                if let Some((_, presence)) = self.engine.get_child_field_presence(child_name) {
-                    overrides.presence.insert(child_name.clone(), presence);
+                if let Some((_, presence)) = engine.get_child_field_presence(child_name) {
+                    overrides
+                        .presence
+                        .insert(format!("{full_path}.{child_name}"), presence);
                 }
             }
         }
@@ -212,12 +256,7 @@ impl LayoutScripts {
         // Only what this page actually produced. An empty result is the
         // absence of an answer, not an answer of "", and must let the
         // document-wide value through.
-        for (name, value) in self.engine.get_all_som_field_values() {
-            if !value.is_empty() {
-                overrides.values.insert(SomPath::new(name), value);
-            }
-        }
-        for (path, value) in self.engine.get_all_som_field_values_by_path() {
+        for (path, value) in engine.get_all_som_field_values_by_path() {
             if !value.is_empty() {
                 overrides.values.insert(SomPath::new(path), value);
             }
@@ -226,27 +265,31 @@ impl LayoutScripts {
         // Presence written to a master node *other* than the one whose script
         // ran (e.g. `mp.FIM_Off.presence = "hidden"` set from a sibling's
         // initialize event) is not captured by `get_current_field_presence`
-        // above, which only reads the executing node (`_xfa_this_`). Compare
-        // every master node against its own template baseline directly
-        // instead of `get_all_som_presence_changes`, which diffs against the
-        // engine-wide `initial_presence` map -- rebased by the document-wide
-        // pass (`ScriptExecutor::execute_internal`'s `update_initial_presence`
-        // call) to a value that has nothing to do with which page is being
-        // laid out.
-        let master_paths: Vec<String> =
-            self.master_keys.iter().map(|(_, path)| path.clone()).collect();
-        for (path, presence) in self.engine.presence_vs_template(&master_paths) {
-            let p: Presence = presence.parse().unwrap_or_default();
-            if let Some(leaf) = path.rsplit('.').next() {
-                overrides.presence.insert(leaf.to_string(), p);
+        // above, which only reads the executing node (`_xfa_this_`). A
+        // master node's presence is this page's answer whenever it is not
+        // the template's (the flattener instantiates master content from
+        // the template) or not what the form holds in `state` (AALU_019_DE's
+        // barcode: hidden by the document-wide pass, which has no layout to
+        // compute it from, and shown again by each page).
+        for path in self.master_keys.keys() {
+            let Some(current) = engine.get_js_presence(path) else {
+                continue;
+            };
+            let same_as =
+                |other: Option<&String>| other.is_some_and(|o| o.eq_ignore_ascii_case(&current));
+            if same_as(state.presence.get(path))
+                && same_as(engine.get_template_presence(path).as_ref())
+            {
+                continue;
             }
-            overrides.presence.insert(path, p);
+            let p: Presence = current.parse().unwrap_or_default();
+            overrides.presence.insert(path.clone(), p);
         }
 
         // A dialog a master-page script raises would be raised again by every
         // page of every relayout; the document-wide pass already reported it
         // once, so only failures are kept.
-        let report = self.engine.take_report();
+        let report = engine.take_report();
         if self.page_failures.len() < MAX_RECORDED_SCRIPT_ERRORS {
             self.page_failures
                 .extend(report.errors.into_iter().map(|mut failure| {
@@ -304,7 +347,7 @@ impl ScriptExecutor {
     pub fn execute_with_layout(
         xfa_nodes: &mut Vec<XfaNode>,
         prototypes: &mut Prototypes,
-    ) -> (ScriptExecutionResult, Option<LayoutScripts>) {
+    ) -> (ScriptExecutionResult, Option<LoadedScripts>) {
         // A pass that fails part-way must not leave a half-changed Form DOM
         // behind for the caller to lay out.
         let snapshot = (xfa_nodes.clone(), prototypes.clone());
@@ -325,21 +368,14 @@ impl ScriptExecutor {
     fn execute_internal(
         xfa_nodes: &mut [XfaNode],
         prototypes: &mut Prototypes,
-    ) -> Result<(ScriptExecutionResult, LayoutScripts), String> {
+    ) -> Result<(ScriptExecutionResult, LoadedScripts), String> {
         let mut computed_values = HashMap::new();
         let mut presence_changes: Vec<PresenceChange> = Vec::new();
+        // The template as it is before any script runs: what
+        // `xfa.host.resetData` resets a field to.
+        let pristine = xfa_nodes.to_vec();
         let mut engine = XfaScriptEngine::new();
-
-        // Extract and register translation objects from the XFA
-        // (includes Footer_Line_txtlanguage, Footer_Line_txtformid, etc.)
-        Self::extract_and_register_translations(xfa_nodes, &mut engine);
-
-        // Build the XFA SOM hierarchy for unqualified references
-        Self::build_and_register_xfa_som_hierarchy(xfa_nodes, prototypes, &mut engine);
-
-        // Named script objects, built on first reference in their owner
-        // subform's scope (XFA 3.3 §10), so the owners must exist first.
-        engine.register_script_objects(xfa_nodes);
+        Self::prepare_engine(xfa_nodes, prototypes, &mut engine);
 
         let mut all_events = Self::scan_events(xfa_nodes, &mut engine);
 
@@ -382,9 +418,13 @@ impl ScriptExecutor {
         for iteration in 0..max_calc_iterations {
             let mut any_changed = false;
 
-            for (field_name, full_path, child_fields, script, _presence, _page_area, _post_order) in
+            let inactive = Self::build_full_path_presence_map(&presence_changes);
+            for (field_name, full_path, child_fields, script, static_presence, _page_area, _post_order) in
                 &calc_events
             {
+                if Self::is_effectively_inactive(full_path, *static_presence, &inactive) {
+                    continue;
+                }
                 engine.set_current_field_with_children(full_path, field_name, "", child_fields);
                 engine.update_event_context(&EventActivity::Calculate, full_path, None);
 
@@ -399,12 +439,11 @@ impl ScriptExecutor {
                         any_changed = true;
                     }
                     engine.update_field_value(&SomPath::new(full_path.clone()), &value);
-                    computed_values.insert(SomPath::new(field_name.clone()), value.clone());
                     computed_values.insert(SomPath::new(full_path.clone()), value);
                 }
 
                 // Collect values set on fields during calculation (side effects)
-                let calc_som_values = engine.get_all_som_field_values();
+                let calc_som_values = engine.get_all_som_field_values_by_path();
                 for (calc_field_name, calc_value) in calc_som_values {
                     let key = SomPath::new(calc_field_name);
                     if computed_values.get(&key) != Some(&calc_value) {
@@ -441,18 +480,20 @@ impl ScriptExecutor {
         // initialize events. Validate scripts are executed but their results
         // are informational (validation state), not value-replacing.
         // However, validate scripts may set rawValue as a side effect.
-        for (field_name, full_path, child_fields, script, _presence, _page_area, _post_order) in
+        let inactive = Self::build_full_path_presence_map(&presence_changes);
+        for (field_name, full_path, child_fields, script, static_presence, _page_area, _post_order) in
             &all_events
         {
             if script.content_type == ScriptContentType::JavaScript
                 && script.activity == EventActivity::Validate
+                && !Self::is_effectively_inactive(full_path, *static_presence, &inactive)
             {
                 engine.set_current_field_with_children(full_path, field_name, "", child_fields);
                 engine.update_event_context(&EventActivity::Validate, full_path, None);
                 let _ = engine.execute_script(script);
 
                 // Collect any side-effect values set during validation
-                let validate_som_values = engine.get_all_som_field_values();
+                let validate_som_values = engine.get_all_som_field_values_by_path();
                 for (vf_name, vf_value) in validate_som_values {
                     computed_values.insert(SomPath::new(vf_name), vf_value);
                 }
@@ -472,24 +513,24 @@ impl ScriptExecutor {
         // Per XFA 3.3 §10 p.407 Rule 1: "The property is inspected at the
         // moment that the calculation, validation, or event would be triggered."
         // We maintain a running presence map so that if an earlier init script
-        // sets a sibling's presence to inactive, subsequent init events for
-        // that sibling are suppressed within the same phase.
+        // sets a later field to inactive, that field's init script is skipped.
         //
-        // Per XFA 3.3 §10 p.407 Rule 3, initialize events fire "in order of
-        // depth-first traversal of the Form DOM", which does not by itself
-        // say whether a container fires before or after its descendants. A
-        // real UBS form (AAOV) pins the reading down: a leaf field's
-        // initialize sets an unconditional default caption, and an ancestor
-        // subform's initialize overwrites it with a caption chosen from a
-        // sibling dropdown's selection (also set by that dropdown's own
-        // initialize). Adobe's rendering shows the dropdown-derived caption,
-        // which only happens if descendants' initialize events run before
-        // their ancestor's -- i.e. a *post-order* traversal, children (in
-        // document order) before the container. We therefore iterate
-        // `initialize_events`, sorted by the post-order rank
-        // `find_all_events_with_child_ids` assigned each event, rather than
-        // `all_events`'s own pre-order position (every other phase keeps
-        // using document/pre-order, which Rule 3 does not govern).
+        // Per XFA 3.3 §10 Rule 3 the initialize events fire "in a depth-first
+        // traversal of the Form DOM", which does not by itself say whether a
+        // container fires before or after its descendants. A real form
+        // (AAOV_033_IT) pins the reading down: a leaf field's initialize sets
+        // an unconditional default caption, and an ancestor subform's
+        // initialize overwrites it with a caption chosen from a sibling
+        // dropdown's selection. Acrobat's rendering (`pdf-screenshots/aaov`)
+        // shows the dropdown-derived caption, which only happens if
+        // descendants' initialize events run before their ancestor's: a
+        // post-order traversal, children (in document order) before the
+        // container. Phase 1 therefore sorts by the post-order rank
+        // `find_all_events_with_child_ids` assigned each event; every other
+        // phase keeps document order. A master page's content is
+        // instantiated per page after the body, in Acrobat as here
+        // (`LayoutScripts::evaluate`), so a footer reading what the root's
+        // initialize prepared (AACB_033_IT's `form64689`) gets it there.
         let mut initialize_events: Vec<&EventWithChildren> = all_events.iter().collect();
         initialize_events.sort_by_key(|event| event.6);
         let mut init_dynamic_presence: HashMap<String, Presence> = HashMap::new();
@@ -517,26 +558,15 @@ impl ScriptExecutor {
                 if let Some(presence) = engine.get_current_field_presence() {
                     presence_changes.push(PresenceChange {
                         path: full_path.clone(),
-                        name: field_name.clone(),
-                        id: None,
                         presence,
                     });
                 }
 
                 // Collect presence values set on child fields
-                for (child_name, child_id) in child_fields {
-                    if let Some((id, presence)) = engine.get_child_field_presence(child_name) {
-                        let storage_id = if !id.is_empty() {
-                            Some(id)
-                        } else if !child_id.is_empty() {
-                            Some(child_id.clone())
-                        } else {
-                            None
-                        };
+                for (child_name, _) in child_fields {
+                    if let Some((_, presence)) = engine.get_child_field_presence(child_name) {
                         presence_changes.push(PresenceChange {
                             path: format!("{full_path}.{child_name}"),
-                            name: child_name.clone(),
-                            id: storage_id,
                             presence,
                         });
                     }
@@ -544,7 +574,7 @@ impl ScriptExecutor {
 
                 // Collect values from initialize scripts
                 // Empty strings are valid per XFA spec (cleared fields, deselected exclGroups)
-                let init_som_values = engine.get_all_som_field_values();
+                let init_som_values = engine.get_all_som_field_values_by_path();
                 for (init_field_name, init_value) in init_som_values {
                     computed_values.insert(SomPath::new(init_field_name), init_value);
                 }
@@ -620,7 +650,7 @@ impl ScriptExecutor {
             engine.update_initial_presence(&SomPath::new(som_path), presence_str);
         }
         let mut presence_map_after_phase2 = Self::build_full_path_presence_map(&presence_changes);
-        presence_map_after_phase2.extend(dynamic_presence_overrides);
+        presence_map_after_phase2.extend(dynamic_presence_overrides.clone());
 
         Self::apply_load_ops(
             xfa_nodes,
@@ -673,17 +703,6 @@ impl ScriptExecutor {
 
         // Phase 5: Collect all values from SOM hierarchy
         // Empty strings are valid per XFA spec (cleared fields, deselected exclGroups)
-        let som_values = engine.get_all_som_field_values();
-        for (field_name, value) in som_values {
-            computed_values
-                .entry(SomPath::new(field_name.clone()))
-                .or_insert(value);
-        }
-
-        // Also store values keyed by full SOM path to avoid collisions
-        // between fields with the same short name in different subforms.
-        // This is needed for xfa:embed URI resolution (id_to_field now maps
-        // element IDs to full SOM paths).
         let som_values_by_path = engine.get_all_som_field_values_by_path();
         for (full_path, value) in som_values_by_path {
             computed_values
@@ -691,11 +710,31 @@ impl ScriptExecutor {
                 .or_insert(value);
         }
 
+        // Every presence a script of any phase set on another node (a
+        // ready script's `Section.presence = "hidden"`), so the Form DOM
+        // opens as the scripts left it; and the engine's baseline moved to
+        // that state, since the form goes on interacting in this engine
+        // and a presence change it reports after that must be the
+        // interaction's own.
+        for (path, presence_str) in engine.get_all_som_presence_changes() {
+            dynamic_presence_overrides.insert(path.clone(), presence_str.parse().unwrap_or_default());
+            engine.update_initial_presence(&SomPath::new(&path), &presence_str);
+        }
+        for (path, presence) in dynamic_presence_overrides {
+            match presence_changes.iter_mut().find(|c| c.path == path) {
+                Some(change) => change.presence = presence,
+                None => presence_changes.push(PresenceChange { path, presence }),
+            }
+        }
+        Self::settle_engine(xfa_nodes, &pristine, &mut engine);
+
         // Master-page content re-evaluated per page later (`LayoutScripts`)
         // can set `access` again for each page; that per-page answer only
         // changes how a field is drawn, so what is collected here -- the
         // document-wide pass, page 1 of 1 -- is what the form keeps.
         let access_changes = engine.take_access_changes();
+        let caption_changes = engine.take_caption_changes();
+        let item_changes = engine.take_item_changes();
 
         // A master-page script runs again for every page once the pages are
         // known (`LayoutScripts::evaluate`), with every body script's effects
@@ -704,13 +743,12 @@ impl ScriptExecutor {
         // its own per-page failures are reported by `take_failures`.
         let master_keys = Self::master_page_event_keys(xfa_nodes);
         let mut script_report = engine.take_report();
-        let master_paths: HashSet<&str> = master_keys.iter().map(|(_, p)| p.as_str()).collect();
+        let master_paths: HashSet<&str> = master_keys.keys().map(String::as_str).collect();
         script_report
             .errors
             .retain(|failure| !master_paths.contains(failure.owner.as_str()));
 
         let layout = LayoutScripts {
-            engine,
             events: all_events,
             master_keys,
             page_failures: Vec::new(),
@@ -721,10 +759,127 @@ impl ScriptExecutor {
                 computed_values,
                 presence_changes,
                 access_changes,
+                caption_changes,
+                item_changes,
                 script_report,
             },
-            layout,
+            LoadedScripts { engine, layout },
         ))
+    }
+
+    /// The scripting environment of a Form DOM before any of its scripts
+    /// run: every node registered under its SOM path, the `<text>`
+    /// variables, and the named script objects (XFA 3.3 §10), which are
+    /// built on first reference in their owner subform's scope, so the
+    /// owners must exist first. The one setup for every engine, whether
+    /// the load pass then runs in it or (when the pass failed and was
+    /// rolled back) nothing does.
+    pub(crate) fn prepare_engine(
+        xfa_nodes: &[XfaNode],
+        prototypes: &Prototypes,
+        engine: &mut XfaScriptEngine,
+    ) {
+        Self::extract_and_register_translations(xfa_nodes, engine);
+        Self::build_and_register_xfa_som_hierarchy(xfa_nodes, prototypes, engine);
+        engine.register_script_objects(xfa_nodes);
+    }
+
+    /// What the engine gets once the Form DOM has its final shape for
+    /// opening: each field's template value for `xfa.host.resetData`
+    /// (`pristine` is the template before any script ran), its picture
+    /// clauses for `formattedValue`, and the values it opens with as the
+    /// ones `getDeltas()` compares against.
+    pub(crate) fn settle_engine(
+        xfa_nodes: &[XfaNode],
+        pristine: &[XfaNode],
+        engine: &mut XfaScriptEngine,
+    ) {
+        let defaults = Self::template_defaults(pristine, engine);
+        engine.set_template_defaults(&defaults);
+        Self::install_value_formats(xfa_nodes, engine);
+        engine.rebase_merged_values();
+    }
+
+    /// Every field's and exclusion group's value in `pristine`, the template
+    /// before any script ran, under each registered path. A path the
+    /// pristine tree does not reach (an instance the load scripts added) is
+    /// looked up as its first instance, since every instance of a repeated
+    /// section has the same template.
+    fn template_defaults(
+        pristine: &[XfaNode],
+        engine: &mut XfaScriptEngine,
+    ) -> HashMap<SomPath, String> {
+        engine
+            .get_field_values_by_canonical_path()
+            .into_keys()
+            .filter_map(|path| {
+                let node = walk_som_path(pristine, path.as_str())
+                    .or_else(|| walk_som_path(pristine, path.index_free().as_str()))?;
+                (node.kind.is_field() || node.kind.is_exclgroup()).then(|| {
+                    let value = XfaNodeRef::extract_value_from_xfa_node(node).unwrap_or_default();
+                    (path, value)
+                })
+            })
+            .collect()
+    }
+
+    /// Give every field's script object its `formattedValue` and
+    /// `editValue`, through the pictures its template declares.
+    fn install_value_formats(nodes: &[XfaNode], engine: &mut XfaScriptEngine) {
+        for path in engine.get_field_values_by_canonical_path().into_keys() {
+            let Some(meta) =
+                walk_som_path(nodes, path.as_str()).and_then(|node| node.field_meta.as_deref())
+            else {
+                continue;
+            };
+            let source = |p: &Option<crate::xfa::field_meta::PictureSpec>| {
+                p.as_ref().map(|p| p.source.clone())
+            };
+            engine.install_value_format(
+                &path,
+                source(&meta.format).as_deref(),
+                source(&meta.edit).as_deref(),
+                &meta.locale,
+            );
+        }
+    }
+
+    /// Register the instances the scripts added under `parent`, which the
+    /// engine's [`XfaScriptEngine::reconcile_instances`] left standing as
+    /// `placeholders` (each with the values scripts wrote into it, by path
+    /// relative to the instance), now that the Form DOM holds them. Answers
+    /// the new instances' paths.
+    ///
+    /// Registration skips every path already registered, so walking the
+    /// parent's children registers exactly the new instances, linked in
+    /// where their placeholders stood.
+    pub(crate) fn register_added_instances(
+        xfa_nodes: &[XfaNode],
+        prototypes: &Prototypes,
+        engine: &mut XfaScriptEngine,
+        parent: &SomPath,
+        placeholders: Vec<(SomPath, HashMap<String, String>)>,
+    ) -> Result<Vec<SomPath>, String> {
+        if placeholders.is_empty() {
+            return Ok(Vec::new());
+        }
+        let parent_node = walk_som_path(xfa_nodes, parent.as_str())
+            .ok_or_else(|| format!("{parent} is missing from the Form DOM"))?;
+        Self::register_nodes_recursive(
+            &parent_node.children,
+            Some(parent.as_str()),
+            prototypes,
+            engine,
+            false,
+        );
+        let mut new_instances = Vec::with_capacity(placeholders.len());
+        for (path, written) in placeholders {
+            for (rel, value) in written {
+                engine.update_field_value(&format!("{path}.{rel}"), &value);
+            }
+            new_instances.push(path);
+        }
+        Ok(new_instances)
     }
 
     /// Every event script in the Form DOM, with its owner's name and full
@@ -735,14 +890,12 @@ impl ScriptExecutor {
         // Build parent-child map for setting up `this.childField` access
         let parent_child_map = Self::build_parent_child_map_with_ids(xfa_nodes);
 
-        let mut subform_counters: HashMap<String, usize> = HashMap::new();
         let mut all_events = Vec::new();
         let mut post_order_counter: usize = 0;
         Self::find_all_events_with_child_ids(
             xfa_nodes,
             &mut all_events,
             &parent_child_map,
-            &mut subform_counters,
             None, // Start with no parent path
             None, // Start outside any pageArea
             &mut post_order_counter,
@@ -815,30 +968,13 @@ impl ScriptExecutor {
             for (parent, name) in &arrays {
                 let reconciled = engine.reconcile_instances(parent, name);
                 reindexed.extend(reconciled.moved.into_iter().map(|(_, new)| new));
-                if reconciled.placeholders.is_empty() {
-                    continue;
-                }
-                // Registration skips every path already registered, so
-                // walking the parent's children registers exactly the new
-                // instances, linked in where their placeholders stood.
-                let parent_node =
-                    crate::xfa::scripting::som::walk_som_path(xfa_nodes, parent.as_str())
-                        .ok_or_else(|| format!("{parent} is missing from the Form DOM"))?;
-                Self::register_nodes_recursive(
-                    &parent_node.children,
-                    Some(parent.as_str()),
+                new_instances.extend(Self::register_added_instances(
+                    xfa_nodes,
                     prototypes,
                     engine,
-                    false,
-                    None,
-                    None,
-                );
-                for (path, written) in reconciled.placeholders {
-                    for (rel, value) in written {
-                        engine.update_field_value(&format!("{path}.{rel}"), &value);
-                    }
-                    new_instances.push(path);
-                }
+                    parent,
+                    reconciled.placeholders,
+                )?);
             }
             engine.replace_som_resolver(SomResolver::from_nodes(xfa_nodes));
             *all_events = Self::scan_events(xfa_nodes, engine);
@@ -858,8 +994,6 @@ impl ScriptExecutor {
                     if let Some(presence) = engine.get_current_field_presence() {
                         presence_changes.push(PresenceChange {
                             path: event.1.clone(),
-                            name: event.0.clone(),
-                            id: None,
                             presence,
                         });
                     }
@@ -893,44 +1027,44 @@ impl ScriptExecutor {
         ))
     }
 
-    /// The name and SOM path of every node inside a `pageArea`.
+    /// The SOM path of every node inside a `pageArea`, with its template
+    /// value (see [`LayoutScripts::master_keys`]).
     ///
     /// Master-page scripts are the ones that can depend on which page they are
     /// on, so they are the ones the layout pass re-runs; this is how they are
-    /// told apart from the body's. Two masters that contain the same named
-    /// subtree (a shared footer fragment) collapse to the same keys, which is
-    /// correct: both want per-page evaluation.
-    fn master_page_event_keys(nodes: &[XfaNode]) -> HashSet<(String, String)> {
+    /// told apart from the body's.
+    fn master_page_event_keys(nodes: &[XfaNode]) -> HashMap<String, Option<String>> {
         fn walk(
             nodes: &[XfaNode],
             parent_path: Option<&str>,
             inside_page_area: bool,
-            out: &mut HashSet<(String, String)>,
+            out: &mut HashMap<String, Option<String>>,
         ) {
             for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
                 let name = node.name.clone().unwrap_or_default();
-                // Mirrors find_all_events_with_child_ids: only subforms and
-                // exclGroups extend a SOM path.
+                // The same paths as find_all_events_with_child_ids.
                 let full_path = if name.is_empty() {
                     parent_path.unwrap_or("").to_string()
                 } else {
                     child_som_path(parent_path.unwrap_or(""), &name, index)
                 };
                 let inside = inside_page_area || matches!(node.kind, XfaNodeKind::PageArea);
-                if inside {
-                    out.insert((name.clone(), full_path.clone()));
+                if inside && !name.is_empty() {
+                    let template_value = (node.kind.is_field() || node.kind.is_draw())
+                        .then(|| node.template_value())
+                        .flatten();
+                    out.insert(full_path.clone(), template_value);
                 }
-                let next_parent =
-                    if !name.is_empty() && (node.kind.is_subform() || node.kind.is_exclgroup()) {
-                        Some(full_path.as_str())
-                    } else {
-                        parent_path
-                    };
+                let next_parent = if !name.is_empty() && node.kind.extends_som_path() {
+                    Some(full_path.as_str())
+                } else {
+                    parent_path
+                };
                 walk(&node.children, next_parent, inside, out);
             }
         }
 
-        let mut out = HashSet::new();
+        let mut out = HashMap::new();
         walk(nodes, None, false, &mut out);
         out
     }
@@ -940,154 +1074,92 @@ impl ScriptExecutor {
     /// This should be called on a cloned tree to preserve the original.
     /// Write `access` changes a script made onto the nodes they belong to.
     ///
-    /// By full SOM path first. A path the walk does not reach is master-page
-    /// content, whose script paths skip the pageSet and pageArea; it falls
-    /// back to the fields, exclusion groups and subforms with that leaf name:
-    ///
-    /// - exactly one: that node;
-    /// - several, all inside page sets: every one of them, because the copies
-    ///   of a master-page node in each pageArea share one script path, so
-    ///   the script that ran stands for each copy's own (a `Watermark` in
-    ///   every pageArea, say);
-    /// - otherwise none, logged: locking the wrong field is worse than not
-    ///   locking one.
     pub fn apply_access_changes(nodes: &mut [XfaNode], changes: &[(SomPath, FieldAccess)]) {
         for (path, access) in changes {
-            if let Some(node) = crate::xfa::scripting::som::walk_som_path_mut(nodes, path.as_str()) {
-                node.set_access(*access);
-                continue;
-            }
-            let leaf = path.name();
-            let (anywhere, in_page_sets) = access_holders_named(nodes, leaf, false);
-            match (anywhere, in_page_sets) {
-                (1, _) => {
-                    set_access_named(nodes, leaf, *access, false, false);
-                }
-                (n, m) if n > 1 && n == m => {
-                    set_access_named(nodes, leaf, *access, true, false);
-                }
-                (n, _) => log::warn!(
-                    "access = {} on {path} not applied: {n} nodes named {leaf}, not all \
-                     master-page copies, and none at that path",
-                    access.as_str()
+            apply_property_change(nodes, path, &format!("access = {}", access.as_str()), &mut |node| {
+                node.set_access(*access)
+            });
+        }
+    }
+
+    /// Relabel the nodes whose caption a script set, the way
+    /// [`Self::apply_access_changes`] locks the ones a script locked.
+    /// Write the choice lists scripts built onto the fields they belong
+    /// to, so the renderer draws and the control listing offers what the
+    /// scripts put there.
+    pub fn apply_item_changes(nodes: &mut [XfaNode], changes: &[(SomPath, Vec<(String, String)>)]) {
+        for (path, items) in changes {
+            apply_property_change(
+                nodes,
+                path,
+                &format!("{} items", items.len()),
+                &mut |node| {
+                    node.set_choice_list_items(items);
+                },
+            );
+        }
+    }
+
+    pub fn apply_caption_changes(nodes: &mut [XfaNode], changes: &[(SomPath, String)]) {
+        for (path, text) in changes {
+            apply_property_change(nodes, path, &format!("caption {text:?}"), &mut |node| {
+                node.set_caption_text(text);
+            });
+        }
+    }
+
+    /// Write the presence a script set onto the node it set it on. The
+    /// full path names exactly one node; one it does not reach is a defect
+    /// in the paths the scripts ran under, logged rather than guessed at.
+    pub fn apply_presence_changes(nodes: &mut [XfaNode], changes: &[PresenceChange]) {
+        for change in changes {
+            match crate::xfa::scripting::som::walk_som_path_mut(nodes, &change.path) {
+                Some(node) => node.set_presence(change.presence),
+                None => log::warn!(
+                    "presence = {} on {} not applied: no node at that path",
+                    change.presence.as_str(),
+                    change.path
                 ),
             }
         }
-    }
-
-    pub fn apply_presence_changes(nodes: &mut [XfaNode], changes: &[PresenceChange]) {
-        for change in changes {
-            // The full path names exactly one node, one instance of a
-            // repeated section among several.
-            if let Some(node) = crate::xfa::scripting::som::walk_som_path_mut(nodes, &change.path) {
-                node.set_presence(change.presence);
-                continue;
-            }
-            // A node the path does not reach (master-page content, whose
-            // script paths skip the pageSet and pageArea): by id, then name.
-            if let Some(id_val) = &change.id
-                && Self::apply_presence_by_id(nodes, id_val, change.presence)
-            {
-                continue;
-            }
-            Self::apply_presence_by_name(nodes, &change.name, change.presence);
-        }
-    }
-
-    /// Recursively find a node by ID and set its presence
-    fn apply_presence_by_id(nodes: &mut [XfaNode], id: &str, presence: Presence) -> bool {
-        for node in nodes {
-            if node.attributes.get("id").map(|s| s.as_str()) == Some(id) {
-                node.set_presence(presence);
-                return true;
-            }
-            if Self::apply_presence_by_id(&mut node.children, id, presence) {
-                return true;
-            }
-        }
-        false
-    }
-
-    /// Recursively find ALL nodes by name and set their presence.
-    ///
-    /// When a matching node is found, its children are **not** searched for
-    /// further matches. This prevents a common XFA pattern — a subform named
-    /// "X" containing a field also named "X" — from having the child field's
-    /// presence inadvertently overwritten when a script only intended to change
-    /// the parent subform's visibility.
-    fn apply_presence_by_name(nodes: &mut [XfaNode], name: &str, presence: Presence) -> bool {
-        let mut found = false;
-        for node in nodes {
-            if node.name.as_deref() == Some(name) {
-                node.set_presence(presence);
-                found = true;
-                // Do NOT recurse into children — a same-named child (e.g.
-                // field "Company" inside subform "Company") is a different
-                // entity whose presence should not be affected.
-            } else if Self::apply_presence_by_name(&mut node.children, name, presence) {
-                found = true;
-            }
-        }
-        found
     }
 
     // ========================================================================
     // Helper functions moved from Flattened
     // ========================================================================
 
-    /// Build a parent-child map that tracks both child names AND their unique IDs.
+    /// Every container's named fields, as (name, id) pairs, keyed by the
+    /// container's full SOM path -- the same path its events carry, so an
+    /// event finds the fields `this.<field>` names.
     fn build_parent_child_map_with_ids(
         xfa_nodes: &[XfaNode],
     ) -> HashMap<String, Vec<(String, String)>> {
-        let mut parent_child_map: HashMap<String, Vec<(String, String)>> = HashMap::new();
-        let mut subform_counters: HashMap<String, usize> = HashMap::new();
-
-        fn collect_children_with_ids(
+        fn collect(
             nodes: &[XfaNode],
-            parent_key: Option<&str>,
+            parent_path: Option<&str>,
             map: &mut HashMap<String, Vec<(String, String)>>,
-            counters: &mut HashMap<String, usize>,
         ) {
-            for node in nodes {
-                let node_name = node.name.clone().unwrap_or_default();
-                let node_id = node.attributes.get("id").cloned().unwrap_or_default();
-
-                if let Some(parent) = parent_key {
-                    let is_field = node.kind.is_field();
-
-                    if is_field && !node_name.is_empty() {
-                        map.entry(parent.to_string())
-                            .or_default()
-                            .push((node_name.clone(), node_id.clone()));
-                    }
+            for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
+                let name = node.name.clone().unwrap_or_default();
+                if let Some(parent) = parent_path
+                    && node.kind.is_field()
+                    && !name.is_empty()
+                {
+                    let id = node.attributes.get("id").cloned().unwrap_or_default();
+                    map.entry(parent.to_string()).or_default().push((name.clone(), id));
                 }
-
-                let is_subform = node.kind.is_subform();
-                let is_exclgroup = node.kind.is_exclgroup();
-
-                if (is_subform || is_exclgroup) && !node_name.is_empty() {
-                    let key = if !node_id.is_empty() {
-                        format!("{}#{}", node_name, node_id)
-                    } else {
-                        let count = counters.entry(node_name.clone()).or_insert(0);
-                        let key = format!("{}[{}]", node_name, *count);
-                        *count += 1;
-                        key
-                    };
-                    collect_children_with_ids(&node.children, Some(&key), map, counters);
-                } else if !is_subform && !is_exclgroup {
-                    collect_children_with_ids(&node.children, parent_key, map, counters);
+                if !name.is_empty() && node.kind.extends_som_path() {
+                    let path = child_som_path(parent_path.unwrap_or(""), &name, index);
+                    collect(&node.children, Some(&path), map);
+                } else {
+                    collect(&node.children, parent_path, map);
                 }
             }
         }
 
-        collect_children_with_ids(
-            xfa_nodes,
-            None,
-            &mut parent_child_map,
-            &mut subform_counters,
-        );
-        parent_child_map
+        let mut map = HashMap::new();
+        collect(xfa_nodes, None, &mut map);
+        map
     }
 
     /// Execute a phase of JavaScript events (form:ready, layout:ready, or docReady).
@@ -1122,20 +1194,14 @@ impl ScriptExecutor {
             engine.update_event_context(&activity, full_path, None);
 
             if let Ok(Some(value)) = engine.execute_script(script) {
-                computed_values.insert(SomPath::new(field_name.clone()), value);
+                computed_values.insert(SomPath::new(full_path.clone()), value);
             }
 
             // Collect values set on child fields
             // Empty strings are valid per XFA spec (cleared fields, deselected exclGroups)
-            for (child_name, child_id) in child_fields {
-                if let Some((id, child_value)) = engine.get_child_field_value(child_name) {
-                    let storage_key = if !id.is_empty() { id } else { child_id.clone() };
-
-                    if !storage_key.is_empty() {
-                        computed_values
-                            .insert(SomPath::new(storage_key.clone()), child_value.clone());
-                    }
-                    computed_values.insert(SomPath::new(child_name.clone()), child_value);
+            for (child_name, _) in child_fields {
+                if let Some((_, child_value)) = engine.get_child_field_value(child_name) {
+                    computed_values.insert(SomPath::new(format!("{full_path}.{child_name}")), child_value);
                 }
             }
         }
@@ -1152,12 +1218,19 @@ impl ScriptExecutor {
         if static_presence == Presence::Inactive {
             return true;
         }
-        // Look up by full SOM path to avoid collisions between fields
-        // with the same leaf name in different subforms.
-        if let Some(&p) = dynamic_overrides.get(full_path) {
-            return p == Presence::Inactive;
+        // A node inside an inactive container is inactive with it (XFA 3.3
+        // §10 Rule 1 and §2 "The presence property"), so every ancestor's
+        // dynamic presence counts, keyed by its full SOM path.
+        let mut path = full_path;
+        loop {
+            if dynamic_overrides.get(path) == Some(&Presence::Inactive) {
+                return true;
+            }
+            match path.rsplit_once('.') {
+                Some((parent, _)) => path = parent,
+                None => return false,
+            }
         }
-        false
     }
 
     /// Build a lookup keyed by full SOM path from presence_changes.
@@ -1182,7 +1255,6 @@ impl ScriptExecutor {
         nodes: &[XfaNode],
         events: &mut Vec<EventWithChildren>,
         parent_child_map: &HashMap<String, Vec<ChildNameIdPair>>,
-        subform_counters: &mut HashMap<String, usize>,
         parent_path: Option<&str>,
         page_area: Option<&str>,
         post_order_counter: &mut usize,
@@ -1195,10 +1267,6 @@ impl ScriptExecutor {
                 continue;
             }
             let name = node.name.clone().unwrap_or_default();
-            let node_id = node.attributes.get("id").cloned().unwrap_or_default();
-
-            let is_subform = node.kind.is_subform();
-            let is_exclgroup = node.kind.is_exclgroup();
 
             // Build the full SOM path for this node
             let full_path = if !name.is_empty() {
@@ -1207,18 +1275,7 @@ impl ScriptExecutor {
                 parent_path.unwrap_or("").to_string()
             };
 
-            let key = if !node_id.is_empty() {
-                format!("{}#{}", name, node_id)
-            } else if (is_subform || is_exclgroup) && !name.is_empty() {
-                let count = subform_counters.entry(name.clone()).or_insert(0);
-                let key = format!("{}[{}]", name, *count);
-                *count += 1;
-                key
-            } else {
-                name.clone()
-            };
-
-            let children = parent_child_map.get(&key).cloned().unwrap_or_default();
+            let children = parent_child_map.get(&full_path).cloned().unwrap_or_default();
 
             // A pageArea's own children (and their descendants, until the next
             // pageArea) belong to it: its master events must not run while a
@@ -1249,7 +1306,7 @@ impl ScriptExecutor {
             let own_end = events.len();
 
             // Recurse with updated parent path
-            let next_parent = if !name.is_empty() && (is_subform || is_exclgroup) {
+            let next_parent = if !name.is_empty() && node.kind.extends_som_path() {
                 Some(full_path.as_str())
             } else {
                 parent_path
@@ -1259,7 +1316,6 @@ impl ScriptExecutor {
                 &node.children,
                 events,
                 parent_child_map,
-                subform_counters,
                 next_parent,
                 this_page_area.as_deref(),
                 post_order_counter,
@@ -1296,43 +1352,21 @@ impl ScriptExecutor {
             // Per XFA 3.3 §3: SOM paths include the root subform.
             // All children of the root are registered under the root's name
             // (e.g. "UBSForms_66816.Page", not just "Page").
-            // Unqualified name resolution uses the _xfa_fields_ registry
+            // Unqualified name resolution is the scope walk in js_helpers
             // and resolveNode scoping, not path stripping.
             if !root_name.is_empty() {
                 Self::install_repeatables(&SomPath::new(&root_name), prototypes, engine);
             }
-            Self::register_nodes_recursive(
-                &root.children,
-                Some(&root_name),
-                prototypes,
-                engine,
-                false,
-                None,
-                None,
-            );
+            Self::register_nodes_recursive(&root.children, Some(&root_name), prototypes, engine, false);
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn register_nodes_recursive(
         nodes: &[XfaNode],
         parent_path: Option<&str>,
         prototypes: &Prototypes,
         engine: &mut XfaScriptEngine,
         parent_is_exclgroup: bool,
-        // The nearest enclosing `pageSet`'s name, so a `pageArea` found
-        // inside it can be attached as `pageSet.<name>` (and, as a
-        // class-name fallback, `pageSet.pageArea`) -- the shape a
-        // Designer-authored script reaches for (XFA 3.3 §10; see
-        // `register_page_set`/`register_page_area`).
-        current_page_set: Option<&str>,
-        // `Some(pageAreaName)` only while registering that pageArea's own
-        // *direct* children (a header draw, a footer subform, a
-        // conditional alternate) -- these become properties of the
-        // pageArea object (`mp.FIM_On`). Grandchildren are reached
-        // through that child's own subform-property mechanism instead,
-        // so this is cleared before recursing into a subform's children.
-        direct_page_area: Option<&str>,
     ) {
         for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
             let node_name = node.name.clone().unwrap_or_default();
@@ -1344,28 +1378,34 @@ impl ScriptExecutor {
                     prototypes,
                     engine,
                     parent_is_exclgroup,
-                    current_page_set,
-                    direct_page_area,
                 );
                 continue;
             }
 
-            if matches!(node.kind, XfaNodeKind::PageSet) {
-                // Per XFA 3.3 §10 "Instantiation of Named Script Objects"
-                // and §3 "Reference by Class": a pageSet is addressed by
-                // name from its parent subform, or by the class name
-                // `pageSet` when a script does not care which (Designer
-                // commonly emits `form1.pageSet.<pageAreaName>`).
-                engine.register_page_set(&node_name, parent_path);
-                Self::register_nodes_recursive(
-                    &node.children,
+            // A pageSet and a pageArea are containers in the SOM path like a
+            // subform (XFA 3.3 §3: `form1.pageSet.Page1.Footer`), so master
+            // page content has the same path here as in the Form DOM, the
+            // interactive form and the flattener.
+            if matches!(node.kind, XfaNodeKind::PageSet | XfaNodeKind::PageArea) {
+                let path = child_som_path(parent_path.unwrap_or(""), &node_name, index);
+                engine.register_xfa_node(
+                    &node_name,
+                    &path,
                     parent_path,
-                    prototypes,
-                    engine,
                     false,
-                    Some(&node_name),
+                    "",
+                    false,
                     None,
+                    None,
+                    node.presence.as_str(),
+                    &[],
                 );
+                if matches!(node.kind, XfaNodeKind::PageSet) {
+                    engine.register_page_set(&path, parent_path);
+                } else {
+                    engine.register_page_area(&path, parent_path);
+                }
+                Self::register_nodes_recursive(&node.children, Some(&path), prototypes, engine, false);
                 continue;
             }
 
@@ -1375,50 +1415,28 @@ impl ScriptExecutor {
             let is_draw = node.kind.is_draw();
 
             if !is_subform && !is_field && !is_exclgroup && !is_draw {
-                // A pageArea is not a field, but templates address it by
-                // name to ask which page they are on (`MP.index`), so it
-                // needs an object of its own. Its children keep the
-                // enclosing path: a pageArea does not extend SOM paths.
-                if matches!(node.kind, XfaNodeKind::PageArea) {
-                    engine.register_page_area(&node_name, current_page_set);
-                    Self::register_nodes_recursive(
-                        &node.children,
-                        parent_path,
-                        prototypes,
-                        engine,
-                        false,
-                        current_page_set,
-                        Some(&node_name),
-                    );
-                } else {
-                    Self::register_nodes_recursive(
-                        &node.children,
-                        parent_path,
-                        prototypes,
-                        engine,
-                        false,
-                        current_page_set,
-                        direct_page_area,
-                    );
-                }
+                Self::register_nodes_recursive(&node.children, parent_path, prototypes, engine, false);
                 continue;
             }
 
             let full_path = child_som_path(parent_path.unwrap_or(""), &node_name, index);
 
             // A field starts with its saved `rawValue`, else its template
-            // default (XFA 3.3 §4: an empty merge keeps the template value).
+            // default (XFA 3.3 §4: an empty merge keeps the template value);
+            // a draw's value is its template content (ACAV_001_DE's barcode
+            // script reads its form id from the `txtformid` draw).
             let value = node
                 .attributes
                 .get("rawValue")
                 .cloned()
-                .or_else(|| is_field.then(|| node.template_value()).flatten())
+                .or_else(|| (is_field || is_draw).then(|| node.template_value()).flatten())
                 .unwrap_or_default();
 
             // Extract item values from <items> for exclGroup children
             // (XFA 3.3 §4 pp.195-197, §17 pp.758-759).
             let (item_key, off_value) = if parent_is_exclgroup {
-                node.extract_item_values()
+                let values = node.check_button_values();
+                (Some(values.on), Some(values.off))
             } else {
                 (None, None)
             };
@@ -1445,12 +1463,16 @@ impl ScriptExecutor {
             );
             // `access` is a property of field, exclGroup and subform only
             // (XFA 3.3 §17); a draw has none.
-            if !is_draw {
+            if is_draw {
+                engine.mark_draw(&full_path, &value);
+            } else {
                 engine.init_access(&full_path, node.get_access());
             }
-
-            if let Some(pa) = direct_page_area {
-                engine.attach_to_page_area(pa, &node_name, &full_path);
+            if is_field || is_exclgroup {
+                engine.init_caption(&full_path, node.caption_text().as_deref());
+            }
+            if node.is_globally_bound() {
+                engine.join_global_binding(&full_path, &node_name);
             }
 
             if is_subform {
@@ -1464,8 +1486,6 @@ impl ScriptExecutor {
                     prototypes,
                     engine,
                     is_exclgroup,
-                    current_page_set,
-                    None,
                 );
             }
         }
@@ -1498,56 +1518,19 @@ impl ScriptExecutor {
     }
 }
 
-/// The `<form>` data packet repeats the template's names; a search for the
-/// template node a script meant must not count those copies.
-fn is_form_packet(node: &XfaNode) -> bool {
-    matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "form")
-}
-
-/// How many access-holding template nodes are named `name`: in all, and
-/// how many of those lie inside a page set (master-page content).
-fn access_holders_named(nodes: &[XfaNode], name: &str, in_page_set: bool) -> (usize, usize) {
-    let mut counts = (0, 0);
-    for node in nodes.iter().filter(|n| !is_form_packet(n)) {
-        let inside = in_page_set || matches!(node.kind, XfaNodeKind::PageSet);
-        if node.holds_access() && node.name.as_deref() == Some(name) {
-            counts.0 += 1;
-            counts.1 += usize::from(inside);
-        }
-        let below = access_holders_named(&node.children, name, inside);
-        counts.0 += below.0;
-        counts.1 += below.1;
-    }
-    counts
-}
-
-/// Set `access` on the access-holding template nodes named `name`: every
-/// one inside a page set when `page_sets_only`, otherwise the first found.
-/// True once the walk should stop (the first match was set, outside
-/// `page_sets_only`), which only the recursion reads.
-fn set_access_named(
+/// Apply a property a script wrote to the node it wrote it on. The full
+/// path names exactly one node; a path that reaches none is a defect in the
+/// paths the scripts ran under, logged with `what` rather than guessed at.
+fn apply_property_change(
     nodes: &mut [XfaNode],
-    name: &str,
-    access: FieldAccess,
-    page_sets_only: bool,
-    in_page_set: bool,
-) -> bool {
-    for node in nodes.iter_mut().filter(|n| !is_form_packet(n)) {
-        let inside = in_page_set || matches!(node.kind, XfaNodeKind::PageSet);
-        if node.holds_access() && node.name.as_deref() == Some(name) {
-            if !page_sets_only {
-                node.set_access(access);
-                return true;
-            }
-            if inside {
-                node.set_access(access);
-            }
-        }
-        if set_access_named(&mut node.children, name, access, page_sets_only, inside) {
-            return true;
-        }
+    path: &SomPath,
+    what: &str,
+    set: &mut dyn FnMut(&mut XfaNode),
+) {
+    match crate::xfa::scripting::som::walk_som_path_mut(nodes, path.as_str()) {
+        Some(node) => set(node),
+        None => log::warn!("{what} on {path} not applied: no node at that path"),
     }
-    false
 }
 
 #[cfg(test)]
@@ -1848,7 +1831,7 @@ mod tests {
         let nodes = wrap_in_template(vec![field_a, field_b]);
         let result = ScriptExecutor::execute(&nodes);
 
-        let field_b_value = result.computed_values.get(&SomPath::new("fieldB")).cloned();
+        let field_b_value = result.computed_values.get(&SomPath::new("Root.fieldB")).cloned();
         assert_eq!(
             field_b_value,
             Some("calculated".to_string()),
@@ -1867,7 +1850,7 @@ mod tests {
 
         let tax_value = result
             .computed_values
-            .get(&SomPath::new("taxField"))
+            .get(&SomPath::new("Root.taxField"))
             .cloned();
         assert_eq!(
             tax_value,
@@ -1907,7 +1890,7 @@ mod tests {
         // calcField should have its calculated value
         let calc_value = result
             .computed_values
-            .get(&SomPath::new("calcField"))
+            .get(&SomPath::new("Root.calcField"))
             .cloned();
         assert_eq!(
             calc_value,
@@ -1918,7 +1901,7 @@ mod tests {
         // validField should have been set by the validate script that read calcField
         let valid_value = result
             .computed_values
-            .get(&SomPath::new("validField"))
+            .get(&SomPath::new("Root.validField"))
             .cloned();
         assert_eq!(
             valid_value,
@@ -1981,12 +1964,7 @@ mod tests {
 
         let value = result
             .computed_values
-            .get(&SomPath::new("child".to_string()))
-            .or_else(|| {
-                result
-                    .computed_values
-                    .get(&SomPath::new("Root.S.child".to_string()))
-            });
+            .get(&SomPath::new("Root.S.child"));
         assert_eq!(
             value.map(String::as_str),
             Some("parent_override"),
@@ -2012,7 +1990,7 @@ mod tests {
         assert_eq!(
             result
                 .computed_values
-                .get(&SomPath::new("target".to_string()))
+                .get(&SomPath::new("Root.target"))
                 .map(String::as_str),
             Some("from_b"),
             "later sibling in document order should still win, got {result:?}"

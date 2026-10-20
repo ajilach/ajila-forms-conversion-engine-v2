@@ -5,46 +5,112 @@
 //! §"Automatic Hyphenation" (spec page 65).
 
 use hyphenation::{Hyphenator, Language, Load, Standard};
-use std::sync::OnceLock;
+use std::sync::Mutex;
 
 // ── Embedded dictionaries ────────────────────────────────────────────────────
 
-static DE_DICT: OnceLock<Standard> = OnceLock::new();
-static EN_DICT: OnceLock<Standard> = OnceLock::new();
-static IT_DICT: OnceLock<Standard> = OnceLock::new();
+/// The dictionaries loaded so far, by language. Interior mutability: a
+/// cache of immutable, leaked dictionaries, filled on first use of each
+/// language and never changed afterwards.
+static DICTS: Mutex<Vec<(Language, &'static Standard)>> = Mutex::new(Vec::new());
 
-/// Return a reference to the German hyphenation dictionary (lazy-loaded).
-fn german_dict() -> &'static Standard {
-    DE_DICT.get_or_init(|| {
-        Standard::from_embedded(Language::German1996)
-            .expect("embedded German hyphenation dictionary is valid")
-    })
-}
-
-/// Return a reference to the English hyphenation dictionary (lazy-loaded).
-fn english_dict() -> &'static Standard {
-    EN_DICT.get_or_init(|| {
-        Standard::from_embedded(Language::EnglishUS)
-            .expect("embedded English hyphenation dictionary is valid")
-    })
-}
-
-/// Return a reference to the Italian hyphenation dictionary (lazy-loaded).
-fn italian_dict() -> &'static Standard {
-    IT_DICT.get_or_init(|| {
-        Standard::from_embedded(Language::Italian)
-            .expect("embedded Italian hyphenation dictionary is valid")
-    })
-}
-
-/// Return the dictionary for a language code, or `None` if unsupported.
-pub fn dict_for_language(lang: &str) -> Option<&'static Standard> {
-    match lang {
-        "de" => Some(german_dict()),
-        "en" => Some(english_dict()),
-        "it" => Some(italian_dict()),
-        _ => None,
+/// The hyphenation dictionary for a locale tag (`de`, `de_CH`, `en-GB`),
+/// `None` when the `hyphenation` crate embeds none for that language. The
+/// country selects a variant where one exists (`de_CH`, `en_GB`, `nb`/`nn`
+/// for Norwegian); otherwise the language's main dictionary is used.
+pub fn dict_for_language(locale: &str) -> Option<&'static Standard> {
+    let language = language_of(locale)?;
+    let mut dicts = DICTS.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some((_, dict)) = dicts.iter().find(|(l, _)| *l == language) {
+        return Some(dict);
     }
+    let dict: &'static Standard = Box::leak(Box::new(
+        Standard::from_embedded(language).expect("embedded hyphenation dictionary is valid"),
+    ));
+    dicts.push((language, dict));
+    Some(dict)
+}
+
+/// The `hyphenation` crate's language for a locale tag.
+fn language_of(locale: &str) -> Option<Language> {
+    let mut parts = locale.split(['_', '-']);
+    let language = parts.next()?.to_ascii_lowercase();
+    let country = parts.next().map(str::to_ascii_uppercase);
+    Some(match (language.as_str(), country.as_deref()) {
+        ("af", _) => Language::Afrikaans,
+        ("sq", _) => Language::Albanian,
+        ("hy", _) => Language::Armenian,
+        ("as", _) => Language::Assamese,
+        ("eu", _) => Language::Basque,
+        ("be", _) => Language::Belarusian,
+        ("bn", _) => Language::Bengali,
+        ("bg", _) => Language::Bulgarian,
+        ("ca", _) => Language::Catalan,
+        ("zh", _) => Language::Chinese,
+        ("cop", _) => Language::Coptic,
+        ("hr", _) => Language::Croatian,
+        ("cs", _) => Language::Czech,
+        ("da", _) => Language::Danish,
+        ("nl", _) => Language::Dutch,
+        ("en", Some("GB" | "IE" | "AU" | "NZ" | "ZA" | "IN")) => Language::EnglishGB,
+        ("en", _) => Language::EnglishUS,
+        ("eo", _) => Language::Esperanto,
+        ("et", _) => Language::Estonian,
+        ("fi", _) => Language::Finnish,
+        ("fr", _) => Language::French,
+        ("fur", _) => Language::Friulan,
+        ("gl", _) => Language::Galician,
+        ("ka", _) => Language::Georgian,
+        ("de", Some("CH" | "LI")) => Language::GermanSwiss,
+        ("de", _) => Language::German1996,
+        ("el", _) => Language::GreekMono,
+        ("gu", _) => Language::Gujarati,
+        ("hi", _) => Language::Hindi,
+        ("hu", _) => Language::Hungarian,
+        ("is", _) => Language::Icelandic,
+        ("id", _) => Language::Indonesian,
+        ("ia", _) => Language::Interlingua,
+        ("ga", _) => Language::Irish,
+        ("it", _) => Language::Italian,
+        ("kn", _) => Language::Kannada,
+        ("kmr" | "ku", _) => Language::Kurmanji,
+        ("la", _) => Language::Latin,
+        ("lv", _) => Language::Latvian,
+        ("lt", _) => Language::Lithuanian,
+        ("mk", _) => Language::Macedonian,
+        ("ml", _) => Language::Malayalam,
+        ("mr", _) => Language::Marathi,
+        ("mn", _) => Language::Mongolian,
+        ("nb" | "no", _) => Language::NorwegianBokmal,
+        ("nn", _) => Language::NorwegianNynorsk,
+        ("oc", _) => Language::Occitan,
+        ("or", _) => Language::Oriya,
+        ("pi", _) => Language::Pali,
+        ("pa", _) => Language::Panjabi,
+        ("pms", _) => Language::Piedmontese,
+        ("pl", _) => Language::Polish,
+        ("pt", _) => Language::Portuguese,
+        ("ro", _) => Language::Romanian,
+        ("rm", _) => Language::Romansh,
+        ("ru", _) => Language::Russian,
+        ("sa", _) => Language::Sanskrit,
+        ("sr", _) => Language::SerbianCyrillic,
+        ("sh", _) => Language::SerbocroatianLatin,
+        ("cu", _) => Language::SlavonicChurch,
+        ("sk", _) => Language::Slovak,
+        ("sl", _) => Language::Slovenian,
+        ("es", _) => Language::Spanish,
+        ("sv", _) => Language::Swedish,
+        ("ta", _) => Language::Tamil,
+        ("te", _) => Language::Telugu,
+        ("th", _) => Language::Thai,
+        ("tr", _) => Language::Turkish,
+        ("tk", _) => Language::Turkmen,
+        ("uk", _) => Language::Ukrainian,
+        ("hsb", _) => Language::Uppersorbian,
+        ("cy", _) => Language::Welsh,
+        _ => return None,
+    })
 }
 
 // ── XFA Hyphenation element ──────────────────────────────────────────────────
@@ -200,8 +266,21 @@ impl XfaHyphenation {
 mod tests {
     use super::*;
 
+    #[test]
+    fn dictionaries_follow_the_locale_tag() {
+        assert!(dict_for_language("de").is_some());
+        assert!(dict_for_language("de_CH").is_some());
+        assert!(dict_for_language("fr-FR").is_some());
+        assert!(dict_for_language("es").is_some());
+        assert!(dict_for_language("xx").is_none());
+        assert!(dict_for_language("").is_none());
+        assert_eq!(language_of("en_GB"), Some(Language::EnglishGB));
+        assert_eq!(language_of("de_CH"), Some(Language::GermanSwiss));
+        assert_eq!(language_of("DE"), Some(Language::German1996));
+    }
+
     fn de_dict() -> &'static Standard {
-        german_dict()
+        dict_for_language("de").expect("German is embedded")
     }
 
     /// `dict_for_language("it")`: the Italian forms in the corpus (AAOV,

@@ -17,7 +17,7 @@
 use serde::{Deserialize, Serialize};
 
 /// One violation, anchored to the JSON Pointer of the offending value.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RuleViolation {
     pub pointer: String,
     pub message: String,

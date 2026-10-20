@@ -1,27 +1,33 @@
-# Part one replays `collect_add_subjects` and `sane_subject` of the UBS writer (`xml_writer.rs`):
-# the same resolution that decides the subject of the row heading and the Add button.
+# The title limits replay `subject_of` of the UBS writer (`xml_writer.rs`), which decides the row
+# heading, the Document of Record heading and the subject of the Add button.
 id = "ubs-aem-repeatable-title"
-title = "A Repeatable is named once: a title that says what repeats, and no heading that repeats it"
+title = "A Repeatable's title names one row, once"
 output_formats = ["aem-ubs"]
 description = """
-A repeatable's `title` is the one string that becomes the row heading, the Add button's label and
-the Document of Record heading, so make it the short noun phrase of the thing that repeats
-(`Client`, `Beneficial owner`), in every language. Left empty, the writer falls back to the
-nearest TitleDraw above the repeatable among its siblings, then to the title of the enclosing
-panel; a title it cannot use (longer than 4 words, 8 for a repeatable of signatures' own title, or 42 characters, a sentence ending in a full
-stop, "Condition: ...", or just `name`, `number`, `details`, `data`) counts as empty. If nothing
-names the repeatable, the panel ships the visible placeholder `(Repeatable name)`.
+A Repeatable's `title` is the row heading (numbered by the UBS client library from two rows on) and
+the Document of Record heading, and it gives the Add button its subject. Every Repeatable has one,
+in every language (UBS-REP-1):
 
-The UBS client library numbers the rows and builds `{title} {n}` itself, so a heading inside the
-repeatable that names the row (`Client`, `Client 1`, `Client 2`) renders the name twice.
+- When the source shows a title per instance (a heading inside the repeated part, numbered with
+  each instance, "Dritte 1", "Dritte 2"), the title is that heading without its number.
+- Otherwise it is deduced from the content: the singular noun phrase naming one instance, in the
+  source's own words in each language ("Client", "Beneficial owner", "Legale rappresentante"),
+  never a plural or optional-plural form ("holder(s)", "Legale/i", "Bevollmächtigte(r)"). The
+  writer takes at most 6 words and 60 characters (8 words for a repeatable of signatures), no
+  sentence, no bare `name` or `data`; this wins over ubs-aem-verbatim-source-text.
+- A heading that stands once above the repeated part stays the section's (the page title or a
+  TitleDraw), unless it is only the instance noun or its plural or collective form ("Authorized
+  representative(s)", "Kontoinhaber"): that heading is dropped.
+- No heading inside the repeatable names or numbers the row ("Client", "Client 1") (UBS-REP-2).
+- Table rows the person adds are a Repeatable per row titled the same way (CNV-STR-4).
 
-Reported: a Repeatable for which that resolution finds no subject (pointer `<node>/title`), and a
-TitleDraw inside the repeatable (not inside a repeatable nested in it) whose text in a language is
-that language's title or the title followed by a number.
+The Add button's label comes from the profile's catalogue in each language (backlog "Add button
+labels"), so the title only names the thing that repeats; write no "Add" wording of your own.
 
-Set `title` in the master language and every other language, as a short noun phrase from the
-source's own wording (where the source heading is longer, its shortest noun phrase for what
-repeats, while the full heading stays verbatim as the page title or a TitleDraw; this wins over
-ubs-aem-verbatim-source-text); delete a heading inside the repeatable that is the title or the title
-followed by a number.
+Reported: a Repeatable whose master title is missing, its own name or unusable as above (pointer
+`<node>/title`); a title with a plural mark in a language; a TitleDraw inside it (not inside a
+nested repeatable) whose text is the title or the title and a number; and the TitleDraw right
+before it among its siblings when its text is the title or its plural.
+
+The fix deletes the reported headings. Set a missing or plural title by hand, in every language.
 """

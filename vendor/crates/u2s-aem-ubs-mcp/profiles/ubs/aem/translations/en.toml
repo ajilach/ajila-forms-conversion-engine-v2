@@ -1,6 +1,9 @@
 # English translations (master language fallback)
 # Key = master text, Value = English translation
 
+# A quotation is written «…»: the package prints it with the quotation marks of the
+# form's language and entity country (src/aem/quotes.rs).
+
 [translations]
 "Back" = "Back"
 "Next" = "Next"
@@ -11,7 +14,7 @@
 "Submission failed" = "Submission failed"
 "<p>The form could not be sent. Please try again later.</p>" = "<p>The form could not be sent. Please try again later.</p>"
 "Thank you for submitting the form." = "Thank you for submitting the form."
-"<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>"
+"<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>By clicking on «Preview», you can review your document before submission.</p><p>After clicking «Submit», you will no longer be able to edit the document and the PDF will be created for signing.</p>"
 "Summary of form information" = "Summary of form information"
 "Summary" = "Summary"
 

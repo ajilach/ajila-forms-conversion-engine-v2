@@ -212,7 +212,7 @@ pub fn localized_values(content: &str) -> Option<std::collections::BTreeMap<Stri
     serde_json::from_str(line.strip_suffix(';')?).ok()
 }
 
-const LETTER_SUBJECT: &str = "letter-subject";
+pub const LETTER_SUBJECT: &str = "letter-subject";
 /// The field a letter's subject is printed from.
 pub const SUBJECT_FIELD: &str = "AF_Subject";
 
@@ -229,22 +229,32 @@ pub fn letter_subject(
     references: &[String],
 ) -> String {
     let texts = serde_json::to_string(texts).expect("a map of strings serialises");
+    format!(
+        "{}\n{TEXTS_TOP}{texts};\n{}\n\
+         var text = texts[window.forms.ubs.getFormMetadata().language] || {};\n\
+         {SUBJECT_FIELD}.value = text.replace({FILL_PATTERN}, {FILL_FUNCTION});",
+        generated(LETTER_SUBJECT),
+        values_line(references),
+        js_string(fallback)
+    )
+}
+
+/// What a `{NAME}` template's rule ([`letter_subject`], [`calculated_value`])
+/// matches: `{{`, `}}` and each `{NAME}`.
+const FILL_PATTERN: &str = r"/\{\{|\}\}|\{([A-Za-z_][A-Za-z0-9_]*)\}/g";
+/// What it puts in their place: a brace for `{{` and `}}`, and the current
+/// value of the field `NAME` (from `values`, see [`values_line`]), nothing
+/// while it is empty.
+const FILL_FUNCTION: &str = "function (all, name) {\n  if (!name) { return all.charAt(0); }\n  var value = values[name];\n  return value === null || value === undefined ? \"\" : String(value);\n}";
+
+/// The line reading the current value of each field a template names.
+fn values_line(references: &[String]) -> String {
     let values = references
         .iter()
         .map(|name| format!("{}: {name}.value", js_string(name)))
         .collect::<Vec<_>>()
         .join(", ");
-    format!(
-        "{}\n{TEXTS_TOP}{texts};\nvar values = {{{values}}};\n\
-         var text = texts[window.forms.ubs.getFormMetadata().language] || {};\n\
-         {SUBJECT_FIELD}.value = text.replace(/\\{{\\{{|\\}}\\}}|\\{{([A-Za-z_][A-Za-z0-9_]*)\\}}/g, function (all, name) {{\n\
-         \x20 if (!name) {{ return all.charAt(0); }}\n\
-         \x20 var value = values[name];\n\
-         \x20 return value === null || value === undefined ? \"\" : String(value);\n\
-         }});",
-        generated(LETTER_SUBJECT),
-        js_string(fallback)
-    )
+    format!("var values = {{{values}}};")
 }
 
 /// How [`letter_subject`] opens its texts, on a line of its own.
@@ -260,57 +270,168 @@ pub fn letter_subject_values(content: &str) -> Option<std::collections::BTreeMap
     serde_json::from_str(line.strip_suffix(';')?).ok()
 }
 
-// A fragment's Initialize rules. AEM's Expression Editor hands back exactly
-// ONE SCRIPTMODEL per field and event: two sharing `this` and `Initialize` are
-// joined by a bare comma into invalid JSON, and the editor then fails the
-// moment it loads the field, taking the page's editor data with it. So each
-// of these is one rule, however many statements it carries.
-
-/// An address fragment's initialize rule (feedback #102): City and Country
-/// must be optional. The fragment's own default makes them mandatory, so this
-/// overrides it. Both fields sit one level down in `PN_AddressBlock` and are
-/// passed as arguments, which is why they need the `this.` prefix: a bare or
-/// panel-qualified reference does not resolve.
-pub const ADDRESS_INIT: &str = "window.com.ajila.forms.ubs.components.setMandatory(this.PN_AddressBlock.TXT_City_AddressBlock, false);\nwindow.com.ajila.forms.ubs.components.setMandatory(this.PN_AddressBlock.DD_Country_AddressBlock, false);";
-
-/// The generic address fragment's initialize rule: its unused fields hidden,
-/// its country list loaded for the form's mandator and language, city and
-/// country not mandatory. `affrg_AddressGeneric1` carried two Initialize
-/// rules of its own (the hides and the country list); they are folded in
-/// here, not appended as a second rule.
-pub const ADDRESS_GENERIC_INIT: &str = "window.forms.ubs.hideAFHideDor(TXT_StreetNumber);\nwindow.forms.ubs.hideAFHideDor(TXT_AdditionalDetails_AddressBlock);\nwindow.forms.ubs.hideAFHideDor(TXT_PostalCodeCity);\nwindow.forms.ubs.hideAFHideDor(TXT_State_AddressBlock);\nwindow.forms.ubs.hideAFHideDor(TXT_District_AddressBlock_APAC);\nvar formMetadata = window.forms.ubs.getFormMetadata();\nwindow.forms.ubs.referencedata.getCountryList(formMetadata.mandator, formMetadata.language, 'DOMICILE_INDIVIDUAL', DD_Country_AddressBlock);\nwindow.com.ajila.forms.ubs.components.setMandatory(this.PN_AddressBlock.TXT_City_AddressBlock, false);\nwindow.com.ajila.forms.ubs.components.setMandatory(this.PN_AddressBlock.DD_Country_AddressBlock, false);";
-
 /// A German form's banking relationship (feedback #104): `0319` and
 /// disabled. Italy and every other entity share the same fragment but keep
 /// what they have, so the writer gates this on the entity, not the fragment.
 pub const BANKING_DEFAULT_DE_INIT: &str =
     "TXT_BankingRelationship1.value = '0319';\nTXT_BankingRelationship1.enabled = false;";
 
-/// The initialize rule a fragment carries, by what it is: `None` for one
-/// that carries none. `guide_path` is the fragment's own; the address rules
-/// name it, the banking one and a partner generic's do as written.
+/// The initialize rule a fragment carries: its `statements`
+/// ([`super::fragment_init::statements`]), after the German banking
+/// relationship's default where it is one; `None` when it has nothing to do.
+/// AEM's Expression Editor hands back exactly ONE SCRIPTMODEL per field and
+/// event: two sharing `this` and `Initialize` are joined by a bare comma into
+/// invalid JSON, and the editor then fails the moment it loads the field,
+/// taking the page's editor data with it. So this is one rule, however many
+/// statements it carries. `guide_path` is the fragment's own; the banking
+/// default names its field as written.
 pub fn fragment_init(
     frag_ref: &str,
     guide_path: &str,
     german_entity: bool,
-    partner_calls: &[String],
+    statements: &[String],
 ) -> Option<EventScript> {
-    let base = frag_ref.rsplit('/').next().unwrap_or(frag_ref).to_lowercase();
-    if base.ends_with("affrg_addressgeneric1") {
-        Some(EventScript::event(guide_path, ScriptEvent::Initialize, ADDRESS_GENERIC_INIT))
-    } else if base.contains("address") && !base.contains("formofaddress") && !base.contains("form_address") {
-        Some(EventScript::event(guide_path, ScriptEvent::Initialize, ADDRESS_INIT))
-    } else if base.ends_with("affrg_bankingrelationship1") && german_entity {
-        Some(banking_default_de())
-    } else if !partner_calls.is_empty() {
-        Some(EventScript::event(
-            guide_path,
-            ScriptEvent::Initialize,
-            partner_calls.join("\n"),
-        ))
-    } else {
+    let banking = frag_ref.ends_with("affrg_BankingRelationship1") && german_entity;
+    if banking {
+        let mut rule = banking_default_de();
+        for statement in statements {
+            rule.content.push('\n');
+            rule.content.push_str(statement);
+        }
+        Some(rule)
+    } else if statements.is_empty() {
         None
+    } else {
+        Some(EventScript::event(guide_path, ScriptEvent::Initialize, statements.join("\n")))
     }
+}
+
+const COPIED_VALUE: &str = "copied-value";
+
+/// An input's value-commit rule copying its value into each of `targets`, the
+/// inputs that take their value from it (`InputProps::copy_from`). A target
+/// stays editable; a target that already holds the value is not written
+/// again, so two inputs copying each other settle on the one value.
+pub fn copied_value(field: &str, targets: &[String]) -> EventScript {
+    let mut content = generated(COPIED_VALUE);
+    for target in targets {
+        content.push_str(&format!(
+            "\nif ({target}.value !== this.value) {{\n  {target}.value = this.value;\n}}"
+        ));
+    }
+    EventScript {
+        archetype: Some(COPIED_VALUE.into()),
+        ..EventScript::event(field, ScriptEvent::ValueCommit, content)
+    }
+}
+
+const CALCULATED_VALUE: &str = "calculated-value";
+
+/// An input's Calculate rule (`InputProps::calculate`): it always holds
+/// `template` with each `{NAME}` replaced by the current value of the input
+/// `NAME` (nothing while it is empty) and `{{` / `}}` written as `{` / `}`,
+/// the same filling a letter's subject does. `references` are the names the
+/// template uses.
+pub fn calculated_value(field: &str, template: &str, references: &[String]) -> EventScript {
+    let content = format!(
+        "{}\n{}\nthis.value = {}.replace({FILL_PATTERN}, {FILL_FUNCTION});",
+        generated(CALCULATED_VALUE),
+        values_line(references),
+        js_string(template)
+    );
+    EventScript {
+        archetype: Some(CALCULATED_VALUE.into()),
+        ..EventScript::event(field, ScriptEvent::Calculate, content)
+    }
+}
+
+const LANGUAGE_GATE: &str = "language-gate";
+
+/// A node's Initialize rule showing it, on screen and in the DoR, only when
+/// the form is read in one of `languages` (`AemAttrs::only_languages`), and
+/// hiding it otherwise: the shape UBS writes for content only some language
+/// versions carry. The language is lower-cased and each code tested with
+/// `indexOf`, so a regional code (`de-ch`) matches its language; Spanish is
+/// tested as both `es` and the platform's `sp`.
+pub fn language_gate(field: &str, languages: &[String]) -> EventScript {
+    let mut codes: Vec<String> = Vec::new();
+    for language in languages {
+        let code = language.to_lowercase();
+        let spanish = code == "es" || code == "sp";
+        for code in if spanish { vec!["es".to_owned(), "sp".to_owned()] } else { vec![code] } {
+            if !codes.contains(&code) {
+                codes.push(code);
+            }
+        }
+    }
+    let test = codes
+        .iter()
+        .map(|code| format!("language.indexOf({}) !== -1", js_string(code)))
+        .collect::<Vec<_>>()
+        .join(" || ");
+    let content = format!(
+        "{}\nvar language = window.forms.ubs.getFormMetadata().language.toLowerCase();\n\
+         if ({test}) {{\n  window.forms.ubs.showAFShowDor(this);\n}} else {{\n  window.forms.ubs.hideAFHideDor(this);\n}}",
+        generated(LANGUAGE_GATE)
+    );
+    EventScript {
+        archetype: Some(LANGUAGE_GATE.into()),
+        ..EventScript::event(field, ScriptEvent::Initialize, content)
+    }
+}
+
+const SIGNATURE_NAME_FILL: &str = "signature-name-fill";
+
+/// Where a signature's name is filled from: the rows of a party and of its
+/// signature, each as a script reaches its instances.
+pub struct NameFill {
+    /// The party's instance-managed panel (`RCP_CPGRP_repeat`).
+    pub data_repeat: String,
+    /// The path from one of its instances to the party's name fields
+    /// (`RCP_CPGRP_inner.PN_CPGRP.PN_IndividualBasic.PN_Name_Individual`).
+    pub data_path: String,
+    /// The signature's instance-managed panel (`RCP_SGN_CPGRP_repeat`).
+    pub sign_repeat: String,
+    /// The path from one of its instances to the signer's name field
+    /// (`RCP_SGN_CPGRP_inner.PN_SGN_CPGRP.PN_GenericSignature.TXT_Name_Generic`).
+    pub sign_path: String,
+}
+
+/// The rules that fill each signature's name from its party's first and last
+/// name (UBS-SIG-4), on the hidden field `anchor`: UBS's own loop (BAVP_033,
+/// feedback PROBLEM-signature-name-fill) on Calculate, which follows a name as
+/// it changes, and on Initialize, for a form opened with data already in it
+/// (a draft, a prefill), where it fills only an empty name. The name stays
+/// editable.
+pub fn signature_name_fill(anchor: &str, fill: &NameFill) -> [EventScript; 2] {
+    let body = |only_empty: bool| {
+        // Both write the field as `<panel>.instanceManager.instances[i].<path>.value = ...`, the
+        // shape the feedback repository's guard reads a fill by, on either event.
+        let write = if only_empty {
+            "  if (!{SIGN}.value) {\n    {SIGN}.value = name;\n  }"
+        } else {
+            "  {SIGN}.value = name;"
+        };
+        format!(
+            "{}\nvar len = {data}.instanceManager.instances.length;\n\nfor (var i = 0; i < len; i++) {{\n\
+             \x20 var pnIndividual = {data}.instanceManager.instances[i].{data_path};\n\
+             \x20 var lastName = pnIndividual.TXT_LastName.value;\n\
+             \x20 var firstName = pnIndividual.TXT_FirstName.value;\n\
+             \x20 var name = ((firstName ? firstName : \"\") + \" \" + (lastName ? lastName : \"\")).trim();\n\
+             {write}\n}}",
+            generated(SIGNATURE_NAME_FILL),
+            data = fill.data_repeat,
+            data_path = fill.data_path,
+            write = write.replace(
+                "{SIGN}",
+                &format!("{}.instanceManager.instances[i].{}", fill.sign_repeat, fill.sign_path)
+            ),
+        )
+    };
+    // Spelled as the feedback repository's fixer writes it, without an
+    // `_archetype`: its marker opens the content.
+    let rule = |event, only_empty| EventScript::event(anchor, event, body(only_empty));
+    [rule(ScriptEvent::Calculate, false), rule(ScriptEvent::Initialize, true)]
 }
 
 /// The German banking relationship's initialize rule, on whichever node

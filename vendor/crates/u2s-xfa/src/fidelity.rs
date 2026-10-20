@@ -8,11 +8,13 @@
 //! form whose init script throws should still render *something*, with the
 //! degradation reported rather than swallowed.
 
+use crate::xfa::font_manager::{DocumentFonts, EmbeddedFont};
+use std::sync::Arc;
 use std::collections::HashMap;
 
 use crate::flattened::{Flattened, PageOverrides};
 use crate::xfa::XfaNode;
-use crate::xfa::script_executor::ScriptExecutor;
+use crate::xfa::script_executor::{LoadedScripts, ScriptExecutor};
 use crate::{XfaError, xfa::scripting::SomPath};
 
 /// How much of the form's machinery was actually run.
@@ -65,6 +67,16 @@ fn apply_form_dom_merges(
 /// render: a broken script in one field should not make the entire document
 /// invisible. It must never be silent, though, so the fallback is reported.
 pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
+    prepare_default_with_fonts(nodes, Vec::new())
+}
+
+/// As [`prepare_default`], with the faces `embedded` in the document's PDF.
+pub fn prepare_default_with_fonts(
+    nodes: &[XfaNode],
+    embedded: Vec<EmbeddedFont>,
+) -> Result<Prepared, XfaError> {
+    let fonts = Arc::new(DocumentFonts::from_nodes(nodes).with_embedded(embedded));
+    let _document_fonts = fonts.enter();
     let mut working = nodes.to_vec();
     // The Form DOM of an empty merge: each repeatable subform as its
     // `initial` instances (XFA 3.3 §9), before any script sees the form.
@@ -89,6 +101,8 @@ pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
             // As `XfaForm::new_with_layout` does, so a stateless render draws
             // a script-locked field the way a session does.
             ScriptExecutor::apply_access_changes(&mut working, &result.access_changes);
+            ScriptExecutor::apply_caption_changes(&mut working, &result.caption_changes);
+            ScriptExecutor::apply_item_changes(&mut working, &result.item_changes);
             apply_form_dom_merges(&mut working, &result.presence_changes);
 
             // Master-page scripts that depend on the page ("Pagina 2 di 3", a
@@ -98,14 +112,25 @@ pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
             let mut warning = None;
             let mut script_warning = result.script_report.warning();
             let flattened = match layout {
-                Some(mut layout) => {
+                Some(LoadedScripts {
+                    mut engine,
+                    mut layout,
+                }) => {
                     let mut failed = false;
-                    let flattened = Flattened::from_xfa_paged(
+                    let master = layout.master_state(&mut engine);
+                    let flattened = Flattened::from_xfa_paged_fonts(
                         &working,
                         &result.computed_values,
+                        Arc::clone(&fonts),
                         &mut |page_area, page_index, page_count| {
                             std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                layout.evaluate(page_area, page_index, page_count)
+                                layout.evaluate(
+                                    &mut engine,
+                                    &master,
+                                    page_area,
+                                    page_index,
+                                    page_count,
+                                )
                             }))
                             .unwrap_or_else(|_| {
                                 failed = true;
@@ -127,7 +152,7 @@ pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
                     }
                     flattened
                 }
-                None => Flattened::from_xfa(&working, &result.computed_values)
+                None => Flattened::from_xfa_fonts(&working, &result.computed_values, Arc::clone(&fonts))
                     .map_err(XfaError::Layout)?,
             };
 
@@ -142,7 +167,8 @@ pub fn prepare_default(nodes: &[XfaNode]) -> Result<Prepared, XfaError> {
             // presence changes to skip.
             apply_form_dom_merges(&mut working, &[]);
             let empty: HashMap<SomPath, String> = HashMap::new();
-            let flattened = Flattened::from_xfa(&working, &empty).map_err(XfaError::Layout)?;
+            let flattened =
+                Flattened::from_xfa_fonts(&working, &empty, Arc::clone(&fonts)).map_err(XfaError::Layout)?;
             Ok(Prepared {
                 flattened,
                 fidelity: Fidelity::FormDom,

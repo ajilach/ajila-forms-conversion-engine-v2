@@ -2,22 +2,26 @@ id = "ubs-aem-source-coverage"
 title = "Nothing the source says or asks is missing"
 output_formats = ["aem-ubs"]
 description = """
-Every heading, label, option, paragraph and footnote text of the source reaches the tree, in
-EVERY language, each read from that language's own PDF. Every fillable source field (text boxes,
-numeric boxes, dates, dropdowns, checkboxes, radio and choice groups, signatures) has a counterpart
-in the output; a lost field is data the form can no longer capture. Sections that only appear under
-a configurator choice are included: a hidden section exists in the output only if the author
-revealed it with xfa_set. A text that a referenced fragment renders itself, or that only scripts
-use, is an expected miss and is not a break.
+Every heading, label, option, paragraph, notice and footnote text of the source reaches the tree,
+in EVERY language, each read from that language's own source, and every fillable source field
+(text, numeric, date, dropdown, checkbox, radio and choice groups, signatures) has a counterpart
+(CNV-TXT-2): a lost field is data the form can no longer capture. What a rule drops is no miss:
+technical content (fields never visible in any state, barcodes, footer data, filler-only texts,
+page furniture from metadata: CNV-SRC-5) and screen-only buttons (add, remove, save, print, mail:
+CNV-SRC-6). Sections that appear only under a choice are included: find them in a session (xfa_open,
+xfa_set each value and read what `appeared`, xfa_reset between values; for a combination of
+choices, xfa_set one control after another). A text that a referenced fragment renders itself, or that only scripts use, is an
+expected miss.
 
 The lines the master page draws top of page (the legal entity, the validity line) are source text
 too. They are not on the form's pages but in the Document of Record's header: each is a hidden
 `TextDraw` in its header slot (ubs-aem-dor-header-slots), the legal entity in `slot2` and the
-validity line in `slot3`, in every language the form ships, read from that language's master page.
+validity line in `slot3`, in every language the form ships, read from that language's master page
+(the draws under the template's `pageSet`, xfa_search and xfa_node; xfa_render_region of the corner).
 
-In a letter (ubs-aem-letter-detection, decided by the first page only; the letter page of a mixed form
-is ordinary nodes) the letter top is the `Letterhead`'s: the receiver block,
-the date, the references and the subject line are covered by its `receiver`, its date field, its
+In a letter (ubs-aem-letter-detection, decided by the first page only; the letter page of a mixed
+form is ordinary nodes) the letter top is the `Letterhead`'s: the receiver block, the date, the
+references and the subject line are covered by its `receiver`, its date field, its
 `your_reference` and `our_reference`, and its `subject`, and the sender block the master page
 prints (the bank's name, address and telephone) by its `sender`, which the letter layout prints in
 the header. The letterhead's own captions ("Sender", "Street", "Postal code") are the component's
@@ -37,36 +41,41 @@ sub-panel and `init_show` shows a hidden one, through the fragment's Initialize 
 Record alike, `showAFShowDor(...)` shows it in both. Building the package refuses a name the
 fragment does not have, or an `init_show` of one it already shows. A sub-panel the source does not
 ask for that still shows, or one it asks for that stays hidden, is a break: hiding a field the
-source asks for loses it from the form and from the Document of Record. A source field the partner
-generic does not have at all (place of birth, an email, a client id) is a break when the document
-has no node for it; its place is a content `Panel` beside the fragment. The signature generic's own hidden `SIGN_Signature` is intended,
-since the form is signed on paper.
+source asks for loses it from the form and from the Document of Record. The same holds for any
+component inside a fragment, named by its path from the fragment
+(`PN_Address.PN_AddressBlock.TXT_State_AddressBlock`): the writer hides the address fields beyond
+street, number, postal code, city and country unless `init_show` names them
+(ubs-aem-addresses), so a state, district or additional address line the source asks for and no
+`init_show` names is a lost field. A source field the fragment does not have at all (place of birth,
+an email, a client id, a post office box) is a break when the document has no node for it; its
+place is a content `Panel` beside a party's fragment, a `TextField` after an address fragment. The signature generic's
+own hidden `SIGN_Signature` is intended, since the form is signed on paper.
 
 How to judge: run coverage_check, which lists per language the source texts the document does not
-carry. It is a lead, not a verdict: look each entry up on the rendered page. Count the controls in
-xfa_controls against the fillable nodes of the document (json_outline) plus the fields its
-fragments collect, and resolve each difference. Then walk the source with xfa_page_text and xfa_search for every language and every
-configurator variant (xfa_open with xfa_set for each option) and confirm that what each page says
-and asks is in the document. Compare the master page's lines with the header slot draws
-(json_search for `dor_header_slot`).
+carry. It is a lead, not a verdict: look each entry up on the rendered page (xfa_render_pages).
+Count the controls of xfa_controls against the fillable nodes of the document (json_outline) plus
+the fields its fragments collect, and resolve each difference. Then walk the source with
+xfa_page_text and xfa_search_text in every language and every choice variant (a session with
+xfa_set for each option) and confirm that what each page says and asks is in the
+document. Compare the master page's lines with the header slot draws (json_search for
+`dor_header_slot`).
 
 A break is a source text (in any language) or a fillable source field with no counterpart in the
-document, a configurator variant that was never revealed and so is missing, a count of controls
-that differs without an explanation, or a master-page line with no header slot draw, in the wrong
-slot, paraphrased, or built as a visible text on a page.
+document, a choice variant that was never revealed and so is missing, a count of controls that
+differs without an explanation, or a master-page line with no header slot draw, in the wrong slot,
+paraphrased, or built as a visible text on a page.
 
-Fix: add the missing node or text in the place the page shows it; where a count differs, find the
-lost control and add it; add a missing master-page line as its header slot draw. Never rebuild a
-fragment's fields as loose nodes: a party sub-panel shown against the source goes into
+Fix: add the missing node or text where the page shows it; where a count differs, find the lost
+control and add it; add a missing master-page line as its header slot draw. Never rebuild a
+fragment's fields as loose nodes: a sub-panel or field shown against the source goes into
 `init_hide` (`hideAFHideDor`), a hidden one the source asks for into `init_show` (`showAFShowDor`),
-and a
-field the partner generic does not have goes into a content `Panel` beside the `Fragment` inside the
-party's `Repeatable`, never inside the fragment.
+and a field the fragment does not have goes into a content `Panel` beside the `Fragment` inside the
+party's `Repeatable` (after an address fragment, a `TextField`), never inside the fragment.
 
-Precedence: where a page exists in one language only (another language's PDF prints it in the
-same wording), each language's text is that wording as its own PDF prints it, and nothing is
-missing. This wins over ubs-aem-repeatable-add-label: a party title on such a page copies the
-source's text in every language, `title/en` included.
+Precedence: where a page exists in one language only (another language's source prints it in the
+same wording), each language's text is that wording as its own source prints it, and nothing is
+missing; a party title on such a page copies the source's text in every language, `title/en`
+included.
 """
 
 [judge]

@@ -1,28 +1,32 @@
 id = "ubs-aem-cascading-dropdowns-static-variants"
-title = "A dependent dropdown is a set of static, visibility-gated variants"
+title = "A dependent list is static variants"
 output_formats = ["aem-ubs"]
 description = """
-When one dropdown's options or value depend on another field's selection (in the XFA a change-event
-script drives it with `clearItems`, `addItem` and `rawValue`), do not make a single dropdown mutate
-its options at runtime, and do not gate the variants with a value-commit or change rule (for
-visibility that shape validates but does not fire in this profile). Model it as static variants:
-one dropdown per parent selection, each in its own Panel holding ONLY that selection's options,
-authored `visible: false` AND `is_conditional: true`, shown by a `ConditionRule` on the TRIGGER
-field (its `conditions`: one rule per parent value, targeting that variant panel's `name` with
-`show: true`). Gate a third-level variant on BOTH the level-1 and level-2 selections so that a stale
-upstream value cannot keep it visible. Every option label, value and code comes verbatim from the
-change function's `addItem` and `rawValue` lines. (That the targets exist and are `is_conditional`
-is checked by ubs-aem-condition-targets.)
+When the options of one dropdown (or radio group) depend on another choice (CNV-INP-9), do not
+make a single dropdown change its options at runtime, and do not gate the variants with a
+value-commit or change rule (for visibility that shape validates but does not fire in this
+profile). Model it as static variants: one dropdown per parent value, each in its own Panel
+holding ONLY the options the dependent control lists for that value, authored `visible: false`
+AND `is_conditional: true`, shown by a `ConditionRule` on the parent (its `conditions`: one per
+parent value, targeting that variant panel's `name` with `show: true`). Each variant's options are
+labelled verbatim as the source lists them for that parent value and numbered "1" to "n" like any
+list (UBS-GEN-3). A third level depends on all its ancestors, not only its parent: put each
+third-level variant panel inside the second-level variant panel whose dropdown shows it, so a
+stale upstream value cannot keep it visible. A value the source fills in per parent value (a code
+the xfa_set result lists as changed) is a read-only TextField with that `default_value` in each
+variant panel.
+(That the targets exist and are conditional is checked by ubs-aem-condition-targets.)
 
-How to judge: find the dependent fields in the source (xfa_controls, xfa_read of the change-event
-script of each trigger) and list the branches of every script. Then compare with the tree: one
-variant Panel and dropdown per branch, with exactly that branch's options, and a condition on the
-trigger per branch.
+How to judge: find the dependent controls (in a session, a parent value whose xfa_set result
+changes another choice, or `affects_layout` in xfa_controls). For each parent value, open a session (xfa_open), set it
+(xfa_set) and read the dependent control's options with xfa_controls (xfa_field); for a third level
+set both ancestors. Then compare with the tree: one variant Panel and dropdown per parent value,
+with exactly that value's options in that order, and a condition on the parent per value.
 
-A break is a dependent dropdown modelled as one dropdown, a branch with no variant, a variant whose
-options differ from its branch, a variant not gated on the trigger, or a deeper level gated on only
-one of its parents.
+A break is a dependent list modelled as one dropdown, a parent value with no variant, a variant
+whose options differ from the source's for that value, a variant not gated on the parent, or a
+deeper level that a stale ancestor value can keep visible.
 
-Fix: add the missing variant panel with its own dropdown; add the condition on the trigger; gate a
-deeper level on both parents.
+Fix: add the missing variant panel with its own dropdown; add the condition on the parent; nest a
+deeper level inside the variant of its parent.
 """

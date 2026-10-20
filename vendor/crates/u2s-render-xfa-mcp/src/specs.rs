@@ -8,18 +8,26 @@
 //!
 //! `xfa_open`, `xfa_set`, `xfa_click`, `xfa_reset` and `xfa_close` are the interaction
 //! surface: a session, not a state address. `xfa_controls` and every read
-//! tool take either `doc_path` (a one-shot, stateless address, with the
+//! tool take either `doc` or `doc_path` (a one-shot, stateless address, with the
 //! optional `state` shorthand for a specific point in the space) or
 //! `session` plus `revision` (a frozen view of a live, interacted-with
 //! form) — never both, never neither.
 //!
-//! Schemas are plain `serde_json::Value` rather than `schemars` derives, for
-//! the same reason as the other render servers: it decouples the schema from
-//! the rmcp/schemars versions, and keeps the tool descriptions — which are
-//! prompt surface — visible in one file.
+//! Each tool's input schema is generated from its argument type, which is
+//! also what its arguments parse into: the shared render arguments in
+//! [`u2s_render_core::args`] next to [`XfaTarget`], or the session types
+//! below. Tool descriptions stay here; argument descriptions are the doc
+//! comments on those fields. Both are prompt surface.
 
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
-use u2s_render_xfa::states::ControlKind;
+use u2s_render_core::args::{
+    InfoArgs, PageTextArgs, RenderPageArgs, RenderPagesArgs, RenderRegionArgs, SearchTextArgs,
+    ServerArgs,
+};
+use u2s_render_xfa::states::{ControlKind, SelectionSpec, StateSpec, Step};
+use u2s_schema::tool_input_schema;
 
 // This is the shared MCP *convention*'s contract version (roles, ingest
 // capabilities, blob-handle discipline, and now the additive `sessions`
@@ -32,98 +40,250 @@ use u2s_render_xfa::states::ControlKind;
 // the major stays 1.
 pub const CONTRACT_VERSION: &str = "1.0.0";
 
-fn tool(name: &str, description: &str, properties: Value, required: Value) -> Value {
-    json!({
-        "name": name,
-        "description": description,
-        "input_schema": {
-            "type": "object",
-            "properties": properties,
-            "required": required,
+fn tool(name: &str, description: &str, input_schema: Value) -> Value {
+    json!({ "name": name, "description": description, "input_schema": input_schema })
+}
+
+/// A stored form, by blob handle or path: what `xfa_open` takes.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct XfaDocument {
+    /// The form as the handle of a stored blob. Exactly one of doc, doc_path and session is required (xfa_open takes doc or doc_path).
+    #[schemars(length(min = 1))]
+    pub doc: Option<String>,
+    /// Absolute path to the PDF on the machine running this server. Exactly one of doc, doc_path and session is required (xfa_open takes doc or doc_path).
+    #[schemars(length(min = 1))]
+    pub doc_path: Option<String>,
+}
+
+/// What a read tool addresses: a stored form in a requested state, or one
+/// revision of a session. Which of the two is decided once, in
+/// `XfaRenderServer::target_of`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct XfaTarget {
+    #[serde(flatten)]
+    pub document: XfaDocument,
+    /// A session handle from xfa_open. Exactly one of doc, doc_path and session is required: pass this instead of doc or doc_path to address a live, interacted-with form rather than the stored document.
+    #[schemars(length(min = 1))]
+    pub session: Option<String>,
+    /// Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.
+    pub revision: Option<u64>,
+    /// Which form state to use, when addressing by doc or doc_path. Leave out
+    /// for the state the form opens in. To choose another, list the form's
+    /// controls with xfa_controls and say what to do to them, in order, as
+    /// `steps`: `{"set": {"field", "value"}}` sets a control, `{"click":
+    /// {"field"}}` presses a button; each step is one or the other.
+    /// Everything not touched keeps its default. Presses happen in the order
+    /// given, so two presses of an add button make two new rows, and a later
+    /// step can set a field of a row an earlier press created
+    /// (`Row[1].Amount`). `selections`, a list of sets only, is the older
+    /// spelling and still accepted; give exactly one of the two. Ignored when
+    /// addressing by session, since a session's own interactions already
+    /// determine its state.
+    #[serde(default, deserialize_with = "state_arg")]
+    pub state: Option<StateArg>,
+}
+
+/// Reads `state` with an error that says what is wrong with it. The derived
+/// reading of an untagged enum only says that no variant matched, which
+/// names neither the argument nor the keys it expects.
+fn state_arg<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Option<StateArg>, D::Error> {
+    use serde::de::Error as _;
+    let Some(value) = Option::<Value>::deserialize(d)? else {
+        return Ok(None);
+    };
+    StateArg::deserialize(&value)
+        .map(Some)
+        .map_err(|_| D::Error::custom(explain_state(&value)))
+}
+
+/// Why `value` is not a `state`.
+fn explain_state(value: &Value) -> String {
+    let Some(obj) = value.as_object() else {
+        return "state must be an object of the shape { \"steps\": [...] }".to_owned();
+    };
+    match (obj.get("steps"), obj.get("selections")) {
+        (Some(_), Some(_)) => {
+            "state has both \"steps\" and \"selections\"; give one (selections are set steps)"
+                .to_owned()
         }
-    })
+        (None, None) => {
+            let keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+            format!(
+                "state must have a \"steps\" array (or the older \"selections\"); this object \
+                 has keys {keys:?}"
+            )
+        }
+        (Some(steps), None) => match Vec::<StepArg>::deserialize(steps) {
+            Ok(_) => "state must have only \"steps\", with at least one step".to_owned(),
+            Err(err) => format!(
+                "state: each step is {{\"set\": {{field, value}}}} or {{\"click\": {{field}}}}: {err}"
+            ),
+        },
+        (None, Some(selections)) => match Vec::<SelectionArg>::deserialize(selections) {
+            Ok(_) => "state must have only \"selections\", with at least one".to_owned(),
+            Err(err) => format!("state: each selection is {{field, value}}: {err}"),
+        },
+    }
 }
 
-fn doc_path_prop() -> Value {
-    json!({
-        "type": "string",
-        "description": "Absolute path to the PDF on the machine running this server, \
-                        normally inside U2S_BLOB_DIR. Exactly one of doc_path and session \
-                        is required."
-    })
+/// An xfa read tool's arguments: [`XfaTarget`] next to the tool's own.
+pub type XfaArgs<T> = ServerArgs<XfaTarget, T>;
+
+/// The `state` argument as it arrives: exactly one of `steps` and
+/// `selections`, each with at least one entry. The variants close
+/// themselves, so an object with both, or with neither, matches neither
+/// variant and is refused. [`StateArg::into_spec`] is its one reading.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(untagged, deny_unknown_fields)]
+pub enum StateArg {
+    Steps {
+        #[schemars(length(min = 1))]
+        steps: Vec<StepArg>,
+    },
+    Selections {
+        #[schemars(length(min = 1))]
+        selections: Vec<SelectionArg>,
+    },
 }
 
-fn session_prop() -> Value {
-    json!({
-        "type": "string",
-        "description": "A session handle from xfa_open. Exactly one of doc_path and session \
-                        is required — pass this instead of doc_path to address a live, \
-                        interacted-with form rather than the document on disk."
-    })
-}
-
-fn revision_prop() -> Value {
-    json!({
-        "type": "integer",
-        "minimum": 0,
-        "description": "Required alongside session: the revision you last saw. A stale or \
-                        future revision is refused and the error names the current one."
-    })
-}
-
-/// The `state` argument, shared by every read tool that produces output when
-/// addressed by `doc_path`.
-fn state_prop() -> Value {
-    json!({
-        "type": "object",
-        "description": "Which form state to use, when addressing by doc_path. Omit for the \
-                        state the form opens in. To choose another, list the form's controls \
-                        with xfa_controls and say what to do to them, in order, as `steps`: \
-                        `{\"set\": {\"field\", \"value\"}}` sets a control, \
-                        `{\"click\": {\"field\"}}` presses a button. Everything not touched \
-                        keeps its default. Presses happen in the order given, so two presses \
-                        of an add button make two new rows, and a later step can set a field \
-                        of a row an earlier press created (`Row[1].Amount`). `selections`, a \
-                        list of sets only, is the older spelling and still accepted; give one \
-                        of the two, not both. Ignored when addressing by session, since a \
-                        session's own interactions already determine its state.",
-        "properties": {
-            "steps": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "set": {
-                            "type": "object",
-                            "properties": {
-                                "field": { "type": "string", "description": "A field path, from xfa_controls." },
-                                "value": { "type": "string", "description": "What to set it to." }
-                            },
-                            "required": ["field", "value"]
-                        },
-                        "click": {
-                            "type": "object",
-                            "properties": {
-                                "field": { "type": "string", "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`." }
-                            },
-                            "required": ["field"]
-                        }
-                    }
-                }
+impl StateArg {
+    pub fn into_spec(self) -> StateSpec {
+        match self {
+            StateArg::Steps { steps } => StateSpec {
+                steps: steps.into_iter().map(StepArg::into_step).collect(),
             },
-            "selections": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "field": { "type": "string", "description": "A control's field path, from xfa_controls." },
-                        "value": { "type": "string", "description": "One of that control's options." }
-                    },
-                    "required": ["field", "value"]
-                }
-            }
+            StateArg::Selections { selections } => StateSpec::selections(
+                selections
+                    .into_iter()
+                    .map(|s| SelectionSpec {
+                        field: s.field,
+                        value: s.value,
+                    })
+                    .collect(),
+            ),
         }
-    })
+    }
+}
+
+/// One step of a `state`: exactly one of `set` and `click`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+pub enum StepArg {
+    Set(SetStep),
+    Click(ClickStep),
+}
+
+impl StepArg {
+    fn into_step(self) -> Step {
+        match self {
+            StepArg::Set(set) => Step::Set(SelectionSpec {
+                field: set.field,
+                value: set.value,
+            }),
+            StepArg::Click(click) => Step::Click { field: click.field },
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SetStep {
+    /// A field path, from xfa_controls.
+    #[schemars(length(min = 1))]
+    pub field: String,
+    /// What to set it to.
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ClickStep {
+    /// A field path from xfa_controls; usually one of kind `button`, `radio` or `checkbox`.
+    #[schemars(length(min = 1))]
+    pub field: String,
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SelectionArg {
+    /// A control's field path, from xfa_controls.
+    #[schemars(length(min = 1))]
+    pub field: String,
+    /// One of that control's options.
+    pub value: String,
+}
+
+/// `xfa_controls`' own arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct ControlsArgs {
+    /// First field to return; default 0. Pass the previous next_offset.
+    pub offset: Option<usize>,
+    /// Fields to return; default 100.
+    #[schemars(range(min = 1, max = 500))]
+    pub limit: Option<usize>,
+    /// Only fields of these kinds. Leave out for every kind.
+    #[schemars(length(min = 1))]
+    pub kinds: Option<Vec<ControlKind>>,
+}
+
+/// `xfa_field`'s own arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct FieldArgs {
+    /// A field path, from xfa_controls.
+    pub field: String,
+}
+
+/// The session an interaction acts on, at the revision the caller last saw.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct SessionRevision {
+    /// A session handle from xfa_open. Exactly one of doc, doc_path and session is required: pass this instead of doc or doc_path to address a live, interacted-with form rather than the stored document.
+    #[schemars(length(min = 1))]
+    pub session: String,
+    /// Required alongside session: the revision you last saw. A stale or future revision is refused and the error names the current one.
+    pub expected_revision: u64,
+}
+
+/// `xfa_reset`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct ResetArgs {
+    #[serde(flatten)]
+    pub at: SessionRevision,
+}
+
+/// `xfa_set`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct SetArgs {
+    #[serde(flatten)]
+    pub at: SessionRevision,
+    /// A field path, from xfa_controls.
+    pub field: String,
+    /// What to set it to — one of the control's options, or its own on-value for a radio button. A field with a `format` takes its canonical form (a date `YYYY-MM-DD`, a number `1234.5`) or the value as typed in that format (`05.01.2024` for `date{DD.MM.YYYY}`); either is stored canonically.
+    pub value: String,
+}
+
+/// `xfa_click`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct ClickArgs {
+    #[serde(flatten)]
+    pub at: SessionRevision,
+    /// A field path from xfa_controls; usually one of kind `button`, `radio` or `checkbox`.
+    pub field: String,
+}
+
+/// `xfa_close`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct CloseArgs {
+    /// A session handle from xfa_open. Exactly one of doc, doc_path and session is required: pass this instead of doc or doc_path to address a live, interacted-with form rather than the stored document.
+    #[schemars(length(min = 1))]
+    pub session: String,
+}
+
+fn read_schema<T: JsonSchema>() -> Value {
+    tool_input_schema::<XfaArgs<T>>()
 }
 
 pub fn tool_specs() -> Vec<Value> {
@@ -131,12 +291,11 @@ pub fn tool_specs() -> Vec<Value> {
         tool(
             "xfa_open",
             "Open a form for interaction and get a session to work in. Everything after this \
-             addresses `session` plus a `revision` instead of `doc_path`: the form is live, \
+             addresses `session` plus a `revision` instead of `doc`: the form is live, \
              and each interaction produces a new revision. Returns the same shape as \
              xfa_info, plus `session` and `revision` (always 0 on open). Call xfa_controls \
              next to see what can be set.",
-            json!({ "doc_path": doc_path_prop() }),
-            json!(["doc_path"]),
+            tool_input_schema::<ServerArgs<XfaDocument, InfoArgs>>(),
         ),
         tool(
             "xfa_set",
@@ -162,22 +321,16 @@ pub fn tool_specs() -> Vec<Value> {
              the rest of its handler would have done is missing, and so is a value the \
              field's own validation rejects (empty though mandatory, or refused by its \
              validate script); the value is kept, as the form keeps it.",
-            json!({
-                "session": session_prop(),
-                "expected_revision": revision_prop(),
-                "field": { "type": "string", "description": "A field path, from xfa_controls." },
-                "value": { "type": "string", "description": "What to set it to — one of the control's options, or its own on-value for a radio button. A field with a `format` takes its canonical form (a date `YYYY-MM-DD`, a number `1234.5`) or the value as typed in that format (`05.01.2024` for `date{DD.MM.YYYY}`); either is stored canonically." }
-            }),
-            json!(["session", "expected_revision", "field", "value"]),
+            tool_input_schema::<SetArgs>(),
         ),
         tool(
             "xfa_click",
-            "Press one button, radio button or checkbox the way a person would: the mouse \
-             goes down and up on it (its mouseDown and mouseUp scripts run), then its click. \
-             Pressing a checkbox toggles it; pressing a radio selects it, and pressing a \
-             selected radio again keeps it selected unless the form's own scripts deselect \
-             it, as many UBS forms do. Use xfa_set to set a radio or checkbox to a value \
-             without pressing it. The button's own click script runs, \
+            "Press one field the way a person would: the mouse goes down and up on it (its \
+             mouseDown and mouseUp scripts run), then its click. Pressing a checkbox toggles \
+             it; pressing a radio selects it, and pressing a selected radio again keeps it \
+             selected unless the form's own mouseDown or mouseUp scripts deselect it. Pressing \
+             any other open field runs its mouse and click scripts and changes no value. Use \
+             xfa_set to set a radio or checkbox to a value without pressing it. The button's own click script runs, \
              so on a form with a repeatable section this is how rows are added or removed: \
              pressing an add button creates the next instance, and every field in it is \
              listed in `appeared` under an indexed path such as `form1.Body.Row[1].Amount` \
@@ -189,12 +342,7 @@ pub fn tool_specs() -> Vec<Value> {
              xfa_set, `messages` and failing scripts included. Pass the `revision` you last saw as `expected_revision`; a stale or \
              future one is refused and the error names the current one. A button whose \
              `access` is not `open` is refused, since a person cannot press it either.",
-            json!({
-                "session": session_prop(),
-                "expected_revision": revision_prop(),
-                "field": { "type": "string", "description": "A field path from xfa_controls, of kind `button`, `radio` or `checkbox`." }
-            }),
-            json!(["session", "expected_revision", "field"]),
+            tool_input_schema::<ClickArgs>(),
         ),
         tool(
             "xfa_reset",
@@ -202,48 +350,34 @@ pub fn tool_specs() -> Vec<Value> {
              handle. Cheaper than closing and opening again. Returns the same shape as \
              xfa_set, with the new revision and what changed relative to how the session \
              stood just before the reset.",
-            json!({
-                "session": session_prop(),
-                "expected_revision": revision_prop(),
-            }),
-            json!(["session", "expected_revision"]),
+            tool_input_schema::<ResetArgs>(),
         ),
         tool(
             "xfa_close",
             "Release a session. Optional: an unused session is reclaimed on its own after \
              going idle for a while. Worth calling when done with a large form and the \
              memory should be freed sooner.",
-            json!({ "session": session_prop() }),
-            json!(["session"]),
+            tool_input_schema::<CloseArgs>(),
         ),
         tool(
             "xfa_info",
             "Page count, per-page dimensions in points, detected language, and the XFA \
-             packets present. Call this FIRST when addressing by doc_path: if it reports kind \
+             packets present. Call this FIRST when addressing by doc: if it reports kind \
              'not_xfa' the document is an ordinary PDF and this server cannot render it — use \
              pdf_info and pdf_render_page instead. `warning` names any of the form's scripts \
              that failed while it loaded. Also serves the normalizer's ingest `info` \
              step, reporting `applicable: true` for every XFA form it can read.",
-            json!({ "doc_path": doc_path_prop(), "session": session_prop(), "revision": revision_prop(), "state": state_prop() }),
-            json!([]),
+            read_schema::<InfoArgs>(),
         ),
         tool(
             "xfa_render_page",
             "Render one page of the form to an image. Returns the image inline when it is \
              small enough, otherwise a blob handle the caller dereferences out of band. \
              dpi defaults to 144 and is clamped to 36..600; the long edge is clamped to \
-             max_edge_px (default 2576) and the effective dpi is reported back.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "session": session_prop(),
-                "revision": revision_prop(),
-                "page": { "type": "integer", "minimum": 1, "description": "1-based page number." },
-                "dpi": { "type": "number", "description": "Target resolution; default 144." },
-                "format": { "type": "string", "enum": ["jpeg", "png"], "description": "Default jpeg." },
-                "max_edge_px": { "type": "integer", "description": "Long-edge clamp; default 2576." },
-                "state": state_prop()
-            }),
-            json!(["page"]),
+             max_edge_px (default 2576) and the effective dpi is reported back. Open text \
+             and choice fields are underlined along their bottom edge as viewer chrome: the \
+             line marks where a value can be typed and is not part of the form.",
+            read_schema::<RenderPageArgs>(),
         ),
         tool(
             "xfa_render_pages",
@@ -252,46 +386,14 @@ pub fn tool_specs() -> Vec<Value> {
              binds first — an image count and a total byte budget — and reports which in \
              `budget_hit`, with `next_from` naming where to continue. Walk `next_from` \
              until it is null rather than asking for a whole document at once.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "session": session_prop(),
-                "revision": revision_prop(),
-                "pages": {
-                    "type": "array", "items": { "type": "integer", "minimum": 1 },
-                    "description": "Exact pages, in the order you want them."
-                },
-                "from": { "type": "integer", "minimum": 1, "description": "Window start; default 1." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Max images this call." },
-                "dpi": { "type": "number" },
-                "format": { "type": "string", "enum": ["jpeg", "png"] },
-                "state": state_prop()
-            }),
-            json!([]),
+            read_schema::<RenderPagesArgs>(),
         ),
         tool(
             "xfa_render_region",
             "Render a rectangular region of one page at high resolution — the tool for \
              reading small print. The rect is in points with the origin at the page's \
              TOP-LEFT. dpi defaults to 300.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "session": session_prop(),
-                "revision": revision_prop(),
-                "page": { "type": "integer", "minimum": 1 },
-                "rect_pt": {
-                    "type": "object",
-                    "description": "Region in points, origin top-left of the page.",
-                    "properties": {
-                        "x": { "type": "number" }, "y": { "type": "number" },
-                        "width": { "type": "number" }, "height": { "type": "number" }
-                    },
-                    "required": ["x", "y", "width", "height"]
-                },
-                "dpi": { "type": "number" },
-                "format": { "type": "string", "enum": ["jpeg", "png"] },
-                "state": state_prop()
-            }),
-            json!(["page", "rect_pt"]),
+            read_schema::<RenderRegionArgs>(),
         ),
         tool(
             "xfa_page_text",
@@ -299,16 +401,7 @@ pub fn tool_specs() -> Vec<Value> {
              and truncated, so a caller can tell a partial read from a whole one. Note the \
              text is logical, not visual: line breaks happen at render time, so this is \
              what the page says rather than how it wraps.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "session": session_prop(),
-                "revision": revision_prop(),
-                "page": { "type": "integer", "minimum": 1 },
-                "offset": { "type": "integer", "minimum": 0, "description": "Character offset; default 0." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Characters to return; default 4000." },
-                "state": state_prop()
-            }),
-            json!(["page"]),
+            read_schema::<PageTextArgs>(),
         ),
         tool(
             "xfa_search_text",
@@ -326,17 +419,7 @@ pub fn tool_specs() -> Vec<Value> {
              it is not free; the first call on a document pays for it and later ones reuse \
              it. To grep the raw XFA XML instead of the laid-out text, use the xfa_search \
              tool of the XFA data server.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "session": session_prop(),
-                "revision": revision_prop(),
-                "query": { "type": "string", "description": "Substring, or regex pattern when regex is true." },
-                "regex": { "type": "boolean", "description": "Treat query as a regex; default false. A literal is case-insensitive; a regex is not, so write (?i) if you want that." },
-                "from": { "type": "integer", "minimum": 1, "description": "First page to scan; default 1." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Max matches returned; default 50." },
-                "state": state_prop()
-            }),
-            json!(["query"]),
+            read_schema::<SearchTextArgs>(),
         ),
         tool(
             "xfa_controls",
@@ -382,40 +465,21 @@ pub fn tool_specs() -> Vec<Value> {
              present: `format`, the picture clause the form shows the value through (such as \
              `date{DD.MM.YYYY}`); `shown`, the value as the form shows it when that differs \
              from `value`, which stays canonical (a date `YYYY-MM-DD`, a number `1234.5`); \
-             `max_chars`, the most characters it takes; `multiline`; `tooltip`, often the \
-             field's only label; and `mandatory`, when the form requires a value.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "session": session_prop(),
-                "revision": revision_prop(),
-                "state": state_prop(),
-                "offset": { "type": "integer", "minimum": 0, "description": "First field to return; default 0. Pass the previous next_offset." },
-                "limit": { "type": "integer", "minimum": 1, "maximum": 500, "description": "Fields to return; default 100." },
-                "kinds": {
-                    "type": "array",
-                    "items": { "type": "string", "enum": ControlKind::ALL.map(ControlKind::wire_name) },
-                    "description": "Only fields of these kinds. Omit for every kind."
-                }
-            }),
-            json!([]),
+             `max_chars`, the most characters it takes; `multiline`; `caption`, the label \
+             drawn beside the field; `tooltip`, the field's `<assist><toolTip>`; and \
+             `mandatory`, when the form requires a value.",
+            read_schema::<ControlsArgs>(),
         ),
         tool(
             "xfa_field",
             "One field's current state, exactly as xfa_controls lists it: its kind, value, \
              options, whether it is visible, its `access` (`open`, `readOnly`, `protected` or \
              `nonInteractive`, and `access_from` when a locked container imposes it), where it \
-             is drawn, and its `format`, `shown` value, `max_chars`, `multiline`, `tooltip` \
-             and `mandatory` when the template gives them. The cheap way to check a single field after an interaction, \
+             is drawn, and its `format`, `shown` value, `max_chars`, `multiline`, `caption`, \
+             `tooltip` and `mandatory` when the template gives them. The cheap way to check a single field after an interaction, \
              for example whether a script locked or prefilled it, without listing the whole \
              form. Addressed like xfa_controls.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "session": session_prop(),
-                "revision": revision_prop(),
-                "state": state_prop(),
-                "field": { "type": "string", "description": "A field path, from xfa_controls." }
-            }),
-            json!(["field"]),
+            read_schema::<FieldArgs>(),
         ),
     ]
 }
@@ -473,4 +537,141 @@ pub fn manifest() -> Value {
             }
         ]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn schema_of(name: &str) -> Value {
+        tool_specs()
+            .into_iter()
+            .find(|spec| spec["name"] == name)
+            .unwrap_or_else(|| panic!("{name} is declared"))["input_schema"]
+            .clone()
+    }
+
+    fn violations(name: &str, args: Value) -> Vec<String> {
+        u2s_schema::validate(&schema_of(name), &args)
+            .expect("the schema compiles")
+            .into_iter()
+            .map(|v| format!("{}: {}", v.pointer, v.message))
+            .collect()
+    }
+
+    /// The arguments a model sent in a reproduced run, every optional field
+    /// filled in. The schema itself must refuse them, so the agent gate
+    /// tells the model to leave the empty ones out.
+    #[test]
+    fn the_schema_refuses_every_optional_field_sent_empty() {
+        let filled_in = json!({
+            "query": "AAOV",
+            "session": "sess_1",
+            "revision": 0,
+            "state": { "steps": [], "selections": [] }
+        });
+        assert!(!violations("xfa_search_text", filled_in).is_empty());
+
+        for args in [
+            json!({ "doc_path": "", "query": "AAOV" }),
+            json!({ "doc_path": "/f.pdf", "query": "AAOV", "state": {} }),
+            json!({ "doc_path": "/f.pdf", "query": "AAOV", "state": { "steps": [ { "set": { "field": "a", "value": "b" }, "click": {} } ] } }),
+        ] {
+            assert!(
+                !violations("xfa_search_text", args.clone()).is_empty(),
+                "{args}"
+            );
+        }
+        assert!(
+            !violations("xfa_controls", json!({ "doc_path": "/f.pdf", "kinds": [] })).is_empty()
+        );
+        assert!(
+            !violations(
+                "xfa_render_pages",
+                json!({ "doc_path": "/f.pdf", "pages": [] })
+            )
+            .is_empty()
+        );
+        assert!(
+            !violations(
+                "xfa_render_page",
+                json!({ "doc_path": "/f.pdf", "page": 1, "max_edge_px": 0 })
+            )
+            .is_empty()
+        );
+        assert!(!violations("xfa_render_region", json!({ "doc_path": "/f.pdf", "page": 1, "dpi": 0, "rect_pt": { "x": 0, "y": 0, "width": 1, "height": 1 } })).is_empty());
+    }
+
+    fn state_of(state: Value) -> Result<StateSpec, String> {
+        u2s_render_core::args::parse_args::<XfaArgs<InfoArgs>>(
+            &json!({ "doc_path": "/f.pdf", "state": state }),
+        )
+        .map(|a| a.document.state.map(StateArg::into_spec).unwrap_or_default())
+        .map_err(|err| err.to_string())
+    }
+
+    #[test]
+    fn a_state_reads_into_its_steps_in_order() {
+        let spec = state_of(json!({ "steps": [
+            { "click": { "field": "Add" } },
+            { "set": { "field": "Row[1].Amount", "value": "5" } }
+        ] }))
+        .unwrap();
+        assert_eq!(
+            spec.steps,
+            vec![
+                Step::Click { field: "Add".to_owned() },
+                Step::Set(SelectionSpec { field: "Row[1].Amount".to_owned(), value: "5".to_owned() }),
+            ]
+        );
+        let spec = state_of(json!({ "selections": [{ "field": "a", "value": "x" }] })).unwrap();
+        assert_eq!(spec, StateSpec::selections(vec![SelectionSpec { field: "a".to_owned(), value: "x".to_owned() }]));
+    }
+
+    #[test]
+    fn a_malformed_state_is_refused_saying_what_is_wrong() {
+        for (state, needles) in [
+            (json!({ "steps": [], "selections": [] }), &["state", "both"][..]),
+            (json!({ "selction": [] }), &["state", "selections", "selction"][..]),
+            (json!("steps"), &["state", "object"][..]),
+            (json!({ "steps": [{ "set": { "field": "a" } }] }), &["state", "value"][..]),
+            (json!({ "steps": [{ "set": { "field": "a", "value": "b" }, "click": {} }] }), &["state"][..]),
+        ] {
+            let err = state_of(state.clone()).expect_err("refused");
+            for needle in needles {
+                assert!(err.contains(needle), "{state}: {err}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_tool_schema_can_be_offered_as_function_parameters() {
+        for spec in tool_specs() {
+            assert_eq!(
+                u2s_schema::tool_schema_violations(&spec["input_schema"]),
+                Vec::<String>::new(),
+                "{}",
+                spec["name"]
+            );
+        }
+    }
+
+    /// The well-formed calls the schemas exist for still pass.
+    #[test]
+    fn the_schema_accepts_a_state_of_steps_or_of_selections() {
+        for state in [
+            json!({ "steps": [ { "set": { "field": "a", "value": "" } }, { "click": { "field": "b" } } ] }),
+            json!({ "selections": [ { "field": "a", "value": "x" } ] }),
+        ] {
+            let args = json!({ "doc_path": "/f.pdf", "query": "AAOV", "state": state });
+            assert_eq!(violations("xfa_search_text", args), Vec::<String>::new());
+        }
+        assert_eq!(
+            violations(
+                "xfa_search_text",
+                json!({ "session": "sess_1", "revision": 0, "query": "AAOV" })
+            ),
+            Vec::<String>::new()
+        );
+    }
 }

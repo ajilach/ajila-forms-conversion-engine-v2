@@ -53,19 +53,19 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
 # The u2s crates, from ajila-forms-conversion-engine-v3 at one revision, vendored
 # into vendor/crates (see u2s/VENDORED.md). Bump with scripts/sync-u2s.sh, which
 # changes this rev and re-vendors.
-u2s-aem-ubs-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-aem-ubs-verify-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-aem-verify-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-blob = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-doc-tools = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-jsondoc = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-render-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-render-pdf = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-render-pdf-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-render-xfa = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-render-xfa-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-rules = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-rules-host = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-verify-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-xfa = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
-u2s-xfa-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "5d8c1d2a2c49a9f06986d8be7154ff19b6e25366" }
+u2s-aem-ubs-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-aem-ubs-verify-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-aem-verify-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-blob = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-doc-tools = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-jsondoc = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-render-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-render-pdf = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-render-pdf-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-render-xfa = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-render-xfa-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-rules = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-rules-host = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-verify-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-xfa = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }
+u2s-xfa-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "d2dc4a050fa928188e8fd2a027b02c13cb175c3a" }

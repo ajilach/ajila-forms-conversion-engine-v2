@@ -23,6 +23,12 @@ autobenches = false
 description = "Content-addressed blob handles: large payloads never enter a prompt"
 readme = false
 
+[features]
+postgres = [
+    "dep:sqlx",
+    "dep:tokio",
+]
+
 [lib]
 name = "u2s_blob"
 path = "src/lib.rs"
@@ -30,5 +36,46 @@ path = "src/lib.rs"
 [dependencies]
 sha2 = "0.10"
 
+[dependencies.sqlx]
+version = "0.9"
+features = [
+    "postgres",
+    "runtime-tokio",
+    "tls-rustls-ring-webpki",
+]
+optional = true
+default-features = false
+
 [dependencies.thiserror]
+version = "2"
+
+[dependencies.tokio]
+version = "1"
+features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+]
+optional = true
+
+[dev-dependencies.sqlx]
+version = "0.9"
+features = [
+    "postgres",
+    "runtime-tokio",
+    "tls-rustls-ring-webpki",
+    "macros",
+    "migrate",
+]
+default-features = false
+
+[dev-dependencies.tokio]
+version = "1"
+features = [
+    "rt-multi-thread",
+    "macros",
+    "sync",
+]
+
+[dev-dependencies.url]
 version = "2"

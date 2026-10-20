@@ -36,8 +36,8 @@ function check(output, ctx) {
       violations.push({
         pointer: base + "dorExclusion",
         message:
-          "`" + node.name + "` carries dorExclusion=\"true\" without summaryExclusion=\"true\"; " +
-          "add summaryExclusion=\"true\" next to it, or drop the attribute",
+          "`" + node.name + "` carries dorExclusion=\"true\" without summaryExclusion=\"true\", a shape the corpus " +
+          "retired: delete the attribute",
       });
     }
     const raw = passthrough.raw_children || [];
@@ -51,16 +51,16 @@ function check(output, ctx) {
           violations.push({ pointer: at, message: "`" + node.name + "` carries an element with defaultToCurrentDate=\"true\"; delete the attribute" });
         }
         if (attributeOf(tag, "dorExclusion") === "true" && attributeOf(tag, "summaryExclusion") !== "true") {
-          violations.push({ pointer: at, message: "`" + node.name + "` carries an element with dorExclusion=\"true\" and no summaryExclusion=\"true\"; add it" });
+          violations.push({ pointer: at, message: "`" + node.name + "` carries an element with dorExclusion=\"true\" and no summaryExclusion=\"true\": delete the attribute, or express the element as a typed node with dor_exclude" });
         }
         if (attributeOf(tag, "sling:resourceType") === "fd/af/components/panel") {
-          violations.push({ pointer: at, message: "`" + node.name + "` carries an element typed as the default AEM panel (fd/af/components/panel); every panel is the UBS panel, so express it as a Panel node" });
+          violations.push({ pointer: at, message: "`" + node.name + "` carries an element typed as the default AEM panel (fd/af/components/panel); every panel is the UBS panel, so express it as a Panel node and delete the element" });
         }
         if (/^<fd:scripts[\s\/>]/.test(tag)) {
           const visible = attributeOf(tag, "fd:visible");
           const init = attributeOf(tag, "fd:init");
           if (visible && visible.indexOf("script") >= 0 && (!init || init.indexOf("script") < 0)) {
-            violations.push({ pointer: at, message: "`" + node.name + "` has a visibility rule (fd:visible) but no Initialize rule (fd:init) running the same condition when the form opens; add one, or express the condition as the node's `conditions`" });
+            violations.push({ pointer: at, message: "`" + node.name + "` has a visibility rule (fd:visible) but no Initialize rule (fd:init) running the same condition when the form opens: express the condition as a condition on its trigger (the writer writes both rules) and delete the element" });
           }
         }
       });

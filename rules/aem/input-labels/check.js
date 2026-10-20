@@ -1,15 +1,18 @@
 const INPUTS = ["TextField", "NumberField", "DatePicker", "Dropdown", "Checkbox", "RadioButton"];
 
 // Where the source gives the input no caption, the label still comes from the source
-// (precedence over ubs-aem-verbatim-source-text).
+// (CNV-INP-1; precedence over ubs-aem-verbatim-source-text).
 const NO_CAPTION = "; where the source gives it no caption, use the nearest source text that names it " +
-  "(its group's caption or its option's text) verbatim, without surrounding brackets";
+  "(then its group's caption, its option's text, or a readable field name), verbatim and without " +
+  "surrounding brackets";
 
 function problem(text) {
   const t = String(text).trim();
   if (t === "") return "is empty";
   if (t.startsWith("(") && t.endsWith(")")) return "is only a parenthetical hint";
   if (/<\/?[A-Za-z][^<>]*>/.test(t)) return "carries markup";
+  if (/^[\s._…\-]+$/.test(t) && /[._…\-]{3}/.test(t.replace(/\s+/g, ""))) return "is only a placeholder of filler characters";
+  if (/^[A-Za-z]+_[A-Za-z0-9_]*$/.test(t)) return "is a technical field name, not words";
   return null;
 }
 

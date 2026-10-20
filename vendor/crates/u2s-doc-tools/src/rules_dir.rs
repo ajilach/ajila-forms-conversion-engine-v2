@@ -607,7 +607,7 @@ mod tests {
 
         let runner = u2s_rules_host::runner::test_support::runner();
         let outcome = crate::native::check_rules(
-            &serde_json::json!({}),
+            &crate::native::CheckRulesArgs::default(),
             &serde_json::json!({}),
             Some(&serde_json::json!({})),
             &rules,

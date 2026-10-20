@@ -5,8 +5,10 @@
 //! the clamps and budgets, image encoding, the blob store, the cursor
 //! pagination contract, and the wire types.
 
+pub mod args;
 pub mod batch;
 pub mod blob;
+pub mod document;
 pub mod encode;
 pub mod error;
 pub mod limits;

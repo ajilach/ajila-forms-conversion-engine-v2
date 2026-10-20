@@ -18,7 +18,7 @@
 //! - posture: "normal" or "italic", default "normal"
 
 use crate::xfa::font_manager::{FontVariant, get_font_manager};
-use crate::xfa::{Font, KerningMode, Num, Para, num};
+use crate::xfa::{Font, FontPosture, FontWeight, KerningMode, Num, Para, num};
 use ab_glyph::{Font as AbGlyphFont, FontRef, PxScale, ScaleFont};
 use rust_decimal::Decimal;
 use rust_decimal::prelude::*;
@@ -349,6 +349,124 @@ impl LineMetrics {
     }
 }
 
+/// The advance of `text` set in `font` at `size` (points or pixels: the
+/// unit `size` is in): each glyph's advance -- a glyph the face lacks
+/// counts as `MISSING_GLYPH_WIDTH_RATIO` of the size -- scaled by
+/// `h_scale`, with pair kerning when `kerning` asks for it and
+/// `letter_spacing` between successive characters (XFA 3.3 `font`:
+/// letterSpacing, kerningMode, fontHorizontalScale). The one place text
+/// is measured, for layout and rendering alike.
+pub fn text_advance(
+    font: &FontRef<'_>,
+    size: f32,
+    text: &str,
+    letter_spacing: f32,
+    h_scale: f32,
+    kerning: KerningMode,
+) -> f32 {
+    let scale = xfa_px_scale(font, size);
+    let scaled = font.as_scaled(scale);
+    let count = text.chars().count();
+    let mut width = 0.0f32;
+    let mut prev: Option<char> = None;
+    for (i, ch) in text.chars().enumerate() {
+        if let Some(prev) = prev
+            && kerning == KerningMode::Pair
+        {
+            let (a, b) = (font.glyph_id(prev), font.glyph_id(ch));
+            if a.0 != 0 && b.0 != 0 {
+                width += scaled.kern(a, b);
+            }
+        }
+        let glyph = font.glyph_id(ch);
+        let advance = if glyph.0 != 0 {
+            scaled.h_advance(glyph)
+        } else {
+            size * constants::MISSING_GLYPH_WIDTH_RATIO
+        };
+        width += advance * h_scale;
+        if i + 1 < count {
+            width += letter_spacing;
+        }
+        prev = Some(ch);
+    }
+    width
+}
+
+/// The width a space between two words takes in `font` at `size`: its
+/// advance, scaled by `h_scale`, plus `letter_spacing` twice, since the
+/// space is a grapheme cluster of its own and letter spacing goes between
+/// successive clusters (after the word before it and after itself). This
+/// is what [`text_advance`] measures for the same characters, so words
+/// laid out one at a time take the width of the line measured whole.
+pub fn space_advance(font: &FontRef<'_>, size: f32, letter_spacing: f32, h_scale: f32) -> f32 {
+    let glyph = font.glyph_id(' ');
+    let advance = if glyph.0 != 0 {
+        font.as_scaled(xfa_px_scale(font, size)).h_advance(glyph)
+    } else {
+        size * constants::SPACE_WIDTH_RATIO
+    };
+    advance * h_scale + 2.0 * letter_spacing
+}
+
+/// `text` broken at spaces into lines no wider than `max_width` (the
+/// first one `first_line_indent` narrower), each word measured by
+/// [`text_advance`]; a word wider than a line stands alone on its own
+/// line. The one word wrapper (XFA 3.3 "Break Individual Lines").
+#[allow(clippy::too_many_arguments)]
+pub fn wrap_words(
+    font: &FontRef<'_>,
+    size: f32,
+    text: &str,
+    max_width: f32,
+    first_line_indent: f32,
+    letter_spacing: f32,
+    h_scale: f32,
+    kerning: KerningMode,
+) -> Vec<String> {
+    let space = space_advance(font, size, letter_spacing, h_scale);
+    let mut lines: Vec<String> = Vec::new();
+    let mut line = String::new();
+    let mut line_width = 0.0f32;
+    for word in text.split_whitespace() {
+        let word_width = text_advance(font, size, word, letter_spacing, h_scale, kerning);
+        // A line measured whole (`text_advance`, which sizes a growable draw)
+        // and the same line summed word by word differ by float rounding
+        // only; a thousandth of a point of slack keeps that from wrapping a
+        // line that fits.
+        let available = if lines.is_empty() { max_width - first_line_indent } else { max_width } + 0.001;
+        if line.is_empty() {
+            line.push_str(word);
+            line_width = word_width;
+        } else if line_width + space + word_width <= available {
+            line.push(' ');
+            line.push_str(word);
+            line_width += space + word_width;
+        } else {
+            lines.push(std::mem::take(&mut line));
+            line.push_str(word);
+            line_width = word_width;
+        }
+    }
+    if !line.is_empty() || lines.is_empty() {
+        lines.push(line);
+    }
+    lines
+}
+
+/// The faces a rich text's runs are measured and drawn with, resolved for
+/// one XFA font: its family and size with normal weight and posture, and
+/// the bold, italic and bold-italic variants the font set has. `None` is a
+/// variant the font manager could not resolve; `regular` is `None` only
+/// when no font at all is registered.
+#[derive(Clone)]
+pub struct RunFontSet {
+    pub regular: Option<FontRef<'static>>,
+    pub bold: Option<FontRef<'static>>,
+    pub italic: Option<FontRef<'static>>,
+    pub bold_italic: Option<FontRef<'static>>,
+}
+
 /// Text measurement result for a complete text block
 #[derive(Debug, Clone)]
 pub struct TextBlockMetrics {
@@ -489,46 +607,6 @@ impl TextMeasurer {
         Ok(metrics)
     }
 
-    /// Measure width of a single character with fallback
-    /// Returns the horizontal advance for the glyph, or a fallback width
-    fn measure_char_width(
-        font: &FontRef<'_>,
-        scaled_font: &ab_glyph::PxScaleFont<&FontRef<'_>>,
-        ch: char,
-        size_f32: f32,
-    ) -> f32 {
-        let glyph_id = font.glyph_id(ch);
-        if glyph_id.0 != 0 {
-            scaled_font.h_advance(glyph_id)
-        } else {
-            // Fallback for missing glyphs
-            size_f32 * constants::MISSING_GLYPH_WIDTH_RATIO
-        }
-    }
-
-    /// Get kerning adjustment between two characters
-    /// Per XFA spec: kerning is only applied when kerningMode="pair"
-    fn get_kerning(
-        font: &FontRef<'_>,
-        prev_char: char,
-        curr_char: char,
-        scale: PxScale,
-        kerning_mode: KerningMode,
-    ) -> f32 {
-        if kerning_mode != KerningMode::Pair {
-            return 0.0;
-        }
-
-        let prev_glyph = font.glyph_id(prev_char);
-        let curr_glyph = font.glyph_id(curr_char);
-
-        if prev_glyph.0 != 0 && curr_glyph.0 != 0 {
-            font.as_scaled(scale).kern(prev_glyph, curr_glyph)
-        } else {
-            0.0
-        }
-    }
-
     /// Measure text width using specified font style
     /// Per XFA spec: applies letter spacing between characters and kerning if enabled
     pub fn measure_text_width_styled(
@@ -537,63 +615,46 @@ impl TextMeasurer {
         xfa_font: &Font,
     ) -> Result<Num, String> {
         let font = self.get_font_for_style(xfa_font)?.clone();
-        let size_f32 = xfa_font.size.to_f32().unwrap_or(10.0);
-
-        // Apply horizontal scale if specified
-        let h_scale = xfa_font
-            .font_horizontal_scale
-            .and_then(|s| s.to_f32())
-            .map(|s| s / 100.0)
-            .unwrap_or(1.0);
-
-        let scale = xfa_px_scale(&font, size_f32);
-        let scaled_font = font.as_scaled(scale);
-
-        // Per XFA spec: letterSpacing affects inter-character spacing
-        let letter_spacing = xfa_font
-            .letter_spacing
-            .and_then(|ls| ls.to_f32())
-            .unwrap_or(0.0);
-
-        let chars: Vec<char> = text.chars().collect();
-        let mut width: f32 = 0.0;
-        let mut prev_char: Option<char> = None;
-
-        for (i, &ch) in chars.iter().enumerate() {
-            // Add kerning from previous character if enabled
-            if let Some(prev) = prev_char {
-                width += Self::get_kerning(&font, prev, ch, scale, xfa_font.kerning_mode);
-            }
-
-            // Add character width
-            let char_width = Self::measure_char_width(&font, &scaled_font, ch, size_f32);
-            width += char_width * h_scale;
-
-            // Add letter spacing between characters (not after last character)
-            if i < chars.len() - 1 {
-                width += letter_spacing;
-            }
-
-            prev_char = Some(ch);
-        }
-
-        Ok(num(width as f64))
+        let (size, letter_spacing, h_scale) = Self::font_measure_params(xfa_font);
+        Ok(num(text_advance(&font, size, text, letter_spacing, h_scale, xfa_font.kerning_mode) as f64))
     }
 
     /// Measure text width (backward compatible - uses current/default font)
     /// Note: For full XFA compliance (kerning, letter spacing), use measure_text_width_styled
     pub fn measure_text_width(&mut self, text: &str, font_size: Num) -> Result<Num, String> {
         let font = self.get_current_font()?;
-        let size_f32 = font_size.to_f32().unwrap_or(10.0);
-        let scale = xfa_px_scale(&font, size_f32);
-        let scaled_font = font.as_scaled(scale);
+        let size = font_size.to_f32().unwrap_or(10.0);
+        Ok(num(text_advance(&font, size, text, 0.0, 1.0, KerningMode::None) as f64))
+    }
 
-        let mut width: f32 = 0.0;
-        for ch in text.chars() {
-            width += Self::measure_char_width(&font, &scaled_font, ch, size_f32);
+    /// The size, letter spacing and horizontal scale `text_advance` takes
+    /// for an XFA font.
+    fn font_measure_params(xfa_font: &Font) -> (f32, f32, f32) {
+        let size = xfa_font.size.to_f32().unwrap_or(10.0);
+        let letter_spacing = xfa_font.letter_spacing.and_then(|ls| ls.to_f32()).unwrap_or(0.0);
+        let h_scale = xfa_font
+            .font_horizontal_scale
+            .and_then(|s| s.to_f32())
+            .map(|s| s / 100.0)
+            .unwrap_or(1.0);
+        (size, letter_spacing, h_scale)
+    }
+
+    /// The faces the runs of a rich text in `xfa_font` are set in (see
+    /// [`RunFontSet`]).
+    pub fn run_fonts(&mut self, xfa_font: &Font) -> RunFontSet {
+        let mut variant = |weight: FontWeight, posture: FontPosture| {
+            let mut font = xfa_font.clone();
+            font.weight = weight;
+            font.posture = posture;
+            self.get_font_for_style(&font).ok().cloned()
+        };
+        RunFontSet {
+            regular: variant(FontWeight::Normal, FontPosture::Normal),
+            bold: variant(FontWeight::Bold, FontPosture::Normal),
+            italic: variant(FontWeight::Normal, FontPosture::Italic),
+            bold_italic: variant(FontWeight::Bold, FontPosture::Italic),
         }
-
-        Ok(num(width as f64))
     }
 
     /// Wrap text to fit within a maximum width using specified font style
@@ -618,26 +679,17 @@ impl TextMeasurer {
         first_line_indent: f32,
     ) -> Result<Vec<String>, String> {
         let font = self.get_font_for_style(xfa_font)?.clone();
-        let size_f32 = xfa_font.size.to_f32().unwrap_or(10.0);
-        let letter_spacing = xfa_font
-            .letter_spacing
-            .and_then(|ls| ls.to_f32())
-            .unwrap_or(0.0);
-        let h_scale = xfa_font
-            .font_horizontal_scale
-            .and_then(|s| s.to_f32())
-            .map(|s| s / 100.0)
-            .unwrap_or(1.0);
-        Self::wrap_text_internal(
+        let (size, letter_spacing, h_scale) = Self::font_measure_params(xfa_font);
+        Ok(wrap_words(
             &font,
+            size,
             text,
-            max_width,
-            size_f32,
+            max_width.to_f32().unwrap_or(1000.0),
+            first_line_indent,
             letter_spacing,
             h_scale,
             xfa_font.kerning_mode,
-            first_line_indent,
-        )
+        ))
     }
 
     /// Wrap text to fit within a maximum width
@@ -649,141 +701,8 @@ impl TextMeasurer {
         font_size: Num,
     ) -> Result<Vec<String>, String> {
         let font = self.get_current_font()?;
-        let size_f32 = font_size.to_f32().unwrap_or(10.0);
-        Self::wrap_text_internal(
-            &font,
-            text,
-            max_width,
-            size_f32,
-            0.0,
-            1.0,
-            KerningMode::None,
-            0.0,
-        )
-    }
-
-    /// Internal text wrapping implementation
-    /// Supports letter spacing, horizontal scale, and kerning per XFA spec.
-    /// `first_line_indent` reduces available width on the first line (per XFA §2 textIndent).
-    fn wrap_text_internal(
-        font: &FontRef<'_>,
-        text: &str,
-        max_width: Num,
-        size_f32: f32,
-        letter_spacing: f32,
-        h_scale: f32,
-        kerning_mode: KerningMode,
-        first_line_indent: f32,
-    ) -> Result<Vec<String>, String> {
-        let scale = xfa_px_scale(font, size_f32);
-        let scaled_font = font.as_scaled(scale);
-        let max_width_f32 = max_width.to_f32().unwrap_or(1000.0);
-
-        let mut lines = Vec::new();
-        let mut current_line = String::new();
-        let mut current_width: f32 = 0.0;
-        let space_glyph = font.glyph_id(' ');
-        let space_width = if space_glyph.0 != 0 {
-            scaled_font.h_advance(space_glyph) * h_scale
-        } else {
-            size_f32 * constants::SPACE_WIDTH_RATIO * h_scale
-        };
-
-        /// Measure word width with letter spacing and kerning
-        fn measure_word_width(
-            font: &FontRef<'_>,
-            scaled_font: &ab_glyph::PxScaleFont<&FontRef<'_>>,
-            scale: PxScale,
-            word: &str,
-            size_f32: f32,
-            letter_spacing: f32,
-            h_scale: f32,
-            kerning_mode: KerningMode,
-        ) -> f32 {
-            let chars: Vec<char> = word.chars().collect();
-            let mut width: f32 = 0.0;
-            let mut prev_char: Option<char> = None;
-
-            for (i, &ch) in chars.iter().enumerate() {
-                // Add kerning from previous character if enabled
-                if let Some(prev) = prev_char
-                    && kerning_mode == KerningMode::Pair
-                {
-                    let prev_glyph = font.glyph_id(prev);
-                    let curr_glyph = font.glyph_id(ch);
-                    if prev_glyph.0 != 0 && curr_glyph.0 != 0 {
-                        width += font.as_scaled(scale).kern(prev_glyph, curr_glyph);
-                    }
-                }
-
-                // Add character width
-                let glyph_id = font.glyph_id(ch);
-                let char_width = if glyph_id.0 != 0 {
-                    scaled_font.h_advance(glyph_id)
-                } else {
-                    size_f32 * constants::MISSING_GLYPH_WIDTH_RATIO
-                };
-                width += char_width * h_scale;
-
-                // Add letter spacing between characters (not after last)
-                if i < chars.len() - 1 {
-                    width += letter_spacing;
-                }
-
-                prev_char = Some(ch);
-            }
-            width
-        }
-
-        let mut is_first_line = true;
-
-        for word in text.split_whitespace() {
-            // Measure word width with all XFA text properties
-            let word_width = measure_word_width(
-                font,
-                &scaled_font,
-                scale,
-                word,
-                size_f32,
-                letter_spacing,
-                h_scale,
-                kerning_mode,
-            );
-
-            // Per XFA spec §2: first line effective width = max_width - textIndent
-            let effective_max = if is_first_line {
-                max_width_f32 - first_line_indent
-            } else {
-                max_width_f32
-            };
-
-            if current_line.is_empty() {
-                // First word on line
-                current_line = word.to_string();
-                current_width = word_width;
-            } else if current_width + space_width + word_width <= effective_max {
-                // Word fits on current line
-                current_line.push(' ');
-                current_line.push_str(word);
-                current_width += space_width + word_width;
-            } else {
-                // Word doesn't fit, start new line
-                lines.push(current_line);
-                current_line = word.to_string();
-                current_width = word_width;
-                is_first_line = false;
-            }
-        }
-
-        if !current_line.is_empty() {
-            lines.push(current_line);
-        }
-
-        if lines.is_empty() {
-            lines.push(String::new());
-        }
-
-        Ok(lines)
+        let size = font_size.to_f32().unwrap_or(10.0);
+        Ok(wrap_words(&font, size, text, max_width.to_f32().unwrap_or(1000.0), 0.0, 0.0, 1.0, KerningMode::None))
     }
 
     /// Measure a text block with wrapping and full metrics
@@ -920,6 +839,27 @@ impl Default for TextMeasurer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// With letter spacing, a line measured word by word (the way the
+    /// wrapper and the glyph renderer lay it out) must be as wide as the
+    /// same line measured whole, or text sized to its own width wraps.
+    #[test]
+    fn words_and_spaces_add_up_to_the_whole_line_under_letter_spacing() {
+        let font = FontRef::try_from_slice(crate::xfa::font_manager::SYMBOL_FALLBACK).expect("font");
+        for spacing in [-0.08f32, 0.0, 0.5] {
+            let whole = text_advance(&font, 8.0, "BBI Institutionelle Kunden", spacing, 1.0, KerningMode::None);
+            let parts = ["BBI", "Institutionelle", "Kunden"]
+                .iter()
+                .map(|w| text_advance(&font, 8.0, w, spacing, 1.0, KerningMode::None))
+                .sum::<f32>()
+                + 2.0 * space_advance(&font, 8.0, spacing, 1.0);
+            assert!((whole - parts).abs() < 0.01, "spacing {spacing}: whole {whole} vs parts {parts}");
+            // A growable draw is sized to the whole-line width; wrapping it
+            // at that width keeps the one line.
+            let lines = wrap_words(&font, 8.0, "BBI Institutionelle Kunden", whole, 0.0, spacing, 1.0, KerningMode::None);
+            assert_eq!(lines.len(), 1, "spacing {spacing}: {lines:?}");
+        }
+    }
 
     #[test]
     fn test_line_gap_is_20_percent() {

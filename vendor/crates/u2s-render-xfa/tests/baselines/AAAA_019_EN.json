@@ -1,0 +1,1373 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Hinweise für Adressenänderung:\nBanking relationship\n0319 00\nUS-Kommunikationsdaten:\nUBS Europe SE\nBitte Policy 2-P-003717 beachten!\nChange/Delete address(es)\nForm configurator\nÄnderung Adresse mit Versandinstruktion\nForm addressee\nClient details\nName\nFurther banking relationship(s)\nDoes the client additionally have (a) further banking relationship(s)\n0\nBeneficial owner\n0319-00\nBanking relationship\n0\nAttorney\n0319-00\nBanking relationship\nAddress details\nI/We ask you kindly to take into consideration the following change of my/our address:\nAdress no.\nLast name\nFirst name(s)\nStreet\nNo.\nPostal code\nCity\nCountry\nJoint account\nChange the address of the joint owners accordingly\nDon't adjust the address of the joint owners\nChange the address of the joint owners as follows\nLast name\nFirst name(s)\nStreet\nNo.\nPostal code\nCity\nCountry\nAdditional address\nMailing address, if different\nChange of duplication address\nStreet\nNo.\nPostal code\nCity\nCountry\n0101662850401001501202601020\n66285\nEN\nV0\n019\nAAAA\n09.01.2020\nN1\n15.01.2026\nPage 1/2",
+    "Banking relationship\n0319 00\nFurther communication changes\n0\nAll telephone numbers for a callback regarding the issue of quality management remain unchanged\n0\nThe subsequent invalid contact details will no longer be used\nTelephone Private\nTelephone Business\nMobile Phone Private\nMobile Phone Business\nFax Private\nFax Business\nEmail Private\nEmail Business\n0\nThe subsequent contact details will be used from now on\nTelephone Private\nTelephone Business\nMobile Phone Private\nMobile Phone Business\nFax Private\nFax Business\nEmail Private\nEmail Business\nAdditional changes:\nSignature(s)\nPlace\nDate (dd.mm.yyyy)\nSignature of client\nName of client\nFor internal bank use only\nSignature(s) verified / Signed in my presence\nName of responsible person\nSignature WM Support\nDate (dd.mm.yyyy)\nName of client advisor\nSignature of client advisor\nDate (dd.mm.yyyy)\n0101662850401001501202602027\n66285\nEN\nV0\n019\nAAAA\n09.01.2020\nN1\n15.01.2026\nPage 2/2"
+  ],
+  "raster": [
+    "bfe249801c39d141",
+    "84f88f603f60e524"
+  ],
+  "controls": {
+    "UBSForms.MPs.MP.Barcode": {
+      "value": "0101662850401001501202601013",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66285",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AAAA",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "EN",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "09.01.2020",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Page 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.Barcode": {
+      "value": "0101662850401001501202601013",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66285",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AAAA",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "EN",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerModDate": {
+      "value": "09.01.2020",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Page 1/1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.STP_Signature_CA.Date_CA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          389.80002,
+          760.9,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.STP_Signature_CA.Name_CA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          760.9,
+          155.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.STP_Signature_WM.Date_WM": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          389.80002,
+          716.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.STP_Signature_WM.Name_WM": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          716.7,
+          155.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffForInternalBankUse": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffSignatureVerified": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          109.1,
+          722.10004,
+          181.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          722.10004,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          722.10004,
+          56.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.PostalCode_City_Country.ffCity": {
+      "value": "City",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.PostalCode_City_Country.ffCountry": {
+      "value": "Country",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.PostalCode_City_Country.ffPostalCode": {
+      "value": "Postal code",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.STP_Additional_Address.RB_Group_Additional_Address.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          672.60004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.STP_Additional_Address.RB_Group_Additional_Address.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          172.6,
+          672.60004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          692.9,
+          345.80002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          398.2,
+          692.9,
+          147.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.Street_StreetNumber.ffStreet": {
+      "value": "Street",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Additional_Address.Street_StreetNumber.ffStreetNumber": {
+      "value": "No.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.Address_No.Address_No": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          392.30002,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          421.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          421.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.FamilyName_FirstName.ffFamilyName": {
+      "value": "Last name",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.FamilyName_FirstName.ffFirstName_s": {
+      "value": "First name(s)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          109.1,
+          477.6,
+          181.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          477.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          477.6,
+          56.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.PostalCode_City_Country.ffCity": {
+      "value": "City",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.PostalCode_City_Country.ffCountry": {
+      "value": "Country",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.PostalCode_City_Country.ffPostalCode": {
+      "value": "Postal code",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          448.4,
+          345.80002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          398.2,
+          448.4,
+          147.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Address_Details.Street_StreetNumber.ffStreet": {
+      "value": "Street",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.Street_StreetNumber.ffStreetNumber": {
+      "value": "No.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Address_Details.ffAddressDetails": {
+      "value": "I/We ask you kindly to take into consideration the following change of my/our address:",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          567.60004,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          567.60004,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.FamilyName_FirstName.ffFamilyName": {
+      "value": "Last name",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.FamilyName_FirstName.ffFirstName_s": {
+      "value": "First name(s)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          109.1,
+          624.0,
+          181.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          624.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          624.0,
+          56.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.PostalCode_City_Country.ffCity": {
+      "value": "City",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.PostalCode_City_Country.ffCountry": {
+      "value": "Country",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.PostalCode_City_Country.ffPostalCode": {
+      "value": "Postal code",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.STP_Joint_Account.RB_Group_Joint_Account.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          520.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.STP_Joint_Account.RB_Group_Joint_Account.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          535.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.STP_Joint_Account.RB_Group_Joint_Account.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          548.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          594.8,
+          345.80002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          398.2,
+          594.8,
+          147.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.Street_StreetNumber.ffStreet": {
+      "value": "Street",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Address_Details.Joint_Account.Street_StreetNumber.ffStreetNumber": {
+      "value": "No.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.ClientDetails.Attorney.CB_Attorney": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          303.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_Attorney.Generic_WesternTextInput.DYN_Input.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          318.6,
+          164.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_Attorney.Generic_WesternTextInput.DYN_Input.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          258.7,
+          318.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_Attorney.Generic_WesternTextInput.DYN_Input.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          275.80002,
+          318.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_Attorney.Generic_WesternTextInput.DYN_Input.ffDesBankingRelation": {
+      "value": "Banking relationship",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_BO.Generic_WesternTextInput.DYN_Input.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          271.6,
+          164.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_BO.Generic_WesternTextInput.DYN_Input.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          258.7,
+          271.6,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_BO.Generic_WesternTextInput.DYN_Input.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          275.80002,
+          271.6,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Banking_Relationship_BO.Generic_WesternTextInput.DYN_Input.ffDesBankingRelation": {
+      "value": "Banking relationship",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.ClientDetails.Beneficial_Owner.CB_Beneficial_Owner": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          256.80002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.Name.Name": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          207.0,
+          496.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.ClientDetails.SectionTitle.ffClientDetails": {
+      "value": "Client details",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.FormConfigurator_ClientType.ClientType.CL_ClientType": {
+      "value": "Änderung Adresse mit Versandinstruktion",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          145.90001,
+          496.1,
+          12.3
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_ClientType.ClientType.ffDesClientType": {
+      "value": "Form addressee",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Further_Communication_Changes.Additional_Changes.Additional_Changes": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          51.0,
+          398.30002,
+          493.2,
+          23.800001
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Communication_Changes_1.CB_Communication_Changes_1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          104.3,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Communication_Changes_2.CB_Communication_Changes_2": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          118.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Communication_Changes_3.CB_Communication_Changes_3": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          252.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Email_1.Email_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          220.3,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Email_1.Email_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          220.3,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Email_2.Email_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          354.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Email_2.Email_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          354.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Fax_1.Fax_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          191.5,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Fax_1.Fax_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          191.5,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Fax_2.Fax_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          325.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Fax_2.Fax_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          325.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Mobile_1.Mobile_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          162.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Mobile_1.Mobile_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          162.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Mobile_2.Mobile_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          296.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Mobile_2.Mobile_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          296.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Telephone_1.Telephone_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          133.8,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Telephone_1.Telephone_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          133.8,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Telephone_2.Telephone_Business": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          267.9,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Further_Communication_Changes.Further_Communication_Changes.STP_Telephone_2.Telephone_Private": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          267.9,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.SectionTitle.ffSignature_s": {
+      "value": "Signature(s)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          508.6,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          480.30002,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          480.30002,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.ffDesDate": {
+      "value": "Date (dd.mm.yyyy)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesFullName": {
+      "value": "Name of client",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesPlace": {
+      "value": "Place",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesSignature": {
+      "value": "Signature of client",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

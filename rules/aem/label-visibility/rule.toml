@@ -1,0 +1,31 @@
+id = "ubs-aem-label-visibility"
+title = "Labels show; a long caption is a text"
+output_formats = ["aem-ubs"]
+description = """
+Every input shows its label, also where it repeats the heading right above it ("Between", "Other
+arrangements") (UBS-INP-1). Only a RadioButton or a Checkbox list may hide it, with
+`hide_title: true`, and only where the source takes its label from context and prints none beside
+the options: a radio row under the subtitle, labelled with the subtitle text (UBS-TTL-4), a
+configurator whose source shows no label, a checkbox list whose question is the heading or text
+right above it. Its label still names it in the summary. No other input hides its title: AEM
+breaks the form (backlog "Hidden labels").
+
+A Checkbox shows its `label` above its options. The writer hides it by itself where there is
+nothing to show beyond the box: an empty label, or a single checkbox whose one option is its label
+(a statement of its own speaks through its option's text). A list of checkboxes that answers one
+question is labelled with that question (the bold text right above the group, UBS-INP-4); when that
+text is a heading or text that stays in the form, the list sets `hide_title`.
+
+A caption too long for a label (a full sentence, or more than one line at the input's width on the
+page, xfa_render_region) is not the label (UBS-INP-2): it becomes a TextDraw right before the
+input, verbatim in every language, and the input is labelled with the short phrase of that caption
+that names what is asked. This wins over ubs-aem-verbatim-source-text for the label only.
+
+Reported: `hide_title` set on anything but a RadioButton or a Checkbox; a label of an input longer
+than 80 characters in a language (markup not counted), except a single checkbox whose label is its
+one option. Whether a RadioButton or a checkbox list may hide its label is for you to judge against
+the page (xfa_render_pages, xfa_render_region for the bold text above a group).
+
+Fix: remove `hide_title`; move the long caption into a TextDraw before the input and shorten the
+label in every language.
+"""

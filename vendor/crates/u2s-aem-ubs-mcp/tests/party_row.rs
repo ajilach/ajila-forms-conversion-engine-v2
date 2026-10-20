@@ -134,10 +134,49 @@ fn the_schema_groups_the_fragment_with_the_rows_fields() {
     assert!(compact.contains(group), "the row must be one repeating group:\n{xsd}");
 }
 
-/// A row is one party: a second partner generic in it would make its Add and
-/// Remove, and its signature twin, ambiguous.
+/// A party the source splits around a field of its own (its name, then the
+/// field, then its address) is two copies of its fragment in the row, each
+/// showing its own sub-panels, with the field between them. Both bind to the
+/// one schema element, which the schema names once.
 #[test]
-fn a_row_with_two_partner_generics_is_refused() {
+fn a_party_split_around_a_field_shows_each_part_once() {
+    let mut json = document();
+    let row = json.pointer_mut(ROW).unwrap();
+    let mut address = row["children"][0].clone();
+    address["uuid"] = json!("6d2b0f4e-0000-4000-8000-000000000004");
+    address["name"] = json!("PN_CPGRP_Address");
+    address["init_hide"] = json!(["PN_IndividualBasic"]);
+    row["children"].as_array_mut().unwrap().push(address);
+    let doc = UbsAemDocument::from_json(&json).unwrap();
+    let build = encode(&doc).unwrap_or_else(|e| panic!("a split party is a party: {e}"));
+    let xml = form_xml(&build.package);
+    let tree = u2s_mapper_aem::jcr::tree::parse_jcr_xml(&xml).expect("well-formed");
+    let inner = find(&tree, "RCP_CPGRP_inner").expect("the party's repeating row");
+    let items = inner.children.iter().find(|c| c.tag_name == "items").unwrap();
+    let names: Vec<&str> = items.children.iter().filter_map(|c| c.attr("name")).collect();
+    let at = |n: &str| names.iter().position(|x| *x == n);
+    let (name, field, address) = (at("PN_CPGRP"), at("PN_BirthDetails"), at("PN_CPGRP_Address"));
+    assert!(
+        name.is_some() && field == name.map(|i| i + 1) && address == name.map(|i| i + 2),
+        "the row must hold the name part, the field, then the address part: {names:?}"
+    );
+
+    // Both copies bind to the one element: the row's group names it once.
+    let xsd = build.xsd.expect("the UBS profile has a schema");
+    let compact: String = xsd.split_whitespace().collect::<Vec<_>>().join(" ");
+    let group = concat!(
+        r#"<xs:sequence> <xs:element ref="AccountHolder" minOccurs="0"/> "#,
+        r#"<xs:element name="DateOfBirth" type="xs:date" minOccurs="0"/> "#,
+        r#"<xs:element name="PlaceOfBirth" type="xs:string" minOccurs="0"/> "#,
+        r#"</xs:sequence>"#
+    );
+    assert!(compact.contains(group), "the copies bind to one element:\n{xsd}");
+}
+
+/// The parts of a split party show different sub-panels: a second copy that
+/// shows what the first shows would ask the same fields twice.
+#[test]
+fn a_row_whose_parts_show_the_same_fields_is_refused() {
     let mut json = document();
     let row = json.pointer_mut(ROW).unwrap();
     let mut second = row["children"][0].clone();
@@ -147,9 +186,9 @@ fn a_row_with_two_partner_generics_is_refused() {
     let doc = UbsAemDocument::from_json(&json).unwrap();
     match encode(&doc) {
         Err(u2s_aem_ubs_mcp::Error::InvalidDocument(message)) => {
-            assert!(message.contains("`RCP_CPGRP` holds 2 partner generics"), "{message}")
+            assert!(message.contains("both show `PN_IndividualBasic`"), "{message}")
         }
         Err(other) => panic!("refused for another reason: {other}"),
-        Ok(_) => panic!("a row with two partner generics must be refused"),
+        Ok(_) => panic!("two copies showing the same sub-panel must be refused"),
     }
 }

@@ -8,7 +8,9 @@
 
 use serde_json::{Value, json};
 
+use u2s_aem_verify_core::args::{LanguageArg, PackageCheckArgs, StatusArgs, VerifyRunArgs};
 use u2s_aem_verify_core::profile::Profile;
+use u2s_schema::tool_input_schema;
 
 pub const CONTRACT_VERSION: &str = "1.0.0";
 
@@ -25,18 +27,7 @@ pub fn tool_specs() -> Vec<Value> {
                  safe to call at any time, including before ever running Docker, and is how a \
                  caller distinguishes \"this server is misconfigured\" from \"Docker is not \
                  running right now\".",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "instance_id": {
-                        "type": "string",
-                        "description":
-                            "Which caller's instance to report on -- the same value passed to \
-                             verify_run. Omit to report on the shared default instance."
-                    }
-                },
-                "additionalProperties": false
-            }
+            "input_schema": tool_input_schema::<StatusArgs>()
         }),
         json!({
             "name": "verify_package_check",
@@ -49,20 +40,7 @@ pub fn tool_specs() -> Vec<Value> {
                  conformance test vectors) must be given. Never touches Docker, AEM or a \
                  network -- this is the check `verify_run`'s own `dry_run: true` performs \
                  internally before anything with a side effect runs.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "package": {
-                        "type": "string",
-                        "description": "A u2s blob handle naming the FileVault package to check."
-                    },
-                    "package_path": {
-                        "type": "string",
-                        "description": "A filesystem path to the package, for conformance test vectors."
-                    }
-                },
-                "additionalProperties": false
-            }
+            "input_schema": tool_input_schema::<PackageCheckArgs>()
         }),
         json!({
             "name": "verify_run",
@@ -84,52 +62,7 @@ pub fn tool_specs() -> Vec<Value> {
                  installs software on an instance it does not tear down and, unless `dry_run` or \
                  `submit: false`, submits the rendered form. It is never offered to the \
                  Conversion Agent.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "package": {
-                        "type": "string",
-                        "description": "A u2s blob handle naming the FileVault package to verify."
-                    },
-                    "package_path": {
-                        "type": "string",
-                        "description": "A filesystem path to the package, for conformance test vectors."
-                    },
-                    "dry_run": {
-                        "type": "boolean",
-                        "description": "Validate inputs and report Docker reachability only; default false."
-                    },
-                    "fill": {
-                        "type": "object",
-                        "description":
-                            "Field name to value. Each name must be the guide node's own `name` \
-                             -- GuideBridge exposes it as a global carrying `.value`. Ignored \
-                             when `submit` is false."
-                    },
-                    "submit": {
-                        "type": "boolean",
-                        "description": "Fill and submit after rendering; default true."
-                    },
-                    "language": {
-                        "type": "string",
-                        "description":
-                            "The language to open the form in: one of the codes its metadata \
-                             declares for the entity (verify_package_check lists them, e.g. \
-                             `de`). Default: the entity's first. A language the form does not \
-                             declare is an error."
-                    },
-                    "instance_id": {
-                        "type": "string",
-                        "description":
-                            "Any stable string identifying the calling agent/run. Two different \
-                             values get two independent AEM+Chromium instances, so concurrent \
-                             callers never share or block on one another's instance; the same \
-                             value across calls reuses that caller's own instance. Omit to use a \
-                             single shared default instance."
-                    }
-                },
-                "additionalProperties": false
-            }
+            "input_schema": tool_input_schema::<VerifyRunArgs<LanguageArg>>()
         }),
     ];
     specs.extend(u2s_aem_verify_core::specs_shared::tool_specs());
@@ -207,6 +140,21 @@ pub fn manifest(profile: &Profile) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every optional argument refuses an empty value in the schema itself,
+    /// the same check `u2s_mcp::conformance` runs against a live server.
+    #[test]
+    fn no_optional_argument_accepts_an_empty_value() {
+        let found: Vec<String> = tool_specs()
+            .iter()
+            .flat_map(|spec| {
+                u2s_mcp::conformance::empty_optionals(&spec["input_schema"])
+                    .into_iter()
+                    .map(|path| format!("{}{path}", spec["name"].as_str().unwrap_or("?")))
+            })
+            .collect();
+        assert!(found.is_empty(), "{found:#?}");
+    }
 
     fn profile() -> Profile {
         Profile {

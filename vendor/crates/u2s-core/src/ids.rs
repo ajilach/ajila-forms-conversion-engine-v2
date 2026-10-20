@@ -16,7 +16,10 @@ use uuid::Uuid;
 macro_rules! uuid_id {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+        #[derive(
+            Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
+            schemars::JsonSchema,
+        )]
         #[serde(transparent)]
         pub struct $name(Uuid);
 
@@ -109,6 +112,13 @@ uuid_id!(
 uuid_id!(
     /// A conversion's identity — `runs.id`.
     RunId
+);
+
+uuid_id!(
+    /// The runs one request started together — `batches.id`. A tag
+    /// conversion is one batch; every other way to start a run starts a
+    /// batch of one, so every run has exactly one.
+    BatchId
 );
 
 uuid_id!(

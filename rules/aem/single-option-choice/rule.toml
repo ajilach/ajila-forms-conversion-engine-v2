@@ -1,0 +1,20 @@
+id = "ubs-aem-single-option-choice"
+title = "A one-option choice is a Checkbox"
+output_formats = ["aem-ubs"]
+description = """
+A radio button group of the source with a single radio button (`xfa_controls` lists one control in
+its `group`, CNV-SRC-9), and a dropdown with a single entry, is a `Checkbox` with that one option,
+value `"1"`: a lone radio button cannot be cleared once it is chosen, a checkbox can (backlog
+"Single-option choice"). Single radio buttons that clear each other in a session (`xfa_click` one,
+then the other) are not single: they are one RadioButton with all their options
+(ubs-aem-option-fields-after-group).
+
+Reported: a RadioButton or Dropdown with exactly one option.
+
+Fix (automatic): replace the node by a Checkbox with the same uuid, label, `hide_title`, option
+(value `"1"`), `mandatory`, `conditions` (their value `"1"`), placement and input settings
+(`default_value` `"1"` where it opened ticked, `read_only`, `calculate`, `copy_from`), named `CB_`
+instead of `RB_` or `DD_`, and rename every `copy_from` and `{NAME}` of a `calculate` that named
+it. The Checkbox shows the choice's label above its option, as the choice did; the writer hides it
+where it is empty or the option's own text (ubs-aem-label-visibility).
+"""

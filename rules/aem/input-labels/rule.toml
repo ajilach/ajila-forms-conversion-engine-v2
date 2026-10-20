@@ -1,23 +1,40 @@
 id = "ubs-aem-input-labels"
-title = "Every input has a usable label in every language"
+title = "Every input has a usable label"
 output_formats = ["aem-ubs"]
 description = """
-Each text, number and date field, dropdown, checkbox and radio button presents a label, in each
-of the form's languages. A label is not usable when it is empty, when it is only a parenthetical
-hint such as `(optional)`, or when it carries markup: labels are plain text.
+Each text, number and date field, dropdown, checkbox and radio button has its own label, in each
+of the form's languages: the question it asks, plain text (CNV-INP-1). A label is not usable when
+it is empty, only a parenthetical hint such as `(optional)`, marked up, a placeholder of filler
+characters (`____`, `...`), or a technical field name (`RB_Rb31`). Inputs may share a label where
+the source gives them the same caption; only their names are unique. They stay distinguishable by
+their group: inputs under a common heading text (a column or block of a grid, "Issued by" over
+"OU ref." and "Date") form a Panel opened by a TitleDraw with that text, groups read left to right,
+then top to bottom (UBS-INP-3, ubs-aem-sub-headings-are-title-draws).
 
 A checkbox whose options carry the text may leave its own label empty. The fields a `Letterhead`
-renders are the component's and have no node in the document.
+or a fragment renders are the component's and have no node in the document.
 
-The check decides empty, parenthetical-only and marked-up labels. Whether the text is the real
-question is for you to judge against the source page: a caption that merely sits near a field in the
-XFA (a parenthetical aside, a rich-text paragraph) is not its label. Check each field against the
-source page, put the real question into the label, and leave any hint as its own static text.
-Use the question the source asks next to the field. A hint in brackets belongs to the question,
-not in its place.
+Where the label comes from, against the source page:
+
+- the control's `caption` in `xfa_controls` (the text the form shows after its scripts ran);
+- with no caption, the text drawn beside it (CNV-SRC-3), paired by the control's `positions` and
+  the text on the rendered page (xfa_render_region) or the draws near it in the template (xfa_node);
+  radio and checkbox labels are often
+  such separate texts, and a short text ending in ":" next to an input is its label (CNV-TXT-8);
+- else, in this order: the nearest source text naming it, its group's caption, its option's text,
+  or its field name where that name is a readable word, translated in each language as the source
+  translates it (field paths are hints only, CNV-SRC-4); only then the nearest heading.
+
+A bold text directly above a radio or checkbox group, with nothing between, is that group's label,
+not a subheading (UBS-INP-4). An input that belongs to an option and has no caption of its own is
+labelled with the option's text, or enough of it to identify the option (CNV-INP-2). A hint in
+brackets next to a caption stays its own static text; where the only caption is a bracketed hint,
+the label is that text without the brackets (UBS-INP-5). A placeholder is never a label. A static caption
+identical to the label of the input next to it is dropped (CNV-TXT-8), except beside an input that
+hides its label (`hide_title`, ubs-aem-label-visibility); a heading is kept even where an input
+repeats it.
 
 Precedence: this rule wins over ubs-aem-verbatim-source-text where the source gives an input no
-caption. The label is then the nearest source text that names the input, the caption of its group
-or the text of its option, verbatim and without surrounding brackets. Never leave it empty and
-never write wording of your own.
+caption. The label is then source text found as above, verbatim and without surrounding brackets.
+Never leave it empty and never write wording of your own.
 """

@@ -1,6 +1,9 @@
 # Italian translations
 # Key = master text (English), Value = Italian translation
 
+# A quotation is written «…»: the package prints it with the quotation marks of the
+# form's language and entity country (src/aem/quotes.rs).
+
 [translations]
 "Back" = "Indietro"
 "Next" = "Avanti"

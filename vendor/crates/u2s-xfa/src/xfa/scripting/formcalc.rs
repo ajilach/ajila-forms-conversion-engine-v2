@@ -6,11 +6,14 @@
 //! their precedence (`|`/`or`, `&`/`and`, `==`/`<>`/`eq`/`ne`, `<`/`<=`/`>`/
 //! `>=`/`lt`/`le`/`gt`/`ge`, `+`/`-`, `*`/`/`, unary `-`/`+`/`not`),
 //! assignment, `if ... then ... elseif ... else ... endif`, and accessors:
-//! `$`, `$form`, `$layout`, `$host`, `$event`, `$xfa`, dotted names and
-//! `[n]` indices. Everything else (loops, `var`, `func`, function and method
-//! calls, `..`, `.#`, `[*]`, `$data`, `$record`, `$template`, `!names`) is
-//! refused with the construct and its line, so a script either runs as
-//! FormCalc would or is reported as not run.
+//! `$` and `this`, `$form`, `$layout`, `$host`, `$event`, `$xfa`, dotted
+//! names, `[n]` indices and method calls on an accessor ("Method Calls":
+//! `xfa.layout.pageCount()`, `$host.messageBox(v)`), whose arguments are
+//! values and whose names are case-insensitive. Everything else (loops,
+//! `var`, `func`, the built-in function library, `..`, `.#`, `[*]`,
+//! `$data`, `$record`, `$template`, `!names`) is refused with the construct
+//! and its line, so a script either runs as FormCalc would or is reported
+//! as not run.
 //!
 //! The JavaScript runs inside the script's own scope (see the engine's
 //! `execute_javascript`), so unqualified names resolve by the XFA 3.3 §3
@@ -50,8 +53,8 @@ enum Tok {
 
 const KEYWORDS: &[&str] = &[
     "and", "or", "not", "eq", "ne", "lt", "le", "gt", "ge", "if", "then", "elseif", "else",
-    "endif", "null", "var", "func", "endfunc", "while", "do", "endwhile", "for", "foreach",
-    "upto", "downto", "step", "endfor", "in", "break", "continue", "return", "throw",
+    "endif", "null", "this", "var", "func", "endfunc", "while", "do", "endwhile", "for",
+    "foreach", "upto", "downto", "step", "endfor", "in", "break", "continue", "return", "throw",
 ];
 
 /// Operators, longest first so `<=` is not read as `<` then `=`.
@@ -223,6 +226,9 @@ enum Step {
     /// `.name` or `.name[n]` on the base; a bare first name when the base
     /// is `None`.
     Name { name: String, index: Option<String> },
+    /// `.name(args)` on the base: a method call (XFA 3.3 §25 "Method
+    /// Calls"), `args` already JavaScript for each argument's value.
+    Call { name: String, args: Vec<String> },
 }
 
 impl Accessor {
@@ -240,6 +246,12 @@ impl Accessor {
             (Some(base), Step::Name { name, index: Some(i) }) => {
                 format!("_fc_index_({base}, {}, {i})", js_string(name))
             }
+            (base, Step::Call { name, args }) => format!(
+                "_fc_call_({}, {}, [{}])",
+                base.as_deref().unwrap_or("this"),
+                js_string(name),
+                args.join(", ")
+            ),
         }
     }
 
@@ -454,6 +466,7 @@ impl Parser {
                 Ok(format!("({inner})"))
             }
             Some(Tok::Name(_)) => Ok(self.accessor()?.read()),
+            Some(Tok::Keyword(k)) if k == "this" => Ok(self.accessor()?.read()),
             Some(Tok::Keyword(k)) => Err(error(line, format!("`{k}` is not supported here"))),
             Some(Tok::Op(o)) => Err(error(line, format!("unexpected {o:?}"))),
             None => Err(error(line, "the script ends in the middle of an expression")),
@@ -479,10 +492,33 @@ impl Parser {
         Ok(Some(index))
     }
 
+    /// `(args)` after a method name: each argument as its value.
+    fn arguments(&mut self) -> Result<Vec<String>, FormCalcError> {
+        self.expect_op("(")?;
+        let mut args = Vec::new();
+        if self.is_op(")") {
+            self.pos += 1;
+            return Ok(args);
+        }
+        loop {
+            args.push(format!("_fc_v_({})", self.expression()?));
+            if self.is_op(",") {
+                self.pos += 1;
+                continue;
+            }
+            self.expect_op(")")?;
+            return Ok(args);
+        }
+    }
+
     fn accessor(&mut self) -> Result<Accessor, FormCalcError> {
         let line = self.line();
-        let Some(Tok::Name(first)) = self.bump() else {
-            return Err(error(line, "expected a name"));
+        let first = match self.bump() {
+            Some(Tok::Name(name)) => name,
+            // `this` is the keyword spelling of the `$` accessor (§25
+            // "Keywords").
+            Some(Tok::Keyword(k)) if k == "this" => "$".to_string(),
+            _ => return Err(error(line, "expected a name")),
         };
         let mut acc = match first.as_str() {
             "$" => Accessor {
@@ -516,19 +552,33 @@ impl Parser {
             let Some(Tok::Name(name)) = self.bump() else {
                 return Err(error(
                     self.line(),
-                    "only `.name` is supported after a name (not `.#`, `.*` or a method call)",
+                    "only `.name` or `.name(args)` is supported after a name (not `.#` or `.*`)",
                 ));
             };
-            acc = Accessor {
-                base: Some(acc.read()),
-                last: Step::Name {
-                    name,
-                    index: self.index()?,
-                },
+            let base = Some(acc.read());
+            acc = if self.is_op("(") {
+                Accessor {
+                    base,
+                    last: Step::Call {
+                        name,
+                        args: self.arguments()?,
+                    },
+                }
+            } else {
+                Accessor {
+                    base,
+                    last: Step::Name {
+                        name,
+                        index: self.index()?,
+                    },
+                }
             };
         }
         if self.is_op("(") {
-            return Err(error(self.line(), "function and method calls are not supported"));
+            return Err(error(
+                self.line(),
+                "calls to the built-in function library are not supported (a method call on an object is)",
+            ));
         }
         Ok(acc)
     }
@@ -546,7 +596,10 @@ pub fn transpile(source: &str) -> Result<String, FormCalcError> {
     if parser.pos < parser.toks.len() {
         return Err(error(parser.line(), "unexpected text after the script"));
     }
-    Ok(format!("var _fc_ = null;\n{body}return _fc_;"))
+    // The result is the script's completion value, which is what a
+    // calculate script yields (XFA 3.3 §10 "Result"); a `return` would be
+    // refused where the engine evaluates the script for its value.
+    Ok(format!("var _fc_ = null;\n{body}_fc_;"))
 }
 
 #[cfg(test)]
@@ -557,15 +610,26 @@ mod tests {
     fn the_acav_page_number_assigns_the_containers_value() {
         assert_eq!(
             transpile("// a comment\n$ = $.parent.index + 1").unwrap(),
-            "var _fc_ = null;\n_fc_ = _fc_set_node_(this, _fc_v_(_fc_op_(\"+\", _fc_get_(_fc_get_(this, \"parent\"), \"index\"), 1)));\nreturn _fc_;"
+            "var _fc_ = null;\n_fc_ = _fc_set_node_(this, _fc_v_(_fc_op_(\"+\", _fc_get_(_fc_get_(this, \"parent\"), \"index\"), 1)));\n_fc_;"
         );
+    }
+
+    #[test]
+    fn this_is_the_container_and_a_method_call_passes_its_arguments_values() {
+        assert_eq!(
+            transpile("this.rawValue= xfa.layout.pageCount();").unwrap(),
+            "var _fc_ = null;\n_fc_ = _fc_set_(this, \"rawValue\", _fc_v_(_fc_call_(_fc_get_(xfa, \"layout\"), \"pageCount\", [])));\n_fc_;"
+        );
+        let js = transpile("$host.messageBox(A, \"t\", 1)").unwrap();
+        assert!(js.contains("_fc_call_(xfa.host, \"messageBox\", [_fc_v_(A), _fc_v_(\"t\"), _fc_v_(1)])"), "{js}");
+        assert!(transpile("$ = $.parent.resolveNode(\"A\").index").unwrap().contains("_fc_get_(_fc_call_(_fc_get_(this, \"parent\"), \"resolveNode\", [_fc_v_(\"A\")]), \"index\")"));
     }
 
     #[test]
     fn an_expression_alone_is_the_scripts_value() {
         assert_eq!(
             transpile("A + B ; trailing comment").unwrap(),
-            "var _fc_ = null;\n_fc_ = _fc_v_(_fc_op_(\"+\", A, B));\nreturn _fc_;"
+            "var _fc_ = null;\n_fc_ = _fc_v_(_fc_op_(\"+\", A, B));\n_fc_;"
         );
     }
 
@@ -601,7 +665,7 @@ mod tests {
     fn unsupported_constructs_are_refused_with_their_line() {
         let refused = |src: &str| transpile(src).unwrap_err();
         assert_eq!(refused("A = 1\nforeach x in (A) do\nendfor").line, 2);
-        assert!(refused("Sum(A[*])").message.contains("function and method calls"));
+        assert!(refused("Sum(A[*])").message.contains("built-in function"));
         assert!(refused("A[*]").message.contains("literal index"));
         assert!(refused("A..B").message.contains("`..`"));
         assert!(refused("$data.A").message.contains("$data"));

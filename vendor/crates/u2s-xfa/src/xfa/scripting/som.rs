@@ -2,12 +2,10 @@
 //!
 //! This module implements SOM path handling per XFA 3.3 spec Chapter 3 (pages 86-120).
 //!
-//! ## SOM Path Expressions
-//! - Full path: `UBSForms.Page.FormTitle.STP_RB_Horizontal.RB_Group_Neuanlage.RB_1`
-//! - Short path: `Löschung` (matches first node with this name)
-//! - Relative: `$.RB_1` (relative to current context)
-//! - Descendant: `$data..fieldName` (search all descendants)
-//! - Indexed: `Detail[0]`, `Item[*]`
+//! The resolver here answers the host's absolute paths
+//! (`Form.Page.Section.Field`, `Form.Row[2].F`, `Form.Row[*].F`). A script's
+//! unqualified and relative references are resolved in JavaScript by the
+//! scope walk in `js_helpers` (`XFA_SOM_WALKER`).
 
 use serde::Serialize;
 
@@ -97,11 +95,6 @@ impl SomPath {
         self.0.starts_with(&other.0)
             && (self.0.len() == other.0.len()
                 || self.0.as_bytes().get(other.0.len()) == Some(&b'.'))
-    }
-
-    /// Check if this path ends with the given suffix
-    pub fn ends_with(&self, suffix: &str) -> bool {
-        self.0.ends_with(suffix)
     }
 
     /// Consume and return the inner String
@@ -245,8 +238,6 @@ pub struct NodeInfo {
 pub struct SomResolver {
     /// All registered nodes indexed by full path
     nodes: HashMap<SomPath, NodeInfo>,
-    /// Nodes indexed by name (may have duplicates)
-    nodes_by_name: HashMap<String, Vec<SomPath>>,
     /// Parent-child relationships
     children: HashMap<SomPath, Vec<SomPath>>,
     /// Every concrete path, grouped by its index-free template path, in
@@ -258,7 +249,6 @@ impl SomResolver {
     pub fn new() -> Self {
         SomResolver {
             nodes: HashMap::new(),
-            nodes_by_name: HashMap::new(),
             children: HashMap::new(),
             by_template: HashMap::new(),
         }
@@ -369,18 +359,13 @@ impl SomResolver {
         }
     }
 
-    /// Record one node under its path, its bare name and its template path.
+    /// Record one node under its path and its template path.
     /// Re-registering a path replaces its info without listing it twice.
     fn insert_info(&mut self, info: NodeInfo) {
         let path = info.path.clone();
-        let name = info.name.clone();
         if self.nodes.insert(path.clone(), info).is_some() {
             return;
         }
-        self.nodes_by_name
-            .entry(name)
-            .or_default()
-            .push(path.clone());
         self.by_template
             .entry(path.index_free())
             .or_default()
@@ -402,142 +387,36 @@ impl SomResolver {
         self.children.get(path)
     }
 
-    /// Resolve a SOM expression to a single node path
-    /// Per XFA 3.3 spec page 106-107
-    pub fn resolve_node(
-        &self,
-        som_expression: &str,
-        context_path: Option<&SomPath>,
-    ) -> Option<SomPath> {
-        self.resolve_nodes(som_expression, context_path)
-            .into_iter()
-            .next()
+    /// The node an absolute SOM path names: [`Self::resolve_nodes`] narrowed
+    /// to its first answer.
+    pub fn resolve_node(&self, som_expression: &str) -> Option<SomPath> {
+        self.resolve_nodes(som_expression).into_iter().next()
     }
 
-    /// Resolve a SOM expression to multiple node paths
-    /// Per XFA 3.3 spec page 106-107
-    pub fn resolve_nodes(
-        &self,
-        som_expression: &str,
-        context_path: Option<&SomPath>,
-    ) -> Vec<SomPath> {
+    /// The nodes an absolute SOM path names (XFA 3.3 §3): a root node first,
+    /// then a child of each node selected so far, every segment narrowed by
+    /// its index (`Row[2]`; every instance for `Row[*]`; index 0 when none
+    /// is written). A `$form.` or `xfa.form.` prefix names the Form DOM
+    /// itself. Unqualified references are the scripting engine's business,
+    /// resolved by its scope walk; this resolver answers the host, which
+    /// addresses nodes by their full path, and nothing else.
+    pub fn resolve_nodes(&self, som_expression: &str) -> Vec<SomPath> {
         let expr = som_expression.trim();
-
-        // Handle shortcuts
-        let expr = if let Some(stripped) = expr.strip_prefix("$form.") {
-            stripped
-        } else if let Some(stripped) = expr.strip_prefix("$data.") {
-            stripped
-        } else if expr == "$" {
-            // $ = current context
-            return context_path.cloned().into_iter().collect();
-        } else if let Some(relative) = expr.strip_prefix("$.") {
-            // $.foo = relative to current context
-            if let Some(ctx) = context_path {
-                return self.resolve_relative(ctx, relative);
-            }
-            return Vec::new();
-        } else {
-            expr
-        };
-
-        // Handle descendant accessor (..)
-        if expr.contains("..") {
-            return self.resolve_descendant(expr);
-        }
-
-        // A canonical path (indices included) names exactly one node.
+        let expr = expr
+            .strip_prefix("$form.")
+            .or_else(|| expr.strip_prefix("xfa.form."))
+            .unwrap_or(expr);
         let path = SomPath::new(expr);
         if self.nodes.contains_key(&path) {
             return vec![path];
         }
-
-        // Index notation: `Row[1]`, `Row[*]`, `A.Row[2].F`.
-        if expr.contains('[') {
-            return self.resolve_segmented(expr, context_path);
-        }
-
-        // Try to match by building path from parts
-        let parts: Vec<&str> = expr.split('.').collect();
-        self.resolve_path_parts(&parts)
-    }
-
-    /// Resolve relative path from context
-    fn resolve_relative(&self, context_path: &SomPath, relative: &str) -> Vec<SomPath> {
-        let full_path = context_path.child(relative);
-        if self.nodes.contains_key(&full_path) {
-            vec![full_path]
-        } else {
-            // Search children of context
-            if let Some(children) = self.children.get(context_path) {
-                children
-                    .iter()
-                    .filter(|p| p.ends_with(&format!(".{}", relative)))
-                    .cloned()
-                    .collect()
-            } else {
-                Vec::new()
-            }
-        }
-    }
-
-    /// Resolve descendant accessor (e.g., "$data..fieldName")
-    fn resolve_descendant(&self, expr: &str) -> Vec<SomPath> {
-        let parts: Vec<&str> = expr.split("..").collect();
-        if parts.len() == 2 {
-            let target_name = parts[1];
-            // Find all nodes with this name
-            self.nodes_by_name
-                .get(target_name)
-                .cloned()
-                .unwrap_or_default()
-        } else {
-            Vec::new()
-        }
-    }
-
-    /// Resolve an expression with index notation, per XFA 3.3 §3: `Row[n]`
-    /// is the n-th of the same-named siblings under ONE parent, `Row[*]` is
-    /// all of them, and a segment without brackets is index 0.
-    ///
-    /// The first segment is found the way an unqualified name is (the scope
-    /// walk from `context`, or the first node of that name without one); its
-    /// index then selects among that node's same-named siblings. Every later
-    /// segment selects among the children of the nodes selected so far.
-    fn resolve_segmented(&self, expr: &str, context: Option<&SomPath>) -> Vec<SomPath> {
-        let Some(segments) = expr
-            .split('.')
-            .map(parse_segment)
-            .collect::<Option<Vec<_>>>()
-        else {
+        let Some(segments) = expr.split('.').map(parse_segment).collect::<Option<Vec<_>>>() else {
             return Vec::new();
         };
         let Some(((first_name, first_index), rest)) = segments.split_first() else {
             return Vec::new();
         };
-
-        let anchor = match context {
-            Some(ctx) => self.resolve_unqualified(first_name, ctx),
-            None => self
-                .nodes_by_name
-                .get(*first_name)
-                .and_then(|paths| paths.first().cloned()),
-        };
-        let Some(anchor) = anchor else {
-            return Vec::new();
-        };
-
-        let mut selected = match anchor.parent() {
-            Some(parent) => self.select_children(&parent, first_name, *first_index),
-            None => Self::pick(
-                self.nodes_by_name
-                    .get(*first_name)
-                    .into_iter()
-                    .flatten()
-                    .filter(|p| !p.as_str().contains('.')),
-                *first_index,
-            ),
-        };
+        let mut selected = Self::pick(self.roots().filter(|p| p.name() == *first_name), *first_index);
         for (name, index) in rest {
             selected = selected
                 .iter()
@@ -545,6 +424,15 @@ impl SomResolver {
                 .collect();
         }
         selected
+    }
+
+    /// The nodes with no parent: the root subform, and anything registered
+    /// beside it.
+    fn roots(&self) -> impl Iterator<Item = &SomPath> {
+        self.nodes
+            .values()
+            .filter(|info| info.parent_path.is_none())
+            .map(|info| &info.path)
     }
 
     /// The children of `parent` named `name`, narrowed by `index`.
@@ -566,145 +454,11 @@ impl SomResolver {
         }
     }
 
-    /// Resolve path parts
-    fn resolve_path_parts(&self, parts: &[&str]) -> Vec<SomPath> {
-        if parts.is_empty() {
-            return Vec::new();
-        }
-
-        // Try matching by simple name for single-part paths
-        if parts.len() == 1 {
-            return self
-                .nodes_by_name
-                .get(parts[0])
-                .cloned()
-                .unwrap_or_default();
-        }
-
-        // Try building full path
-        let full_path = SomPath::new(parts.join("."));
-        if self.nodes.contains_key(&full_path) {
-            return vec![full_path];
-        }
-
-        // Search for partial matches
-        self.nodes
-            .keys()
-            .filter(|p| p.ends_with(&parts.join(".")))
-            .cloned()
-            .collect()
-    }
-
     /// Get a node by its path
     pub fn get_node(&self, path: &SomPath) -> Option<&NodeInfo> {
         self.nodes.get(path)
     }
 
-    /// Get all paths for a given node name
-    pub fn get_paths_by_name(&self, name: &str) -> Option<&Vec<SomPath>> {
-        self.nodes_by_name.get(name)
-    }
-
-    /// Resolve an unqualified reference using the XFA 3.3 §3 pp.110-114 scope walk.
-    ///
-    /// The search order is:
-    /// 1. Children of the context container
-    /// 2. The context container itself and its siblings
-    /// 3. Parent of the container and siblings of the parent (uncles)
-    /// 4. Grandparent and siblings of the grandparent (great-uncles)
-    /// 5. Repeat recursively up to the root
-    ///
-    /// For multi-part names (e.g., "Sub.Field"), the first part is resolved via
-    /// the scope walk, then the remainder is resolved as children relative to it.
-    pub fn resolve_unqualified(&self, name: &str, context_path: &SomPath) -> Option<SomPath> {
-        // Handle multi-part unqualified expressions (e.g., "Sub.Field")
-        if let Some(dot_pos) = name.find('.') {
-            let first_part = &name[..dot_pos];
-            let remainder = &name[dot_pos + 1..];
-
-            // Resolve the first part via scope walk
-            if let Some(first_resolved) = self.resolve_unqualified(first_part, context_path) {
-                // Then resolve remainder as a child of that node
-                let full = first_resolved.child(remainder);
-                if self.nodes.contains_key(&full) {
-                    return Some(full);
-                }
-                // Try recursive resolution from that node
-                return self.resolve_unqualified(remainder, &first_resolved);
-            }
-            return None;
-        }
-
-        // An indexed single segment (`Row[1]`) is resolved per parent.
-        if name.contains('[') {
-            return self
-                .resolve_segmented(name, Some(context_path))
-                .into_iter()
-                .next();
-        }
-
-        // Single-part name resolution with scope walk
-        // Get all registered paths for this name
-        let all_paths = match self.nodes_by_name.get(name) {
-            Some(paths) if !paths.is_empty() => paths,
-            _ => return None,
-        };
-
-        // If only one instance exists, return it immediately
-        if all_paths.len() == 1 {
-            return Some(all_paths[0].clone());
-        }
-
-        // Step 1: Children of the context container
-        if let Some(children) = self.children.get(context_path) {
-            for child_path in children {
-                if child_path.name() == name {
-                    return Some(child_path.clone());
-                }
-            }
-        }
-
-        // Step 2-5: Walk up from context, checking siblings at each level
-        let mut current = context_path.clone();
-        loop {
-            if let Some(parent) = current.parent() {
-                // Check siblings (children of the parent) for the name
-                if let Some(siblings) = self.children.get(&parent) {
-                    for sibling_path in siblings {
-                        if sibling_path.name() == name {
-                            return Some(sibling_path.clone());
-                        }
-                        // Also check children of siblings (nephews)
-                        if let Some(nephew_children) = self.children.get(sibling_path) {
-                            for nephew in nephew_children {
-                                if nephew.name() == name {
-                                    return Some(nephew.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-                // Check the parent itself
-                if let Some(info) = self.nodes.get(&parent) {
-                    if info.name == name {
-                        return Some(parent.clone());
-                    }
-                }
-                current = parent;
-            } else {
-                // Reached root — check root-level nodes
-                for path in all_paths {
-                    if !path.as_str().contains('.') {
-                        return Some(path.clone());
-                    }
-                }
-                break;
-            }
-        }
-
-        // Final fallback: return the first registered path
-        Some(all_paths[0].clone())
-    }
 }
 
 impl Default for SomResolver {

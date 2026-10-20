@@ -32,24 +32,22 @@ function check(output, ctx) {
               ? "`" + node.name + "` targets `" + rule.target_panel_name + "`, which " + targets.length + " nodes are named: the name must be unique"
               : "`" + node.name + "` targets `" + rule.target_panel_name + "`, which is a " + targets[0].node.type + ", not a Panel: wrap it in a Panel",
         });
-      } else if (rule.show === true && targets[0].node.is_conditional !== true && !flagged[targets[0].pointer]) {
-        flagged[targets[0].pointer] = true;
+        continue;
+      }
+      const target = targets[0];
+      if (entry.pointer.indexOf(target.pointer + "/") === 0) {
         violations.push({
-          pointer: targets[0].pointer + "/is_conditional",
-          message: "`" + targets[0].node.name + "` is shown by `" + node.name + "` but is not conditional, so the writer " +
+          pointer: at + "/target_panel_name",
+          message: "`" + node.name + "` sits inside `" + target.node.name + "`, which its condition shows or hides: once " +
+            "the panel is hidden nobody can reach the choice again; put the choice before the panel it decides",
+        });
+      } else if (rule.show === true && target.node.is_conditional !== true && !flagged[target.pointer]) {
+        flagged[target.pointer] = true;
+        violations.push({
+          pointer: target.pointer + "/is_conditional",
+          message: "`" + target.node.name + "` is shown by `" + node.name + "` but is not conditional, so the writer " +
             "gives it no visibility hook and it never appears: set is_conditional to true",
         });
-      }
-      const options = node.options || [];
-      if (rule.value && rule.value.type === "text" && options.length > 0) {
-        const known = options.map(function (o) { return String(o.value); });
-        if (known.indexOf(String(rule.value.value)) < 0) {
-          violations.push({
-            pointer: at + "/value",
-            message: "`" + node.name + "` has no option with the value \"" + rule.value.value + "\" (its values: " +
-              known.join(", ") + "): the condition can never fire",
-          });
-        }
       }
     }
   }

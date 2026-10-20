@@ -183,23 +183,26 @@ fn reset_restores_the_single_opening_row() {
 }
 
 #[test]
-fn set_on_a_button_and_click_on_a_field_are_refused_with_a_pointer_to_the_other() {
+fn set_on_a_button_is_refused_and_a_click_on_a_field_runs_its_events() {
     let r = renderer();
     let (session, _, _) = r.open(support::repeat()).expect("open");
     let e = r
         .set(&session, 0, ADD, "x")
         .expect_err("a button has no value");
     assert!(e.to_string().contains("xfa_click"), "{e}");
-    let e = r
+    // Any open field can be pressed (XFA 3.3 §10: its mouse and click
+    // events run); a text field without such scripts changes nothing.
+    let pressed = r
         .click(&session, 0, "form1.Body.Row.Amount")
-        .expect_err("a text field is not pressed");
-    assert!(e.to_string().contains("xfa_set"), "{e}");
+        .expect("a text field can be pressed");
+    assert!(pressed.side_effects.is_empty(), "{pressed:?}");
+    assert!(!pressed.instances_changed);
     let e = r
-        .click(&session, 0, "form1.Body.Nope")
+        .click(&session, 1, "form1.Body.Nope")
         .expect_err("no such field");
     assert!(e.to_string().contains("xfa_controls"), "{e}");
-    // None of the refusals moved the session on.
-    assert_eq!(r.click(&session, 0, ADD).expect("still at 0").revision, 1);
+    // The press moved the session on; the refusals did not.
+    assert_eq!(r.click(&session, 1, ADD).expect("still at 1").revision, 2);
 }
 
 #[test]

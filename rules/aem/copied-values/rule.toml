@@ -1,0 +1,39 @@
+# The reference checks mirror `check_inputs` (`document.rs`) and `subject_references`
+# (`letterhead.rs`) of the UBS layer, which refuse the same at build time.
+id = "ubs-aem-copied-values"
+title = "A copied value is a calculation or a copy"
+output_formats = ["aem-ubs"]
+description = """
+Where an input's value comes from another input of the source, the document says so; nobody types
+it twice. Find these in a session (xfa_open, xfa_set one input: the result lists the fields changed
+as a side effect and `access_changes`), in `xfa_controls` (`access`), and in the template (xfa_node:
+a field's `bind`).
+
+- Copied into an input nobody can change (its `access` is not `open`, CNV-VAL-1): the target has
+  `calculate` with the source's input as `{NAME}` (`"{TXT_Account}"`; fixed text around it as the
+  source prints it, `{{` and `}}` for a brace) and `read_only: true`.
+- Copied into an input that stays editable (CNV-VAL-2): the target has `copy_from: "NAME"`.
+- One value shared by several editable inputs (`bind` with `match: global` and the same name, or the
+  same `dataRef` `ref`, CNV-VAL-3): two inputs name each other in `copy_from`; three or more form a
+  ring, each naming the one before it. One of them that is not open is the read-only calculation of
+  an editable one.
+- The same custody account number shown again, read-only and possibly under another label ("Debit
+  account", UBS-ACC-5): a read-only TextField with that label that calculates it; editable there
+  too, the two name each other in `copy_from`. Different account numbers are separate inputs.
+- A fragment's fields (the banking relationship's, a party's, an account fragment's) are no inputs
+  of the document and cannot be named. An account number the source only copies from the banking
+  relationship (UBS-VAL-1) is not authored again: it is the banking relationship's, which prints
+  in the Document of Record's header.
+
+A value the source protects is `read_only` (shown, printed and submitted, not changeable); the
+model has no separate disabled state. A fixed literal is a read-only input with that
+`default_value`. An input the source unlocks by a choice (in the `access_changes` of an xfa_set
+result) stays editable.
+Precedence: a value a sentence prints is not copied (ubs-aem-floating-fields), and a letter's
+subject names its fields itself.
+
+Reported: a `copy_from` or `{NAME}` that names no input of the form, or the input itself; a
+`calculate` that is not a valid template; an input with both; a `calculate`d input that is not
+`read_only`; a read-only input with `copy_from` (make it `calculate: "{NAME}"`); a read-only input
+that is `mandatory` (a fixed value is not required, CNV-INP-7) or that gets no value at all.
+"""

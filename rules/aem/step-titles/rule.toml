@@ -1,7 +1,9 @@
 # Mirrors `find_step_title_panel.py` (PROBLEM-step-title-panel) and `step_title_dupes.py`
-# (PROBLEM-step-title-single) of the feedback repo, as the UBS writer's `panel.xml` meets them.
+# (PROBLEM-step-title-single) of the feedback repo, as the UBS writer's `panel.xml` meets them. The
+# first page follows `step_title` in `lower.rs`, which prints its title as the subtitle unless it
+# is the configurator, as `is_converted_step()` of the feedback repo exempts it.
 id = "ubs-aem-step-titles"
-title = "A wizard step's title is its page title, written once"
+title = "A step's heading is its page title, written once"
 output_formats = ["aem-ubs"]
 description = """
 Every direct child of `form` that is a `Panel` is a wizard step (a page), and the writer builds
@@ -10,27 +12,32 @@ holding one level-2 heading carrying the `stepTitle` class (so `PN_Declaration` 
 `PN_DeclarationTitle`). The heading is never authored: giving the page its heading as `title` and
 also drawing it renders it twice. Only the panels directly under `form` are steps, so no Panel
 below them is a page, and below page level a Panel `title` does not render: a sub-heading inside a
-page is an explicit TitleDraw. On the first page the heading renders as a
-`subtitle-after-form-title` static text rather than an h2 step title. Four shapes break that:
+page is an explicit TitleDraw.
+
+The first page (the first `Panel` under `form` with `is_page: true`) is the exception. Unless it
+is the configurator band (`PN_FormConfigurator...`, whose `title` is the band's heading and
+renders as any step's), its `title` is the subtitle (ubs-aem-form-title), which the writer prints
+under the form title as a `subtitle-after-form-title` text, not as a step heading. Its first
+section heading therefore stays a level-2 `TitleDraw` after the page header and any title-area
+content (UBS-SEC-4), and is never moved into the `title`; only that heading may carry `stepTitle`.
+
+Elsewhere, five shapes break the rule:
 
 - A `Panel` directly under `form` with `is_page: false` that has a title or a heading. It is still
   a step, but it gets no step-title panel, so its title renders nowhere as a heading. Set
   `is_page: true`. (The special panels, such as `PN_Preview` and the form metadata, are not
   steps.)
-- A page whose `title` is empty in the master language and which opens with a heading: its
-  first drawn element with text is a `TitleDraw`, at any level. The heading is the step title
-  written at the wrong place: move its text into the page's `title` and delete the draw. This
-  holds whether or not the source rules that heading. A page meant to have no title keeps only body
-  text at its start (the first page, whose subtitle is a static text, is the usual case).
+- A page whose `title` is empty in the master language and which opens with a heading: its first
+  drawn element with text is a `TitleDraw`, at any level. The heading is the step title written
+  at the wrong place: move its text into the page's `title` and delete the draw, whether or not
+  the source rules that heading.
 - A page whose `title` is empty in the master language and which holds a level-2 `TitleDraw`
   further down that is not alone in its own panel. Where the source rules it, it is a section
   heading: give it a panel of its own, holding only the draw.
-- A `Panel` below the first level with `is_page: true`. Only the panels directly under `form`
-  are wizard steps; a nested one builds a step-title panel in the middle of the step above it. Set
-  `is_page` to false (an inner grouping, column wrapper or conditional panel), or move the panel up
-  under `form` if it is a section of the source's own.
-- A `stepTitle` css token on anything but the step's own heading. Only a step's first level-2
-  heading carries it: on a page with a `title` that is the writer's heading, so an authored token
-  there is a second title, remove it; on a page without a `title` it is the page's first level-2
-  `TitleDraw`, so move the token onto that heading.
+- A `Panel` below the first level with `is_page: true`. A nested one builds a step-title panel in
+  the middle of the step above it. Set `is_page` to false (an inner grouping, column wrapper or
+  conditional panel), or move the panel up under `form` if it is a section of the source's own.
+- A `stepTitle` css token on anything but the step's own heading. On a page with a `title` that is
+  the writer's heading, so an authored token is a second title: remove it. On a page without one
+  (and on the first page) it is the page's first level-2 `TitleDraw`: move the token there.
 """

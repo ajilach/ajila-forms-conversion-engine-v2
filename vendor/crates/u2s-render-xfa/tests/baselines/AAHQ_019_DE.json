@@ -1,0 +1,3869 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.88965
+    ],
+    [
+      595.2756,
+      841.8899
+    ]
+  ],
+  "page_text": [
+    "Hinweis: Diese Informationen sind immer zu befüllen unabhängig davon, ob es sich um eine Neuanlage oder eine Änderung handelt\nBankbeziehung\n0319 00\nUBS Europe SE\nHinterlegung von Versandinstruktionen eines Endkunden – EAM\nÄnderung\nNeuanlage\nKundendaten\nNachname\nVorname(n)\nEndkunde\nKorrespondenzadresse\n1\nAnzulegen\nBereits vorhanden\n0319-00\nNr. des Korrespondenzempfängers\nAdress Nummer\nEAM\nKorrespondenzempfänger\n1\nAnzulegen\nBereits vorhanden\n0319-00\nNr. des Korrespondenzempfängers\nAdress Nummer\nedoc-Korrespondenzempfänger (Connect)\n1\nAnzulegen, Unterlagen zu UBS Connect liegen bei\nBereits vorhanden\n0319-00\nNr. des Korrespondenzempfängers\nAdress Nummer\nedoc-Korrespondenzempfänger (Assetlink)\n1\nAnzulegen\nBereits vorhanden\n0319-00\nNr. des Korrespondenzempfängers\nAdress Nummer\nDritte Partei\nKorrespondenzadresse\n1\nAnzulegen\nBereits vorhanden\n0319-00\nNr. des Korrespondenzempfängers\nAdress Nummer\nedoc-Korrespondenzempfänger\n1\nAnzulegen, Unterlagen zu UBS Connect liegen bei\nBereits vorhanden\n0319-00\nNr. des Korrespondenzempfängers\nAdress Nummer\nI – Grundlegende Versandinstruktionen (ZZ99)\nDie ZZ99 steuert den Versand von allen Reportinggütern wenn nichts abweichendes definiert ist.\nVersand Original\n0\nEndkunde\nPostalisch\n0\n0\n0\nEAM\nPostalisch\nedoc (Connect)\nedoc (Assetlink)\n0\nDritter\nPostalisch\n0101663780101001501202601042\n66378\nDE\nV0\n019\nAAHQ\n11.03.2022\nN1\n15.01.2026\nSeite 1/4",
+    "Bankbeziehung\n0319 00\nVersand Duplikat(wenn erforderlich)\n0\nEndkunde\nPostalisch\n0\n0\n0\nEAM\nPostalisch\nedoc (Connect)\nedoc (Assetlink)\n0\nDritter\nPostalisch\nII – Steuerreporting (Jahressteuerbescheinigung R222 & Erträgnisaufstellung über Kapitalerträge R223)\nReportinggüter sind nicht edoc fähig.\n0\nGemäß ZZ99\nVersand Original (wenn erforderlich), Anzahl zusätzlicher Kopien:\n0\nEndkunde\nPostalisch\n0\nEAM\nPostalisch\n0\nDritter\nPostalisch\nVersand Duplikat(wenn erforderlich), Anzahl zusätzlicher Kopien:\n0\nEndkunde\nPostalisch\n0\nEAM\nPostalisch\n0\nDritter\nPostalisch\nIII – Retroreporting\n0\nGemäß ZZ99\nVersand Original (wenn erforderlich), Anzahl zusätzlicher Kopien:\n0\nEndkunde\nPostalisch\n0\nEAM\nPostalisch\n0\nDritter\nPostalisch\nVersand Duplikat(wenn erforderlich), Anzahl zusätzlicher Kopien:\n0\nEndkunde\nPostalisch\n0\nEAM\nPostalisch\n0\nDritter\nPostalisch\nIV – Vermögens- und Wertschriften-Reporting (WD10)\nDas WD10 beinhaltet neben dem eigentlichen Vermögensausweis auch andere Reportinggüter wie Couponsabrechnungen, Verlustschwellenreporting und das L-JEV(...). Sollen diese abweichend vom WD10 bzw. der ZZ9 verwendet werden, so sind hier gesonderte Versandinstruktionen zu setzen. Soll nur der Vermögensausweis abweichend versendet werden, so ist eine Versandinstruktion auf Portfolioebene zu setzen.\n(Legalauszug oder Sonderreporting) > Hinweis im Freitext\n0\nGemäß ZZ99\nVersand Original (wenn erforderlich), Anzahl zusätzlicher Kopien:\n0\nEndkunde\nPostalisch\n0\n0\n0\nEAM\nPostalisch\nedoc (Connect)\nedoc (Assetlink)\n0\nDritter\nPostalisch\nVersand Duplikat(wenn erforderlich), Anzahl zusätzlicher Kopien:\n0101663780101001501202602049\n66378\nDE\nV0\n019\nAAHQ\n11.03.2022\nN1\n15.01.2026\nSeite 2/4",
+    "Bankbeziehung\n0319 00\n0\nEndkunde\nPostalisch\n0\nEAM\nPostalisch\n0\nDritter\nPostalisch\n0\nCouponsabrechnung CP62 (EP03) soll abweichend vom DWD10 versendet werden\n0\nVerlustschwelle und Berichtsperiode (N050) soll abweichend vom DWD10 versendet werden\n0\nVermögensausweis L-JEV (N009) soll abweichend vom DWD10 versendet werden\nV – Kontoreporting (CR00)\nDie hier gesetzte Frequenz gilt für alle Konten, der Versand erfolgt gemäß der ZZ99.\n1\nDie Frequenz für das Kontoreporting soll für alle Korrespondenzempfänger des Endkunden gelten\nStandard – systemseitig erstellter monatlicher Legal - Auszug\nStandard – systemseitig erstellter wöchentlicher Legal - Auszug\nTäglich + systemseitig erstellter monatlicher Legal - Auszug\nTäglich + systemseitig erstellter wöchentlicher Legal - Auszug\nDie Frequenz für das Kontoreporting soll sich für die einzelnen Korrespondenzempfänger unterscheiden\nEndkunde\nStandard – systemseitig erstellter monatlicher Legal - Auszug\nStandard – systemseitig erstellter wöchentlicher Legal - Auszug\nTäglich + systemseitig erstellter monatlicher Legal - Auszug\nTäglich + systemseitig erstellter wöchentlicher Legal - Auszug\nEAM\nStandard – systemseitig erstellter monatlicher Legal - Auszug\nStandard – systemseitig erstellter wöchentlicher Legal - Auszug\nTäglich + systemseitig erstellter monatlicher Legal - Auszug\nTäglich + systemseitig erstellter wöchentlicher Legal - Auszug\nDritter\nStandard – systemseitig erstellter monatlicher Legal - Auszug\nStandard – systemseitig erstellter wöchentlicher Legal - Auszug\nTäglich + systemseitig erstellter monatlicher Legal - Auszug\nTäglich + systemseitig erstellter wöchentlicher Legal - Auszug\n0101663780101001501202603046\n66378\nDE\nV0\n019\nAAHQ\n11.03.2022\nN1\n15.01.2026\nSeite 3/4",
+    "Bankbeziehung\n0319 00\nVI – Neue Avisierung (NA99)\nDie Versandinstruktionen für NA99 sind auf jedem Depot zu hinterlegen.\nVersand Original postalisch\nEndkunde\nEAM\nDritter\nVersand Duplikatpostalisch\nEndkunde\nEAM\nDritter\nDuplikat per Mail an E-Mailadresse\nE-Mail\nNr. des Korrespondenzempfängers\nAdress Nr.\n0319-00\nWeitere Bemerkungen\n0101663780101001501202604043\n66378\nDE\nV0\n019\nAAHQ\n11.03.2022\nN1\n15.01.2026\nSeite 4/4"
+  ],
+  "raster": [
+    "4b1a8e67b1c35c37",
+    "bff8299a8f06bd64",
+    "1d1ece0aa552e55b",
+    "09210c68fdba20fc"
+  ],
+  "controls": {
+    "UBSForms_66378.MPs.MP.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ],
+        [
+          2.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ],
+        [
+          3.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ],
+        [
+          4.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ],
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ],
+        [
+          3.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ],
+        [
+          4.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ],
+        [
+          2.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ],
+        [
+          3.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ],
+        [
+          4.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ],
+        [
+          2.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ],
+        [
+          3.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ],
+        [
+          4.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          2.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          3.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          4.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          3.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          4.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ],
+        [
+          2.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ],
+        [
+          3.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ],
+        [
+          4.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ],
+        [
+          2.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ],
+        [
+          3.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ],
+        [
+          4.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ],
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ],
+        [
+          3.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ],
+        [
+          4.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ],
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ],
+        [
+          3.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ],
+        [
+          4.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ],
+        [
+          2.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ],
+        [
+          3.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ],
+        [
+          4.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MP.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ],
+        [
+          2.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ],
+        [
+          3.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ],
+        [
+          4.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.MPs.MPs_66378.MP_66378.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          647.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          664.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          680.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_4": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          697.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.DYN_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AccountReporting.EAM.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          504.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.EAM.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          521.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.EAM.RB_Group.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          538.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.EAM.RB_Group.RB_4": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          555.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.EndClient.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          362.1,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.EndClient.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          379.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.EndClient.RB_Group.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          395.80002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.EndClient.RB_Group.RB_4": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          412.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.STP_RB_FrequencyAll.RB_Group_Frequency.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          49.600002,
+          254.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          267.30002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          284.1,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          301.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_4": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          63.8,
+          317.80002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AccountReporting.STP_RB_Vertical.RB_Group_Frequency.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          49.600002,
+          336.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          49.600002,
+          164.40001,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_CP62.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          49.600002,
+          196.40001,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N009.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          49.600002,
+          181.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_N050.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.STP_CB_ZZ99.CB_Checkbox": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          690.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          344.4,
+          122.700005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          344.4,
+          87.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          344.4,
+          105.200005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          551.3,
+          780.60004,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          568.4,
+          780.60004,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          301.7,
+          783.4,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          765.60004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          730.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          748.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          474.7,
+          748.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          400.0,
+          748.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.AssetsReporting.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          295.5,
+          713.10004,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          140.3,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          105.200005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          122.700005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          474.7,
+          122.700005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          400.0,
+          122.700005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          551.3,
+          85.1,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          568.4,
+          85.1,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          344.4,
+          761.10004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          344.4,
+          726.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          344.4,
+          743.60004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          474.7,
+          743.60004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.BasicInstructions.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          400.0,
+          743.60004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.Client.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          167.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.Client.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          167.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.Client.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.Client.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.Client.ffClientDetails": {
+      "value": "Kundendaten",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          509.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          509.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          86.5,
+          565.2,
+          204.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.Available.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          565.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Additional.Additional": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Additional.ffAddressDetail": {
+      "value": "Adresszusatz",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.CorrespondenceLanguage.CL_Language": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          545.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          138.3,
+          545.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.SectionTitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.edoc.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          86.5,
+          622.3,
+          204.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.edoc.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.edoc.Available.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          622.3,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.edoc.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          605.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.DYN_ThirdParty.Third.edoc.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          138.3,
+          605.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          86.5,
+          342.30002,
+          204.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.Available.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          342.30002,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.Additional.Additional": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.Additional.ffAddressDetail": {
+      "value": "Adresszusatz",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.CorrespondenceLanguage.CL_Language": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          322.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          138.3,
+          322.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          86.5,
+          402.80002,
+          204.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.edoc.Available.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          402.80002,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          383.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          138.3,
+          383.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc_AssetLink.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          86.5,
+          463.4,
+          204.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc_AssetLink.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EAM.edoc_AssetLink.Available.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          463.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc_AssetLink.STP_RB_Horizontal.RB_Group_AssetLink.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          443.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EAM.edoc_AssetLink.STP_RB_Horizontal.RB_Group_AssetLink.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          138.3,
+          443.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EndClient.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          86.5,
+          256.7,
+          204.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EndClient.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.Available.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          256.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.Additional.Additional": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.Additional.ffAddressDetail": {
+      "value": "Adresszusatz",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.CorrespondenceLanguage.CL_Language": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.NotAvailable.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.EndClient.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          236.90001,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.EndClient.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          138.3,
+          236.90001,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.FormTitle.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          116.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.FormTitle.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          113.0,
+          116.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          551.3,
+          150.8,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          568.4,
+          150.8,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          49.600002,
+          161.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          110.8,
+          161.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          153.8,
+          161.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.NewNotification.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          49.600002,
+          132.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          110.8,
+          132.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.STP_RB_Horizontal.RB_Group.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          153.8,
+          132.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.STP_RB_Horizontal.RB_Group.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.NewNotification.STP_RB_Horizontal.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.NewNotification.Sample_Table.DYN_Row.Row.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          344.4,
+          282.4,
+          130.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.Sample_Table.DYN_Row.Row.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          49.600002,
+          282.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.Sample_Table.DYN_Row.Row.TF_PostalCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          489.0,
+          282.4,
+          56.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.Sample_Table.DYN_Row.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          551.9,
+          278.2,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.Sample_Table.DYN_Row.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          569.0,
+          278.2,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.NewNotification.Sample_Table.Table_Header.ffBR": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.Remarks.Multiline3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          4.0,
+          51.0,
+          333.5,
+          493.2,
+          36.9
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          424.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          569.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          534.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          552.3,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          551.3,
+          514.60004,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          568.4,
+          514.60004,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          297.30002,
+          517.4,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          499.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          464.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          482.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.RetroReporting.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          295.5,
+          447.1,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          209.90001,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          355.30002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          320.1,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          337.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          551.3,
+          300.0,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          568.4,
+          300.0,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          297.30002,
+          302.9,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          285.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          249.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          344.4,
+          267.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66378.Page.TaxReporting.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          295.5,
+          232.6,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.DYN_ThirdParty.RB_Group_yyy.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.DYN_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EAM.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EAM.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EAM.RB_Group.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EAM.RB_Group.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EndClient.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EndClient.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EndClient.RB_Group.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.EndClient.RB_Group.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.STP_RB_FrequencyAll.RB_Group_Frequency.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.STP_RB_FrequencyForAll.RB_Group.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AccountReporting.STP_RB_Vertical.RB_Group_Frequency.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_CP62.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N009.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_N050.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.STP_CB_ZZ99.CB_Checkbox": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.AssetsReporting.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.Rows.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.Row[1].STP_RB_Horizontal.CB_Postalisch": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Assetlink": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.BasicInstructions.Sample_Table.Row[1].STP_RB_Horizontal.CB_edoc_Connect": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.Client.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.Client.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.Client.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.Client.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.Client.ffClientDetails": {
+      "value": "Kundendaten",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.Available.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Additional.Additional": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Additional.ffAddressDetail": {
+      "value": "Adresszusatz",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.CorrespondenceLanguage.CL_Language": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.SectionTitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.edoc.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.edoc.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.edoc.Available.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.edoc.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.DYN_ThirdParty.Third.edoc.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.Available.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.Additional.Additional": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.Additional.ffAddressDetail": {
+      "value": "Adresszusatz",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.CorrespondenceLanguage.CL_Language": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.NotAvailable.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.CorrespondenceRecipient.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc.Available.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc_AssetLink.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc_AssetLink.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc_AssetLink.Available.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc_AssetLink.STP_RB_Horizontal.RB_Group_AssetLink.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EAM.edoc_AssetLink.STP_RB_Horizontal.RB_Group_AssetLink.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.Available.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.Available.CI_BankingRelationship.ffDesBankingRelation": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.Available.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.Additional.Additional": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.Additional.ffAddressDetail": {
+      "value": "Adresszusatz",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.CorrespondenceLanguage.CL_Language": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.NotAvailable.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.EndClient.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.FormTitle.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.FormTitle.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.RB_Group.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.STP_RB_Horizontal.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.DYN_ShipmentDuplicate.ShipmentDuplicate.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.STP_RB_Horizontal.RB_Group.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.STP_RB_Horizontal.RB_Group.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.STP_RB_Horizontal.RB_Group.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.STP_RB_Horizontal.RB_Group.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.STP_RB_Horizontal.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.Sample_Table.DYN_Row.Row.CI_BankingRelationship.AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.Sample_Table.DYN_Row.Row.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.Sample_Table.DYN_Row.Row.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.Sample_Table.DYN_Row.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.Sample_Table.DYN_Row.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.NewNotification.Sample_Table.Table_Header.ffBR": {
+      "value": "Nr. des Korrespondenzempfängers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.Remarks.Multiline3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.RetroReporting.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.STP_CB.CB_Checkbox": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.Rows.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.Rows.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.Rows.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.Subtitle.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Duplicate.Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Row_ThirdParty.STP_RB_Horizontal.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.DYN_Row_ThirdParty.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.Row.STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.Row[1].STP_CB.CB_Checkbox1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66378.Page_66378.TaxReporting.Sample_Table.Subtitle_ShipmentOriginal.TF_AddressNo": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

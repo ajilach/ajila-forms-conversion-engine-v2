@@ -1,7 +1,5 @@
-//! Mojibake repair for text that was exported double-encoded.
-//!
-//! Ported verbatim from upstream `core/src/util.rs` — only these three
-//! functions of that file are reachable from the render closure.
+//! Text normalisation at the parser edge: NFC composition and a logged
+//! repair of text that was exported double-encoded.
 
 use unicode_normalization::UnicodeNormalization;
 
@@ -78,6 +76,40 @@ fn cp1252_byte(c: char) -> Option<u8> {
     })
 }
 
+thread_local! {
+    /// How many texts the current parse repaired, and the first of them.
+    /// Interior mutability: a counter the parser reads once per document, so
+    /// one warning names the repair instead of one per text node.
+    static REPAIRS: std::cell::RefCell<(usize, Option<String>)> =
+        const { std::cell::RefCell::new((0, None)) };
+}
+
+/// Start counting repairs for a parse (see [`take_repairs`]).
+pub fn reset_repairs() {
+    REPAIRS.with(|r| *r.borrow_mut() = (0, None));
+}
+
+/// The repairs made since [`reset_repairs`]: how many texts, and the first
+/// repaired text.
+pub fn take_repairs() -> (usize, Option<String>) {
+    REPAIRS.with(|r| std::mem::take(&mut *r.borrow_mut()))
+}
+
+fn note_repair(original: &str) {
+    REPAIRS.with(|r| {
+        let mut r = r.borrow_mut();
+        r.0 += 1;
+        if r.1.is_none() {
+            r.1 = Some(original.chars().take(60).collect());
+        }
+    });
+}
+
+/// Text re-read as UTF-8 when it was exported double-encoded (UTF-8 bytes
+/// decoded as Windows-1252, `Ã¼` for `ü`). Clean text passes through
+/// unchanged; a repair is counted for the parser's warning (see
+/// [`take_repairs`]), so the source's encoding fault is reported rather than
+/// papered over silently.
 pub fn fix_double_encoded_utf8(s: &str) -> String {
     if !looks_double_encoded(s) {
         return s.to_string();
@@ -95,8 +127,11 @@ pub fn fix_double_encoded_utf8(s: &str) -> String {
         }
     }
     match std::str::from_utf8(&bytes) {
-        // Reinterpreting as UTF-8 succeeded → this is the repaired text.
-        Ok(fixed) => fixed.to_string(),
+        // Reinterpreting as UTF-8 succeeded: this is the repaired text.
+        Ok(fixed) => {
+            note_repair(s);
+            fixed.to_string()
+        }
         // Not actually valid double-encoded UTF-8; leave it alone.
         Err(_) => s.to_string(),
     }

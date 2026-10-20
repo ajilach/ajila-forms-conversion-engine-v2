@@ -94,7 +94,7 @@ pub use script_object::script_object_factory;
 // Form (high-level API)
 
 // JS Helpers (for advanced usage)
-pub use js_helpers::{XFA_RESOLVE_PATH_HELPER, get_all_helpers};
+pub use js_helpers::get_all_helpers;
 
 #[cfg(test)]
 mod tests;

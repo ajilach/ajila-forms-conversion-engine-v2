@@ -1,26 +1,33 @@
-# The label words and the deny lists in check.js are copied from the feedback repo's
+# The label words and the deny lists in check.js and fix.js are copied from the feedback repo's
 # `.claude/scripts/email_phone_labels.py` (EMAIL_RE, PHONE_RE, DENY_LABEL, DENY_NAME, name_probe),
-# which `find_email_phone_component.py` (PROBLEM-email-phone-component) classifies with. Keep them
-# in step with it.
+# which `find_email_phone_component.py` (PROBLEM-email-phone-component) classifies with, and the
+# leaf panel from `contact_leaf_panel.py` (PROBLEM-contact-leaf-panel). Keep them in step with it.
 id = "ubs-aem-email-phone-kind"
-title = "Email and telephone inputs are email and telephone components"
+title = "Email and phone are their own components"
 output_formats = ["aem-ubs"]
 description = """
-An input that asks for an email address or a telephone number is the UBS email or telephone
-component, not a plain text box and not a number box: those carry the format validation, the
-autofill hint and the phone styling. The writer never infers this from the label, so the
-document has to say it.
+An input that asks for an email address or a telephone, mobile or fax number is the UBS email or
+telephone component (CNV-INP-4), not a plain text box and never a number box: those carry the
+format validation, the autofill hint and the phone styling. The writer never infers this from the
+label, so the document has to say it.
 
-A `TextField` whose `kind` is absent or `Plain`, and any `NumberField`, is reported when its
-label in the form's master language (English when the form ships it, else the first language),
-or its `name` when it has no label, reads as an email address (`e-mail`, `courriel`, `posta
+A `TextField` whose `kind` is absent or `Plain`, and any `NumberField`, is reported when its label
+in the form's master language (English when the form ships it, else the first language), or its
+`name` when it has no label, reads as an email address (`e-mail`, `courriel`, `posta
 elettronica`, `pec`) or as a phone or fax number (`tel`, `telefon`, `telephone`, `phone`,
-`mobile`, `handy`, `natel`, `cellulare`, `fax` and their other-language spellings). A few
-labels that only mention the word are exempt (a telephone order, a channel number).
+`mobile`, `handy`, `natel`, `cellulare`, `fax` and their other-language spellings). Not reported:
+a mailing address confirmation, a telephone order, a channel number, a field combining a holder
+and a number, a read-only field the form fills in itself, and a multi-line field.
 
-Fix a `TextField` by setting `kind` to `Email` or `Telephone`, and rename it to the matching
-prefix (`EML_` or `TEL_`). Fix a `NumberField` by replacing it with a `TextField` of kind
-`Email` or `Telephone` (same label, `mandatory`, `colspan` and `bind_ref`, prefix `EML_` or
-`TEL_`): a number box reformats a phone number as `1,234,567.00` and rejects a leading `+`.
-A multi-line field is left as it is.
+An email or telephone component that reaches the summary must not sit directly beside a panel (a
+Panel, Repeatable or Fragment that reaches it too) in the same parent: Redacto cannot type that
+row and the whole Document of Record comes out as one blank page (backlog "Inputs"). Such a run of
+contact inputs is wrapped in a leaf Panel of its own, `PN_TelephoneAndEmail`, where the run stood.
+
+Fix (automatic): a `TextField` takes `kind` `Email` or `Telephone` and the prefix `EML_` or
+`TEL_`; a `NumberField` becomes such a `TextField` (same label, `mandatory`, placement, `bind_ref`
+and input settings): a number box reformats a phone number as `1,234,567.00` and rejects a
+leading `+`. The `copy_from`, `calculate` and letter subject references follow the new name. Each
+run beside a panel is wrapped in a `PN_TelephoneAndEmail` Panel (untitled, `dor_num_cols` 2);
+a run narrower than a row gives the panel its width and widens its fields to fill it.
 """

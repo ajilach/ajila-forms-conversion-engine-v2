@@ -16,7 +16,8 @@ use quick_xml::reader::Reader;
 use uuid::Uuid;
 
 use super::{
-    AemAttrs, AemI18nText, AemNode, AemOption, OptionAlignment, Passthrough, TextFieldKind,
+    AemAttrs, AemI18nText, AemNode, AemOption, FragmentInit, InputProps, OptionAlignment,
+    Passthrough, TextFieldKind,
 };
 
 // ============================================================================
@@ -85,7 +86,7 @@ pub struct ParsedAemPackage {
     /// (`hideAFHideDor(this.X)`, `showAFShowDor(this.X)`), keyed by the
     /// fragment's uuid. The writer regenerates a fragment's scripts, so this is
     /// what of them a document keeps.
-    pub fragment_init: HashMap<Uuid, super::partner::SubPanelVisibility>,
+    pub fragment_init: HashMap<Uuid, FragmentInit>,
 }
 
 // ============================================================================
@@ -290,7 +291,7 @@ struct ParseContext<'a> {
     /// with the (trigger field, value) pairs its show rule tests.
     show_triggers: Vec<(String, Vec<(String, String)>)>,
     /// See [`ParsedAemPackage::fragment_init`].
-    fragment_init: HashMap<Uuid, super::partner::SubPanelVisibility>,
+    fragment_init: HashMap<Uuid, FragmentInit>,
 }
 
 impl<'a> ParseContext<'a> {
@@ -749,6 +750,7 @@ fn convert_textbox(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
                 "dorColspan",
             ][..],
             ATTR_NAMES,
+            input_attr_names(node).as_slice(),
         ]
         .concat(),
         REGENERATED_CHILD_TAGS,
@@ -766,6 +768,7 @@ fn convert_textbox(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
         dor_colspan: parse_dor_colspan(node),
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
         kind,
+        input: parse_input(node),
     }
 }
 
@@ -773,6 +776,15 @@ fn convert_numberfield(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
     let name = node.component_name().unwrap_or("numericbox").to_string();
     let label = node.attr("jcr:title").unwrap_or("").to_string();
     let uuid = ctx.uuid_for(node, &name);
+    let lead_digits = parse_digits(node, "leadDigits");
+    let frac_digits = parse_digits(node, "fracDigits");
+    // A limit is read into the typed field only when it is one: a negative
+    // `fracDigits` (unlimited) stays as it was loaded.
+    let digit_attrs: Vec<&str> = [("leadDigits", lead_digits), ("fracDigits", frac_digits)]
+        .into_iter()
+        .filter(|(_, digits)| digits.is_some())
+        .map(|(attr, _)| attr)
+        .collect();
     ctx.record_passthrough(
         uuid,
         node,
@@ -786,6 +798,8 @@ fn convert_numberfield(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
                 "dorColspan",
             ][..],
             ATTR_NAMES,
+            input_attr_names(node).as_slice(),
+            digit_attrs.as_slice(),
         ]
         .concat(),
         REGENERATED_CHILD_TAGS,
@@ -801,6 +815,9 @@ fn convert_numberfield(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
         colspan: parse_colspan(node),
         dor_colspan: parse_dor_colspan(node),
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
+        lead_digits,
+        frac_digits,
+        input: parse_input(node),
     }
 }
 
@@ -821,6 +838,7 @@ fn convert_datepicker(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
                 "dorColspan",
             ][..],
             ATTR_NAMES,
+            input_attr_names(node).as_slice(),
         ]
         .concat(),
         REGENERATED_CHILD_TAGS,
@@ -836,6 +854,7 @@ fn convert_datepicker(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
         colspan: parse_colspan(node),
         dor_colspan: parse_dor_colspan(node),
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
+        input: parse_input(node),
     }
 }
 
@@ -876,6 +895,8 @@ fn convert_radiobutton(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
                 "options",
             ][..],
             ATTR_NAMES,
+            input_attr_names(node).as_slice(),
+            hidden_title_attr(node).as_slice(),
         ]
         .concat(),
         REGENERATED_CHILD_TAGS,
@@ -894,6 +915,8 @@ fn convert_radiobutton(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
         dor_colspan: parse_dor_colspan(node),
         conditions: Vec::new(),
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
+        hide_title: !hidden_title_attr(node).is_empty(),
+        input: parse_input(node),
     }
 }
 
@@ -924,6 +947,9 @@ fn convert_checkbox(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
                 "options",
             ][..],
             ATTR_NAMES,
+            input_attr_names(node).as_slice(),
+            mandatory_attr(node).as_slice(),
+            hidden_title_attr(node).as_slice(),
         ]
         .concat(),
         REGENERATED_CHILD_TAGS,
@@ -941,6 +967,9 @@ fn convert_checkbox(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
         dor_colspan: parse_dor_colspan(node),
         conditions: Vec::new(),
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
+        mandatory: !mandatory_attr(node).is_empty(),
+        hide_title: !hidden_title_attr(node).is_empty(),
+        input: parse_input(node),
     }
 }
 
@@ -975,6 +1004,7 @@ fn convert_dropdown(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
                 "options",
             ][..],
             ATTR_NAMES,
+            input_attr_names(node).as_slice(),
         ]
         .concat(),
         REGENERATED_CHILD_TAGS,
@@ -992,7 +1022,55 @@ fn convert_dropdown(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
         dor_colspan: parse_dor_colspan(node),
         conditions: Vec::new(),
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
+        input: parse_input(node),
     }
+}
+
+/// What a loaded input opens with (`_value`) and whether it is read-only
+/// (`enabled` false). Its copy and calculate rules are not read back: they
+/// are the field's `fd:scripts`, which a load keeps as the field's own.
+fn parse_input(node: &JcrNode) -> InputProps {
+    InputProps {
+        default_value: node.attr("_value").map(str::to_owned),
+        read_only: is_disabled(node),
+        calculate: None,
+        copy_from: None,
+    }
+}
+
+/// `enabled` spelled as a boolean `false`. Any other value (`true`, which is
+/// the default, or a rule) is not a read-only input.
+fn is_disabled(node: &JcrNode) -> bool {
+    matches!(node.attr("enabled"), Some("false" | "{Boolean}false"))
+}
+
+/// The attributes [`parse_input`] reads into typed fields, for
+/// `record_passthrough`: `_value`, and `enabled` only when it makes the input
+/// read-only. A loaded `enabled="true"` is not written by the typed field, so
+/// it stays the node's own attribute, as loaded.
+fn input_attr_names(node: &JcrNode) -> Vec<&'static str> {
+    let mut names = vec!["_value"];
+    if is_disabled(node) {
+        names.push("enabled");
+    }
+    names
+}
+
+/// `hideTitle` when it hides the title, the one value the typed
+/// `hide_title` writes; any other stays the node's own attribute.
+fn hidden_title_attr(node: &JcrNode) -> Vec<&'static str> {
+    if parse_bool_attr(node, "hideTitle") { vec!["hideTitle"] } else { Vec::new() }
+}
+
+/// A checkbox's `mandatory` when it is `true`, the one value the typed
+/// field writes; a loaded `false` stays the node's own attribute.
+fn mandatory_attr(node: &JcrNode) -> Vec<&'static str> {
+    if parse_bool_attr(node, "mandatory") { vec!["mandatory"] } else { Vec::new() }
+}
+
+/// A numeric box's digit limit, when it is one (`0` or more).
+fn parse_digits(node: &JcrNode, attr: &str) -> Option<u32> {
+    node.attr(attr).and_then(|v| v.trim().parse::<u32>().ok())
 }
 
 /// The presentation attributes ([`AemAttrs`]) a loaded node carries.
@@ -1014,6 +1092,8 @@ fn parse_attrs(node: &JcrNode) -> AemAttrs {
             .filter(|v| !v.is_empty())
             .map(|s| s.to_string()),
         dor_header_slot: node.attr("dorHeaderSlot").map(|s| s.to_string()),
+        // A loaded gate stays the node's own `fd:scripts`.
+        only_languages: Vec::new(),
     }
 }
 
@@ -1378,7 +1458,7 @@ fn convert_fragment(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<Aem
         &[REGENERATED_CHILD_TAGS, &["fd:scripts"]].concat(),
     );
     let visibility = sub_panels_on_init(node);
-    if visibility != super::partner::SubPanelVisibility::default() {
+    if visibility != FragmentInit::default() {
         ctx.fragment_init.insert(uuid, visibility);
     }
 
@@ -1476,8 +1556,7 @@ fn convert_fragment(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<Aem
         title: node.attr("jcr:title").unwrap_or_default().to_string(),
         frag_ref,
         bind_ref: node.attr("bindRef").map(|s| s.to_string()),
-        init_hide: Vec::new(),
-        init_show: Vec::new(),
+        init: FragmentInit::default(),
     }))
 }
 
@@ -1550,12 +1629,12 @@ fn find_fragment_content(tree: &JcrNode) -> Option<&JcrNode> {
 /// matched in the attribute as read: they hold only identifier characters,
 /// which none of the rule's three layers escapes, so this also reads a rule
 /// whose list is malformed (as six deployed forms' are) instead of losing it.
-fn sub_panels_on_init(node: &JcrNode) -> super::partner::SubPanelVisibility {
+fn sub_panels_on_init(node: &JcrNode) -> FragmentInit {
     node.children
         .iter()
         .find(|c| c.tag_name == "fd:scripts")
         .and_then(|scripts| scripts.attr("fd:init"))
-        .map(super::partner::parse_init_calls)
+        .map(super::fragment_init::parse_init_rule)
         .unwrap_or_default()
 }
 

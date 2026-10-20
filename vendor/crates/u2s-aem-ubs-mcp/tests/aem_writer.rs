@@ -13,8 +13,8 @@ mod support;
 use std::collections::HashMap;
 
 use u2s_aem_ubs_mcp::aem::{
-    AemAttrs, AemConfig, AemNode, AemOption, ConditionRule, OptionAlignment, TextFieldKind,
-    generate_aem_xml, parse_aem_zip,
+    AemAttrs, AemConfig, AemNode, AemOption, ConditionRule, InputProps, OptionAlignment,
+    TextFieldKind, generate_aem_xml, parse_aem_zip,
 };
 use u2s_aem_ubs_mcp::context::Context;
 use u2s_aem_ubs_mcp::value::InputValue;
@@ -44,6 +44,7 @@ fn aem_node_json_round_trips() {
                     dor_colspan: None,
                     bind_ref: None,
                     kind: TextFieldKind::Plain,
+                    input: Default::default(),
                 },
                 AemNode::RadioButton {
                     attrs: AemAttrs::default(),
@@ -61,6 +62,8 @@ fn aem_node_json_round_trips() {
                     dor_colspan: None,
                     conditions: vec![],
                     bind_ref: None,
+                    hide_title: false,
+                    input: Default::default(),
                 },
             ],
             is_page: true,
@@ -776,21 +779,18 @@ fn the_first_page_heading_is_a_subtitle_with_or_without_the_banking_relationship
     assert!(!configurator.contains("subtitle-after-form-title"));
 }
 
-/// The configurator reset carries the archetype the sweep recognises it by: an
-/// `_archetype` field and a canonical first-line comment. Built by hand here --
-/// an approved-wording radio whose `ConditionRule`s decide two named panels --
-/// rather than through a whole form, so the mechanism is pinned directly.
-#[test]
-fn the_configurator_reset_carries_its_archetype() {
-    let panel = |name: &str| AemNode::Panel {
+/// A configurator choice (one inside the form configurator band,
+/// `PN_FormConfigurator*`) whose `ConditionRule`s decide two named panels.
+fn configurator_form(band: &str) -> Vec<AemNode> {
+    let panel = |name: &str, conditional: bool, children: Vec<AemNode>| AemNode::Panel {
         uuid: Uuid::new_v4(),
         name: name.into(),
         title: name.into(),
-        children: vec![text_field(&format!("TXT_{name}"), "Field")],
+        children,
         is_page: false,
         attrs: AemAttrs::default(),
         visible: true,
-        is_conditional: true,
+        is_conditional: conditional,
         dor_num_cols: None,
         colspan: 12,
         dor_colspan: None,
@@ -804,11 +804,11 @@ fn the_configurator_reset_carries_its_archetype() {
         label: "Art".into(),
         options: vec![
             AemOption {
-                label: "Individual".into(),
+                label: "Einzelperson".into(),
                 value: "1".into(),
             },
             AemOption {
-                label: "Company/Entity".into(),
+                label: "Verein".into(),
                 value: "2".into(),
             },
         ],
@@ -830,12 +830,24 @@ fn the_configurator_reset_carries_its_archetype() {
             },
         ],
         bind_ref: None,
+        hide_title: false,
+        input: Default::default(),
     };
-    let xml = support::ubs_xml(vec![choice, panel("PN_Option1"), panel("PN_Option2")]);
+    let option = |name: &str| panel(name, true, vec![text_field(&format!("TXT_{name}"), "Field")]);
+    vec![panel(band, false, vec![choice]), option("PN_Option1"), option("PN_Option2")]
+}
+
+/// The configurator reset carries the archetype the sweep recognises it by: an
+/// `_archetype` field and a canonical first-line comment. It is written for any
+/// choice in the configurator band, whatever its option labels, and empties
+/// every panel the choice decides (UBS-CFG-4).
+#[test]
+fn the_configurator_reset_carries_its_archetype() {
+    let xml = support::ubs_xml(configurator_form("PN_FormConfigurator"));
 
     assert!(
         xml.contains("configurator-reset-on-change"),
-        "the approved-wording radio must carry a reset:\n{xml}"
+        "the configurator's choice must carry a reset:\n{xml}"
     );
     assert!(
         xml.contains(
@@ -848,17 +860,31 @@ fn the_configurator_reset_carries_its_archetype() {
         xml.contains("_archetype") && xml.contains("configurator-reset-on-change"),
         "the reset document must carry the _archetype field"
     );
+    for panel in ["PN_Option1", "PN_Option2"] {
+        assert!(xml.contains(&format!("{panel}.resetData();")), "the reset must empty {panel}");
+    }
     assert!(
         !xml.contains("emptied on change"),
         "the pre-2026-08-19 marker must be gone"
     );
 }
 
-
-/// The form configurator opens on the individual option whichever path
-/// emitted the radio, recognised by its option labels, not by one field name.
+/// A choice outside the configurator band is an ordinary question: changing
+/// it empties nothing, whatever it shows or hides.
 #[test]
-fn an_authored_configurator_radio_also_preselects_private_person() {
+fn a_choice_outside_the_configurator_band_resets_nothing() {
+    let xml = support::ubs_xml(configurator_form("PN_Options"));
+    assert!(
+        !xml.contains("configurator-reset-on-change"),
+        "only the configurator band resets:\n{xml}"
+    );
+}
+
+/// An input opens on the value its source sets (`default_value`, written as
+/// `_value`), and on nothing when the source sets none: the configurator is
+/// not preselected by its wording.
+#[test]
+fn an_input_opens_on_its_default_value() {
     let profile = support::ubs_profile();
     let mut vars = HashMap::new();
     vars.insert("formrange_code".into(), "TEST".into());
@@ -867,7 +893,7 @@ fn an_authored_configurator_radio_also_preselects_private_person() {
     let config = AemConfig::from_profile(&profile, &ctx)
         .expect("profile config");
 
-    let choice = |name: &str, labels: &[&str], first_key: usize| AemNode::RadioButton {
+    let choice = |name: &str, labels: &[&str], default_value: Option<&str>| AemNode::RadioButton {
         attrs: AemAttrs::default(),
         uuid: Uuid::from_u128(1),
         name: name.into(),
@@ -877,7 +903,7 @@ fn an_authored_configurator_radio_also_preselects_private_person() {
             .enumerate()
             .map(|(i, label)| AemOption {
                 label: (*label).into(),
-                value: (i + first_key).to_string(),
+                value: (i + 1).to_string(),
             })
             .collect(),
         alignment: OptionAlignment::Horizontal,
@@ -887,26 +913,22 @@ fn an_authored_configurator_radio_also_preselects_private_person() {
         dor_colspan: None,
         conditions: vec![],
         bind_ref: None,
+        hide_title: true,
+        input: InputProps {
+            default_value: default_value.map(str::to_owned),
+            read_only: default_value.is_some(),
+            ..Default::default()
+        },
     };
-    let radio = |name: &str| {
-        choice(
-            name,
-            &["Private Person", "Minderjährige", "Firma", "GbR"],
-            1,
-        )
-    };
-    let render = |node: AemNode| {
-        generate_aem_xml(
+    let tag_of = |node: AemNode, name: &str| {
+        let xml = generate_aem_xml(
             &AemNode::Root {
                 title: "TEST".into(),
                 children: vec![node],
             },
             &config,
-        ).expect("the form is written")
-    };
-
-    let tag_of = |node: AemNode, name: &str| {
-        let xml = render(node);
+        )
+        .expect("the form is written");
         let at = xml
             .find(&format!("name=\"{name}\""))
             .unwrap_or_else(|| panic!("the radio must be emitted:\n{xml}"));
@@ -914,26 +936,16 @@ fn an_authored_configurator_radio_also_preselects_private_person() {
         let end = start + xml[start..].find('>').expect("the tag must close");
         xml[start..end].to_string()
     };
-    let radio_tag = |name: &str| tag_of(radio(name), name);
+    let labels = ["Private Person", "Minderjährige", "Firma", "GbR"];
 
-    assert!(
-        radio_tag("RB_FormularAdressat").contains(r#"_value="1""#),
-        "the configurator radio must open preselected:\n{}",
-        radio_tag("RB_FormularAdressat")
-    );
-    let ordinary = choice("RB_Something_Else", &["Yes", "No"], 1);
-    let tag = tag_of(ordinary, "RB_Something_Else");
-    assert!(
-        !tag.contains("_value="),
-        "an ordinary radio must not be preselected:\n{tag}"
-    );
+    let tag = tag_of(choice("RB_FormularAdressat", &labels, None), "RB_FormularAdressat");
+    assert!(!tag.contains("_value="), "nothing in the source opens it on an option:\n{tag}");
+    assert!(!tag.contains("enabled="), "an input is editable unless the source protects it:\n{tag}");
 
-    let italian = choice("RB_Tipo", &["Individuo", "Entità giuridica"], 3);
-    let tag = tag_of(italian, "RB_Tipo");
-    assert!(
-        tag.contains(r#"_value="3""#),
-        "the individual option's own key must be written:\n{tag}"
-    );
+    let tag = tag_of(choice("RB_FormularAdressat", &labels, Some("3")), "RB_FormularAdressat");
+    for attr in [r#"_value="3""#, r#"enabled="{Boolean}false""#, r#"hideTitle="true""#] {
+        assert!(tag.contains(attr), "the radio must carry {attr}:\n{tag}");
+    }
 }
 
 /// A message box loaded back out of a package stays a message box.
@@ -974,6 +986,104 @@ fn a_loaded_message_box_round_trips_as_a_notice() {
     );
 }
 
+/// What an input opens with and whether it can be changed come back as the
+/// typed fields they were written from, and a second save writes the
+/// generated rules once, in place of those the first save wrote.
+#[test]
+fn input_properties_survive_a_load_and_save() {
+    let mut header = text_field("TXT_Header", "Header");
+    if let AemNode::TextField { input, .. } = &mut header {
+        *input = InputProps {
+            default_value: Some("0319".into()),
+            read_only: true,
+            calculate: Some("0319 {TXT_Account}".into()),
+            copy_from: None,
+        };
+    }
+    let account = text_field("TXT_Account", "Account");
+    let mut holder = text_field("TXT_Holder", "Holder");
+    if let AemNode::TextField { input, .. } = &mut holder {
+        input.copy_from = Some("TXT_Account".to_owned().try_into().unwrap());
+    }
+    let number = AemNode::NumberField {
+        attrs: AemAttrs::default(),
+        uuid: Uuid::new_v4(),
+        name: "NB_Amount".into(),
+        label: "Amount".into(),
+        mandatory: false,
+        visible: true,
+        colspan: 6,
+        dor_colspan: None,
+        bind_ref: None,
+        lead_digits: Some(9),
+        frac_digits: Some(2),
+        input: Default::default(),
+    };
+    let confirmation = AemNode::Checkbox {
+        attrs: AemAttrs::default(),
+        uuid: Uuid::new_v4(),
+        name: "CB_Confirm".into(),
+        label: String::new(),
+        options: vec![AemOption {
+            label: "I confirm".into(),
+            value: "1".into(),
+        }],
+        alignment: OptionAlignment::Vertical,
+        visible: true,
+        colspan: 12,
+        dor_colspan: None,
+        conditions: vec![],
+        bind_ref: None,
+        mandatory: true,
+        input: Default::default(),
+        hide_title: false,
+    };
+    let config = support::ubs_config("de", "AABF", "019");
+    let root = AemNode::Root {
+        title: "AABF".into(),
+        children: vec![header, account, holder, number, confirmation],
+    };
+    let xml = generate_aem_xml(&root, &config).expect("the form is written");
+    for expected in [
+        r#"_value="0319""#,
+        r#"enabled="{Boolean}false""#,
+        r#"leadDigits="9""#,
+        r#"fracDigits="2""#,
+        "calculated-value",
+        "copied-value",
+    ] {
+        assert!(xml.contains(expected), "the form must carry {expected}:\n{xml}");
+    }
+
+    let zip = support::aem_zip_from_form_xml(&config.form_code, &xml);
+    let parsed = parse_aem_zip(&zip).expect("parse the package back");
+    let mut found = Vec::new();
+    support::walk_aem_nodes(&parsed.root, &mut |node| match node {
+        AemNode::TextField { name, input, .. } if name == "TXT_Header" => {
+            found.push(format!("{name}|{:?}|{}", input.default_value, input.read_only));
+        }
+        AemNode::NumberField { name, lead_digits, frac_digits, .. } => {
+            found.push(format!("{name}|{lead_digits:?}|{frac_digits:?}"));
+        }
+        AemNode::Checkbox { name, mandatory, .. } => found.push(format!("{name}|{mandatory}")),
+        _ => {}
+    });
+    found.sort();
+    assert_eq!(
+        found,
+        ["CB_Confirm|true", "NB_Amount|Some(9)|Some(2)", "TXT_Header|Some(\"0319\")|true"]
+    );
+
+    // Saving the loaded tree again keeps the rules the first save wrote
+    // (they are now the fields' own), and writes each once.
+    let loaded = u2s_aem_ubs_mcp::aem::unexpand(parsed.root.clone());
+    let again =
+        u2s_aem_ubs_mcp::aem::generate_aem_xml_with_passthrough(&loaded, &config, &parsed.raw_by_uuid)
+            .expect("the loaded form is written again");
+    assert_eq!(again.matches("calculated-value").count(), xml.matches("calculated-value").count());
+    assert_eq!(again.matches("copied-value").count(), xml.matches("copied-value").count());
+}
+
 fn text_field(name: &str, label: &str) -> AemNode {
     AemNode::TextField {
         attrs: AemAttrs::default(),
@@ -987,6 +1097,7 @@ fn text_field(name: &str, label: &str) -> AemNode {
         dor_colspan: None,
         bind_ref: None,
         kind: TextFieldKind::Plain,
+        input: Default::default(),
     }
 }
 

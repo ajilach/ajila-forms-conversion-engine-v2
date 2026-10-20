@@ -57,6 +57,9 @@ features = [
     "transport-io",
 ]
 
+[dependencies.schemars]
+version = "1"
+
 [dependencies.serde]
 version = "1.0"
 features = ["derive"]
@@ -82,6 +85,9 @@ path = "../u2s-blob"
 
 [dependencies.u2s-mapper-aem]
 path = "../u2s-mapper-aem"
+
+[dependencies.u2s-schema]
+path = "../u2s-schema"
 
 [dependencies.u2s-verify-core]
 path = "../u2s-verify-core"

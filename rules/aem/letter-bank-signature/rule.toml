@@ -15,7 +15,7 @@ The signatories are ONE `Repeatable` named `RCP_SGN_UBS` wrapping one `Fragment`
   rows are fixed (ubs-aem-signature-family, ubs-aem-repeatable-bounds);
 - the closing lines stay body text in the source's order: the entity line and any unit line under
   it ("Front Support Office") are one `TextDraw`, verbatim, right above the Repeatable
-  (decision 2026-10-14; ubs-aem-banking-relationship-present lets that draw stand in a letter);
+  (decision 2026-10-14; ubs-aem-issuer-information lets that draw stand in a letter);
 - its `title` is the officers' own caption from the source (the "Cognome/Nome" under each
   signature line), which the printed form numbers per row ("Cognome/Nome 1"); never the entity line
   again;
@@ -27,9 +27,10 @@ The signatories are ONE `Repeatable` named `RCP_SGN_UBS` wrapping one `Fragment`
 A letter the client writes has no bank signatories; its signers follow
 ubs-aem-account-holder-cluster.
 
-How to judge: find the source's officer block (xfa_controls for the name fields and the officer
-dropdowns, xfa_render_pages for the slots) and compare with the tree (json_search for
-`RCP_SGN_UBS` and `affrg_SignatureGeneric1`).
+How to judge: find the source's officer block (xfa_search_text for the entity line, xfa_controls
+for the name fields and the corporate-title dropdowns, xfa_field for a dropdown's items in each
+language, xfa_page_text for the closing and unit lines, xfa_render_pages for the slots) and compare
+with the tree (json_search for `RCP_SGN_UBS` and `affrg_SignatureGeneric1`).
 
 A break is officers built from loose name fields or numbered panels, a count of rows that differs
 from the source's slots, a market signature fragment (`affrg_UBSEuropeSignature1`, the italy

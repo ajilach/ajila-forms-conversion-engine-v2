@@ -50,7 +50,11 @@
 //! than a silent fall-through into [`dispatch`], which is synchronous and
 //! reaches neither the sandbox nor the store.
 
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
+use u2s_schema::{NoArgs, tool_input_schema};
 use u2s_jsondoc::Document;
 use u2s_rules_host::protocol::CheckRequest;
 use u2s_rules_host::runner::RuleRunner;
@@ -260,13 +264,14 @@ impl NativeJsonTool {
                  rule, or name a subset."
             }
             NativeJsonTool::Propose => {
-                "Propose a NEW rule for this dataset, described in prose. A person reviews and \
-                 approves it before it ever constrains anything, so this changes nothing about \
-                 the document you are reviewing and nothing about this run -- it does not \
-                 activate a rule, and the rule will not be checked here. Use it for a mistake \
-                 you expect to recur across documents, not for a one-off you should simply \
-                 report as a finding. Describe the condition and when it should fail; the script \
-                 is written for you. Proposing the same rule twice creates two proposals \
+                "Propose a NEW rule for this dataset, described in prose. A person reads the \
+                 proposal, decides whether to have a check drafted from it, and approves that \
+                 check before it ever constrains anything, so this changes nothing about the \
+                 document you are reviewing and nothing about this run -- it does not activate \
+                 a rule, and the rule will not be checked here. Use it for a mistake you expect \
+                 to recur across documents, not for a one-off you should simply report as a \
+                 finding. Describe the condition and when it should fail; the check is written \
+                 later, not by you. Proposing the same rule twice creates two proposals \
                  somebody then has to read, and the number of proposals one run may make is \
                  capped."
             }
@@ -358,160 +363,183 @@ impl NativeJsonTool {
         }
     }
 
-    /// Hand-written `Value` schemas, matching the convention the three MCP
-    /// servers already follow: schemas as plain JSON rather than `schemars`
-    /// derives, so they are readable in one place and decoupled from any
-    /// derive-macro version.
+    /// Generated from the tool's argument type, which is also what its
+    /// arguments are parsed into ([`parse_args`]), so the two cannot drift.
     pub fn input_schema(self) -> Value {
         match self {
-            NativeJsonTool::Outline => json!({
-                "type": "object",
-                "properties": {
-                    "pointer": { "type": "string", "description": "RFC 6901 pointer; \"\" is the root" },
-                    "depth": { "type": "integer", "minimum": 1, "maximum": 6, "default": 2 },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 500, "default": 100 }
-                },
-                "required": ["pointer"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::Get => json!({
-                "type": "object",
-                "properties": {
-                    "pointer": { "type": "string" },
-                    "depth": { "type": "integer", "minimum": 1, "maximum": 8, "default": 4 },
-                    "offset": { "type": "integer", "minimum": 0, "default": 0 },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 20000, "default": 4000 }
-                },
-                "required": ["pointer"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::Search => json!({
-                "type": "object",
-                "properties": {
-                    "pointer": { "type": "string", "description": "subtree to search; \"\" is the root" },
-                    "query": { "type": "string" },
-                    "limit": { "type": "integer", "minimum": 1, "maximum": 200, "default": 50 }
-                },
-                "required": ["pointer", "query"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::Patch => json!({
-                "type": "object",
-                "properties": {
-                    "ops": {
-                        "type": "array",
-                        "description": "RFC 6902 operations, applied atomically",
-                        "items": { "type": "object" }
-                    },
-                    "expected_revision": { "type": "integer", "minimum": 0 }
-                },
-                "required": ["ops", "expected_revision"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::Validate => json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            NativeJsonTool::ListRules => json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            NativeJsonTool::CheckRules => json!({
-                "type": "object",
-                "properties": {
-                    "rule_ids": {
-                        "type": "array",
-                        "description": "Rule ids to check. Omit for every scripted rule; a judged rule is checked only when named here",
-                        "items": { "type": "string" }
-                    }
-                },
-                "additionalProperties": false
-            }),
-            NativeJsonTool::Autofix => json!({
-                "type": "object",
-                "properties": {
-                    "rule_ids": {
-                        "type": "array",
-                        "description": "Subset of rule ids to autofix; omit or empty for every fixable rule",
-                        "items": { "type": "string" }
-                    },
-                    "expected_revision": { "type": "integer", "minimum": 0 }
-                },
-                "required": ["expected_revision"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::Verify => json!({
-                "type": "object",
-                "properties": {},
-                "additionalProperties": false
-            }),
-            NativeJsonTool::AdoptReference => json!({
-                "type": "object",
-                "properties": {
-                    "reference_id": {
-                        "type": "string",
-                        "description": "A reference_id from corpus_search"
-                    }
-                },
-                "required": ["reference_id"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::FlagUnusual => json!({
-                "type": "object",
-                "properties": {
-                    "reason": {
-                        "type": "string",
-                        "minLength": 1,
-                        "maxLength": u2s_core::MAX_FLAG_REASON_CHARS,
-                        "description": "What the requirements expect, and what the source actually is"
-                    }
-                },
-                "required": ["reason"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::Propose => json!({
-                "type": "object",
-                "properties": {
-                    "title": {
-                        "type": "string",
-                        "description": "A short name for the rule, as a reviewer will see it in a list"
-                    },
-                    "description_md": {
-                        "type": "string",
-                        "description": "What the rule must check and when it should fail, in prose. \
-                                        Name the JSON Pointers involved and give a concrete example \
-                                        of output that should fail -- this is the whole brief the \
-                                        script is written from, and a reviewer reads it too."
-                    }
-                },
-                "required": ["title", "description_md"],
-                "additionalProperties": false
-            }),
-            NativeJsonTool::RuleHistory => json!({
-                "type": "object",
-                "properties": {
-                    "limit": {
-                        "type": "integer",
-                        "minimum": 1,
-                        "maximum": 100,
-                        "description": "How many broken or unchecked verdicts to list, newest first. Default 30."
-                    }
-                },
-                "additionalProperties": false
-            }),
-            NativeJsonTool::TryRule => json!({
-                "type": "object",
-                "properties": {
-                    "check_js": { "type": "string" },
-                    "fix_js": { "type": ["string", "null"] }
-                },
-                "required": ["check_js"],
-                "additionalProperties": false
-            }),
+            NativeJsonTool::Outline => tool_input_schema::<OutlineArgs>(),
+            NativeJsonTool::Get => tool_input_schema::<GetArgs>(),
+            NativeJsonTool::Search => tool_input_schema::<SearchArgs>(),
+            NativeJsonTool::Patch => tool_input_schema::<PatchArgs>(),
+            NativeJsonTool::Validate | NativeJsonTool::ListRules | NativeJsonTool::Verify => {
+                tool_input_schema::<NoArgs>()
+            }
+            NativeJsonTool::CheckRules => tool_input_schema::<CheckRulesArgs>(),
+            NativeJsonTool::Autofix => tool_input_schema::<AutofixArgs>(),
+            NativeJsonTool::AdoptReference => tool_input_schema::<AdoptReferenceArgs>(),
+            NativeJsonTool::FlagUnusual => tool_input_schema::<FlagUnusualArgs>(),
+            NativeJsonTool::Propose => tool_input_schema::<ProposeArgs>(),
+            NativeJsonTool::RuleHistory => tool_input_schema::<RuleHistoryArgs>(),
+            NativeJsonTool::TryRule => tool_input_schema::<TryRuleArgs>(),
         }
     }
+}
+
+// The tools' arguments. A `///` on a field is the description the model
+// reads, so it is prompt text; maintainer notes use `//`. Each type closes its
+// schema with `#[schemars(deny_unknown_fields)]` while deserialization stays
+// lenient. Bounds are enforced where the agent validates a call against the
+// schema, before the tool runs.
+
+/// `json_outline`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct OutlineArgs {
+    /// RFC 6901 pointer; "" is the root
+    pub pointer: String,
+    #[serde(default = "OutlineArgs::default_depth")]
+    #[schemars(range(min = 1, max = 6))]
+    pub depth: usize,
+    #[serde(default = "OutlineArgs::default_limit")]
+    #[schemars(range(min = 1, max = 500))]
+    pub limit: usize,
+}
+
+impl OutlineArgs {
+    fn default_depth() -> usize {
+        2
+    }
+    fn default_limit() -> usize {
+        100
+    }
+}
+
+/// `json_get`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct GetArgs {
+    pub pointer: String,
+    #[serde(default = "GetArgs::default_depth")]
+    #[schemars(range(min = 1, max = 8))]
+    pub depth: usize,
+    #[serde(default)]
+    pub offset: usize,
+    #[serde(default = "GetArgs::default_limit")]
+    #[schemars(range(min = 1, max = 20000))]
+    pub limit: usize,
+}
+
+impl GetArgs {
+    fn default_depth() -> usize {
+        4
+    }
+    fn default_limit() -> usize {
+        4_000
+    }
+}
+
+/// `json_search`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct SearchArgs {
+    /// subtree to search; "" is the root
+    pub pointer: String,
+    #[schemars(length(min = 1))]
+    pub query: String,
+    #[serde(default = "SearchArgs::default_limit")]
+    #[schemars(range(min = 1, max = 200))]
+    pub limit: usize,
+}
+
+impl SearchArgs {
+    fn default_limit() -> usize {
+        50
+    }
+}
+
+/// `json_patch`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct PatchArgs {
+    /// RFC 6902 operations, applied atomically
+    pub ops: Vec<serde_json::Map<String, Value>>,
+    pub expected_revision: u64,
+}
+
+/// `rule_check`'s arguments.
+#[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct CheckRulesArgs {
+    /// Rule ids to check. Leave out for every scripted rule; a judged rule is checked only when named here
+    #[schemars(length(min = 1))]
+    pub rule_ids: Option<Vec<String>>,
+}
+
+/// `rule_autofix`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct AutofixArgs {
+    /// Subset of rule ids to autofix; leave out for every fixable rule
+    #[schemars(length(min = 1))]
+    pub rule_ids: Option<Vec<String>>,
+    pub expected_revision: u64,
+}
+
+/// `reference_adopt`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct AdoptReferenceArgs {
+    /// A reference_id from corpus_search
+    pub reference_id: String,
+}
+
+/// `flag_unusual`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct FlagUnusualArgs {
+    /// What the requirements expect, and what the source actually is
+    #[schemars(length(min = 1, max = u2s_core::MAX_FLAG_REASON_CHARS))]
+    pub reason: String,
+}
+
+/// `rule_propose`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct ProposeArgs {
+    /// A short name for the rule, as a reviewer will see it in a list
+    pub title: String,
+    /// What the rule must check and when it should fail, in prose. Name the
+    /// JSON Pointers involved and give a concrete example of output that
+    /// should fail -- this is the whole brief the script is written from, and
+    /// a reviewer reads it too.
+    pub description_md: String,
+}
+
+/// `rule_history`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct RuleHistoryArgs {
+    /// How many broken or unchecked verdicts to list, newest first. Default 30.
+    // No `#[serde(default = ..)]`: the description states the default, and
+    // a declared `default` would repeat it.
+    #[schemars(range(min = 1, max = 100))]
+    pub limit: Option<usize>,
+}
+
+/// `rule_try`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct TryRuleArgs {
+    pub check_js: String,
+    #[schemars(length(min = 1))]
+    pub fix_js: Option<String>,
+}
+
+/// A tool call's arguments as the tool's argument type. Bounds are not
+/// checked here: the agent checks a call against [`NativeJsonTool::input_schema`]
+/// before it reaches a tool.
+pub fn parse_args<T: DeserializeOwned>(args: &Value) -> Result<T, NativeToolError> {
+    u2s_schema::parse_tool_args(args).map_err(|detail| NativeToolError::BadArguments { detail })
 }
 
 /// A native tool call that could not be carried out.
@@ -522,8 +550,8 @@ impl NativeJsonTool {
 /// would throw away a working run over a recoverable mistake.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NativeToolError {
-    #[error("argument {field:?} is missing or the wrong type")]
-    BadArgument { field: &'static str },
+    #[error("the arguments do not fit this tool: {detail}")]
+    BadArguments { detail: String },
     #[error("pointer {pointer:?} does not resolve in the document")]
     BadPointer { pointer: String },
     #[error(
@@ -581,20 +609,6 @@ pub struct NativeOutcome {
     pub mutated: bool,
 }
 
-fn pointer_arg(args: &Value) -> Result<String, NativeToolError> {
-    args.get("pointer")
-        .and_then(Value::as_str)
-        .map(str::to_owned)
-        .ok_or(NativeToolError::BadArgument { field: "pointer" })
-}
-
-fn usize_arg(args: &Value, field: &'static str, default: usize) -> usize {
-    args.get(field)
-        .and_then(Value::as_u64)
-        .map(|n| n as usize)
-        .unwrap_or(default)
-}
-
 /// Dispatches one native tool call against `doc`.
 ///
 /// Takes `&mut Document` because [`NativeJsonTool::Patch`] mutates it in
@@ -609,32 +623,31 @@ pub fn dispatch(
 ) -> Result<NativeOutcome, NativeToolError> {
     match tool {
         NativeJsonTool::Outline => {
-            let pointer = pointer_arg(args)?;
-            let outline = u2s_jsondoc::outline(
-                doc.value(),
-                &pointer,
-                usize_arg(args, "depth", 2),
-                usize_arg(args, "limit", 100),
-            )
-            .map_err(|_| NativeToolError::BadPointer {
-                pointer: pointer.clone(),
-            })?;
+            let OutlineArgs {
+                pointer,
+                depth,
+                limit,
+            } = parse_args(args)?;
+            let outline = u2s_jsondoc::outline(doc.value(), &pointer, depth, limit)
+                .map_err(|_| NativeToolError::BadPointer {
+                    pointer: pointer.clone(),
+                })?;
             Ok(NativeOutcome {
                 value: serde_json::to_value(&outline).expect("an outline is plain data"),
                 mutated: false,
             })
         }
         NativeJsonTool::Get => {
-            let pointer = pointer_arg(args)?;
-            let got = u2s_jsondoc::get(
-                doc.value(),
-                &pointer,
-                usize_arg(args, "depth", 4),
-                usize_arg(args, "offset", 0),
-                usize_arg(args, "limit", 4_000),
-            )
-            .map_err(|_| NativeToolError::BadPointer {
-                pointer: pointer.clone(),
+            let GetArgs {
+                pointer,
+                depth,
+                offset,
+                limit,
+            } = parse_args(args)?;
+            let got = u2s_jsondoc::get(doc.value(), &pointer, depth, offset, limit).map_err(|_| {
+                NativeToolError::BadPointer {
+                    pointer: pointer.clone(),
+                }
             })?;
             Ok(NativeOutcome {
                 value: serde_json::to_value(&got).expect("a get result is plain data"),
@@ -642,32 +655,28 @@ pub fn dispatch(
             })
         }
         NativeJsonTool::Search => {
-            let pointer = pointer_arg(args)?;
-            let query = args
-                .get("query")
-                .and_then(Value::as_str)
-                .ok_or(NativeToolError::BadArgument { field: "query" })?;
-            let found =
-                u2s_jsondoc::search(doc.value(), &pointer, query, usize_arg(args, "limit", 50))
-                    .map_err(|_| NativeToolError::BadPointer {
-                        pointer: pointer.clone(),
-                    })?;
+            let SearchArgs {
+                pointer,
+                query,
+                limit,
+            } = parse_args(args)?;
+            let found = u2s_jsondoc::search(doc.value(), &pointer, &query, limit).map_err(|_| {
+                NativeToolError::BadPointer {
+                    pointer: pointer.clone(),
+                }
+            })?;
             Ok(NativeOutcome {
                 value: serde_json::to_value(&found).expect("a search result is plain data"),
                 mutated: false,
             })
         }
         NativeJsonTool::Patch => {
-            let ops = args
-                .get("ops")
-                .filter(|ops| ops.is_array())
-                .ok_or(NativeToolError::BadArgument { field: "ops" })?;
-            let expected = args
-                .get("expected_revision")
-                .and_then(Value::as_u64)
-                .ok_or(NativeToolError::BadArgument {
-                    field: "expected_revision",
-                })?;
+            let PatchArgs {
+                ops,
+                expected_revision: expected,
+            } = parse_args(args)?;
+            let op_count = ops.len();
+            let ops = Value::Array(ops.into_iter().map(Value::Object).collect());
 
             // The staleness check is ours, deliberately. `u2s_jsondoc`'s
             // `Revision` has no `From<u64>` and must not grow one: its
@@ -682,7 +691,7 @@ pub fn dispatch(
             }
 
             let current = doc.revision();
-            u2s_jsondoc::patch_apply(doc, ops, current).map_err(|err| {
+            u2s_jsondoc::patch_apply(doc, &ops, current).map_err(|err| {
                 NativeToolError::PatchRejected {
                     detail: err.to_string(),
                 }
@@ -692,7 +701,7 @@ pub fn dispatch(
                 value: json!({
                     "applied": true,
                     "revision": doc.revision().get(),
-                    "ops": ops.as_array().map(Vec::len).unwrap_or_default(),
+                    "ops": op_count,
                 }),
                 mutated: true,
             })
@@ -791,23 +800,20 @@ pub fn dispatch(
 /// same reason: a runaway script now costs a process the runner reclaims,
 /// not a thread nothing can.
 pub async fn check_rules(
-    args: &Value,
+    args: &CheckRulesArgs,
     output: &Value,
     schema: Option<&Value>,
     rules: &[RuleForCheck],
     runner: &RuleRunner,
 ) -> Result<NativeOutcome, NativeToolError> {
     let schema = schema.ok_or(NativeToolError::NoSchema)?;
-    let requested: Option<Vec<&str>> = args
-        .get("rule_ids")
-        .and_then(Value::as_array)
-        .map(|ids| ids.iter().filter_map(Value::as_str).collect::<Vec<_>>());
+    let requested = args.rule_ids.as_deref();
 
     let budget = u2s_rules::ScriptBudget::default();
     let selected: Vec<&RuleForCheck> = rules
         .iter()
         .filter(|rule| match &requested {
-            Some(ids) => ids.contains(&rule.id.to_string().as_str()),
+            Some(ids) => ids.contains(&rule.id.to_string()),
             None => true,
         })
         .collect();
@@ -933,24 +939,20 @@ pub struct AutofixResult {
 /// check here would only spend budget to report the same "no fix" a reader
 /// can already see on [`RuleForCheck::autofix_available`].
 pub async fn autofix_rules(
-    args: &Value,
+    requested: Option<&[String]>,
     output: &Value,
     schema: Option<&Value>,
     rules: &[RuleForCheck],
     runner: &RuleRunner,
 ) -> Result<AutofixResult, NativeToolError> {
     let schema = schema.ok_or(NativeToolError::NoSchema)?;
-    let requested: Option<Vec<&str>> = args
-        .get("rule_ids")
-        .and_then(Value::as_array)
-        .map(|ids| ids.iter().filter_map(Value::as_str).collect::<Vec<_>>());
 
     let budget = u2s_rules::ScriptBudget::default();
     let selected: Vec<(&RuleForCheck, &str, &str)> = rules
         .iter()
         .filter_map(|rule| Some((rule, rule.check.script_js()?, rule.check.fix_js()?)))
         .filter(|(rule, _, _)| match &requested {
-            Some(ids) => ids.contains(&rule.id.to_string().as_str()),
+            Some(ids) => ids.contains(&rule.id.to_string()),
             None => true,
         })
         .collect();
@@ -1094,6 +1096,19 @@ mod tests {
     }
 
     #[test]
+    fn no_optional_argument_accepts_an_empty_value() {
+        let found: Vec<String> = NativeJsonTool::ALL
+            .iter()
+            .flat_map(|tool| {
+                u2s_schema::empty_optionals(&tool.input_schema())
+                    .into_iter()
+                    .map(move |path| format!("{}{path}", tool.name()))
+            })
+            .collect();
+        assert!(found.is_empty(), "{found:#?}");
+    }
+
+    #[test]
     fn every_tool_has_a_distinct_name_and_a_non_empty_description() {
         let mut names: Vec<&str> = NativeJsonTool::ALL.iter().map(|t| t.name()).collect();
         let total = names.len();
@@ -1106,7 +1121,12 @@ mod tests {
                 "{} needs a real description: it is prompt surface",
                 tool.name()
             );
-            assert_eq!(tool.input_schema()["type"], "object");
+            assert_eq!(
+                u2s_schema::tool_schema_violations(&tool.input_schema()),
+                Vec::<String>::new(),
+                "{}",
+                tool.name()
+            );
         }
     }
 
@@ -1347,34 +1367,18 @@ mod tests {
     #[test]
     fn a_missing_argument_names_the_field() {
         let mut doc = a_document();
-        assert_eq!(
-            dispatch(NativeJsonTool::Get, &json!({}), &mut doc, None, &[]).expect_err("must fail"),
-            NativeToolError::BadArgument { field: "pointer" }
-        );
-        assert_eq!(
-            dispatch(
-                NativeJsonTool::Patch,
-                &json!({ "ops": [] }),
-                &mut doc,
-                None,
-                &[]
-            )
-            .expect_err("must fail"),
-            NativeToolError::BadArgument {
-                field: "expected_revision"
+        for (tool, args, field) in [
+            (NativeJsonTool::Get, json!({}), "pointer"),
+            (NativeJsonTool::Patch, json!({ "ops": [] }), "expected_revision"),
+            (NativeJsonTool::Search, json!({ "pointer": "" }), "query"),
+        ] {
+            match dispatch(tool, &args, &mut doc, None, &[]).expect_err("must fail") {
+                NativeToolError::BadArguments { detail } => {
+                    assert!(detail.contains(field), "{tool:?}: {detail}")
+                }
+                other => panic!("{tool:?}: {other:?}"),
             }
-        );
-        assert_eq!(
-            dispatch(
-                NativeJsonTool::Search,
-                &json!({ "pointer": "" }),
-                &mut doc,
-                None,
-                &[],
-            )
-            .expect_err("must fail"),
-            NativeToolError::BadArgument { field: "query" }
-        );
+        }
     }
 
     /// `json_validate` composes `u2s-jsondoc` with `u2s_schema::validate`, so
@@ -1505,7 +1509,7 @@ mod tests {
         ];
         let doc = a_document(); // has a "title" field, so both rules pass
         let out = check_rules(
-            &json!({}),
+            &parse_args(&json!({})).unwrap(),
             doc.value(),
             Some(&json!({})),
             &rules,
@@ -1541,7 +1545,7 @@ mod tests {
         ];
         let doc = a_document();
         let out = check_rules(
-            &json!({}),
+            &parse_args(&json!({})).unwrap(),
             doc.value(),
             Some(&json!({})),
             &rules,
@@ -1572,7 +1576,7 @@ mod tests {
         let rules = vec![broken, fine];
         let doc = a_document();
         let out = check_rules(
-            &json!({ "rule_ids": [fine_id] }),
+            &parse_args(&json!({ "rule_ids": [fine_id] })).unwrap(),
             doc.value(),
             Some(&json!({})),
             &rules,
@@ -1593,7 +1597,7 @@ mod tests {
     async fn rule_check_reports_a_judged_rule_unchecked_without_a_judge() {
         let doc = a_document();
         let outcome = check_rules(
-            &json!({}),
+            &parse_args(&json!({})).unwrap(),
             doc.value(),
             Some(&json!({})),
             &[a_judged_rule("judged")],
@@ -1612,7 +1616,7 @@ mod tests {
     async fn rule_check_without_a_schema_says_so_rather_than_passing_vacuously() {
         let doc = a_document();
         assert_eq!(
-            check_rules(&json!({}), doc.value(), None, &[], &test_runner())
+            check_rules(&parse_args(&json!({})).unwrap(), doc.value(), None, &[], &test_runner())
                 .await
                 .expect_err("must not silently succeed"),
             NativeToolError::NoSchema
@@ -1671,7 +1675,7 @@ mod tests {
         );
         let output = json!({ "title": "nope" });
         let result = autofix_rules(
-            &json!({}),
+            None,
             &output,
             Some(&json!({})),
             &[rule],
@@ -1694,7 +1698,7 @@ mod tests {
         );
         let output = json!({}); // no title, so the check already passes
         let result = autofix_rules(
-            &json!({}),
+            None,
             &output,
             Some(&json!({})),
             &[rule],
@@ -1717,7 +1721,7 @@ mod tests {
         );
         let output = json!({ "title": "nope" });
         let result = autofix_rules(
-            &json!({}),
+            None,
             &output,
             Some(&json!({})),
             &[rule],
@@ -1746,7 +1750,7 @@ mod tests {
         );
         let output = json!({ "title": "nope" });
         let result = autofix_rules(
-            &json!({}),
+            None,
             &output,
             Some(&json!({})),
             &[unfixable, fixable],
@@ -1781,7 +1785,7 @@ mod tests {
         let output = json!({ "a": 1 });
 
         let result = autofix_rules(
-            &json!({}),
+            None,
             &output,
             Some(&json!({})),
             &[first, second],
@@ -1826,7 +1830,7 @@ mod tests {
             }"#,
         );
         let output = json!({ "title": "Account opening", "extra": true });
-        let result = autofix_rules(&json!({}), &output, Some(&schema), &[rule], &test_runner())
+        let result = autofix_rules(None, &output, Some(&schema), &[rule], &test_runner())
             .await
             .expect("autofix runs");
 
@@ -1842,7 +1846,7 @@ mod tests {
     async fn autofix_without_a_schema_says_so_rather_than_passing_vacuously() {
         assert_eq!(
             autofix_rules(
-                &json!({}),
+                None,
                 &a_document().into_value(),
                 None,
                 &[],

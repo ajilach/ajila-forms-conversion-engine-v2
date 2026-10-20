@@ -306,8 +306,11 @@ pub fn localize_ids(node: &mut XfaNode, serial: u64) {
 }
 
 /// Replace each repeatable subform declaration in the template with its
-/// `initial` instances (XFA 3.3 §9, empty merge), recording its pristine
-/// declaration in the returned [`Prototypes`].
+/// instances, recording its pristine declaration in the returned
+/// [`Prototypes`]: `initial` of them (XFA 3.3 §9, empty merge), or as many
+/// as the document's `<xfa:datasets>` hold for it when that is more (§4
+/// "Data Binding": the merge creates a subform per data group of its
+/// name), within its `min` and `max`.
 ///
 /// Only the `<template>` packet is touched: the saved `<form>` packet and the
 /// `<datasets>` keep the shape they were saved with. Subforms without
@@ -315,37 +318,68 @@ pub fn localize_ids(node: &mut XfaNode, serial: u64) {
 /// with no repeatable subform comes out unchanged.
 pub fn materialize_initial_instances(nodes: &mut [XfaNode]) -> Prototypes {
     let mut prototypes = Prototypes::default();
-    materialize_templates(nodes, &mut prototypes);
+    let data: Vec<XfaNode> = data_packet(nodes)
+        .map(|data| data.children.clone())
+        .unwrap_or_default();
+    materialize_templates(nodes, &mut prototypes, &data);
     prototypes
 }
 
+/// The `<xfa:data>` of the document's `<xfa:datasets>`: the data a saved or
+/// pre-filled form carries.
+fn data_packet(nodes: &[XfaNode]) -> Option<&XfaNode> {
+    fn is(node: &XfaNode, local: &str) -> bool {
+        matches!(&node.kind, XfaNodeKind::Element { tag_name, .. }
+            if tag_name == local || tag_name.rsplit(':').next() == Some(local))
+    }
+    for node in nodes {
+        if is(node, "datasets") {
+            return node.children.iter().find(|c| is(c, "data"));
+        }
+        if matches!(node.kind, XfaNodeKind::Element { .. })
+            && let Some(found) = data_packet(&node.children)
+        {
+            return Some(found);
+        }
+    }
+    None
+}
+
 /// Find each `<template>` (the parser keeps the `<xdp:xdp>` wrapper as an
-/// element around the packets) and materialise below it.
-fn materialize_templates(nodes: &mut [XfaNode], prototypes: &mut Prototypes) {
+/// element around the packets) and materialise below it. `data` is the
+/// data the template's children bind to: the children of `<xfa:data>`.
+fn materialize_templates(nodes: &mut [XfaNode], prototypes: &mut Prototypes, data: &[XfaNode]) {
     for node in nodes.iter_mut() {
         if matches!(node.kind, XfaNodeKind::Template) {
-            materialize_children(&mut node.children, "", prototypes);
+            materialize_children(&mut node.children, "", prototypes, data);
         } else if matches!(node.kind, XfaNodeKind::Element { .. }) {
-            materialize_templates(&mut node.children, prototypes);
+            materialize_templates(&mut node.children, prototypes, data);
         }
     }
 }
 
 /// Materialise the repeatables nested inside a fresh instance copy whose
 /// index-free template path is `template` (an instance added at runtime
-/// starts from its declaration, with its own nested `initial` instances).
+/// starts from its declaration, with its own nested `initial` instances;
+/// no data binds to it).
 pub fn materialize_subtree(node: &mut XfaNode, template: &SomPath, prototypes: &mut Prototypes) {
     materialize_children(
         &mut node.children,
         template.index_free().as_str(),
         prototypes,
+        &[],
     );
 }
 
 /// Materialise every repeatable directly in `children` (whose parent's
-/// index-free path is `parent`), then recurse into every named or unnamed
-/// container below.
-fn materialize_children(children: &mut Vec<XfaNode>, parent: &str, prototypes: &mut Prototypes) {
+/// index-free path is `parent`, and whose bound data are `data`), then
+/// recurse into every named or unnamed container below.
+fn materialize_children(
+    children: &mut Vec<XfaNode>,
+    parent: &str,
+    prototypes: &mut Prototypes,
+    data: &[XfaNode],
+) {
     let mut i = 0;
     let mut preceding: Vec<String> = Vec::new();
     while i < children.len() {
@@ -358,6 +392,22 @@ fn materialize_children(children: &mut Vec<XfaNode>, parent: &str, prototypes: &
         match (occur, child.name.clone()) {
             (Some(occur), Some(name)) => {
                 let template = SomPath::new(child_som_path(parent, &name, 0));
+                let in_data = if binds_by_name(child) {
+                    data_named(data, &name).count() as u32
+                } else {
+                    0
+                };
+                let count = if in_data > occur.initial {
+                    let count = occur.clamp(in_data);
+                    log::debug!(
+                        "{template}: the datasets hold {in_data} instances, {count} are created (initial {}, max {:?})",
+                        occur.initial,
+                        occur.max
+                    );
+                    count
+                } else {
+                    occur.initial
+                };
                 let declaration = children.remove(i);
                 prototypes
                     .by_template
@@ -367,7 +417,7 @@ fn materialize_children(children: &mut Vec<XfaNode>, parent: &str, prototypes: &
                         occur,
                         preceding: preceding.clone(),
                     });
-                for n in 0..occur.initial {
+                for n in 0..count {
                     children.insert(i, prototypes.instance_copy(&declaration, n == 0));
                     i += 1;
                 }
@@ -382,14 +432,53 @@ fn materialize_children(children: &mut Vec<XfaNode>, parent: &str, prototypes: &
         }
     }
 
-    // Recurse after this level is final, with each child's index-free path.
+    // Recurse after this level is final, with each child's index-free path
+    // and the data it binds to: a named container's n-th instance binds to
+    // the n-th data group of its name, an unnamed one to its parent's data.
+    let mut seen: HashMap<String, usize> = HashMap::new();
     for child in children.iter_mut() {
-        let path = match &child.name {
-            Some(name) => child_som_path(parent, name, 0),
-            None => parent.to_string(),
+        let (path, bound): (String, &[XfaNode]) = match &child.name {
+            Some(name) => {
+                let ordinal = seen.entry(name.clone()).or_insert(0);
+                let bound = if binds_by_name(child) {
+                    data_named(data, name)
+                        .nth(*ordinal)
+                        .map_or(&[][..], |d| d.children.as_slice())
+                } else {
+                    &[]
+                };
+                *ordinal += 1;
+                (child_som_path(parent, name, 0), bound)
+            }
+            None => (parent.to_string(), data),
         };
-        materialize_children(&mut child.children, &path, prototypes);
+        materialize_children(&mut child.children, &path, prototypes, bound);
     }
+}
+
+/// Whether `node` binds to data by its name (XFA 3.3 §4, the default
+/// binding): not when its `<bind>` says `none`, and not when it names a
+/// `ref`, whose expression this merge does not evaluate; such a subform
+/// keeps its `initial` instances and the omission is reported.
+fn binds_by_name(node: &XfaNode) -> bool {
+    match node.bind_match() {
+        Some("none") => false,
+        Some("dataRef") => {
+            log::warn!(
+                "{}: bind match=\"dataRef\" is not evaluated; its instances come from <occur> alone",
+                node.name.as_deref().unwrap_or("subform")
+            );
+            false
+        }
+        _ => true,
+    }
+}
+
+/// The data groups in `data` whose element name is `name`.
+fn data_named<'a>(data: &'a [XfaNode], name: &'a str) -> impl Iterator<Item = &'a XfaNode> + 'a {
+    data.iter().filter(move |d| {
+        matches!(&d.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == name)
+    })
 }
 
 /// Where a new instance of `name` goes among `children`: after its last
@@ -544,6 +633,32 @@ mod tests {
             r#"<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="Root">{body}</subform></template></xdp:xdp>"#
         );
         XfaNode::parse(xml.as_bytes()).expect("parse")
+    }
+
+    /// The instances of `Root.Row` after materialising a template whose
+    /// `Row` declares `occur_attrs`, with `data` as the document's datasets.
+    fn rows_with_data(occur_attrs: &str, bind: &str, data: &str) -> usize {
+        let xml = format!(
+            r#"<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/"><subform name="Root"><subform name="Row"><occur {occur_attrs}/>{bind}<field name="Amount"/></subform></subform></template><xfa:datasets xmlns:xfa="http://www.xfa.org/schema/xfa-data/1.0/"><xfa:data>{data}</xfa:data></xfa:datasets></xdp:xdp>"#
+        );
+        let mut nodes = XfaNode::parse(xml.as_bytes()).expect("parse");
+        materialize_initial_instances(&mut nodes);
+        let root = crate::xfa::scripting::som::walk_som_path(&nodes, "Root").expect("Root");
+        instance_positions(&root.children, "Row").len()
+    }
+
+    #[test]
+    fn the_datasets_decide_the_instance_count_within_the_occur_limits() {
+        let three = "<Root><Row><Amount>1</Amount></Row><Row><Amount>2</Amount></Row><Row><Amount>3</Amount></Row></Root>";
+        assert_eq!(rows_with_data(r#"min="1" max="-1" initial="1""#, "", three), 3);
+        assert_eq!(rows_with_data(r#"min="1" max="2" initial="1""#, "", three), 2, "max caps the data");
+        assert_eq!(rows_with_data(r#"min="1" max="-1" initial="4""#, "", three), 4, "initial is a floor");
+        assert_eq!(rows_with_data(r#"min="1" max="-1" initial="1""#, "", "<Other/>"), 1, "no data of its name");
+        assert_eq!(
+            rows_with_data(r#"min="1" max="-1" initial="1""#, r#"<bind match="none"/>"#, three),
+            1,
+            "a subform bound to nothing takes nothing from the data"
+        );
     }
 
     fn occur_of(attrs: &str) -> Option<Occur> {

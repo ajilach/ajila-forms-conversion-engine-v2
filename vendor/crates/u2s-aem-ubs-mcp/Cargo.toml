@@ -121,6 +121,9 @@ path = "../u2s-blob"
 [dependencies.u2s-mapper-aem]
 path = "../u2s-mapper-aem"
 
+[dependencies.u2s-schema]
+path = "../u2s-schema"
+
 [dependencies.uuid]
 version = "1"
 features = [

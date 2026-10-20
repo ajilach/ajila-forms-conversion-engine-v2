@@ -1,12 +1,24 @@
 id = "ubs-aem-grid-widths"
-title = "Column widths are on the 12-column grid"
+title = "Widths are on the 12-column grid"
 output_formats = ["aem-ubs"]
 description = """
 Widths are a 12-column grid: `colspan` 12 is full width (the default, and the large majority of
 fields) and 6 is half width for two fields that share a row. Use another value only where the
-source really shows that split. Static text is always 12, even where the source sets it in columns
-(ubs-aem-single-column-text). A `colspan` (or `dor_colspan`, when set) of 0 or above 12 breaks the
-layout and is reported; whether 6 or 12 is the right width is judged against the source page.
+source really shows that split (`positions` of the controls in `xfa_controls`, the rendered page).
+An input (text, number and date field, dropdown, checkbox, radio button) takes at least 3 columns,
+however narrow the source draws it (backlog "Minimum widths"); a row whose widths then exceed 12
+wraps. Static text is always 12, even where the source sets it in columns
+(ubs-aem-single-column-text), and a fragment block always takes the full row.
 
-Replace the value with one from 1 to 12, normally 12 or 6.
+Layout widths reach the form only: the Document of Record lays a panel's children out in
+`dor_num_cols` columns, each child spanning `dor_colspan` of them. A half-width field alone on its
+row prints at full width in the Document of Record unless its panel has `dor_num_cols` 2 and the
+field `dor_colspan` 1 (backlog "DoR").
+
+Reported: a `colspan` or `dor_colspan` that is not a whole number from 1 to 12; an input whose
+`colspan` is below 3. Whether 6 or 12 is the right width is judged against the source page
+(ubs-aem-field-fidelity).
+
+Fix (automatic): a fraction is rounded, a width above 12 becomes 12, a `colspan` below 1 the full
+row, a `dor_colspan` below 1 unset, and an input narrower than 3 columns becomes 3.
 """

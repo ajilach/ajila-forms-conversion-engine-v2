@@ -43,24 +43,52 @@ fn rules() -> Vec<String> {
     rules
 }
 
-/// The old engine's output passes every rule but the label check, which finds
-/// the inputs it left without a label: AABF_019's seven unlabelled date pickers
-/// and bare radio buttons, and AAOS_033_IT's contribution text areas. Its own
-/// review reported the same inputs as `missing`.
+/// The old engine's output passes every rule but those that find what it got
+/// wrong; each finding below was looked at and is a real defect of that output.
 #[test]
-fn the_golden_documents_pass_every_rule_but_the_labels_they_lack() {
+fn the_golden_documents_pass_every_rule_but_the_defects_they_carry() {
     // What the retired engine's output still breaks, which these rules found in it:
-    // - `input-labels`: the inputs it left without a label (see above);
-    // - `text-languages-complete`: AABF_019's `TTL_AccountHolder` heading, which it wrote in
-    //   English only into a form that ships German and Spanish too (two findings, one per language);
-    // - `repeatable-title`: AAOS_033_IT's `RCP_df94f111`, which has no title, no heading above it
-    //   and an enclosing panel title too long to be a subject, so its package ships the
-    //   placeholder `(Repeatable name)`.
+    // - `input-labels`: the inputs it left without a label: AABF_019's seven unlabelled date
+    //   pickers and bare radio buttons, and AAOS_033_IT's contribution text areas; its own review
+    //   reported the same inputs as `missing`;
+    // - `text-languages-complete`: AABF_019's `TTL_AccountHolder` heading and its party and
+    //   signature Repeatables' titles, written in English only into a form that ships German and
+    //   Spanish too (one finding per language);
+    // - `form-title`: AABF_019's form title, in English only;
+    // - `repeatable-title`: AAOS_033_IT's `RCP_df94f111` and AABF_019's `RCP_69344a5b`, with no
+    //   usable title, and AAOS_033_IT's `RCP_Sign_AHGRP` titled with an optional plural
+    //   ("Legale/i rappresentante/i");
+    // - `configurator-panels`: the configurator choices `RB_GroupTipo` and `RB_FormularAdressat`,
+    //   vertical where a configurator is a horizontal radio row;
+    // - `options-wellformed`: options keyed by the source's own values (`true`, `RB_1`) instead
+    //   of "1" to "n" (UBS-GEN-3);
+    // - `grid-widths`: inputs one column wide, under the three an input takes;
+    // - `headings-rendered-once`: level-4 sub-headings right under a page's level-2 heading;
+    // - `issuer-information`: AAOS_033_IT, an entity-033 form, without the Italy infobox;
+    // - `label-visibility`: AAOS_033_IT's radio groups labelled with a 339-character sentence;
+    // - `quotes`: AAEV_019_EN quoting 'grantor' and 'simple' with straight single quotes;
+    // - `dates`: AABF_019's month-and-year date pickers;
+    // - `signatures`: AABF_019's signature fragments outside a Repeatable.
     let known = |form: &str, rule: &str| match (form, rule) {
+        ("AAOS_033_IT", "configurator-panels") => 1,
+        ("AAOS_033_IT", "grid-widths") => 2,
+        ("AAOS_033_IT", "headings-rendered-once") => 1,
         ("AAOS_033_IT", "input-labels") => 7,
+        ("AAOS_033_IT", "issuer-information") => 1,
+        ("AAOS_033_IT", "label-visibility") => 2,
+        ("AAOS_033_IT", "options-wellformed") => 11,
+        ("AAOS_033_IT", "repeatable-title") => 2,
+        ("AAEV_019_EN", "quotes") => 1,
+        ("AABF_019", "configurator-panels") => 1,
+        ("AABF_019", "dates") => 4,
+        ("AABF_019", "form-title") => 2,
+        ("AABF_019", "grid-widths") => 1,
+        ("AABF_019", "headings-rendered-once") => 5,
         ("AABF_019", "input-labels") => 63,
-        ("AABF_019", "text-languages-complete") => 2,
-        ("AAOS_033_IT", "repeatable-title") => 1,
+        ("AABF_019", "options-wellformed") => 25,
+        ("AABF_019", "repeatable-title") => 1,
+        ("AABF_019", "signatures") => 3,
+        ("AABF_019", "text-languages-complete") => 16,
         _ => 0,
     };
     for form in ["AAOS_033_IT", "AAEV_019_EN", "AABF_019"] {
@@ -146,30 +174,6 @@ fn a_field_with_another_types_prefix_is_named_wrong() {
 }
 
 #[test]
-fn sibling_inputs_with_one_label_are_reported_together() {
-    let date = |name: &str| {
-        json!({
-            "type": "DatePicker", "uuid": "00000000-0000-0000-0000-000000000001", "name": name,
-            "label": {"en": "Date"}, "mandatory": false, "visible": true, "colspan": 12,
-            "dor_colspan": null, "bind_ref": null
-        })
-    };
-    let base = golden("AAEV_019_EN");
-    let page = first_panel(&base);
-    let doc = aaev_with(
-        &format!("{page}/children"),
-        json!([date("DATE_A"), date("DATE_B")]),
-    );
-    assert_eq!(
-        violations("duplicate-sibling-labels", &doc),
-        vec![
-            format!("{page}/children/0/label/en"),
-            format!("{page}/children/1/label/en")
-        ]
-    );
-}
-
-#[test]
 fn a_parenthetical_or_marked_up_label_is_not_a_label() {
     let field = |label: &str| {
         json!({
@@ -249,7 +253,7 @@ fn a_panel_of_static_text_named_as_a_table_is_a_legacy_table() {
     let page = first_panel(&base);
     let mut doc = aaev_with(&format!("{page}/name"), json!("TBL_Fees"));
     *doc.pointer_mut(&format!("{page}/children")).unwrap() = json!([draw]);
-    assert_eq!(violations("legacy-table-panels", &doc), vec![page]);
+    assert_eq!(violations("tables-are-html-tables", &doc), vec![page]);
 }
 
 #[test]
@@ -519,83 +523,74 @@ fn an_unlabelled_field_is_classified_by_its_name_and_only_the_master_label_count
     );
 }
 
-/// A configurator choice and its two panels, each holding a field.
-fn configurator(second_panel: Value) -> Vec<Value> {
-    vec![page(
-        "PN_Config",
-        "Configurator",
-        vec![
-            radio("RB_Type", &["Individual", "Legal entity"], &["PN_Individual", "PN_Entity"]),
-            panel("PN_Individual", "", false, true, vec![text_field("TXT_Name", "Name", None)]),
-            second_panel,
-        ],
-    )]
+/// The configurator band as the form's first page: a horizontal choice and
+/// the two panels it shows, each holding a field, then `second_page`.
+fn configurator(second_page: Value) -> Vec<Value> {
+    let mut choice = radio("RB_Type", &["Individual", "Legal entity"], &["PN_Individual", "PN_Entity"]);
+    choice["alignment"] = json!("Horizontal");
+    vec![
+        page(
+            "PN_FormConfigurator",
+            "Form configurator",
+            vec![
+                choice,
+                panel("PN_Individual", "", false, true, vec![text_field("TXT_Name", "Name", None)]),
+                panel("PN_Entity", "", false, true, vec![text_field("TXT_Company", "Company", None)]),
+            ],
+        ),
+        second_page,
+    ]
 }
 
+/// The band is the first page (UBS-CFG-2), its choices are horizontal radio
+/// rows (backlog "Configurator rendering"), and its reset is the writer's
+/// (UBS-CFG-4).
 #[test]
-fn a_configurator_choice_must_drive_two_resettable_conditional_panels() {
-    let entity = || panel("PN_Entity", "", false, true, vec![text_field("TXT_Company", "Company", None)]);
-    assert!(violations("configurator-panels", &doc_with(configurator(entity()))).is_empty());
+fn the_configurator_is_one_band_on_the_first_page() {
+    let next = || page("PN_Next", "Next", vec![text_field("TXT_Next", "Next", None)]);
+    assert!(violations("configurator-panels", &doc_with(configurator(next()))).is_empty());
     let p = "/form/children/0/children";
 
-    // A panel that is not conditional has no visibility script to tie the reset to.
-    let doc = doc_with(configurator(panel(
-        "PN_Entity", "", false, false, vec![text_field("TXT_Company", "Company", None)],
-    )));
-    assert_eq!(violations("configurator-panels", &doc), vec![format!("{p}/2/is_conditional")]);
+    // A dropdown, or a vertical radio row, is no configurator choice.
+    let doc = set(doc_with(configurator(next())), &format!("{p}/0"), "alignment", json!("Vertical"));
+    assert_eq!(violations("configurator-panels", &doc), vec![format!("{p}/0/alignment")]);
 
-    // A panel of static text only has nothing to clear.
-    let doc = doc_with(configurator(panel(
-        "PN_Entity", "", false, true, vec![draw("TextDraw", "ST_Info", "Please note")],
-    )));
-    assert_eq!(violations("configurator-panels", &doc), vec![format!("{p}/2")]);
+    // An option's panel is shown, never hidden, by its condition.
+    let doc = doc_with(configurator(next()));
+    let doc = set(doc, &format!("{p}/0/conditions/1"), "show", json!(false));
+    assert_eq!(violations("configurator-panels", &doc), vec![format!("{p}/0/conditions/1")]);
 
-    // The reset names the panel, so another node with the same name breaks it.
-    let mut pages = configurator(entity());
-    pages[0]["children"].as_array_mut().unwrap().push(text_field("PN_Entity", "Clash", None));
-    assert_eq!(violations("configurator-panels", &doc_with(pages)), vec![format!("{p}/2/name")]);
+    // A second band, on a later page.
+    let band = panel("PN_FormConfigurator2", "", false, false, vec![text_field("TXT_B", "B", None)]);
+    let doc = doc_with(configurator(page("PN_Next", "Next", vec![band])));
+    assert_eq!(
+        violations("configurator-panels", &doc),
+        vec!["/form/children/1/children/0/name".to_string()]
+    );
 
-    // A choice naming only one panel is not wired as a configurator.
-    let doc = doc_with(configurator(entity()));
-    let doc = set(doc, &format!("{p}/0"), "conditions", json!([
-        {"target_panel_name": "PN_Individual", "value": {"type": "text", "value": "0"}, "show": true}
-    ]));
-    assert_eq!(violations("configurator-panels", &doc), vec![format!("{p}/0")]);
+    // A reset written by hand, here a loaded one, gives way to the writer's.
+    let mut pages = configurator(next());
+    pages[0]["children"][0]["passthrough"] = json!({"raw_children": [
+        "<fd:scripts fd:valueCommit=\"[{&quot;script&quot;:{&quot;content&quot;:&quot;PN_Entity.resetData();&quot;}}]\" jcr:primaryType=\"nt:unstructured\"/>"
+    ]});
+    assert_eq!(
+        violations("configurator-panels", &doc_with(pages)),
+        vec![format!("{p}/0/passthrough/raw_children/0")]
+    );
 
-    // A choice inside a driven panel that itself decides panels would be reset with it.
-    let inner = radio("RB_Inner", &["Yes", "No"], &["PN_Yes", "PN_No"]);
-    let pages = vec![page(
-        "PN_Config",
-        "Configurator",
-        vec![
-            radio("RB_Type", &["Individual", "Legal entity"], &["PN_Individual", "PN_Entity"]),
-            panel("PN_Individual", "", false, true, vec![inner]),
-            entity(),
-            panel("PN_Yes", "", false, true, vec![text_field("TXT_Yes", "Yes", None)]),
-            panel("PN_No", "", false, true, vec![text_field("TXT_No", "No", None)]),
-        ],
-    )];
-    assert_eq!(violations("configurator-panels", &doc_with(pages)), vec![format!("{p}/1/children/0")]);
-
-    // Other wordings are ordinary questions and are left alone.
-    let pages = vec![page(
-        "PN_Config",
-        "Order",
-        vec![radio("RB_Kind", &["Buy", "Sell"], &["PN_A"])],
-    )];
+    // A choice outside the band is an ordinary question and is left alone.
+    let pages = vec![page("PN_A", "Order", vec![radio("RB_Kind", &["Buy", "Sell"], &["PN_A"])])];
     assert!(violations("configurator-panels", &doc_with(pages)).is_empty());
 }
 
+/// Where a subtitle takes the first page's title, the band is a Panel directly inside it.
 #[test]
-fn a_configurator_with_markup_in_its_options_is_still_recognised() {
-    let mut pages = configurator(panel(
-        "PN_Entity", "", false, false, vec![text_field("TXT_Company", "Company", None)],
-    ));
-    pages[0]["children"][0]["options"][0]["label"]["en"] = json!("<b>Individual</b>");
-    assert_eq!(
-        violations("configurator-panels", &doc_with(pages)),
-        vec!["/form/children/0/children/2/is_conditional".to_string()]
-    );
+fn a_configurator_band_may_sit_inside_the_first_page() {
+    let mut pages = configurator(page("PN_Next", "Next", vec![text_field("TXT_Next", "Next", None)]));
+    pages[0]["is_page"] = json!(false);
+    let first = page("PN_Agreement", "(hereinafter the Agreement)", vec![pages[0].clone()]);
+    let doc = doc_with(vec![first, pages[1].clone()]);
+    assert!(violations("configurator-panels", &doc).is_empty(), "{:?}", violations("configurator-panels", &doc));
 }
 
 #[test]
@@ -605,41 +600,45 @@ fn a_step_is_a_page_and_its_heading_is_its_title() {
     let doc = doc_with(vec![panel("PN_Loose", "Loose", false, false, vec![body()])]);
     assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/is_page".to_string()]);
 
-    // An untitled page that starts with a heading, or holds a heading among other content.
-    let doc = doc_with(vec![page(
-        "PN_A", "", vec![draw("TitleDraw", "TTL_A", "Account"), body()],
-    )]);
-    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/0".to_string()]);
-    let doc = doc_with(vec![page(
-        "PN_A", "", vec![body(), draw("TitleDraw", "TTL_A", "Account"), body()],
-    )]);
-    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
+    // After the first page, an untitled page that starts with a heading, or holds a heading among
+    // other content.
+    let first = || page("PN_First", "Subtitle", vec![body()]);
+    let doc = doc_with(vec![first(), page("PN_A", "", vec![draw("TitleDraw", "TTL_A", "Account"), body()])]);
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/1/children/0".to_string()]);
+    let doc = doc_with(vec![
+        first(),
+        page("PN_A", "", vec![body(), draw("TitleDraw", "TTL_A", "Account"), body()]),
+    ]);
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/1/children/1".to_string()]);
 
     // An untitled page that opens with a heading, at any level, has its step title in the wrong
     // place: the feedback guard promotes it (PROBLEM-step-title-panel, `wrap:promote`; AAAR_019's
-    // "2. SEPA core direct debit", a level-3 heading the source does not rule). The banking
-    // relationship alone is no text before the heading; its DoR header slot line is.
+    // "2. SEPA core direct debit", a level-3 heading the source does not rule).
     let heading = || {
         let mut heading = draw("TitleDraw", "TTL_A", "Account");
         heading["heading_level"] = json!(3);
         heading
     };
-    let doc = doc_with(vec![page("PN_A", "", vec![heading(), body()])]);
-    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/0".to_string()]);
-    let doc = doc_with(vec![page("PN_A", "", vec![preface(), heading()])]);
-    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/1".to_string()]);
-    let entity = header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>");
-    let doc = doc_with(vec![page("PN_A", "", vec![preface(), entity, heading()])]);
-    assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
+    let doc = doc_with(vec![first(), page("PN_A", "", vec![heading(), body()])]);
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/1/children/0".to_string()]);
 
-    // The same heading as the page's title, an untitled page of body text, a heading alone in its
-    // own panel and the first page's subtitle are all fine.
+    // The first page is the exception: its title is the subtitle, so its first section heading
+    // stays a level-2 heading after the page header and any title-area content (UBS-SEC-4).
+    let section = || draw("TitleDraw", "TTL_Section", "1. Account");
+    let entity = header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>");
+    for content in [vec![section(), body()], vec![preface(), entity, body(), section(), body()]] {
+        let doc = doc_with(vec![page("PN_A", "", content)]);
+        assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
+    }
+
+    // The first page's subtitle and section heading, the same heading as a page's title, and a
+    // heading alone in its own panel are all fine.
     let mut subtitle = draw("TextDraw", "ST_Subtitle", "Subtitle");
     subtitle["css"] = json!("subtitle-after-form-title");
     let doc = doc_with(vec![
+        page("PN_D", "", vec![subtitle, draw("TitleDraw", "TTL_D", "D"), body()]),
         page("PN_A", "Account", vec![body()]),
         page("PN_C", "", vec![panel("PN_CTitle", "", false, false, vec![draw("TitleDraw", "TTL_C", "C")]), body()]),
-        page("PN_D", "", vec![subtitle, draw("TitleDraw", "TTL_D", "D"), body()]),
     ]);
     assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
 
@@ -657,18 +656,18 @@ fn a_step_is_a_page_and_its_heading_is_its_title() {
         heading
     };
     // On a titled page the writer marks its own heading, so an authored marker is a second one.
-    let doc = doc_with(vec![page("PN_A", "Account", vec![marked("TTL_Marked", "foo stepTitle"), body()])]);
-    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/0/css".to_string()]);
+    let doc = doc_with(vec![first(), page("PN_A", "Account", vec![marked("TTL_Marked", "foo stepTitle"), body()])]);
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/1/children/0/css".to_string()]);
 
     // On an untitled page the step title is its first level-2 heading: marked and alone in its
     // own panel is the step title written by hand, and fine; a marker on a later heading is not.
-    let doc = doc_with(vec![page(
+    let doc = doc_with(vec![first(), page(
         "PN_A",
         "",
         vec![panel("PN_ATitle", "", false, false, vec![marked("TTL_A", "stepTitle")]), body()],
     )]);
     assert!(violations("step-titles", &doc).is_empty(), "{:?}", violations("step-titles", &doc));
-    let doc = doc_with(vec![page(
+    let doc = doc_with(vec![first(), page(
         "PN_A",
         "",
         vec![
@@ -677,7 +676,7 @@ fn a_step_is_a_page_and_its_heading_is_its_title() {
             marked("TTL_Section", "stepTitle"),
         ],
     )]);
-    assert_eq!(violations("step-titles", &doc), vec!["/form/children/0/children/2/css".to_string()]);
+    assert_eq!(violations("step-titles", &doc), vec!["/form/children/1/children/2/css".to_string()]);
 }
 
 #[test]
@@ -745,32 +744,47 @@ fn numbered_signature_blocks_are_a_family_and_one_repeatable_is_not() {
     assert!(violations("signature-family", &doc_with(vec![page("PN_A", "A", vec![one])])).is_empty());
 }
 
+/// The Italy infobox: on an entity-033 form, once on screen at the end of the
+/// last page, and a hidden copy reaches the PDF only in the PDF-only shape
+/// (UBS-PAGE-6, backlog "Notices").
 #[test]
 fn a_hidden_infobox_copy_must_reach_the_pdf_from_the_last_page() {
     let infobox = "/content/dam/formsanddocuments/afforms_italy_fragmentlib/affrg_italy_infobox";
+    let italy = |mut doc: Value| {
+        doc["variables"]["formrange_entity"] = json!("033");
+        doc
+    };
     let mut copy = fragment("PN_ItalyInfoboxDoR", infobox);
     copy["visible"] = json!(false);
     let on_screen = fragment("PN_Infobox", infobox);
-    let doc = doc_with(vec![
+    let doc = italy(doc_with(vec![
         page("PN_A", "A", vec![on_screen.clone(), copy.clone()]),
         page("PN_B", "B", vec![draw("TextDraw", "ST_B", "Text")]),
-    ]);
+    ]));
     let p = "/form/children/0/children/1";
-    assert_eq!(violations("infobox-dor-copy", &doc), vec![p.to_string(), p.to_string()]);
+    let shown = "/form/children/0/children/0".to_string();
+    assert_eq!(
+        violations("issuer-information", &doc),
+        vec![p.to_string(), p.to_string(), shown.clone()]
+    );
     let doc = set(doc, p, "dor_exclude", json!(true));
     assert_eq!(
-        violations("infobox-dor-copy", &doc),
-        vec![p.to_string(), format!("{p}/dor_exclude"), p.to_string()]
+        violations("issuer-information", &doc),
+        vec![p.to_string(), format!("{p}/dor_exclude"), p.to_string(), shown]
     );
 
-    // The shape the normalize pass writes, on the last page.
+    // The shape the normalize pass writes, after the infobox at the end of the last page.
     copy["always_in_pdf"] = json!(true);
     copy["summary_exclude"] = json!(true);
-    let doc = doc_with(vec![
-        page("PN_A", "A", vec![on_screen]),
-        page("PN_B", "B", vec![draw("TextDraw", "ST_B", "Text"), copy]),
-    ]);
-    assert!(violations("infobox-dor-copy", &doc).is_empty());
+    let doc = italy(doc_with(vec![
+        page("PN_A", "A", vec![draw("TextDraw", "ST_A", "Text")]),
+        page("PN_B", "B", vec![draw("TextDraw", "ST_B", "Text"), on_screen.clone(), copy]),
+    ]));
+    assert!(violations("issuer-information", &doc).is_empty(), "{:?}", violations("issuer-information", &doc));
+
+    // Another entity's form carries no infobox.
+    let doc = doc_with(vec![page("PN_A", "A", vec![on_screen])]);
+    assert_eq!(violations("issuer-information", &doc), vec!["/form/children/0/children/0".to_string()]);
 }
 
 #[test]
@@ -823,7 +837,12 @@ fn the_form_code_and_entity_must_be_well_formed() {
     missing["variables"].as_object_mut().unwrap().remove("formrange_entity");
     assert_eq!(violations("variables", &missing), vec!["/variables".to_string()]);
     assert!(violations("variables", &aaev_with_variables(&golden("AAEV_019_EN"), "AAEV", "019")).is_empty());
-    assert!(violations("variables", &aaev_with_variables(&golden("AAEV_019_EN"), "BA1", "001")).is_empty());
+    assert!(violations("variables", &aaev_with_variables(&golden("AAEV_019_EN"), "BA1", "019")).is_empty());
+    // UBS-MET-1: the entity agrees with the issuer the page header prints (UBS Europe SE, 019).
+    assert_eq!(
+        violations("variables", &aaev_with_variables(&golden("AAEV_019_EN"), "AAEV", "001")),
+        vec!["/variables/formrange_entity".to_string()]
+    );
 }
 
 fn aaev_with_variables(doc: &Value, code: &str, entity: &str) -> Value {
@@ -835,7 +854,8 @@ fn aaev_with_variables(doc: &Value, code: &str, entity: &str) -> Value {
 
 #[test]
 fn footnote_references_and_the_placeholder_go_together() {
-    let reference = "<p>Fee<span data-af-footnote-id=\"a\"><sup>#</sup></span></p>";
+    let reference = "<p>Fee<span data-af-footnote-id=\"a\"><sup>#</sup></span></p>\
+        <p id=\"a\" class=\"footnoteDescription\" style=\"display: none;\"><span class=\"footnoteDescText\">Note</span></p>";
     let note = || json!({"type": "FootnotePlaceholder", "uuid": UUID, "name": "FN_A", "colspan": 12});
     let doc = doc_with(vec![page("PN_A", "A", vec![draw("TextDraw", "ST_A", reference)])]);
     assert_eq!(
@@ -960,8 +980,10 @@ fn html_that_does_not_survive_into_the_document_is_reported() {
     assert!(violations("html-displayer-markup", &doc).is_empty());
 }
 
+/// Quotation marks follow the text's language and the country of the issuing
+/// entity (UBS-TXT-2); AAEV_019_EN is a form of 019, UBS Europe SE in Germany.
 #[test]
-fn german_italian_and_spanish_texts_quote_with_guillemets() {
+fn texts_quote_as_their_language_and_entity_do() {
     let quoted = |name: &str, texts: Value| {
         let mut node = draw("TextDraw", name, "");
         node["content"] = texts;
@@ -975,24 +997,27 @@ fn german_italian_and_spanish_texts_quote_with_guillemets() {
         "PN_A",
         "A",
         vec![
-            // English keeps its straight quotes; German does not.
+            // Straight quotes are no language's marks, in English as in German.
             quoted("ST_Pair", json!({
                 "en": "<p>Click \"Preview\".</p>",
                 "de": "<p style=\"margin:0\">Klicken Sie auf \"Vorschau\".</p>",
             })),
-            // An escaped quote is a quote, and a lone one is reported too.
+            // An escaped quote is a quote.
             quoted("ST_Escaped", json!({"es": "<p>Haga clic en &quot;Enviar&quot;</p>"})),
-            quoted("ST_Odd", json!({"it": "<p>Il \"modulo</p>"})),
-            // The source's curly and low quotes are not guillemets either (BBTB_019's
-            // “E-Dokumente”).
-            quoted("ST_Curly", json!({"de": "<p>die “E-Dokumente” und „Vorschau“</p>"})),
+            // A quotation left open.
+            quoted("ST_Odd", json!({"it": "<p>Il «modulo</p>"})),
+            // Guillemets are Swiss German, not German German.
+            quoted("ST_Swiss", json!({"de": "<p>die «E-Dokumente»</p>"})),
         ],
     )]));
     let p = "/form/children/0/children";
+    let mut found = violations("quotes", &doc);
+    found.sort();
     assert_eq!(
-        violations("guillemet-quotes", &doc),
+        found,
         vec![
             format!("{p}/0/content/de"),
+            format!("{p}/0/content/en"),
             format!("{p}/1/content/es"),
             format!("{p}/2/content/it"),
             format!("{p}/3/content/de"),
@@ -1007,26 +1032,35 @@ fn german_italian_and_spanish_texts_quote_with_guillemets() {
     let mut titled = page("PN_A", "A", vec![field, choice]);
     titled["title"]["es"] = json!("“Datos”");
     let doc = with_languages(doc_with(vec![titled]));
+    let mut found = violations("quotes", &doc);
+    found.sort();
     assert_eq!(
-        violations("guillemet-quotes", &doc),
+        found,
         vec![
-            "/form/children/0/title/es".to_string(),
             format!("{p}/0/label/de"),
             format!("{p}/1/options/1/label/it"),
+            "/form/children/0/title/es".to_string(),
         ]
     );
 
-    // Guillemets, and a `"` that only delimits an attribute, are fine.
-    let doc = with_languages(doc_with(vec![page(
+    // Each language's own marks, an apostrophe, and a `"` that only delimits an attribute.
+    let fine = json!({
+        "en": "<p>Click “Preview”, the client’s copy.</p>",
+        "de": "<p style=\"margin:0\">Klicken Sie auf „Vorschau“.</p>",
+        "it": "<p><a href=\"https://www.ubs.com\" target=\"_blank\">www.ubs.com</a> «modulo»</p>",
+        "es": "<p>Haga clic en «Enviar»</p>",
+    });
+    let doc = with_languages(doc_with(vec![page("PN_A", "A", vec![quoted("ST_Ok", fine.clone())])]));
+    assert!(violations("quotes", &doc).is_empty(), "{:?}", violations("quotes", &doc));
+
+    // A Swiss form quotes German with guillemets.
+    let mut doc = with_languages(doc_with(vec![page(
         "PN_A",
         "A",
-        vec![quoted("ST_Ok", json!({
-            "en": "<p>Click \"Preview\".</p>",
-            "de": "<p style=\"margin:0\">Klicken Sie auf «Vorschau».</p>",
-            "it": "<p><a href=\"https://www.ubs.com\" target=\"_blank\">www.ubs.com</a></p>",
-        }))],
+        vec![quoted("ST_Swiss", json!({"de": "<p>die «E-Dokumente»</p>"}))],
     )]));
-    assert!(violations("guillemet-quotes", &doc).is_empty(), "{:?}", violations("guillemet-quotes", &doc));
+    doc["variables"]["formrange_entity"] = json!("001");
+    assert!(violations("quotes", &doc).is_empty(), "{:?}", violations("quotes", &doc));
 }
 
 #[test]
@@ -1106,25 +1140,26 @@ fn a_heading_is_rendered_once() {
 }
 
 /// A form carries the banking relationship only where its source does, so a
-/// form without one is no break here; that the source has none is judged.
+/// form without one is no break here; that the source has none is judged. The
+/// issuer is the header's `slot2` line and no body text (UBS-PAGE-2).
 #[test]
 fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
     let body = || draw("TextDraw", "ST_Body", "Some text");
     let ok = doc_with(vec![page("PN_A", "A", vec![preface(), body()]), page("PN_B", "B", vec![body()])]);
-    assert!(violations("banking-relationship-present", &ok).is_empty());
+    assert!(violations("page-header", &ok).is_empty());
 
     let none = doc_with(vec![page("PN_A", "A", vec![body()])]);
-    assert!(violations("banking-relationship-present", &none).is_empty());
+    assert!(violations("page-header", &none).is_empty());
 
     let twice = doc_with(vec![page("PN_A", "A", vec![preface(), preface()])]);
     assert_eq!(
-        violations("banking-relationship-present", &twice),
+        violations("page-header", &twice),
         vec!["/form/children/0/children/1".to_string()]
     );
 
     let late = doc_with(vec![page("PN_A", "A", vec![body()]), page("PN_B", "B", vec![preface()])]);
     assert_eq!(
-        violations("banking-relationship-present", &late),
+        violations("page-header", &late),
         vec!["/form/children/1/children/0".to_string()]
     );
 
@@ -1136,15 +1171,21 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
         vec![preface(), entity.clone(), draw("TextDraw", "ST_Other", "UBS Europe SE, Milan"), header_line("ST_HeaderSlot2", "slot2", "<p><b>UBS Europe SE</b></p>")],
     )]);
     assert_eq!(
-        violations("banking-relationship-present", &line),
+        violations("issuer-information", &line),
         vec![
             "/form/children/0/children/1/content/de".to_string(),
             "/form/children/0/children/1/content/en".to_string()
         ]
     );
-    // Without the fragment there is nothing to duplicate.
+    // Without the banking relationship the issuer is still the header's alone.
     let alone = doc_with(vec![page("PN_A", "A", vec![entity])]);
-    assert!(violations("banking-relationship-present", &alone).is_empty());
+    assert_eq!(
+        violations("issuer-information", &alone),
+        vec![
+            "/form/children/0/children/0/content/de".to_string(),
+            "/form/children/0/children/0/content/en".to_string()
+        ]
+    );
 
     // Italy writes the whole line with its qualifier, the way a letter closes above its officers;
     // a sentence that only mentions the bank is no entity line.
@@ -1164,7 +1205,7 @@ fn the_banking_relationship_preface_is_there_once_on_the_first_page() {
         ],
     )]);
     assert_eq!(
-        violations("banking-relationship-present", &italy),
+        violations("issuer-information", &italy),
         [1, 2, 4, 5, 6].map(|i| format!("/form/children/0/children/{i}/content/en")).to_vec()
     );
 }
@@ -1225,34 +1266,31 @@ fn the_master_page_lines_are_hidden_draws_in_their_header_slots() {
     );
 }
 
-/// The precedence over sub-headings-are-title-draws: "UBS Europe SE" heading the bank's
-/// signature block is that signature Repeatable's title, never a draw, and the check says so.
+/// The bank's signature (UBS-SIG-6): the entity name is a heading right before it, which is the
+/// one place the issuer is body text, and the signature is titled "Responsible person".
 #[test]
-fn the_banks_signature_heading_is_its_repeatables_title_not_a_draw() {
+fn the_banks_signature_is_headed_by_the_entity_and_titled_responsible_person() {
     let signature = || fragment("PN_SGN_UBS", "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1");
-    let titled = doc_with(vec![
-        page("PN_A", "A", vec![preface()]),
-        page("PN_SIG", "Signature(s)", vec![repeatable("RCP_SGN_UBS", "UBS Europe SE", vec![signature()])]),
+    let signing = |children: Vec<Value>| {
+        doc_with(vec![page("PN_A", "A", vec![preface()]), page("PN_SIG", "Signature(s)", children)])
+    };
+    let headed = signing(vec![
+        draw("TitleDraw", "TTL_UBSEuropeSE", "UBS Europe SE"),
+        repeatable("RCP_SGN_UBS", "Responsible person", vec![signature()]),
     ]);
-    assert!(violations("banking-relationship-present", &titled).is_empty());
+    assert!(violations("issuer-information", &headed).is_empty(), "{:?}", violations("issuer-information", &headed));
+    assert!(violations("signatures", &headed).is_empty(), "{:?}", violations("signatures", &headed));
 
-    let drawn = doc_with(vec![
-        page("PN_A", "A", vec![preface()]),
-        page(
-            "PN_SIG",
-            "Signature(s)",
-            vec![
-                draw("TitleDraw", "TTL_UBSEuropeSE", "UBS Europe SE"),
-                repeatable("RCP_SGN_UBS", "", vec![signature()]),
-            ],
-        ),
+    // Titled with the entity and without the heading: the signature rule reports both.
+    let titled = signing(vec![repeatable("RCP_SGN_UBS", "UBS Europe SE", vec![signature()])]);
+    assert!(!violations("signatures", &titled).is_empty());
+
+    // The entity line anywhere else is the header's, not body text.
+    let stray = signing(vec![
+        draw("TitleDraw", "TTL_UBSEuropeSE", "UBS Europe SE"),
+        draw("TextDraw", "ST_Body", "Some text"),
     ]);
-    assert_eq!(
-        violations("banking-relationship-present", &drawn),
-        vec!["/form/children/1/children/0/content/en".to_string()]
-    );
-    let said = messages("banking-relationship-present", &drawn);
-    assert!(said[0].contains("signature Repeatable's `title`"), "{}", said[0]);
+    assert_eq!(violations("issuer-information", &stray), vec!["/form/children/1/children/0/content/en".to_string()]);
 }
 
 #[test]
@@ -1272,16 +1310,12 @@ fn a_repeatable_is_named_once_and_something_names_it() {
         vec![repeatable("RCP_Row", "RCP_Row", vec![text_field("TXT_A", "A", None)])],
     )]);
     assert_eq!(violations("repeatable-title", &doc), vec![format!("{p}/0/title")]);
-    // The page's title, a heading right above it, or its own title name it.
-    for children in [
-        vec![repeatable("RCP_Row", "", vec![])],
-        vec![draw("TitleDraw", "TTL_Rows", "Rows"), repeatable("RCP_Row", "", vec![])],
-        vec![repeatable("RCP_Row", "Row", vec![])],
-    ] {
-        let title = if children.len() == 1 && children[0]["title"]["en"] == "" { "Rows" } else { "A long page title with many words" };
-        let doc = doc_with(vec![page("PN_A", title, children)]);
-        assert!(violations("repeatable-title", &doc).is_empty(), "{:?}", violations("repeatable-title", &doc));
-    }
+    // Every repeatable has a title of its own (UBS-REP-1): the page's title or a heading above it
+    // does not name it.
+    let doc = doc_with(vec![page("PN_A", "Rows", vec![repeatable("RCP_Row", "", vec![])])]);
+    assert_eq!(violations("repeatable-title", &doc), vec![format!("{p}/0/title")]);
+    let doc = doc_with(vec![page("PN_A", "A", vec![repeatable("RCP_Row", "Row", vec![])])]);
+    assert!(violations("repeatable-title", &doc).is_empty(), "{:?}", violations("repeatable-title", &doc));
     // A sentence is no subject.
     let doc = doc_with(vec![page(
         "PN_A",
@@ -1306,7 +1340,7 @@ fn a_repeatable_is_named_once_and_something_names_it() {
     )]);
     assert_eq!(
         violations("repeatable-title", &doc),
-        vec![format!("{p}/0/children/0/content/en"), format!("{p}/0/children/1/content/en")]
+        vec![format!("{p}/0/children/0"), format!("{p}/0/children/1")]
     );
 }
 
@@ -1343,7 +1377,8 @@ fn a_condition_needs_a_conditional_panel_and_an_option_to_match() {
     // The second target is not conditional, so the writer gives it no visibility hook.
     assert_eq!(violations("condition-targets", &doc), vec![format!("{p}/2/is_conditional")]);
 
-    // A name that no node has, a fragment, a name two nodes share, and a value no option has.
+    // A name that no node has, a fragment and a name two nodes share. A value no option has is
+    // ubs-aem-options-wellformed's.
     let mut choice = radio("RB_Type", &["One", "Two"], &["PN_Gone", "PN_Frag"]);
     choice["conditions"].as_array_mut().unwrap().push(json!({
         "target_panel_name": "PN_Dup", "value": {"type": "text", "value": "9"}, "show": true
@@ -1364,7 +1399,6 @@ fn a_condition_needs_a_conditional_panel_and_an_option_to_match() {
             format!("{p}/0/conditions/0/target_panel_name"),
             format!("{p}/0/conditions/1/target_panel_name"),
             format!("{p}/0/conditions/2/target_panel_name"),
-            format!("{p}/0/conditions/2/value"),
         ]
     );
     // A matching value on a wired panel.
@@ -1374,8 +1408,6 @@ fn a_condition_needs_a_conditional_panel_and_an_option_to_match() {
         vec![radio("RB_Type", &["One", "Two"], &["PN_One", "PN_Two"]), target("PN_One", true), target("PN_Two", true)],
     )]);
     assert!(violations("condition-targets", &doc).is_empty());
-    let doc = set(doc, &format!("{p}/0/conditions/1"), "value", json!({"type": "text", "value": "7"}));
-    assert_eq!(violations("condition-targets", &doc), vec![format!("{p}/0/conditions/1/value")]);
 }
 
 #[test]
@@ -1414,9 +1446,11 @@ fn the_edit_button_is_not_set_where_the_writer_or_the_summary_has_no_use_for_it(
             flagged(panel("PN_Rows", "", false, false, vec![repeatable("RCP_Row", "Row", vec![field()])])),
         ],
     )]);
+    // The configurator, a panel of text and a panel holding rows are reported; the rows carry
+    // the writer's buttons.
     assert_eq!(
         violations("jump-to-field-placement", &doc),
-        vec![format!("{p}/0/jump_to_field"), format!("{p}/1/jump_to_field")]
+        vec![format!("{p}/0/jump_to_field"), format!("{p}/1/jump_to_field"), format!("{p}/3/jump_to_field")]
     );
     // A titled page carries the writer's button on its step-title panel already; an untitled one
     // keeps the only one it has.
@@ -1449,16 +1483,32 @@ fn a_column_width_is_on_the_twelve_column_grid() {
 }
 
 #[test]
-fn an_option_has_a_value_of_its_own() {
+fn options_are_numbered_one_to_n_and_what_compares_names_one() {
+    // UBS-GEN-3: the source's own values are not kept, a value is the option's number.
     let doc = doc_with(vec![page(
         "PN_A",
         "A",
-        vec![dropdown("DD_Blank", &["a", " ", "c"]), dropdown("DD_Twice", &["a", "b", "a"]), dropdown("DD_Fine", &["1", "2"])],
+        vec![dropdown("DD_Blank", &["a", " ", "c"]), dropdown("DD_Twice", &["1", "2", "1"]), dropdown("DD_Fine", &["1", "2"])],
     )]);
     let p = "/form/children/0/children";
     assert_eq!(
         violations("options-wellformed", &doc),
-        vec![format!("{p}/0/options/1/value"), format!("{p}/1/options/2/value")]
+        vec![format!("{p}/0/options"), format!("{p}/1/options")]
+    );
+    // CNV-INP-8: a default and a condition value name one of the options.
+    let mut choice = dropdown("DD_Fine", &["1", "2"]);
+    choice["default_value"] = json!("3");
+    let mut radio = radio("RB_Type", &["One", "Two"], &["PN_One"]);
+    radio["options"] = json!([{"label": {"en": "One"}, "value": "1"}, {"label": {"en": "Two"}, "value": "2"}]);
+    radio["conditions"][0]["value"] = json!({"type": "text", "value": "7"});
+    let doc = doc_with(vec![page(
+        "PN_A",
+        "A",
+        vec![choice, radio, panel("PN_One", "", false, true, vec![text_field("TXT_One", "One", None)])],
+    )]);
+    assert_eq!(
+        violations("options-wellformed", &doc),
+        vec![format!("{p}/0/default_value"), format!("{p}/1/conditions/0/value")]
     );
 }
 
@@ -1788,10 +1838,14 @@ fn a_signature_block_takes_an_entity_line_as_its_title() {
     )]);
     assert!(violations("repeatable-title", &bank).is_empty());
 
+    // A repeatable of signatures takes up to eight words as its subject, any other six.
+    let long = "UBS Europe SE Succursale Italia Front Office";
+    let bank = doc_with(vec![page("PN_A", "", vec![repeatable("RCP_SGN_UBS", long, vec![signature()])])]);
+    assert!(violations("repeatable-title", &bank).is_empty());
     let rows = doc_with(vec![page(
         "PN_A",
         "",
-        vec![repeatable("RCP_Rows", "UBS Europe SE (Succursale Italia)", vec![text_field("TXT_Row", "Row", None)])],
+        vec![repeatable("RCP_Rows", long, vec![text_field("TXT_Row", "Row", None)])],
     )]);
     assert_eq!(violations("repeatable-title", &rows), vec!["/form/children/0/children/0/title".to_string()]);
 }
@@ -1808,9 +1862,62 @@ fn a_letters_closing_entity_line_is_body_text_above_the_officers() {
         "",
         vec![preface(), letterhead("PN_LetterHead"), closing(), repeatable("RCP_SGN_UBS", "Cognome/Nome", vec![signature()])],
     )]);
-    assert!(violations("banking-relationship-present", &letter).is_empty());
+    assert!(violations("issuer-information", &letter).is_empty(), "{:?}", violations("issuer-information", &letter));
 
-    // Without officers below it the line is still the fragment's duplicate, letter or not.
+    // Without officers below it the line is the header's issuer, letter or not.
     let alone = doc_with(vec![page("PN_A", "", vec![preface(), letterhead("PN_LetterHead"), closing()])]);
-    assert_eq!(violations("banking-relationship-present", &alone), vec!["/form/children/0/children/2/content/en".to_string()]);
+    assert_eq!(violations("issuer-information", &alone), vec!["/form/children/0/children/2/content/en".to_string()]);
+}
+
+/// A form has as many internal-bank-use blocks as its source, each where the source shows it,
+/// also one right after another (UBS-IBU-1); a content panel among them reaches the PDF alone.
+#[test]
+fn internal_bank_use_blocks_stand_where_the_source_has_them() {
+    let global = "/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature";
+    let content = |name: &str| {
+        let mut block = panel(name, "", false, false, vec![
+            draw("TitleDraw", "TTL_Bank", "For internal bank use only"),
+            text_field("TXT_OuRef", "OU ref.", None),
+        ]);
+        block["visible"] = json!(false);
+        block["summary_exclude"] = json!(true);
+        block["always_in_pdf"] = json!(true);
+        block
+    };
+    let doc = doc_with(vec![
+        page("PN_A", "A", vec![fragment("PN_FRG_InternalBankUseOnly", global), text_field("TXT_A", "A", None)]),
+        page("PN_B", "B", vec![content("PN_InternalBankUseOnly"), content("PN_InternalBankUseOnly2")]),
+    ]);
+    assert!(violations("global-internal-bank-use", &doc).is_empty(), "{:?}", violations("global-internal-bank-use", &doc));
+    let doc = set(doc, "/form/children/1/children/1", "always_in_pdf", json!(false));
+    assert_eq!(violations("global-internal-bank-use", &doc), vec!["/form/children/1/children/1".to_string()]);
+}
+
+/// A caption repeating an input's label is dropped (CNV-TXT-8), unless the input hides its
+/// label: then the caption is the question it shows.
+#[test]
+fn a_caption_stays_beside_an_input_that_hides_its_label() {
+    let mut choice = radio("RB_Kind", &["Buy", "Sell"], &[]);
+    choice["label"] = json!({"en": "Order type"});
+    let caption = || draw("TextDraw", "ST_Caption", "Order type");
+    let doc = doc_with(vec![page("PN_A", "A", vec![caption(), choice.clone()])]);
+    assert_eq!(violations("headings-rendered-once", &doc), vec!["/form/children/0/children/0".to_string()]);
+    choice["hide_title"] = json!(true);
+    let doc = doc_with(vec![page("PN_A", "A", vec![caption(), choice])]);
+    assert!(violations("headings-rendered-once", &doc).is_empty(), "{:?}", violations("headings-rendered-once", &doc));
+}
+
+/// A partner generic's Initialize lists name its sub-panels directly and a component inside one
+/// by its path, which the build checks against the fragment library.
+#[test]
+fn a_partner_generic_reaches_inside_its_sub_panels_by_path() {
+    let generic = "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_ContractualPartnerGeneric1";
+    let mut party = fragment("PN_CPGRP", generic);
+    party["init_hide"] = json!(["PN_EntityBasic", "PN_Nothing"]);
+    party["init_show"] = json!(["PN_Address.PN_AddressBlock.TXT_State_AddressBlock"]);
+    let doc = doc_with(vec![page("PN_A", "A", vec![repeatable("RCP_CPGRP", "Client", vec![party])])]);
+    assert_eq!(
+        violations("account-holder-wiring", &doc),
+        vec!["/form/children/0/children/0/children/0/init_hide".to_string()]
+    );
 }

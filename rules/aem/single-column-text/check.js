@@ -1,4 +1,5 @@
 const CONTENT_TYPES = ["TextDraw", "TitleDraw", "MessageBox", "HtmlDisplayer"];
+const INPUTS = ["TextField", "NumberField", "DatePicker", "Dropdown", "Checkbox", "RadioButton"];
 const STYLE_ATTRIBUTE = /style\s*=\s*("([^"]*)"|'([^']*)')/gi;
 // A multi-column property at the start of a declaration, so `grid-template-columns` is not one.
 const CSS_COLUMNS = /(^|[;\s])(-webkit-|-moz-)?(columns|column-count|column-width)\s*:/i;
@@ -28,10 +29,30 @@ function onlyText(node) {
   });
 }
 
+// For each child, whether the grid row it lands on (12 columns, filled left to right) holds an
+// input: a short fixed text beside an input keeps its place on the input's row (UBS-TXT-6).
+function rowsWithInput(children) {
+  const rowOf = [];
+  const hasInput = [];
+  let row = 0;
+  let used = 0;
+  for (let i = 0; i < children.length; i++) {
+    const width = typeof children[i].colspan === "number" && children[i].colspan > 0 ? children[i].colspan : 12;
+    if (used > 0 && used + width > 12) {
+      row++;
+      used = 0;
+    }
+    used += width;
+    rowOf.push(row);
+    if (INPUTS.indexOf(children[i].type) >= 0) hasInput[row] = true;
+  }
+  return rowOf.map(function (r) { return hasInput[r] === true; });
+}
+
 function check(output, ctx) {
   const violations = [];
-  function visit(node, pointer) {
-    if (isContent(node)) {
+  function visit(node, pointer, besideInput) {
+    if (isContent(node) && !besideInput) {
       for (const field of ["colspan", "dor_colspan"]) {
         if (narrow(node[field])) {
           violations.push({
@@ -59,8 +80,9 @@ function check(output, ctx) {
       });
     }
     const children = node.children || [];
-    for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i);
+    const beside = rowsWithInput(children);
+    for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i, beside[i]);
   }
-  visit(output.form, "/form");
+  visit(output.form, "/form", false);
   return { pass: violations.length === 0, violations: violations };
 }

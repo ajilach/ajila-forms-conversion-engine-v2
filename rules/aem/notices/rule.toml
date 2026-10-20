@@ -1,0 +1,37 @@
+# UBS-NOT-1..4 and UBS-IBU-5 in AEM: a notice is the UBS message box, which the writer always writes
+# as type Info with an empty hidden title, excluded from the summary and the Document of Record
+# (`messageboxType="{Long}2"`, `hideTitle`, `dorExclusion`, `summaryExclusion` in lower.rs). check.js
+# decides the wording-based notices, the repeats and the ignored print flags; fix.js repairs them.
+id = "ubs-aem-notices"
+title = "Notices are message boxes, each shown once"
+output_formats = ["aem-ubs"]
+description = """
+A notice is a `MessageBox`: the UBS message box, which the writer always renders as type Info
+with an empty hidden title, on screen only (never in the summary, the Document of Record or the
+PDF). There is nothing to set for its type or title.
+
+Which text is a notice (UBS-NOT-1), in order of strength: text the source sets in red
+(the rendered page, xfa_render_region; in the template a red `color` on its `font`, xfa_node);
+screen-only static text (`relevant="-print"` on it or on its subform in the template); a standalone
+one-paragraph text opening with a notice label ("Hinweis:",
+"Achtung:", "Nota:", "Avvertenza:", "Note:"). Any other text is a paragraph. The label stays part
+of the notice's content (UBS-NOT-2). An information or instruction block under a section heading
+("Information", "Hinweis für Markt", "Informativa") is a section of paragraphs, except a paragraph
+of it that meets UBS-NOT-1 (UBS-NOT-3). Working instructions for the bank printed as master-page
+text ("Arbeitsanweisung für Client Onboarding") are a notice where the source shows them
+(UBS-IBU-5). Where
+the red notices of the first page's header go (UBS-PAGE-3) is not judged here.
+
+Reported:
+
+- a TextDraw of one paragraph opening with a notice label in any language (not in a letter, not a
+  header line or a PDF-only text): make it a MessageBox;
+- a notice repeating another notice's text (master language, markup and case ignored) that shows
+  wherever the other does, also across pages (UBS-NOT-4): remove it. Two notices in panels that
+  different choices show are both kept;
+- `always_in_pdf` or `show_if_hidden` on a MessageBox: a notice never prints and the writer ignores
+  them. Text the printed document needs is a TextDraw.
+
+The autofix does all three. The red and screen-only notices, and the working instructions, are
+for you to find on the source pages.
+"""

@@ -104,10 +104,10 @@ use u2s_verify_core::types::{
 
 use crate::aem_client::AemClient;
 use crate::driver::FormDriver;
+use crate::instance::{self, Containers, InstancePool};
 use crate::package_check::{self, PackageInspection};
 use crate::packages::{self, Acquired, FormPathInUse, PackageTable};
 use crate::profile::{Profile, SubmitArtefact};
-use crate::instance::{self, Containers, InstancePool};
 
 const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(500);
 // 30s total -- generous headroom over what live testing needed once the
@@ -262,7 +262,6 @@ macro_rules! placeholder_js {
         )
     };
 }
-
 
 pub mod wizard_js {
     /// The next/submit toolbar buttons are server-rendered with a stable
@@ -1160,7 +1159,14 @@ async fn execute(
         .put(&request.package_bytes, "application/zip", "zip")
         .map_err(|err| storage_failed("storing the package", err))?;
 
-    let opened = open_live_form(profile, driver, containers, package, request.language.as_deref()).await?;
+    let opened = open_live_form(
+        profile,
+        driver,
+        containers,
+        package,
+        request.language.as_deref(),
+    )
+    .await?;
     findings.extend(opened.findings);
     let LiveForm {
         browser_session,
@@ -1427,10 +1433,7 @@ fn parse_set_report(raw: &str) -> SetReport {
     let Ok(parsed) = serde_json::from_str::<Value>(raw) else {
         return SetReport::default();
     };
-    let set = parsed
-        .get("set")
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let set = parsed.get("set").and_then(Value::as_bool).unwrap_or(false);
     let via = match parsed.get("via").and_then(Value::as_str) {
         Some("model") => Some(SetVia::Model),
         Some("widget") => Some(SetVia::Widget),
@@ -1489,10 +1492,7 @@ fn auto_fill_finding(panel_index: u32, raw: &str) -> Option<Finding> {
         format!(
             "{}={}",
             entry.get("name").and_then(Value::as_str).unwrap_or("?"),
-            entry
-                .get(value_key)
-                .and_then(Value::as_str)
-                .unwrap_or("?")
+            entry.get(value_key).and_then(Value::as_str).unwrap_or("?")
         )
     };
 
@@ -1753,9 +1753,7 @@ impl PanelAdvance {
     ) -> Option<String> {
         match self {
             PanelAdvance::Advanced { .. } => None,
-            PanelAdvance::NothingToClick => {
-                Some(format!("{panel_label}: {}", direction.missing()))
-            }
+            PanelAdvance::NothingToClick => Some(format!("{panel_label}: {}", direction.missing())),
             PanelAdvance::DidNotChange { before, errors } => {
                 let cause = match errors {
                     Ok(errors) if errors.is_empty() => {
@@ -2083,7 +2081,7 @@ mod tests {
     fn a_blank_download_is_an_error_finding_and_is_still_kept() {
         let dir =
             std::env::temp_dir().join(format!("u2s-aem-verify-blank-{}", uuid::Uuid::new_v4()));
-        let blobs = BlobStore::new(&dir);
+        let blobs = BlobStore::in_folder(&dir);
         let mut artefacts = Vec::new();
         let mut findings = Vec::new();
 
@@ -2144,7 +2142,10 @@ mod tests {
     #[test]
     fn fill_field_targets_the_widget_by_its_name_attribute() {
         let js = wizard_js::fill_field(FieldRef::Name("TXT_Cognome"), &serde_json::json!("Rossi"));
-        assert!(js.contains(r#"querySelector('[name="' + name + '"]')"#), "{js}");
+        assert!(
+            js.contains(r#"querySelector('[name="' + name + '"]')"#),
+            "{js}"
+        );
         assert!(js.contains(r#""TXT_Cognome""#), "{js}");
         assert!(
             !js.contains("TXT_Cognome.value ="),
@@ -2154,7 +2155,10 @@ mod tests {
 
     #[test]
     fn fill_field_cannot_be_broken_out_of_by_a_quote_in_either_argument() {
-        let js = wizard_js::fill_field(FieldRef::Name("evil\"; alert(1); //"), &serde_json::json!("v\"; alert(2)"));
+        let js = wizard_js::fill_field(
+            FieldRef::Name("evil\"; alert(1); //"),
+            &serde_json::json!("v\"; alert(2)"),
+        );
         // Both arguments arrive as JSON literals, so each embedded quote is
         // backslash-escaped and stays inside the string it was put in,
         // rather than closing it and starting new statements.
@@ -2199,15 +2203,28 @@ mod tests {
         let js = wizard_js::fill_field(FieldRef::Som(som), &serde_json::json!("12"));
         assert!(js.contains(&format!("var som = \"{som}\";")), "{js}");
         assert!(js.contains("var name = null;"), "{js}");
-        let resolve = js.find("guideBridge.resolveNode(som)").expect("direct resolve");
-        let walk = js.find("item.name === name").expect("name walk stays for names");
-        assert!(resolve < walk, "a SOM must be handled before the name walk: {js}");
+        let resolve = js
+            .find("guideBridge.resolveNode(som)")
+            .expect("direct resolve");
+        let walk = js
+            .find("item.name === name")
+            .expect("name walk stays for names");
+        assert!(
+            resolve < walk,
+            "a SOM must be handled before the name walk: {js}"
+        );
     }
 
     #[test]
     fn fill_field_by_som_cannot_be_broken_out_of_by_a_quote() {
-        let js = wizard_js::fill_field(FieldRef::Som("p[0].x\"); alert(1); //"), &serde_json::json!(1));
-        assert!(js.contains(r#"var som = "p[0].x\"); alert(1); //";"#), "{js}");
+        let js = wizard_js::fill_field(
+            FieldRef::Som("p[0].x\"); alert(1); //"),
+            &serde_json::json!(1),
+        );
+        assert!(
+            js.contains(r#"var som = "p[0].x\"); alert(1); //";"#),
+            "{js}"
+        );
     }
 
     #[test]
@@ -2232,7 +2249,10 @@ mod tests {
             "{js}"
         );
         assert!(js.contains("JSON.stringify({set: false})"), "{js}");
-        assert!(js.contains("target.value == value"), "a model that took the value counts: {js}");
+        assert!(
+            js.contains("target.value == value"),
+            "a model that took the value counts: {js}"
+        );
     }
 
     #[test]
@@ -2286,7 +2306,10 @@ mod tests {
         let value = context
             .eval(boa_engine::Source::from_bytes(source.as_bytes()))
             .unwrap_or_else(|e| panic!("the placeholder logic runs: {e}"));
-        value.to_string(&mut context).unwrap().to_std_string_escaped()
+        value
+            .to_string(&mut context)
+            .unwrap()
+            .to_std_string_escaped()
     }
 
     /// A placeholder the field's own pattern refuses blocks the wizard: a
@@ -2296,14 +2319,29 @@ mod tests {
     fn the_placeholder_satisfies_the_fields_own_pattern() {
         assert_eq!(first_candidate("text", &[]), wizard_js::PLACEHOLDER);
         assert!(!wizard_js::PLACEHOLDER.chars().any(|c| c.is_ascii_digit()));
-        assert_eq!(first_candidate("text", &["^([^0-9]*)$"]), wizard_js::PLACEHOLDER);
+        assert_eq!(
+            first_candidate("text", &["^([^0-9]*)$"]),
+            wizard_js::PLACEHOLDER
+        );
         assert_eq!(first_candidate("text", &["^[A-Z]+$"]), "X");
-        assert_eq!(first_candidate("datepicker", &["date{D.M.YYYY}"]), "1.1.2000");
-        assert_eq!(first_candidate("datepicker", &["date{DD.MM.YYYY}", "date{DD.MM.YYYY}"]), "01.01.2000");
-        assert_eq!(first_candidate("datepicker", &["date{YYYY-MM-DD}"]), "2000-01-01");
+        assert_eq!(
+            first_candidate("datepicker", &["date{D.M.YYYY}"]),
+            "1.1.2000"
+        );
+        assert_eq!(
+            first_candidate("datepicker", &["date{DD.MM.YYYY}", "date{DD.MM.YYYY}"]),
+            "01.01.2000"
+        );
+        assert_eq!(
+            first_candidate("datepicker", &["date{YYYY-MM-DD}"]),
+            "2000-01-01"
+        );
         assert_eq!(first_candidate("datepicker", &[]), "1.1.2000");
         assert_eq!(first_candidate("date", &[]), "2000-01-01");
-        assert_eq!(first_candidate("email", &["^not(a regex"]), "verify@example.com");
+        assert_eq!(
+            first_candidate("email", &["^not(a regex"]),
+            "verify@example.com"
+        );
     }
 
     #[test]
@@ -2324,8 +2362,16 @@ mod tests {
         assert_eq!(finding.kind, "auto_filled");
         // A caller auditing the run has to be able to see which fields
         // carried invented data, not just how many.
-        assert!(finding.message.contains("RB_Group=1"), "{}", finding.message);
-        assert!(finding.message.contains("txtName=UtwoS"), "{}", finding.message);
+        assert!(
+            finding.message.contains("RB_Group=1"),
+            "{}",
+            finding.message
+        );
+        assert!(
+            finding.message.contains("txtName=UtwoS"),
+            "{}",
+            finding.message
+        );
         assert!(finding.message.contains("panel 3"), "{}", finding.message);
     }
 
@@ -2423,7 +2469,10 @@ mod tests {
         }
         .failure_message("this panel", NavDirection::Next)
         .unwrap();
-        assert!(message.contains("blocked by the form's validation, 2 error(s): "), "{message}");
+        assert!(
+            message.contains("blocked by the form's validation, 2 error(s): "),
+            "{message}"
+        );
         assert!(
             message.contains("lastName[0]: This field is required"),
             "{message}"
@@ -2490,11 +2539,22 @@ mod tests {
     #[test]
     fn navigation_clicks_the_toolbar_button_then_steps_through_guide_bridge() {
         let next = wizard_js::CLICK_NEXT;
-        assert!(next.find("button.moveNext").unwrap() < next.find("setFocus").unwrap(), "{next}");
-        assert!(next.contains("'nextItem'") && next.contains("hasNextItem"), "{next}");
+        assert!(
+            next.find("button.moveNext").unwrap() < next.find("setFocus").unwrap(),
+            "{next}"
+        );
+        assert!(
+            next.contains("'nextItem'") && next.contains("hasNextItem"),
+            "{next}"
+        );
         let prev = wizard_js::CLICK_PREV;
-        assert!(prev.find("'button.movePrev'").unwrap() < prev.find("button.movePrevious").unwrap());
-        assert!(prev.contains("'prevItem'") && prev.contains("isFirstItem"), "{prev}");
+        assert!(
+            prev.find("'button.movePrev'").unwrap() < prev.find("button.movePrevious").unwrap()
+        );
+        assert!(
+            prev.contains("'prevItem'") && prev.contains("isFirstItem"),
+            "{prev}"
+        );
         for js in [next, prev] {
             assert!(!js.contains("wizard-nav"), "{js}");
             assert!(js.contains("!el.disabled"), "{js}");
@@ -2527,7 +2587,10 @@ mod tests {
             }],
             None,
         );
-        assert!(refused.contains("guideContainer.af.submit.jsp answered HTTP 500"), "{refused}");
+        assert!(
+            refused.contains("guideContainer.af.submit.jsp answered HTTP 500"),
+            "{refused}"
+        );
         let silent = no_download_message("no download completed within 90s", &[], None);
         assert!(silent.contains("stopped before posting"), "{silent}");
         let refused = no_download_message(
@@ -2535,6 +2598,9 @@ mod tests {
             &[],
             Some("Error in reading XSD from node: /content/dam/x.xsd"),
         );
-        assert!(refused.contains("the server refused the submission: Error in reading XSD"), "{refused}");
+        assert!(
+            refused.contains("the server refused the submission: Error in reading XSD"),
+            "{refused}"
+        );
     }
 }

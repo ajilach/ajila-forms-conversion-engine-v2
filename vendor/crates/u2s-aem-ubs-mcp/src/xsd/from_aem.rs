@@ -273,6 +273,27 @@ fn walk(
                 occurs,
                 include_hint,
             } => {
+                // A second copy of a fragment in one sequence (a party split
+                // around fields of its own, UBS-PTY-5) binds to the element the
+                // first copy declared: AEM keeps the fields of both in that one
+                // element, so the schema names it once. A suffixed `ref` would
+                // name a global element no schema declares. Only a copy of a
+                // partner generic beside an earlier copy: two fields that
+                // resolve to one global element (the `Company` of two
+                // configurator variants) stay two elements.
+                let split_copy = matches!(node, AemNode::Fragment { frag_ref, .. }
+                    if crate::aem::partner::is_partner_generic(frag_ref)
+                        && nodes[..index].iter().any(|earlier| {
+                            matches!(earlier, AemNode::Fragment { frag_ref: first, .. } if first == frag_ref)
+                        }));
+                if split_copy
+                    && out
+                        .iter()
+                        .any(|n| matches!(n, XsdNode::Ref { ref_name, .. } if *ref_name == name))
+                {
+                    bind(node, parent_path, &name, st);
+                    continue;
+                }
                 let name = unique_name(name, used);
                 bind(node, parent_path, &name, st);
                 note_include_for(include_hint.as_deref().unwrap_or(&name), st, ctx);

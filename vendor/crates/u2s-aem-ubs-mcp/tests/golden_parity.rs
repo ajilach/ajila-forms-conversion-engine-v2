@@ -173,8 +173,9 @@ fn the_reauthored_clusters_pair_each_party_with_its_signature() {
             xml.contains(&format!("{configurator}.value == \\\\&quot;1\\\\&quot;")),
             "{form}: the configurator shows the individual's container"
         );
-        // The configurator opens on the individual (feedback
-        // PROBLEM-formconfig-private-person-default): its option key as `_value`.
+        // The configurator opens on the option its source opens on
+        // (`soConfigClientType.getDefault()`, the first client type), which
+        // the document carries as `default_value` and the writer as `_value`.
         let radio = xml
             .split('<')
             .find(|element| element.contains(&format!("name=\"{configurator}\"")))

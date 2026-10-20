@@ -44,8 +44,8 @@ pub use format::{
     FormatId, FormatIdError, FormatScope, matches as format_matches, scopes_could_overlap,
 };
 pub use ids::{
-    DatasetId, InputFileId, InputId, JobId, McpServerId, McpToolId, RuleId, RuleRevisionId, RunId,
-    TagId,
+    BatchId, DatasetId, InputFileId, InputId, JobId, McpServerId, McpToolId, RuleId,
+    RuleRevisionId, RunId, TagId,
 };
 pub use rule_check::{FixWithoutScript, RuleCheck, RuleCheckKind};
 pub use slug::{DatasetSlug, SlugError};

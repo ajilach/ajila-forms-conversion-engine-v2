@@ -352,7 +352,7 @@ Content-Package-Type: content
     <parsys2 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
       <guidefooter jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guidefooter">
 == package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de-ch.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf „Vorschau“ können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf „Absenden“ können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -371,7 +371,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Zusammenfassung der Formulardaten"
 "fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
 == package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf „Vorschau“ können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf „Absenden“ können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -390,7 +390,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Zusammenfassung der Formulardaten"
 "fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
 == package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/en.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>By clicking on “Preview”, you can review your document before submission.</p><p>After clicking “Submit”, you will no longer be able to edit the document and the PDF will be created for signing.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>The form could not be sent. Please try again later.</p>"
 "fd_Add" = "Add"
 "fd_Back" = "Back"
@@ -427,7 +427,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Resumen de la información del formulario"
 "fd_Thank you for submitting the form." = "Gracias por enviar el formulario."
 == package jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/fr.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>En cliquant sur \"Aperçu\", vous pouvez consulter votre document avant l'envoi.</p><p>Après avoir cliqué sur \"Soumettre\", vous ne pourrez plus modifier le document et le PDF sera créé pour signature.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>En cliquant sur «\u{a0}Aperçu\u{a0}», vous pouvez consulter votre document avant l'envoi.</p><p>Après avoir cliqué sur «\u{a0}Soumettre\u{a0}», vous ne pourrez plus modifier le document et le PDF sera créé pour signature.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Le formulaire n'a pas pu être envoyé. Veuillez réessayer plus tard.</p>"
 "fd_Add" = "Ajouter"
 "fd_Back" = "Retour"
@@ -855,7 +855,7 @@ Content-Package-Type: content
     <parsys2 jcr:primaryType="nt:unstructured" sling:resourceType="wcm/foundation/components/responsivegrid">
       <guidefooter jcr:primaryType="nt:unstructured" sling:resourceType="ajila-forms-customers/ajila-forms-ubs/components/controls/guidefooter">
 == bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de-ch.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf „Vorschau“ können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf „Absenden“ können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -874,7 +874,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Zusammenfassung der Formulardaten"
 "fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
 == bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/de.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf «Vorschau» können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf «Absenden» können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>Durch Klicken auf „Vorschau“ können Sie Ihr Dokument vor dem Absenden überprüfen.</p><p>Nach dem Klicken auf „Absenden“ können Sie das Dokument nicht mehr bearbeiten und das PDF wird zur Unterschrift erstellt.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Das Formular konnte nicht gesendet werden. Bitte versuchen Sie es später erneut.</p>"
 "fd_Add" = "Hinzufügen"
 "fd_Back" = "Zurück"
@@ -893,7 +893,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Zusammenfassung der Formulardaten"
 "fd_Thank you for submitting the form." = "Vielen Dank für das Einreichen des Formulars."
 == bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/en.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>By clicking on “Preview”, you can review your document before submission.</p><p>After clicking “Submit”, you will no longer be able to edit the document and the PDF will be created for signing.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>The form could not be sent. Please try again later.</p>"
 "fd_Add" = "Add"
 "fd_Back" = "Back"
@@ -930,7 +930,7 @@ Content-Package-Type: content
 "fd_Summary of form information" = "Resumen de la información del formulario"
 "fd_Thank you for submitting the form." = "Gracias por enviar el formulario."
 == bound jcr_root/content/forms/af/afforms_germany_all/af_aa/AF_AAEV/_jcr_content/guideContainer/assets/dictionary/fr.xml
-"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>En cliquant sur \"Aperçu\", vous pouvez consulter votre document avant l'envoi.</p><p>Après avoir cliqué sur \"Soumettre\", vous ne pourrez plus modifier le document et le PDF sera créé pour signature.</p>"
+"fd_<p>By clicking on \"Preview\", you can review your document before submission.</p><p>After clicking \"Submit\", you will no longer be able to edit the document and the PDF will be created for signing.</p>" = "<p>En cliquant sur «\u{a0}Aperçu\u{a0}», vous pouvez consulter votre document avant l'envoi.</p><p>Après avoir cliqué sur «\u{a0}Soumettre\u{a0}», vous ne pourrez plus modifier le document et le PDF sera créé pour signature.</p>"
 "fd_<p>The form could not be sent. Please try again later.</p>" = "<p>Le formulaire n'a pas pu être envoyé. Veuillez réessayer plus tard.</p>"
 "fd_Add" = "Ajouter"
 "fd_Back" = "Retour"

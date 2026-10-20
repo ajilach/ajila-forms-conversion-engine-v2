@@ -61,6 +61,9 @@ pub enum Relaxation {
     OptionalWidened { pointer: String, property: String },
     /// A map re-encoded as an array of `{key, value}` pairs.
     MapAsPairs { pointer: String },
+    /// An object's own properties moved into each branch of its union, the
+    /// shape `#[serde(flatten)]` of a tagged enum generates.
+    UnionDistributed { pointer: String },
 }
 
 /// A schema [`adapt`] cannot make strict-safe without changing its meaning.
@@ -79,6 +82,12 @@ pub enum AdaptError {
     OpenObject { pointer: String },
     #[error("{pointer}: a map must declare a value schema")]
     MapWithoutValueSchema { pointer: String },
+    #[error(
+        "{pointer}: an object with both `properties` and a union needs every branch to be an inline object schema"
+    )]
+    UnionBranchNotObject { pointer: String },
+    #[error("{pointer}: property `{property}` is declared both on the object and in a branch of its union")]
+    PropertyInUnionBranch { pointer: String, property: String },
 }
 
 /// A strict-safe schema plus everything given up to get there.
@@ -133,6 +142,9 @@ fn adapt_node(node: &Value, pointer: &str, out: &mut Vec<Relaxation>) -> Result<
     if is_map(obj) {
         return adapt_map(obj, pointer, out);
     }
+
+    let distributed = distribute_union(obj, pointer, out)?;
+    let obj = distributed.as_ref().unwrap_or(obj);
 
     let mut result = Map::new();
     for (key, value) in obj {
@@ -200,6 +212,74 @@ fn adapt_node(node: &Value, pointer: &str, out: &mut Vec<Relaxation>) -> Result<
     }
 
     Ok(Value::Object(result))
+}
+
+/// Rewrites an object that has both `properties` and a `oneOf`/`anyOf` into a
+/// plain union whose branches each carry the object's properties too. Strict
+/// mode cannot close an object whose allowed properties depend on a branch,
+/// but it can close each merged branch. `None` when `obj` is not that shape.
+fn distribute_union(
+    obj: &Map<String, Value>,
+    pointer: &str,
+    out: &mut Vec<Relaxation>,
+) -> Result<Option<Map<String, Value>>, AdaptError> {
+    let Some(props) = obj.get("properties").and_then(Value::as_object) else {
+        return Ok(None);
+    };
+    let Some(union_key) = ["oneOf", "anyOf"].into_iter().find(|k| obj.contains_key(*k)) else {
+        return Ok(None);
+    };
+    let not_object = || AdaptError::UnionBranchNotObject {
+        pointer: pointer.to_owned(),
+    };
+    if !matches!(obj.get("additionalProperties"), None | Some(Value::Bool(_))) {
+        return Err(AdaptError::OpenObject {
+            pointer: pointer.to_owned(),
+        });
+    }
+    let parent_required = obj.get("required").and_then(Value::as_array).cloned().unwrap_or_default();
+
+    let branches = obj[union_key].as_array().ok_or_else(not_object)?;
+    let mut merged = Vec::with_capacity(branches.len());
+    for branch in branches {
+        let Some(branch) = branch.as_object() else {
+            return Err(not_object());
+        };
+        let is_object = branch.get("type").and_then(Value::as_str) == Some("object")
+            || (!branch.contains_key("type") && branch.contains_key("properties"));
+        if branch.contains_key("$ref") || !is_object {
+            return Err(not_object());
+        }
+        let mut branch = branch.clone();
+        let mut branch_props = branch
+            .remove("properties")
+            .and_then(|p| p.as_object().cloned())
+            .unwrap_or_default();
+        for (name, sub) in props {
+            if branch_props.insert(name.clone(), sub.clone()).is_some() {
+                return Err(AdaptError::PropertyInUnionBranch {
+                    pointer: pointer.to_owned(),
+                    property: name.clone(),
+                });
+            }
+        }
+        let mut required = parent_required.clone();
+        required.extend(branch.remove("required").and_then(|r| r.as_array().cloned()).unwrap_or_default());
+        branch.insert("type".to_owned(), json!("object"));
+        branch.insert("properties".to_owned(), Value::Object(branch_props));
+        branch.insert("required".to_owned(), Value::Array(required));
+        merged.push(Value::Object(branch));
+    }
+
+    let mut rewritten = obj.clone();
+    for key in ["type", "properties", "required", "additionalProperties", "unevaluatedProperties"] {
+        rewritten.remove(key);
+    }
+    rewritten.insert(union_key.to_owned(), Value::Array(merged));
+    out.push(Relaxation::UnionDistributed {
+        pointer: pointer.to_owned(),
+    });
+    Ok(Some(rewritten))
 }
 
 /// Applies strict mode's two object rules: `additionalProperties: false`, and
@@ -468,6 +548,85 @@ mod tests {
         assert!(out.relaxations.contains(&Relaxation::OneOfWidened {
             pointer: String::new()
         }));
+    }
+
+    #[test]
+    fn an_objects_properties_are_distributed_into_its_union() {
+        let out = adapted(json!({
+            "type": "object",
+            "properties": { "id": { "type": "string" } },
+            "required": ["id"],
+            "oneOf": [
+                {
+                    "type": "object",
+                    "properties": {
+                        "kind": { "type": "string", "const": "a" },
+                        "options": { "type": "array", "items": { "type": "string" } }
+                    },
+                    "required": ["kind", "options"]
+                },
+                {
+                    "type": "object",
+                    "properties": { "kind": { "type": "string", "const": "b" } },
+                    "required": ["kind"]
+                }
+            ]
+        }));
+        assert_eq!(
+            out.schema,
+            json!({
+                "anyOf": [
+                    {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "kind": { "type": "string", "const": "a" },
+                            "options": { "type": "array", "items": { "type": "string" } }
+                        },
+                        "required": ["id", "kind", "options"],
+                        "additionalProperties": false
+                    },
+                    {
+                        "type": "object",
+                        "properties": {
+                            "id": { "type": "string" },
+                            "kind": { "type": "string", "const": "b" }
+                        },
+                        "required": ["id", "kind"],
+                        "additionalProperties": false
+                    }
+                ]
+            })
+        );
+        assert!(out.relaxations.contains(&Relaxation::UnionDistributed { pointer: String::new() }));
+        assert_eq!(out.weakening().count(), 1, "only the oneOf widening weakens");
+        assert_eq!(super::super::strict_violations(&out.schema), Vec::<String>::new());
+    }
+
+    #[test]
+    fn a_union_branch_redeclaring_an_object_property_is_refused() {
+        let err = adapt(&json!({
+            "type": "object",
+            "properties": { "id": { "type": "string" } },
+            "anyOf": [{ "type": "object", "properties": { "id": { "type": "integer" } } }]
+        }))
+        .unwrap_err();
+        assert_eq!(
+            err,
+            AdaptError::PropertyInUnionBranch { pointer: String::new(), property: "id".to_owned() }
+        );
+    }
+
+    #[test]
+    fn a_ref_branch_next_to_properties_is_refused() {
+        let err = adapt(&json!({
+            "type": "object",
+            "properties": { "id": { "type": "string" } },
+            "oneOf": [{ "$ref": "#/$defs/T" }],
+            "$defs": { "T": { "type": "object" } }
+        }))
+        .unwrap_err();
+        assert_eq!(err, AdaptError::UnionBranchNotObject { pointer: String::new() });
     }
 
     #[test]

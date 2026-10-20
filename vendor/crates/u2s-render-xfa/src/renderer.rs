@@ -33,8 +33,12 @@ use u2s_render_core::{
     BatchLimits, Grep, ImageFormat, Limits, PageText, Pattern, RectPt, RenderError, RenderedPage,
     RenderedPages, TextMatch, TextSearch, render_batch, window_chars,
 };
-use u2s_xfa::states::{StateSpec, materialize};
-use u2s_xfa::{Fidelity, Flattened, XfaNode, extract_xfa_packets, prepare_default};
+use u2s_xfa::flattened::RenderOptions;
+use u2s_xfa::states::{StateSpec, materialize_with_fonts};
+use u2s_xfa::{
+    EmbeddedFont, Fidelity, Flattened, XfaNode, extract_embedded_fonts, extract_xfa_packets,
+    prepare_default_with_fonts,
+};
 
 use crate::bands::{Band, bands, geometry, max_page_height};
 use crate::text::{page_text, page_texts};
@@ -66,7 +70,7 @@ pub(crate) struct Prepared {
     /// `RASTER_CACHE_SIZE` entries (default 2) so a caller alternating between
     /// two resolutions — a thumbnail pass and a detail pass, say — does not
     /// keep re-rendering either one.
-    pub(crate) rasters: Mutex<Vec<(u32, Arc<RgbaImage>)>>,
+    pub(crate) rasters: Mutex<Vec<(u64, Arc<RgbaImage>)>>,
     /// How many times this document (in this state) has actually been
     /// rasterized. Lives on the document rather than as one process-wide
     /// counter, so a test asserting on it is not racing every other test that
@@ -184,6 +188,7 @@ enum Job {
         format: ImageFormat,
         batch: Option<BatchLimits>,
         limits: Limits,
+        chrome: RenderOptions,
         reply: Sender<Result<RenderedPages, RenderError>>,
     },
     RenderRegion {
@@ -193,6 +198,7 @@ enum Job {
         dpi: Option<f32>,
         format: ImageFormat,
         limits: Limits,
+        chrome: RenderOptions,
         reply: Sender<Result<RenderedPage, RenderError>>,
     },
     PageText {
@@ -289,6 +295,8 @@ fn worker() -> WorkerHandle {
 pub struct Renderer {
     handle: WorkerHandle,
     limits: Limits,
+    /// Viewer chrome drawn on top of the template (none by default).
+    chrome: RenderOptions,
 }
 
 impl Renderer {
@@ -299,7 +307,13 @@ impl Renderer {
         Renderer {
             handle: worker(),
             limits,
+            chrome: RenderOptions::default(),
         }
+    }
+
+    /// The same renderer, drawing `chrome` on top of what the template draws.
+    pub fn with_chrome(self, chrome: RenderOptions) -> Self {
+        Renderer { chrome, ..self }
     }
 
     pub fn limits(&self) -> &Limits {
@@ -506,6 +520,7 @@ impl Renderer {
                 format,
                 batch: None,
                 limits: self.limits.clone(),
+                chrome: self.chrome,
                 reply,
             },
             rx,
@@ -563,6 +578,7 @@ impl Renderer {
                     max_bytes: self.limits.max_response_bytes,
                 }),
                 limits: self.limits.clone(),
+                chrome: self.chrome,
                 reply,
             },
             rx,
@@ -586,6 +602,7 @@ impl Renderer {
                 dpi,
                 format,
                 limits: self.limits.clone(),
+                chrome: self.chrome,
                 reply,
             },
             rx,
@@ -674,11 +691,12 @@ fn run(rx: Receiver<Job>, prepares: Prepares) {
                 format,
                 batch,
                 limits,
+                chrome,
                 reply,
             } => {
                 let r = resolve(&target, &mut cache, &mut order, cache_size, &prepares, &mut sessions)
                     .and_then(|p| {
-                        do_render_pages(&p, &pages, dpi, max_edge, format, batch, &limits)
+                        do_render_pages(&p, &pages, dpi, max_edge, format, batch, &limits, chrome)
                     });
                 let _ = reply.send(r);
             }
@@ -689,10 +707,11 @@ fn run(rx: Receiver<Job>, prepares: Prepares) {
                 dpi,
                 format,
                 limits,
+                chrome,
                 reply,
             } => {
                 let r = resolve(&target, &mut cache, &mut order, cache_size, &prepares, &mut sessions)
-                    .and_then(|p| do_render_region(&p, page, rect, dpi, format, &limits));
+                    .and_then(|p| do_render_region(&p, page, rect, dpi, format, &limits, chrome));
                 let _ = reply.send(r);
             }
             Job::PageText {
@@ -725,7 +744,7 @@ fn run(rx: Receiver<Job>, prepares: Prepares) {
             }
             Job::Controls { target, reply } => {
                 let r = match &target {
-                    Target::Doc { path, state } => nodes_of(path).and_then(|(nodes, _names)| {
+                    Target::Doc { path, state } => nodes_of(path).and_then(|PdfDocument { nodes, .. }| {
                         if state.is_default() {
                             u2s_xfa::states::controls(&nodes)
                         } else {
@@ -743,7 +762,7 @@ fn run(rx: Receiver<Job>, prepares: Prepares) {
                 reply,
             } => {
                 let r = match &target {
-                    Target::Doc { path, state } => nodes_of(path).and_then(|(nodes, _names)| {
+                    Target::Doc { path, state } => nodes_of(path).and_then(|PdfDocument { nodes, .. }| {
                         u2s_xfa::states::field_in_state(&nodes, state, &field)
                             .map_err(|e| RenderError::backend(ENGINE, e.to_string()))
                     }),
@@ -795,7 +814,15 @@ fn run(rx: Receiver<Job>, prepares: Prepares) {
 /// The XFA node tree of a document on disk, plus its packet names -- for
 /// the tools that work below a full prepare, such as `Job::Controls`'s
 /// `Target::Doc` arm, which needs the nodes but nothing else a render does.
-fn nodes_of(path: &Path) -> Result<(Vec<XfaNode>, Vec<String>), RenderError> {
+/// What a PDF on disk holds for the engine: its template nodes, the names
+/// of its XFA packets and the fonts embedded in it.
+struct PdfDocument {
+    nodes: Vec<XfaNode>,
+    packet_names: Vec<String>,
+    fonts: Vec<EmbeddedFont>,
+}
+
+fn nodes_of(path: &Path) -> Result<PdfDocument, RenderError> {
     let bytes = std::fs::read(path).map_err(|source| RenderError::Io {
         path: path.display().to_string(),
         source,
@@ -812,28 +839,29 @@ fn nodes_of(path: &Path) -> Result<(Vec<XfaNode>, Vec<String>), RenderError> {
     let names: Vec<String> = packets.iter().map(|p| p.name.clone()).collect();
     let xfa: Vec<u8> = packets.into_iter().flat_map(|p| p.content).collect();
     let nodes = XfaNode::parse(&xfa).map_err(|e| RenderError::backend(ENGINE, e))?;
-    Ok((nodes, names))
+    let fonts = extract_embedded_fonts(&bytes).map_err(|e| RenderError::backend(ENGINE, e.to_string()))?;
+    Ok(PdfDocument { nodes, packet_names: names, fonts })
 }
 
 fn prepare(path: &Path, state: &StateSpec, prepares: &Prepares) -> Result<Prepared, RenderError> {
     if let Ok(mut m) = prepares.lock() {
         *m.entry(path.to_path_buf()).or_insert(0) += 1;
     }
-    let (nodes, names) = nodes_of(path)?;
+    let PdfDocument { nodes, packet_names: names, fonts } = nodes_of(path)?;
 
     // The default state goes through the fidelity ladder, which can degrade
     // with a warning if the form's scripts fail. A requested state goes through
     // `materialize`, which applies the selections and refreshes the form.
     let (flattened, fidelity, warning) = if state.is_default() {
-        let prepared =
-            prepare_default(&nodes).map_err(|e| RenderError::backend(ENGINE, e.to_string()))?;
+        let prepared = prepare_default_with_fonts(&nodes, fonts)
+            .map_err(|e| RenderError::backend(ENGINE, e.to_string()))?;
         (prepared.flattened, prepared.fidelity, prepared.warning)
     } else {
-        let m =
-            materialize(&nodes, state).map_err(|e| RenderError::backend(ENGINE, e.to_string()))?;
+        let m = materialize_with_fonts(&nodes, state, fonts)
+            .map_err(|e| RenderError::backend(ENGINE, e.to_string()))?;
         (m.flattened, m.fidelity, m.warning)
     };
-    let language = flattened.language.clone();
+    let language = flattened.language_code();
 
     Ok(Prepared::fresh(flattened, fidelity, warning, names, language))
 }
@@ -905,6 +933,7 @@ fn band_for(p: &Prepared, page: u32) -> Result<Band, RenderError> {
 /// Render the whole column once, then crop one band out of it.
 ///
 /// The engine has no per-page render; this is the crop that makes pages exist.
+#[allow(clippy::too_many_arguments)]
 fn render_band(
     p: &Prepared,
     band: &Band,
@@ -913,6 +942,7 @@ fn render_band(
     max_edge: Option<u32>,
     format: ImageFormat,
     limits: &Limits,
+    chrome: RenderOptions,
 ) -> Result<RenderedPage, RenderError> {
     // The clamp is measured against the tallest *page*, not the whole column:
     // a caller asking for one page of a ten-page form must not be silently
@@ -921,7 +951,7 @@ fn render_band(
     let (scale, dpi_effective) =
         limits.effective_scale(band.width, max_page_height(all_bands), dpi, max_edge);
 
-    let full = rasterize_cached(p, scale)?;
+    let full = rasterize_cached(p, scale, chrome)?;
 
     let top = (band.top * scale).round().max(0.0) as u32;
     let height = ((band.height() * scale).round() as u32)
@@ -942,10 +972,14 @@ fn render_band(
     })
 }
 
-/// Rasterize the tall column at `scale`, or return the cached buffer if this
-/// document (in this state) was already rasterized at that scale.
-fn rasterize_cached(p: &Prepared, scale: f32) -> Result<Arc<RgbaImage>, RenderError> {
-    let key = scale.to_bits();
+/// Rasterize the tall column at `scale` with `chrome`, or return the cached
+/// buffer if this document (in this state) was already rasterized so.
+fn rasterize_cached(
+    p: &Prepared,
+    scale: f32,
+    chrome: RenderOptions,
+) -> Result<Arc<RgbaImage>, RenderError> {
+    let key = u64::from(scale.to_bits()) | (u64::from(chrome.field_underline) << 32);
     if let Ok(cache) = p.rasters.lock()
         && let Some((_, img)) = cache.iter().find(|(k, _)| *k == key)
     {
@@ -954,7 +988,7 @@ fn rasterize_cached(p: &Prepared, scale: f32) -> Result<Arc<RgbaImage>, RenderEr
 
     let rendered = p
         .flattened
-        .render_to_image_buffer_plain(scale)
+        .render_to_image_buffer_with(scale, chrome)
         .map_err(|e| RenderError::backend(ENGINE, e))?;
     if let Ok(mut n) = p.raster_count.lock() {
         *n += 1;
@@ -981,6 +1015,7 @@ fn do_render_pages(
     format: ImageFormat,
     batch: Option<BatchLimits>,
     limits: &Limits,
+    chrome: RenderOptions,
 ) -> Result<RenderedPages, RenderError> {
     let all = bands(&p.flattened);
     let page_count = all.len() as u32;
@@ -990,7 +1025,7 @@ fn do_render_pages(
             .iter()
             .find(|b| b.page == page)
             .ok_or(RenderError::PageOutOfRange { page, page_count })?;
-        render_band(p, band, &all, dpi, max_edge, format, limits)
+        render_band(p, band, &all, dpi, max_edge, format, limits, chrome)
     };
 
     let Some(batch) = batch else {
@@ -1017,6 +1052,7 @@ fn do_render_region(
     dpi: Option<f32>,
     format: ImageFormat,
     limits: &Limits,
+    chrome: RenderOptions,
 ) -> Result<RenderedPage, RenderError> {
     let band = band_for(p, page)?;
 
@@ -1048,7 +1084,7 @@ fn do_render_region(
     let (scale, _) =
         limits.effective_scale(band.width, max_page_height(&all), Some(dpi_effective), None);
 
-    let full = rasterize_cached(p, scale)?;
+    let full = rasterize_cached(p, scale, chrome)?;
 
     // The rect is page-local; the column is not. XFA is natively top-left, so
     // this is an offset with no flip.

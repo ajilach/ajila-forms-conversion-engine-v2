@@ -604,8 +604,7 @@ mod ubs_xsd_naming {
             title: title.into(),
             frag_ref: frag_ref.into(),
             bind_ref: None,
-            init_hide: Vec::new(),
-            init_show: Vec::new(),
+            init: Default::default(),
         }
     }
 
@@ -622,6 +621,7 @@ mod ubs_xsd_naming {
             dor_colspan: None,
             bind_ref: None,
             kind: u2s_aem_ubs_mcp::aem::TextFieldKind::Plain,
+            input: Default::default(),
         }
     }
 
@@ -646,6 +646,8 @@ mod ubs_xsd_naming {
             dor_colspan: None,
             conditions: vec![],
             bind_ref: None,
+            hide_title: false,
+            input: Default::default(),
         }
     }
 
@@ -691,6 +693,7 @@ mod ubs_xsd_naming {
             colspan: 12,
             dor_colspan: None,
             bind_ref: None,
+            input: Default::default(),
         }]);
         assert!(xml.contains(r#"type="xs:date""#), "got:\n{xml}");
     }

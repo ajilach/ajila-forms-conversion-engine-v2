@@ -18,9 +18,8 @@ use std::collections::{BTreeMap, HashMap};
 use uuid::Uuid;
 
 use super::{
-    ComponentName,
-    AemAttrs, AemNode, AemOption, ConditionRule, LetterParty, OptionAlignment, Passthrough,
-    TextFieldKind,
+    AemAttrs, AemNode, AemOption, ConditionRule, FragmentInit, InputProps, LetterParty,
+    OptionAlignment, Passthrough, TextFieldKind,
 };
 
 /// The translation dictionary shape the package writer expects:
@@ -161,6 +160,10 @@ pub enum AemNodeTranslated {
         /// telephone field back into a plain text box.
         #[serde(default)]
         kind: TextFieldKind,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. Not translated. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
     NumberField {
         uuid: Uuid,
@@ -177,6 +180,18 @@ pub enum AemNodeTranslated {
         colspan: u32,
         dor_colspan: Option<u32>,
         bind_ref: Option<String>,
+        /// At most this many digits before the decimal separator
+        /// (`leadDigits`). See [`AemNode::NumberField`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        lead_digits: Option<u32>,
+        /// At most this many digits after it (`fracDigits`); `0` takes whole
+        /// numbers only.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        frac_digits: Option<u32>,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. Not translated. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
     DatePicker {
         uuid: Uuid,
@@ -193,6 +208,10 @@ pub enum AemNodeTranslated {
         colspan: u32,
         dor_colspan: Option<u32>,
         bind_ref: Option<String>,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. Not translated. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
     Dropdown {
         uuid: Uuid,
@@ -211,6 +230,10 @@ pub enum AemNodeTranslated {
         dor_colspan: Option<u32>,
         conditions: Vec<ConditionRule>,
         bind_ref: Option<String>,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. Not translated. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
     Checkbox {
         uuid: Uuid,
@@ -229,6 +252,18 @@ pub enum AemNodeTranslated {
         dor_colspan: Option<u32>,
         conditions: Vec<ConditionRule>,
         bind_ref: Option<String>,
+        /// One of the options must be ticked (`mandatory="true"`), as the
+        /// source requires. See [`AemNode::Checkbox`].
+        #[serde(default, skip_serializing_if = "super::is_false")]
+        mandatory: bool,
+        /// The list's label is not printed above it (`hideTitle="true"`).
+        /// See [`AemNode::Checkbox`].
+        #[serde(default, skip_serializing_if = "super::is_false")]
+        hide_title: bool,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. Not translated. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
     RadioButton {
         uuid: Uuid,
@@ -248,6 +283,15 @@ pub enum AemNodeTranslated {
         dor_colspan: Option<u32>,
         conditions: Vec<ConditionRule>,
         bind_ref: Option<String>,
+        /// The label is not shown above the options (`hideTitle="true"`): a
+        /// heading or subtitle right above already asks the question. See
+        /// [`AemNode::RadioButton`].
+        #[serde(default, skip_serializing_if = "super::is_false")]
+        hide_title: bool,
+        /// What it opens with, whether it can be changed, where its value
+        /// comes from. Not translated. See [`InputProps`].
+        #[serde(default, flatten)]
+        input: InputProps,
     },
     TextDraw {
         uuid: Uuid,
@@ -361,17 +405,10 @@ pub enum AemNodeTranslated {
         #[serde(default = "super::default_true")]
         visible: bool,
         bind_ref: Option<String>,
-        /// Sub-panels of the fragment hidden, on screen and in the DoR, when the
-        /// form starts: one `hideAFHideDor` call each, in the fragment's
-        /// Initialize rule. Only a partner generic takes them.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        init_hide: Vec<ComponentName>,
-        /// Sub-panels the fragment ships hidden that the form shows, on screen
-        /// and in the DoR, when it starts: one `showAFShowDor` call each, in the
-        /// same Initialize rule as `init_hide`. Only a partner generic takes
-        /// them, and only for a sub-panel it ships hidden.
-        #[serde(default, skip_serializing_if = "Vec::is_empty")]
-        init_show: Vec<ComponentName>,
+        /// What its Initialize rule hides, shows and makes mandatory or optional
+        /// inside it when the form starts. See [`FragmentInit`].
+        #[serde(default, flatten)]
+        init: FragmentInit,
     },
     Preface {
         uuid: Uuid,
@@ -776,6 +813,7 @@ impl AemNodeTranslated {
                 bind_ref,
                 kind,
                 attrs,
+                input,
                 ..
             } => AemNode::TextField {
                 attrs: attrs.clone(),
@@ -789,6 +827,7 @@ impl AemNodeTranslated {
                 dor_colspan: *dor_colspan,
                 bind_ref: bind_ref.clone(),
                 kind: *kind,
+                input: input.clone(),
             },
             AemNodeTranslated::NumberField {
                 uuid,
@@ -800,6 +839,9 @@ impl AemNodeTranslated {
                 dor_colspan,
                 bind_ref,
                 attrs,
+                lead_digits,
+                frac_digits,
+                input,
                 ..
             } => AemNode::NumberField {
                 attrs: attrs.clone(),
@@ -811,6 +853,9 @@ impl AemNodeTranslated {
                 colspan: *colspan,
                 dor_colspan: *dor_colspan,
                 bind_ref: bind_ref.clone(),
+                lead_digits: *lead_digits,
+                frac_digits: *frac_digits,
+                input: input.clone(),
             },
             AemNodeTranslated::DatePicker {
                 uuid,
@@ -822,6 +867,7 @@ impl AemNodeTranslated {
                 dor_colspan,
                 bind_ref,
                 attrs,
+                input,
                 ..
             } => AemNode::DatePicker {
                 attrs: attrs.clone(),
@@ -833,6 +879,7 @@ impl AemNodeTranslated {
                 colspan: *colspan,
                 dor_colspan: *dor_colspan,
                 bind_ref: bind_ref.clone(),
+                input: input.clone(),
             },
             AemNodeTranslated::Dropdown {
                 uuid,
@@ -846,6 +893,7 @@ impl AemNodeTranslated {
                 conditions,
                 bind_ref,
                 attrs,
+                input,
                 ..
             } => AemNode::Dropdown {
                 attrs: attrs.clone(),
@@ -859,6 +907,7 @@ impl AemNodeTranslated {
                 dor_colspan: *dor_colspan,
                 conditions: conditions.clone(),
                 bind_ref: bind_ref.clone(),
+                input: input.clone(),
             },
             AemNodeTranslated::Checkbox {
                 uuid,
@@ -872,6 +921,9 @@ impl AemNodeTranslated {
                 conditions,
                 bind_ref,
                 attrs,
+                mandatory,
+                hide_title,
+                input,
                 ..
             } => AemNode::Checkbox {
                 attrs: attrs.clone(),
@@ -885,6 +937,9 @@ impl AemNodeTranslated {
                 dor_colspan: *dor_colspan,
                 conditions: conditions.clone(),
                 bind_ref: bind_ref.clone(),
+                mandatory: *mandatory,
+                input: input.clone(),
+                hide_title: *hide_title,
             },
             AemNodeTranslated::RadioButton {
                 uuid,
@@ -899,6 +954,8 @@ impl AemNodeTranslated {
                 conditions,
                 bind_ref,
                 attrs,
+                hide_title,
+                input,
                 ..
             } => AemNode::RadioButton {
                 attrs: attrs.clone(),
@@ -913,6 +970,8 @@ impl AemNodeTranslated {
                 dor_colspan: *dor_colspan,
                 conditions: conditions.clone(),
                 bind_ref: bind_ref.clone(),
+                hide_title: *hide_title,
+                input: input.clone(),
             },
             AemNodeTranslated::TextDraw {
                 uuid,
@@ -1024,12 +1083,10 @@ impl AemNodeTranslated {
                 bind_ref,
                 attrs,
                 visible,
-                init_hide,
-                init_show,
+                init,
                 ..
             } => AemNode::Fragment {
-                init_hide: init_hide.clone(),
-                init_show: init_show.clone(),
+                init: init.clone(),
                 attrs: attrs.clone(),
                 visible: *visible,
                 uuid: *uuid,
@@ -1115,6 +1172,7 @@ mod tests {
                         dor_colspan: None,
                         bind_ref: None,
                         kind: TextFieldKind::Plain,
+                        input: Default::default(),
                     },
                     AemNodeTranslated::Dropdown {
                         attrs: AemAttrs::default(),
@@ -1132,6 +1190,7 @@ mod tests {
                         dor_colspan: None,
                         conditions: vec![],
                         bind_ref: None,
+                        input: Default::default(),
                     },
                 ],
                 is_page: true,
@@ -1272,6 +1331,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: TextFieldKind::Plain,
+                input: Default::default(),
             }],
         }
     }
@@ -1349,6 +1409,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: TextFieldKind::Plain,
+                input: Default::default(),
             }],
         };
 
@@ -1404,6 +1465,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: TextFieldKind::Plain,
+                input: Default::default(),
             }],
         };
 
@@ -1478,6 +1540,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: TextFieldKind::Plain,
+                input: Default::default(),
             }],
         };
 

@@ -83,13 +83,13 @@ fn test_som_resolver_basic() {
         Some(&SomPath::new("Page.Body")),
     );
 
-    // Test simple name resolution
-    let result = resolver.resolve_node("txtlanguage", None);
-    assert_eq!(result, Some(SomPath::new("Page.Header.txtlanguage")));
+    // A bare name is not an absolute path: the host resolves nothing by it.
+    assert_eq!(resolver.resolve_node("txtlanguage"), None);
 
-    // Test full path resolution
-    let result = resolver.resolve_node("Page.Header.txtlanguage", None);
+    let result = resolver.resolve_node("Page.Header.txtlanguage");
     assert_eq!(result, Some(SomPath::new("Page.Header.txtlanguage")));
+    let result = resolver.resolve_node("xfa.form.Page.Body.Name");
+    assert_eq!(result, Some(SomPath::new("Page.Body.Name")));
 }
 
 #[test]
@@ -107,15 +107,15 @@ fn test_som_resolver_indexed() {
     }
 
     assert_eq!(
-        resolver.resolve_nodes("Item[0]", None),
+        resolver.resolve_nodes("Detail.Item[0]"),
         vec![SomPath::new("Detail.Item")]
     );
     assert_eq!(
-        resolver.resolve_nodes("Item[2]", None),
+        resolver.resolve_nodes("Detail.Item[2]"),
         vec![SomPath::new("Detail.Item[2]")]
     );
-    assert_eq!(resolver.resolve_nodes("Item[*]", None).len(), 3);
-    assert!(resolver.resolve_nodes("Item[3]", None).is_empty());
+    assert_eq!(resolver.resolve_nodes("Detail.Item[*]").len(), 3);
+    assert!(resolver.resolve_nodes("Detail.Item[3]").is_empty());
 }
 
 // =============================================================================
@@ -182,16 +182,11 @@ fn the_resolver_indexes_siblings_per_parent_not_across_the_document() {
 
     // `B.Item[1]` is B's second Item, not the document's fourth.
     assert_eq!(
-        resolver.resolve_node("Root.B.Item[1]", None),
+        resolver.resolve_node("Root.B.Item[1]"),
         Some(SomPath::new("Root.B.Item[1]"))
     );
     assert_eq!(
-        resolver.resolve_nodes("B.Item[1]", Some(&SomPath::new("Root.A.Item"))),
-        vec![SomPath::new("Root.B.Item[1]")]
-    );
-    // From inside A, an unqualified `Item[1]` is A's own second Item.
-    assert_eq!(
-        resolver.resolve_node("Item[1]", Some(&SomPath::new("Root.A"))),
+        resolver.resolve_node("Root.A.Item[1]"),
         Some(SomPath::new("Root.A.Item[1]"))
     );
     assert_eq!(
@@ -208,7 +203,7 @@ fn star_selects_every_instance_under_one_parent_only() {
 <subform name="Other"><subform name="Row"><field name="Idx"/></subform></subform></subform>"#,
     );
     let resolver = SomResolver::from_nodes(&nodes);
-    let found = resolver.resolve_nodes("Row[*].Idx", Some(&SomPath::new("Root.Row[1]")));
+    let found = resolver.resolve_nodes("Root.Row[*].Idx");
     assert_eq!(
         found,
         vec![
@@ -445,47 +440,6 @@ fn test_language_switch_english() {
 // Context-Aware Resolution Tests
 // =============================================================================
 
-#[test]
-fn test_context_aware_field_resolution() {
-    let mut engine = XfaScriptEngine::new();
-
-    // Register two fields with the same name but different paths
-    engine.register_field("Section1.ISIN", "ISIN", "value1");
-    engine.register_field("Section2.Subsection.ISIN", "ISIN", "value2");
-    engine.register_field("Section3.ISIN", "ISIN", "value3");
-
-    // Test 1: No context - should return first registered
-    let resolved = engine.resolve_field_by_name_with_context("ISIN");
-    assert!(resolved.is_some(), "Should resolve ISIN without context");
-
-    // Test 2: With context in Section2 - should prefer Section2.Subsection.ISIN
-    engine.set_current_field("Section2.SomeField", "SomeField", "");
-    let resolved = engine.resolve_field_by_name_with_context("ISIN");
-    assert!(resolved.is_some());
-    let path = resolved.unwrap().to_string();
-    assert!(
-        path.starts_with("Section2"),
-        "Should resolve to Section2 path when context is in Section2, got: {}",
-        path
-    );
-
-    // Test 3: With context in Section3 - should prefer Section3.ISIN
-    engine.set_current_field("Section3.AnotherField", "AnotherField", "");
-    let resolved = engine.resolve_field_by_name_with_context("ISIN");
-    assert!(resolved.is_some());
-    let path = resolved.unwrap().to_string();
-    assert!(
-        path.starts_with("Section3"),
-        "Should resolve to Section3 path when context is in Section3, got: {}",
-        path
-    );
-
-    // Test 4: Full path should work regardless of context
-    let resolved = engine.resolve_field_by_name_with_context("Section1.ISIN");
-    assert!(resolved.is_some());
-    let path = resolved.unwrap().to_string();
-    assert_eq!(path, "Section1.ISIN", "Full path should resolve exactly");
-}
 
 // =============================================================================
 // State/Value Tests
@@ -594,10 +548,6 @@ fn test_js_helpers_available() {
     assert!(!helpers.is_empty());
 
     // Verify key helpers exist - check for the function definitions
-    assert!(
-        helpers.contains("_xfa_resolve_path_"),
-        "Should contain _xfa_resolve_path_ helper function"
-    );
 }
 
 // =============================================================================
@@ -1003,7 +953,7 @@ fn test_get_all_som_field_values_preserves_empty_strings() {
     engine.register_field("field1", "field1", "hello");
     engine.register_field("field2", "field2", "");
 
-    let values = engine.get_all_som_field_values();
+    let values = engine.get_all_som_field_values_by_path();
     assert_eq!(
         values.get("field1"),
         Some(&"hello".to_string()),
@@ -1054,7 +1004,7 @@ fn test_script_clearing_field_via_empty_rawvalue_is_detected() {
     let _ = engine.execute_script(&script);
 
     // The cleared value must appear as empty string, not be absent
-    let values = engine.get_all_som_field_values();
+    let values = engine.get_all_som_field_values_by_path();
     assert!(
         values.contains_key("myField"),
         "Cleared field must still be present in get_all_som_field_values"
@@ -1092,20 +1042,20 @@ fn test_exclgroup_deselection_preserves_empty_values() {
     );
 
     // All children start with empty rawValue (deselected state)
-    let values = engine.get_all_som_field_values();
+    let values = engine.get_all_som_field_values_by_path();
     // The deselected children should have empty string values, not be absent
     assert_eq!(
-        values.get("optA"),
+        values.get("myGroup.optA"),
         Some(&"".to_string()),
         "Deselected exclGroup member should have empty string value"
     );
     assert_eq!(
-        values.get("optB"),
+        values.get("myGroup.optB"),
         Some(&"".to_string()),
         "Deselected exclGroup member should have empty string value"
     );
     assert_eq!(
-        values.get("optC"),
+        values.get("myGroup.optC"),
         Some(&"".to_string()),
         "Deselected exclGroup member should have empty string value"
     );
@@ -1213,12 +1163,16 @@ fn test_resolve_nodes_descendant_accessor() {
     engine.register_field("Form.Section1.Amount", "Amount", "100");
     engine.register_field("Form.Section2.Amount", "Amount", "200");
 
-    // resolveNodes("$data..Amount") should return both instances
+    // `Form..Amount` is the first descendant named Amount in document
+    // order (XFA 3.3 §3 "Selecting Descendants At Any Level"), one node;
+    // `$data` names a model this engine does not have, which is an error.
     engine.set_current_field("Form.Total", "Total", "");
     let script = XfaScript {
         source: r#"
-            var nodes = xfa.resolveNodes("$data..Amount");
-            this.rawValue = String(nodes.length);
+            var nodes = xfa.resolveNodes("Form..Amount");
+            var data;
+            try { xfa.resolveNodes("$data..Amount"); data = "no error"; } catch (e) { data = "error"; }
+            this.rawValue = String(nodes.length) + nodes.item(0).rawValue + data;
         "#
         .to_string(),
         content_type: ScriptContentType::JavaScript,
@@ -1231,10 +1185,7 @@ fn test_resolve_nodes_descendant_accessor() {
     let result = engine.execute_script(&script);
     assert!(result.is_ok());
     if let Ok(Some(value)) = result {
-        assert_eq!(
-            value, "2",
-            "resolveNodes('$data..Amount') should return 2 descendant matches"
-        );
+        assert_eq!(value, "1100error", "the first descendant only, and $data is an error");
     }
 }
 
@@ -1242,8 +1193,8 @@ fn test_resolve_nodes_descendant_accessor() {
 fn test_resolve_nodes_by_simple_name() {
     let mut engine = XfaScriptEngine::new();
     // Containers first, as the form's hierarchy builder registers them.
-    engine.register_field_with_presence("Page1", "Page1", "", "visible", true);
-    engine.register_field_with_presence("Page2", "Page2", "", "visible", true);
+    engine.register_field_with_presence("Page1", "Page1", "", "visible", true, &[]);
+    engine.register_field_with_presence("Page2", "Page2", "", "visible", true, &[]);
     engine.register_field("Page1.Field1", "Field1", "a");
     engine.register_field("Page2.Field1", "Field1", "b");
     engine.register_field("Page1.Field2", "Field2", "c");
@@ -1351,13 +1302,9 @@ fn test_exclgroup_dedup_selected_vs_deselected() {
         "Deselected groupB.RB_1 should be ''"
     );
 
-    // The short-name entry for "RB_1" should be the non-empty one
-    let values = engine.get_all_som_field_values();
-    let short_name_value = values.get("RB_1");
-    assert_eq!(
-        short_name_value,
-        Some(&"A".to_string()),
-        "Short-name 'RB_1' should have the non-empty value"
+    assert!(
+        !full_path_values.contains_key("RB_1"),
+        "a field is keyed by its full path only, never its bare name"
     );
 }
 
@@ -1475,10 +1422,12 @@ fn test_event_change_property_for_change_event() {
     let mut engine = XfaScriptEngine::new();
     engine.register_field("Form.Field1", "Field1", "original");
 
-    engine.update_event_context(&EventActivity::Change, "Form.Field1", None);
-    engine.set_current_field("Form.Field1", "Field1", "original");
+    // The caller supplies the value the field held before the change;
+    // prevText is that, and change, newText and fullText are the new text.
+    engine.update_field_value("Form.Field1", "edited");
+    engine.update_event_context(&EventActivity::Change, "Form.Field1", Some("original"));
+    engine.set_current_field("Form.Field1", "Field1", "edited");
 
-    // prevText should be set to current value for change events
     let script = XfaScript {
         source: r#"this.rawValue = xfa.event.prevText;"#.to_string(),
         content_type: ScriptContentType::JavaScript,
@@ -1490,12 +1439,13 @@ fn test_event_change_property_for_change_event() {
     };
     let result = engine.execute_script(&script);
     assert!(result.is_ok());
-    if let Ok(Some(value)) = result {
-        assert_eq!(
-            value, "original",
-            "prevText should contain the field's value before change"
-        );
-    }
+    assert_eq!(result.unwrap().as_deref(), Some("original"), "prevText is the value before the change");
+    engine.update_event_context(&EventActivity::Change, "Form.Field1", Some("original"));
+    assert_eq!(
+        engine.evaluate_expression("[xfa.event.change, xfa.event.newText, xfa.event.selStart, xfa.event.selEnd].join('|')").unwrap(),
+        "original|original|0|8",
+        "change and newText are the text put in; the selection spans the previous text"
+    );
 }
 
 #[test]
@@ -1694,10 +1644,10 @@ fn test_calc_convergence_chain_three_fields() {
     }
 
     // After convergence, verify values
-    let values = engine.get_all_som_field_values();
-    assert_eq!(values.get("A"), Some(&"5".to_string()), "A should be 5");
-    assert_eq!(values.get("B"), Some(&"6".to_string()), "B should be 6");
-    assert_eq!(values.get("C"), Some(&"7".to_string()), "C should be 7");
+    let values = engine.get_all_som_field_values_by_path();
+    assert_eq!(values.get("Form.A"), Some(&"5".to_string()), "A should be 5");
+    assert_eq!(values.get("Form.B"), Some(&"6".to_string()), "B should be 6");
+    assert_eq!(values.get("Form.C"), Some(&"7".to_string()), "C should be 7");
 }
 
 #[test]
@@ -1731,22 +1681,16 @@ fn test_calc_already_convergent_single_pass() {
     };
     let _ = engine.execute_script(&script_y);
 
-    // Second pass produces same values → no change
+    // A second pass yields the same value: the calculate result is the
+    // script's value whether or not it changed; convergence is the
+    // executor's comparison, not the engine's silence.
     engine.set_current_field("Form.X", "X", "hello");
     let result_x = engine.execute_script(&script_x);
-    assert_eq!(
-        result_x.unwrap(),
-        None,
-        "No change on second pass means execute_script returns None"
-    );
+    assert_eq!(result_x.unwrap(), Some("hello".to_string()));
 
     engine.set_current_field("Form.Y", "Y", "world");
     let result_y = engine.execute_script(&script_y);
-    assert_eq!(
-        result_y.unwrap(),
-        None,
-        "No change on second pass means execute_script returns None"
-    );
+    assert_eq!(result_y.unwrap(), Some("world".to_string()));
 }
 
 // =============================================================================
@@ -1759,7 +1703,7 @@ fn test_hidden_field_calculates_value() {
     // Per XFA 3.3 §2 p.68: "hidden: The container... may still perform
     // calculations, validations, and event processing."
     let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Form.HiddenField", "HiddenField", "", "hidden", false);
+    engine.register_field_with_presence("Form.HiddenField", "HiddenField", "", "hidden", false, &[]);
 
     engine.set_current_field("Form.HiddenField", "HiddenField", "");
     let script = XfaScript {
@@ -1784,7 +1728,7 @@ fn test_hidden_field_calculates_value() {
 fn test_hidden_field_initializes() {
     // A hidden field's initialize event should still fire.
     let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Form.HiddenInit", "HiddenInit", "", "hidden", false);
+    engine.register_field_with_presence("Form.HiddenInit", "HiddenInit", "", "hidden", false, &[]);
 
     engine.set_current_field("Form.HiddenInit", "HiddenInit", "");
     let script = XfaScript {
@@ -1818,6 +1762,7 @@ fn test_inactive_field_presence_in_engine() {
         "",
         "inactive",
         false,
+        &[],
     );
 
     engine.set_current_field("Form.InactiveField", "InactiveField", "");
@@ -1891,7 +1836,7 @@ fn test_border_color_settable() {
         "#
         .to_string(),
         content_type: ScriptContentType::JavaScript,
-        activity: EventActivity::Calculate,
+        activity: EventActivity::Initialize,
         event_ref: EventRef::Current,
         name: None,
         run_at: RunAt::Client,
@@ -1990,7 +1935,7 @@ fn test_property_stubs_dont_affect_raw_value() {
         "#
         .to_string(),
         content_type: ScriptContentType::JavaScript,
-        activity: EventActivity::Calculate,
+        activity: EventActivity::Initialize,
         event_ref: EventRef::Current,
         name: None,
         run_at: RunAt::Client,
@@ -2005,105 +1950,13 @@ fn test_property_stubs_dont_affect_raw_value() {
     );
 
     // Verify rawValue is still "original"
-    let values = engine.get_all_som_field_values();
-    assert_eq!(values.get("Field1"), Some(&"original".to_string()));
+    let values = engine.get_all_som_field_values_by_path();
+    assert_eq!(values.get("Form.Field1"), Some(&"original".to_string()));
 }
 
 // =============================================================================
-// Gap 8: SOM Resolution Heuristic Tests
+// SOM Resolution Tests
 // =============================================================================
-
-#[test]
-fn test_unqualified_resolves_child_first() {
-    // Per XFA 3.3 §3 pp.110-114 Step 1: children of the context container
-    // are checked first.
-    let mut engine = XfaScriptEngine::new();
-    engine.register_field("Section1.Field1", "Field1", "value1");
-    engine.register_field("Section2.Field1", "Field1", "value2");
-
-    // Context is Section1 — should resolve Field1 to Section1.Field1
-    engine.set_current_field("Section1.Other", "Other", "");
-    let resolved = engine.resolve_field_by_name_with_context("Field1");
-    assert!(resolved.is_some());
-    assert_eq!(
-        resolved.unwrap().to_string(),
-        "Section1.Field1",
-        "Should resolve to child of current context container"
-    );
-
-    // Switch context to Section2
-    engine.set_current_field("Section2.Other", "Other", "");
-    let resolved = engine.resolve_field_by_name_with_context("Field1");
-    assert!(resolved.is_some());
-    assert_eq!(
-        resolved.unwrap().to_string(),
-        "Section2.Field1",
-        "Should resolve to child of current context container (Section2)"
-    );
-}
-
-#[test]
-fn test_unqualified_resolves_sibling() {
-    // Per XFA 3.3 §3 pp.110-114 Step 2: siblings (children of parent)
-    let mut engine = XfaScriptEngine::new();
-    engine.register_field("Sub.FieldX", "FieldX", "x_val");
-    engine.register_field("Sub.FieldY", "FieldY", "y_val");
-    engine.register_field("Other.FieldY", "FieldY", "other_y");
-
-    // Context is Sub.FieldX — FieldY should resolve to Sub.FieldY (sibling)
-    engine.set_current_field("Sub.FieldX", "FieldX", "x_val");
-    let resolved = engine.resolve_field_by_name_with_context("FieldY");
-    assert!(resolved.is_some());
-    assert_eq!(
-        resolved.unwrap().to_string(),
-        "Sub.FieldY",
-        "Should resolve to sibling within same parent"
-    );
-}
-
-#[test]
-fn test_unqualified_resolves_ancestor_sibling() {
-    // Per XFA 3.3 §3 pp.110-114 Steps 3-5: walk up to
-    // parent/grandparent siblings (uncle search).
-    let mut engine = XfaScriptEngine::new();
-    engine.register_field("Root.Sub.Inner.FieldA", "FieldA", "inner_a");
-    engine.register_field("Root.Sub.OuterField", "OuterField", "outer");
-    engine.register_field("Root.TopField", "TopField", "top");
-
-    // Context is deep inside Root.Sub.Inner.FieldA
-    engine.set_current_field("Root.Sub.Inner.FieldA", "FieldA", "inner_a");
-
-    // OuterField is sibling of Inner (uncle) — should find it via walk-up
-    let resolved = engine.resolve_field_by_name_with_context("OuterField");
-    assert!(resolved.is_some());
-    assert_eq!(
-        resolved.unwrap().to_string(),
-        "Root.Sub.OuterField",
-        "Should resolve uncle via ancestor walk-up"
-    );
-
-    // TopField is at grandparent level — should also find it
-    let resolved = engine.resolve_field_by_name_with_context("TopField");
-    assert!(resolved.is_some());
-    assert_eq!(
-        resolved.unwrap().to_string(),
-        "Root.TopField",
-        "Should resolve grand-uncle via ancestor walk-up"
-    );
-}
-
-#[test]
-fn test_unqualified_fails_when_not_found() {
-    let mut engine = XfaScriptEngine::new();
-    engine.register_field("Form.Field1", "Field1", "");
-
-    engine.set_current_field("Form.Field1", "Field1", "");
-    let resolved = engine.resolve_field_by_name_with_context("Nonexistent");
-    assert!(
-        resolved.is_none(),
-        "Should return None for nonexistent field name"
-    );
-}
 
 #[test]
 fn test_relocatable_script_two_detail_subforms() {
@@ -2216,9 +2069,9 @@ fn test_exec_event_basic() {
     let _ = engine.execute_script(&script);
 
     // Verify B's rawValue was set by the click handler
-    let values = engine.get_all_som_field_values();
+    let values = engine.get_all_som_field_values_by_path();
     assert_eq!(
-        values.get("B"),
+        values.get("Form.B"),
         Some(&"clicked".to_string()),
         "B's click handler should have run via execEvent"
     );
@@ -2228,7 +2081,7 @@ fn test_exec_event_basic() {
 fn test_exec_event_inactive_fails_silently() {
     // Per XFA 3.3 §10 Rule 3: execEvent on inactive container fails silently.
     let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Form.B", "B", "", "inactive", false);
+    engine.register_field_with_presence("Form.B", "B", "", "inactive", false, &[]);
 
     engine.register_event_script("Form.B", "click", r#"this.rawValue = "clicked";"#);
 
@@ -2246,8 +2099,8 @@ fn test_exec_event_inactive_fails_silently() {
     assert!(result.is_ok(), "execEvent on inactive should not error");
 
     // B's rawValue should remain empty — handler was NOT executed
-    let values = engine.get_all_som_field_values();
-    let b_val = values.get("B").cloned().unwrap_or_default();
+    let values = engine.get_all_som_field_values_by_path();
+    let b_val = values.get("Form.B").cloned().unwrap_or_default();
     assert!(
         b_val.is_empty() || b_val.is_empty(),
         "Inactive field's handler should not have run, got: {}",
@@ -2287,9 +2140,9 @@ fn test_exec_event_returns_to_caller() {
     );
 
     // B should also have been updated
-    let values = engine.get_all_som_field_values();
+    let values = engine.get_all_som_field_values_by_path();
     assert_eq!(
-        values.get("B"),
+        values.get("Form.B"),
         Some(&"entered".to_string()),
         "B's enter handler should have run"
     );
@@ -2343,9 +2196,9 @@ fn test_exec_event_calculate() {
     };
     let _ = engine.execute_script(&script);
 
-    let values = engine.get_all_som_field_values();
+    let values = engine.get_all_som_field_values_by_path();
     assert_eq!(
-        values.get("Total"),
+        values.get("Form.Total"),
         Some(&"200".to_string()),
         "Total's calculate handler should run via execEvent"
     );
@@ -2359,7 +2212,7 @@ fn test_exec_event_calculate() {
 fn test_update_field_presence_baseline_updates_existing_entry() {
     let mut engine = XfaScriptEngine::new();
     // Register a field with initial presence "visible"
-    engine.register_field_with_presence("Root.Page.Field1", "Field1", "hello", "visible", false);
+    engine.register_field_with_presence("Root.Page.Field1", "Field1", "hello", "visible", false, &[]);
 
     let path = SomPath::new("Root.Page.Field1");
 
@@ -2387,7 +2240,7 @@ fn test_update_field_presence_baseline_updates_existing_entry() {
 fn test_update_field_presence_baseline_skips_unregistered_path() {
     let mut engine = XfaScriptEngine::new();
     // Register one field
-    engine.register_field_with_presence("Root.Page.Field1", "Field1", "hello", "visible", false);
+    engine.register_field_with_presence("Root.Page.Field1", "Field1", "hello", "visible", false, &[]);
 
     // Try to update a path that was never registered
     let unknown = SomPath::new("Root.Page.Nonexistent");
@@ -2407,7 +2260,7 @@ fn test_update_field_presence_baseline_skips_unregistered_path() {
 #[test]
 fn test_update_field_presence_baseline_does_not_create_new_js_objects() {
     let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Root.Page.Field1", "Field1", "v1", "visible", false);
+    engine.register_field_with_presence("Root.Page.Field1", "Field1", "v1", "visible", false, &[]);
 
     let count_before = engine.field_objects_count();
 
@@ -2425,7 +2278,7 @@ fn test_update_field_presence_baseline_does_not_create_new_js_objects() {
 #[test]
 fn test_update_field_presence_baseline_presence_change_detection() {
     let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Root.Page.Field1", "Field1", "v1", "visible", false);
+    engine.register_field_with_presence("Root.Page.Field1", "Field1", "v1", "visible", false, &[]);
 
     let path = SomPath::new("Root.Page.Field1");
 
@@ -2452,67 +2305,15 @@ fn test_update_field_presence_baseline_presence_change_detection() {
 }
 
 #[test]
-fn test_shortened_path_aliases_carry_initial_presence() {
-    // Regression test: register_path_on_object creates shortened-path aliases
-    // (e.g. "Root.Page.MyField" for "Form.Root.Page.MyField").  These aliases
-    // must carry the same initial_presence as the canonical path, otherwise
-    // get_all_som_presence_changes() defaults to "visible" and produces
-    // false-positive presence changes.
+fn a_field_registered_by_a_long_path_produces_no_false_presence_change() {
     let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Form.Root.Page.MyField", "MyField", "", "hidden", false);
-
-    // No script has changed any presence — result must be empty.
-    let changes = engine.get_all_som_presence_changes();
-    assert!(
-        changes.is_empty(),
-        "Expected no presence changes, but got: {:?}",
-        changes
-    );
-
-    // Verify the shortened alias paths also have initial_presence = "hidden"
-    let alias = SomPath::new("Root.Page.MyField");
-    assert!(
-        engine.has_initial_presence(&alias),
-        "Shortened alias path should have an initial_presence entry"
-    );
-    assert_eq!(
-        engine.get_initial_presence(&alias),
-        Some("hidden"),
-        "Shortened alias path should inherit the field's initial presence"
-    );
-}
-
-#[test]
-fn test_shortened_path_aliases_visible_field_no_false_change() {
-    // A field with default visible presence should also not produce false
-    // changes through its aliases.
-    let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Form.Root.Page.Field1", "Field1", "val", "visible", false);
+    engine.register_field_with_presence("Form.Root.Page.Field1", "Field1", "val", "visible", false, &[]);
 
     let changes = engine.get_all_som_presence_changes();
     assert!(
         changes.is_empty(),
         "Visible field should produce no presence changes: {:?}",
         changes
-    );
-}
-
-#[test]
-fn test_shortened_path_alias_detects_real_change() {
-    // After fixing the false positives, real changes must still be detected
-    // on shortened-path aliases.
-    let mut engine = XfaScriptEngine::new();
-    engine.register_field_with_presence("Form.Root.Page.Field1", "Field1", "", "visible", false);
-
-    // Mutate presence on the shortened alias
-    let alias = SomPath::new("Root.Page.Field1");
-    engine.set_js_presence(&alias, "hidden");
-
-    let changes = engine.get_all_som_presence_changes();
-    assert_eq!(
-        changes.get("Root.Page.Field1"),
-        Some(&"hidden".to_string()),
-        "Real presence change on shortened alias should be detected"
     );
 }
 
@@ -2689,7 +2490,7 @@ fn test_subform_via_register_field_with_presence_has_instance_manager() {
     let mut engine = XfaScriptEngine::new();
 
     // The parent first: the instance manager lives on it (XFA 3.3 §9).
-    engine.register_field_with_presence("Root", "Root", "", "visible", true);
+    engine.register_field_with_presence("Root", "Root", "", "visible", true, &[]);
     // register_field_with_presence with is_subform=true should add instanceManager
     engine.register_field_with_presence(
         "Root.DynSubform",
@@ -2697,6 +2498,7 @@ fn test_subform_via_register_field_with_presence_has_instance_manager() {
         "",
         "visible",
         true, // is_subform
+        &[],
     );
 
     engine.set_current_field("Root.DynSubform", "DynSubform", "");
@@ -3627,3 +3429,376 @@ fn xfa_property_names_object_methods_and_membership_still_answer() {
         Some("undefined,undefined,true,false,true,function")
     );
 }
+
+// =============================================================================
+// What ACYI_001_EN's cover page needs of the engine: `nodes`, scope-matched
+// property names, `caption.value.#text`, `selectedIndex`, `runAt="server"`
+// and global data binding
+// =============================================================================
+
+#[test]
+fn nodes_lists_a_containers_children_in_document_order() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<subform name="Sec"><field name="A" w="40pt" h="20pt"/><field name="B" w="40pt" h="20pt"/><field name="C" w="40pt" h="20pt"/></subform>{}"#,
+        click_script(
+            "Btn",
+            "var n = Sec.nodes; Out.rawValue = n.length + ':' + n.item(0).name + n.item(1).name + n.item(2).name + ':' + String(n.item(3));"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("3:ABC:null")
+    );
+}
+
+/// Acrobat resolves `this.X` for an `X` the node does not have the way it
+/// resolves an unqualified name: the node's children, then the node and its
+/// siblings, then each ancestor's -- what ACYI's row button and its
+/// `Branch_Flag` calculate rely on. A name nothing in scope has still throws.
+#[test]
+fn an_unknown_property_of_a_node_is_scope_matched_before_it_throws() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<subform name="Row"><field name="Flag" w="40pt" h="20pt"><calculate><script contentType="application/x-javascript">this.Flag.rawValue = "self";</script></calculate></field>{}</subform>"#,
+        click_script(
+            "Btn",
+            "var missing = ''; try { this.Nowhere; } catch (e) { missing = 'threw'; } Out.rawValue = this.Row.name + '/' + this.Out.name + '/' + this.Flag.rawValue + '/' + missing;"
+        )
+    ));
+    form.click("Root.Row.Btn").expect("click");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("Row/Out/self/threw")
+    );
+}
+
+/// A script in `Row[1]` naming `Row` means its own instance (XFA 3.3 §3,
+/// scope-matching uses the container's index), not `Row[0]`.
+#[test]
+fn a_scope_matched_name_of_the_container_itself_is_its_own_instance() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<subform name="Row"><occur initial="2" max="5"/><field name="Which" w="40pt" h="20pt"><calculate><script contentType="application/x-javascript">this.rawValue = "i" + this.Row.index;</script></calculate></field></subform>"#
+    ));
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.Row.Which").as_deref(), Some("i0"));
+    assert_eq!(
+        value_of(&mut form, "Root.Row[1].Which").as_deref(),
+        Some("i1")
+    );
+}
+
+#[test]
+fn a_caption_set_through_a_class_reference_relabels_the_field() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<field name="Lbl" w="80pt" h="20pt"><caption><value><text>*** old ***</text></value></caption></field><field name="Rich" w="80pt" h="20pt"><caption><value><exData contentType="text/html"><body xmlns="http://www.w3.org/1999/xhtml"><p>rich</p></body></exData></value></caption></field>{}"#,
+        click_script(
+            "Btn",
+            "var t = Lbl.resolveNode('caption.value.#text'); var before = t.value; t.value = 'New label'; Out.rawValue = before + '|' + Lbl.resolveNode('caption.value.#text').value + '|' + String(Rich.resolveNode('caption.value.#text'));"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    form.refresh().expect("refresh");
+    assert_eq!(
+        value_of(&mut form, "Root.Out").as_deref(),
+        Some("*** old ***|New label|null")
+    );
+    let lbl = form.resolve("Root.Lbl").expect("Lbl");
+    assert_eq!(
+        lbl.xfa_node().caption_text().as_deref(),
+        Some("New label"),
+        "the caption a script set must reach the node the layout draws from"
+    );
+}
+
+#[test]
+fn selected_index_is_minus_one_until_an_item_is_chosen() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<field name="Dd" w="80pt" h="20pt"><ui><choiceList/></ui><items><text>a</text><text>b</text></items></field>{}"#,
+        click_script(
+            "Btn",
+            "var none = Dd.selectedIndex; Dd.rawValue = 'b'; var second = Dd.selectedIndex; Dd.selectedIndex = 0; Out.rawValue = none + ',' + second + ',' + Dd.rawValue;"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("-1,1,a"));
+}
+
+/// XFA 3.3 §11: a `runAt="server"` script is for a processor set up as a
+/// server; the client ignores it, as Acrobat does. `both` runs here.
+#[test]
+fn a_server_only_script_does_not_run_on_the_client() {
+    let mut form = form_with(
+        r#"<field name="Srv" w="40pt" h="20pt"><calculate><script runAt="server" contentType="application/x-javascript">this.rawValue = "server";</script></calculate></field><field name="Both" w="40pt" h="20pt"><calculate><script runAt="both" contentType="application/x-javascript">this.rawValue = "both";</script></calculate></field><field name="Shown" w="40pt" h="20pt"><event activity="initialize"><script runAt="server" contentType="application/x-javascript">this.presence = "hidden";</script></event></field>"#,
+    );
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.Srv").as_deref().unwrap_or(""), "");
+    assert_eq!(value_of(&mut form, "Root.Both").as_deref(), Some("both"));
+    assert!(
+        form.resolve("Root.Shown").expect("Shown").is_visible(),
+        "a server-only initialize script must not hide the field here"
+    );
+}
+
+/// Assigning a string to a node sets the node's value, as Acrobat does
+/// (`xfa::acrobat_compat`, item 5: AAJB's `this.ffDesSignature = ...`
+/// captions), and never replaces the node: later reads still reach it.
+/// The cleared field reads `null` (XFA 3.3 §2: no content is a null
+/// value), which JavaScript concatenates as "null".
+#[test]
+fn assigning_a_string_to_a_child_node_sets_its_value() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<subform name="Sec"><field name="F" w="40pt" h="20pt"><value><text>kept</text></value></field></subform>{}"#,
+        click_script(
+            "Btn",
+            "Sec.F = ''; var cleared = Sec.F.rawValue; this.parent.Sec.F = 'x'; Out.rawValue = typeof Sec.F + '/' + cleared + '/' + Sec.F.rawValue + '/' + Sec.F.name;"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("object/null/x/F"));
+    assert_eq!(value_of(&mut form, "Root.Sec.F").as_deref(), Some("x"));
+}
+
+/// XFA 3.3 §6 "Global data": every field bound to the same global data
+/// node has that node's value, so writing one writes them all -- including
+/// the exclusion groups ACYI's cover page joins this way.
+#[test]
+fn fields_bound_to_global_data_share_one_value() {
+    let mut form = form_with(&format!(
+        r#"{OUT}<subform name="S1"><field name="G" w="40pt" h="20pt"><bind match="global"/></field><exclGroup name="Opt"><bind match="global"/><field name="RB_1" w="20pt" h="20pt"><ui><checkButton/></ui><items><integer>1</integer></items></field><field name="RB_2" w="20pt" h="20pt"><ui><checkButton/></ui><items><integer>2</integer></items></field></exclGroup></subform><subform name="S2"><field name="G" w="40pt" h="20pt"><bind match="global"/></field><exclGroup name="Opt"><bind match="global"/><field name="RB_1" w="20pt" h="20pt"><ui><checkButton/></ui><items><integer>1</integer></items></field><field name="RB_2" w="20pt" h="20pt"><ui><checkButton/></ui><items><integer>2</integer></items></field></exclGroup></subform><field name="Local" w="40pt" h="20pt"/>{}"#,
+        click_script(
+            "Btn",
+            "S1.G.rawValue = 'x'; S1.Opt.RB_2.rawValue = '2'; Out.rawValue = S2.G.rawValue + '/' + S2.Opt.rawValue + '/' + Local.rawValue;"
+        )
+    ));
+    form.click("Root.Btn").expect("click");
+    // `Local` has no content, so its `rawValue` is null (XFA 3.3 §2).
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("x/2/null"));
+    assert_eq!(value_of(&mut form, "Root.S2.G").as_deref(), Some("x"));
+}
+
+// XFA 3.3 §17 "The exclGroup element": assigning a member its on value
+// activates it; any other value only turns it off when it was the active one.
+#[test]
+fn a_member_assigned_a_value_other_than_its_on_value_is_not_selected() {
+    let mut engine = XfaScriptEngine::new();
+    setup_exclgroup(&mut engine, "g", "g", &[("yes", "", Some("Y")), ("no", "", Some("N"))]);
+
+    engine.update_field_value("g.yes", "0");
+    assert_eq!(engine.get_field_value(&SomPath::new("g")), None, "\"0\" is not yes's on value");
+
+    engine.update_field_value("g.no", "N");
+    assert_eq!(engine.get_field_value(&SomPath::new("g")), Some("N".to_string()));
+    engine.update_field_value("g.yes", "0");
+    assert_eq!(
+        engine.get_field_value(&SomPath::new("g")),
+        Some("N".to_string()),
+        "turning off a member that is not selected leaves the selection alone"
+    );
+    engine.update_field_value("g.no", "");
+    assert_eq!(
+        engine.get_field_value(&SomPath::new("g")),
+        None,
+        "turning off the selected member leaves the group with no selection"
+    );
+}
+
+// XFA 3.3 §3: an unqualified name is searched among the container's
+// children, then its siblings and ancestors' siblings, never a sibling's
+// children, and the search fails at the root instead of taking a namesake
+// from elsewhere in the form.
+#[test]
+fn a_name_outside_the_scope_walk_resolves_to_nothing() {
+    let mut form = form_with(&format!(
+        r#"<subform name="A" layout="tb"><field name="X" w="40pt" h="20pt"><value><text>a</text></value></field></subform><subform name="B" layout="tb">{OUT}{}</subform>"#,
+        click_script(
+            "Go",
+            "var n = xfa.resolveNode('X'); Out.rawValue = n === null ? 'null' : n.rawValue; try { X; Out.rawValue += ',ref'; } catch (e) { Out.rawValue += ',' + e.name; }"
+        )
+    ));
+    form.click("Root.B.Go").expect("click");
+    assert_eq!(value_of(&mut form, "Root.B.Out").as_deref(), Some("null,ReferenceError"));
+}
+
+// XFA 3.3 §3 "$. Versus Unqualified": `$.X` escapes scope matching, so X
+// must be a child of the container; an unqualified X still walks the scope.
+#[test]
+fn a_dollar_dot_reference_names_a_child_only() {
+    let mut form = form_with(&format!(
+        r#"<field name="Y" w="40pt" h="20pt"><value><text>y</text></value></field><subform name="B" layout="tb">{OUT}{}</subform>"#,
+        click_script(
+            "Go",
+            "var walked = xfa.resolveNode('Y'); var child = xfa.resolveNode('$.Y'); Out.rawValue = (walked ? walked.rawValue : 'null') + ',' + (child ? child.rawValue : 'null');"
+        )
+    ));
+    form.click("Root.B.Go").expect("click");
+    assert_eq!(value_of(&mut form, "Root.B.Out").as_deref(), Some("y,null"));
+}
+
+/// XFA 3.3 §6 "Global data": a field that binds to a global data node
+/// after it has a value takes that value. A new row of AALU_019_DE's table
+/// joins `Global_AccountNumber` and must show the account number the
+/// header's script put there before the row existed.
+#[test]
+fn a_new_instance_joining_a_global_binding_takes_its_value() {
+    let mut form = form_with(&format!(
+        r#"<field name="Head" w="40pt" h="20pt"><bind match="global"/></field><subform name="Body" layout="tb"><subform name="Row" layout="tb"><occur min="1" max="5" initial="1"/><field name="Head" w="40pt" h="20pt"><bind match="global"/></field></subform></subform>{}"#,
+        click_script("Add", "Body._Row.addInstance();")
+    ));
+    form.interact("Root.Head", "123456").expect("set");
+    form.refresh().expect("refresh");
+    assert_eq!(
+        value_of(&mut form, "Root.Body.Row.Head").as_deref(),
+        Some("123456")
+    );
+    form.click("Root.Add").expect("click");
+    form.refresh().expect("refresh");
+    assert_eq!(
+        value_of(&mut form, "Root.Body.Row[1].Head").as_deref(),
+        Some("123456")
+    );
+    assert!(form.take_script_report().errors.is_empty());
+}
+
+/// A choice list a script rebuilds (`clearItems`/`addItem`, XFA 3.3 §6
+/// "Scripting Methods") is the list the field offers afterwards, in the
+/// Form DOM the renderer and the control listing read: AALU_019_DE's
+/// "Bereich" fills "Objektart" this way, with one item preselected and
+/// the field locked for "Access".
+#[test]
+fn items_a_script_builds_become_the_fields_choice_list() {
+    let mut form = form_with(&format!(
+        r#"<field name="Area" w="80pt" h="20pt"><ui><choiceList/></ui><items><text>Markt</text><text>Access</text></items><event activity="exit"><script contentType="application/x-javascript">var o = Objekt; o.clearItems(); o.access = "open"; if (this.rawValue == "Access") {{ o.addItem("609  Depot mit Vertrag", "609 RA"); o.rawValue = "609 RA"; o.access = "protected"; }} else {{ o.addItem(""); o.addItem("601  UBS Depot", "601"); o.addItem("606  Depot", "606"); }}</script></event></field><field name="Objekt" w="80pt" h="20pt" access="protected"><ui><choiceList/></ui></field>{OUT}"#
+    ));
+    assert!(
+        form.resolve("Root.Objekt")
+            .expect("Objekt")
+            .dropdown_options()
+            .is_empty()
+    );
+
+    form.interact("Root.Area", "Markt").expect("set");
+    form.refresh().expect("refresh");
+    let object = form.resolve("Root.Objekt").expect("Objekt");
+    assert_eq!(
+        object.dropdown_options(),
+        vec![
+            ("".to_string(), "".to_string()),
+            ("601  UBS Depot".to_string(), "601".to_string()),
+            ("606  Depot".to_string(), "606".to_string()),
+        ]
+    );
+    assert_eq!(
+        form.effective_access("Root.Objekt")
+            .map(|a| a.access.as_str()),
+        Some("open")
+    );
+
+    form.interact("Root.Area", "Access").expect("set");
+    form.refresh().expect("refresh");
+    let object = form.resolve("Root.Objekt").expect("Objekt");
+    assert_eq!(
+        object.dropdown_options(),
+        vec![("609  Depot mit Vertrag".to_string(), "609 RA".to_string())]
+    );
+    assert_eq!(
+        value_of(&mut form, "Root.Objekt").as_deref(),
+        Some("609 RA")
+    );
+    assert_eq!(
+        form.effective_access("Root.Objekt")
+            .map(|a| a.access.as_str()),
+        Some("protected")
+    );
+    assert!(form.take_script_report().errors.is_empty());
+}
+
+/// FormCalc method calls (XFA 3.3 §25 "Method Calls") reach the object
+/// model: BANH_001_DE's master page counts its pages with
+/// `this.rawValue = xfa.layout.pageCount()` in FormCalc. Method names are
+/// case-insensitive, and a node a call answers with is read as its value.
+#[test]
+fn a_formcalc_method_call_reaches_the_object_model() {
+    let mut form = form_with(
+        r#"<field name="A" w="40pt" h="20pt"><value><text>seen</text></value></field><field name="B" w="40pt" h="20pt"><calculate><script>$ = $.parent.RESOLVENODE("A")</script></calculate></field><field name="C" w="40pt" h="20pt"><calculate><script>this.rawValue = xfa.layout.pageCount()</script></calculate></field>"#,
+    );
+    let report = form.take_script_report();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
+    assert_eq!(value_of(&mut form, "Root.B").as_deref(), Some("seen"));
+    assert_eq!(value_of(&mut form, "Root.C").as_deref(), Some("1"));
+}
+
+/// XFA 3.3 §2 "Field Values": a field with no content holds a null value,
+/// so its `rawValue` reads `null`, not "". BADM_019_EN's client-type list
+/// fills its items and chooses its default only `if (this.rawValue ==
+/// null)` in its form:ready script, and with "" standing in for null the
+/// form opened with no client type at all.
+#[test]
+fn a_field_with_no_content_reads_null_so_a_ready_script_fills_its_default() {
+    let mut form = form_with(&format!(
+        r#"<variables><script name="soCfg" contentType="application/x-javascript">
+var selected = null;
+function getDefault() {{ return "Private Person"; }}
+</script></variables><field name="CL" w="80pt" h="20pt"><ui><choiceList/></ui><event activity="ready" ref="$form"><script contentType="application/x-javascript">if (this.rawValue == null) {{ soCfg.selected = soCfg.getDefault(); this.rawValue = soCfg.selected; }}</script></event></field>{OUT}{}"#,
+        click_script(
+            "Btn",
+            "Out.rawValue = String(CL.rawValue === null) + '/' + String(Out.rawValue === null) + '/' + soCfg.selected;"
+        )
+    ));
+    assert!(form.take_script_report().errors.is_empty());
+    assert_eq!(value_of(&mut form, "Root.CL").as_deref(), Some("Private Person"));
+    form.click("Root.Btn").expect("click");
+    // `Out` had no content when the script read it; `CL` has its default;
+    // and what the ready script left in the script object is still there.
+    assert_eq!(value_of(&mut form, "Root.Out").as_deref(), Some("false/true/Private Person"));
+}
+
+/// The shape of BADM_019_EN's client details and signatures: two
+/// repeatable sections kept in step by the form's own script object, a
+/// client type the form:ready script records in another script object,
+/// and exit scripts that paste "First Family" into the signature block of
+/// the same index. XFA 3.3 §10 instantiates script objects once, with the
+/// form: the load events and the person's interactions share that one
+/// environment, so what a ready script stores is what a click reads.
+#[test]
+fn load_scripts_and_interactions_share_one_scripting_environment() {
+    let mut form = form_with(&format!(
+        r#"<variables><script name="soCfg" contentType="application/x-javascript">var selected = null;</script><script name="soSync" contentType="application/x-javascript">
+function insertAndSynchronize(first, second) {{
+    if (first.instanceManager.count == second.instanceManager.count) {{
+        first.instanceManager.addInstance();
+        second.instanceManager.addInstance();
+    }}
+}}
+function setFullName(familyName, firstName, o) {{
+    if (firstName &amp;&amp; familyName) {{ o.rawValue = firstName + " " + familyName; }}
+}}
+</script></variables><field name="CL" w="80pt" h="20pt"><ui><choiceList/></ui><event activity="ready" ref="$form"><script contentType="application/x-javascript">if (this.rawValue == null) {{ soCfg.selected = "Private Person"; this.rawValue = soCfg.selected; }}</script></event></field><subform name="Clients" layout="tb"><subform name="Client" layout="tb"><occur min="1" max="4" initial="1"/>{}<field name="Family" w="80pt" h="20pt"><event activity="exit"><script contentType="application/x-javascript">var fullName; switch (soCfg.selected) {{ case "Private Person": fullName = this.resolveNode("Signatures.Sig[" + Client.index + "].FullName"); break; }} soSync.setFullName(this.rawValue, First.rawValue, fullName);</script></event></field><field name="First" w="80pt" h="20pt"><event activity="exit"><script contentType="application/x-javascript">var fullName; switch (soCfg.selected) {{ case "Private Person": fullName = this.resolveNode("Signatures.Sig[" + Client.index + "].FullName"); break; }} soSync.setFullName(Family.rawValue, this.rawValue, fullName);</script></event></field></subform></subform><subform name="Signatures" layout="tb"><subform name="Sig" layout="tb"><occur min="1" max="4" initial="1"/><field name="FullName" w="80pt" h="20pt"/></subform></subform>"#,
+        click_script(
+            "Add",
+            r#"switch (soCfg.selected) { case "Private Person": soSync.insertAndSynchronize(this.parent, Signatures.Sig); break; }"#
+        )
+    ));
+    assert!(form.take_script_report().errors.is_empty());
+
+    let added = form.click("Root.Clients.Client.Add").expect("click");
+    assert!(added.instances_changed, "{added:?}");
+    assert!(form.resolve("Root.Clients.Client[1]").is_some(), "a second client");
+    assert!(form.resolve("Root.Signatures.Sig[1]").is_some(), "and its signature block");
+    assert!(form.resolve("Root.Signatures.Sig[2]").is_none());
+
+    for (client, family, first, full) in [
+        ("Root.Clients.Client", "Muster", "Hans", "Hans Muster"),
+        ("Root.Clients.Client[1]", "Beispiel", "Erika", "Erika Beispiel"),
+    ] {
+        form.interact(&format!("{client}.Family"), family).expect("family");
+        form.interact(&format!("{client}.First"), first).expect("first");
+        let sig = client.replace("Clients.Client", "Signatures.Sig");
+        assert_eq!(
+            value_of(&mut form, &format!("{sig}.FullName")).as_deref(),
+            Some(full),
+            "{client}"
+        );
+    }
+    assert!(form.take_script_report().errors.is_empty());
+}
+

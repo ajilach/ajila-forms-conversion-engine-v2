@@ -40,12 +40,24 @@ name = "corpus_scripts"
 path = "tests/corpus_scripts.rs"
 
 [[test]]
+name = "fonts_dejavu"
+path = "tests/fonts_dejavu.rs"
+
+[[test]]
 name = "pagination"
 path = "tests/pagination.rs"
 
 [[test]]
+name = "prototypes"
+path = "tests/prototypes.rs"
+
+[[test]]
 name = "repeatables"
 path = "tests/repeatables.rs"
+
+[[test]]
+name = "script_clock"
+path = "tests/script_clock.rs"
 
 [[test]]
 name = "smoke"
@@ -54,6 +66,14 @@ path = "tests/smoke.rs"
 [[test]]
 name = "states"
 path = "tests/states.rs"
+
+[[test]]
+name = "viewer_chrome"
+path = "tests/viewer_chrome.rs"
+
+[[test]]
+name = "zz_dump"
+path = "tests/zz_dump.rs"
 
 [dependencies]
 ab_glyph = "0.2.32"
@@ -64,7 +84,6 @@ regex-lite = "0.1"
 rust_decimal = "1.40.0"
 ttf-parser = "0.25"
 unicode-normalization = "0.1"
-whatlang = "0.16"
 
 [dependencies.boa_engine]
 version = "0.20"
@@ -86,6 +105,9 @@ default-features = false
 
 [dependencies.log]
 version = "0.4"
+
+[dependencies.schemars]
+version = "1"
 
 [dependencies.serde]
 version = "1.0"

@@ -5,8 +5,12 @@ use image::RgbaImage;
 
 use crate::error::RenderError;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
 pub enum ImageFormat {
+    // The default: the cheap-in-context choice.
+    #[default]
+    #[serde(alias = "jpg")]
     Jpeg,
     Png,
 }
@@ -26,18 +30,6 @@ impl ImageFormat {
         }
     }
 
-    /// Parse a caller-supplied format string; `None` input means the default
-    /// (JPEG — the cheap-in-context choice).
-    pub fn parse(s: Option<&str>) -> Result<Self, RenderError> {
-        match s {
-            None | Some("jpeg") | Some("jpg") => Ok(ImageFormat::Jpeg),
-            Some("png") => Ok(ImageFormat::Png),
-            Some(other) => Err(RenderError::backend(
-                "encode",
-                format!("unknown image format {other:?} — use \"jpeg\" or \"png\""),
-            )),
-        }
-    }
 }
 
 pub fn encode(

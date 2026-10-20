@@ -1,49 +1,53 @@
 id = "ubs-aem-field-fidelity"
-title = "Each field is the source's control with its options, default, required state and width"
+title = "Each field matches its source control"
 output_formats = ["aem-ubs"]
 description = """
-Every fillable source field has the right control type (text box, number box, date, dropdown, radio
-buttons, checkbox, telephone, email, multi-line text), options with their real labels AND values,
-the source's default, the source's required state (`mandatory`), its visible state (`visible`), and
-a column width `colspan` that matches the layout (12 is full width, 6 only where two fields share a
-row in the source; the range itself is checked by ubs-aem-grid-widths).
+Every fillable source field is the right control with the source's options, default, required
+state, read-only state, length limit, visibility and width.
 
-The form configurator is the exception. A configurator is a `RadioButton` or `Dropdown` whose
-option labels are one of the reviewed configurator wordings and whose `conditions` show two or more
-conditional Panels (ubs-aem-configurator-panels). For a configurator, do not judge its control
-type, its option values, the position of the individual option, its default, or the `visible`
-state of the panels its conditions show: these follow the UBS convention
-(ubs-aem-account-holder-cluster, ubs-aem-configurator-panels), not the source, even where the
-source uses a dropdown, other values or another order, or shows one option's content by default.
-Still judge, as for any field, its options (none missing or invented) and their labels in every
-language, its required state and its width. A choice that shows conditional panels without a
-reviewed wording is an ordinary field and is judged in full. For a field inside a panel the
-configurator shows, judge `visible` relative to that panel: a field the source shows once its
-option is chosen is `visible: true`, although its panel starts hidden.
+Which controls count: every control `xfa_controls` lists, except those never visible (hidden by
+default and in no `appeared` of any choice in a session), barcodes, images, the footer line's fields and
+buttons (an add or remove control, save, print, mail, submit, navigation, link; CNV-SRC-5,
+CNV-SRC-6). The document has no button node: an add or remove control is the Repeatable's own, and
+any other button has no node either; keep what its click does to the form where the typed fields
+can say it (`calculate`, `copy_from`, `conditions`). Its type
+follows its `kind`: `text` a TextField (`Multiline` when `multiline`), `text_area` a Multiline
+TextField, `numeric` a NumberField, `date` and `date_time` a DatePicker (ubs-aem-dates), `time`
+and `password` a TextField, `dropdown` a Dropdown (a Checkbox list when `multi_select`), `radio`
+one option of a RadioButton (its `group` is the group), `checkbox` a Checkbox or one option of a
+list (ubs-aem-option-fields-after-group). Email and telephone follow ubs-aem-email-phone-kind.
 
-A field a fragment or the `Letterhead` supplies (a partner generic's name, address or date of
-birth, a signature's place and date, a letter's receiver, date and references) is the bank's
-standard and has no node in the document: its type, options, label
-and width are not judged here, and whether it shows is judged by ubs-aem-source-coverage.
+Its properties: options in the source's order with the labels it shows, none missing or invented
+(values: ubs-aem-options-wellformed); `default_value` from `default`; `mandatory` from `mandatory`
+(a Checkbox too, where a confirmation must be ticked); `read_only` where `access` is not `open`
+(ubs-aem-copied-values); a TextField's `max_chars` from `max_chars` (a Multiline field takes no
+limit); a NumberField's `lead_digits` and `frac_digits` from its `format` picture or `max_chars`
+(`frac_digits` 0 for whole numbers); `visible`; `colspan` from `positions` and the page (12 full
+width, 6 where two fields share a row; ubs-aem-grid-widths).
 
-How to judge: for each field of the document (json_outline), compare it with its control in
-xfa_controls and with the rendered page (xfa_render_pages): its type, its options (labels and
-values, in every language), its default, whether it is required, whether it is shown, and whether
-it shares a row with its neighbour. Read the source's own values with xfa_read where the labels
-alone do not show them.
+A fixed selection (CNV-INP-7), ticked by the source and not open for change, is not required: a
+Checkbox with `default_value` "1" and `read_only: true`. AEM cannot lock one option of a list: a
+fixed option of a list whose other options stay open becomes a Checkbox of its own beside the list,
+in source order, with `default_value` its option's value and `read_only: true`. A fixed radio
+choice is the RadioButton with `default_value` and `read_only`.
 
-Option VALUES follow ubs-aem-options-wellformed, which wins over the source here (owner directive):
-every key is a number, kept as the source has it where its values are numbers, and numbered by
-position from 1 where they are text (a dropdown an `addItem(text)` script fills has text values). Such
-numbered keys, and a default that selects the same option by its number, are not invented and not a
-break; judge the labels, their order and which option is the default.
+A configurator (a RadioButton or Dropdown in a panel named `PN_FormConfigurator...`) is a
+RadioButton with `alignment` `Horizontal`, whatever the source uses (backlog "Configurator
+rendering"); everything else is judged as for any field, its default included: nothing is
+preselected by wording. A field inside a panel a condition shows is judged `visible` relative to
+that panel. A field a fragment or the `Letterhead` supplies is the bank's standard and not judged;
+a free-text country of an address is the fragment's country dropdown (backlog "Free text country").
 
-A break is a control of the wrong type (a text box for a date, a dropdown for radio buttons), options
-missing, reordered or with invented values, a default or required state that differs from the
-source, a field hidden that the source shows (or the reverse), or a width that does not match the
-page. Nothing the configurator exception above leaves to the UBS convention is a break.
+Inputs inside running text (CNV-INP-6): a row Panel without title holding TextDraw, input,
+TextDraw in sentence order; words after the last gap stay a TextDraw after the input, never its
+label. Words that switch with another input ("calendar"/"business day(s)") are conditional
+variants of the text, never of the input, so its value survives. A value only printed in a
+sentence follows ubs-aem-floating-fields.
 
-Fix: change the node's type (replace the node), `mandatory`, `options`, `visible` or `colspan`.
+How to judge: compare each node (json_outline) with its control in xfa_controls and with the
+rendered page (xfa_render_pages); reveal hidden parts in a session (xfa_open, xfa_set).
+
+A break is any difference above. Fix: replace the node by the right type, or set the property.
 """
 
 [judge]

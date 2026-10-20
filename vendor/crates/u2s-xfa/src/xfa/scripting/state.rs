@@ -84,12 +84,6 @@ impl FormState {
         if let Some(v) = self.values.get(path) {
             return Some(v);
         }
-        let field_name = path.name();
-        for (key, value) in &self.values {
-            if key.ends_with(&format!(".{}", field_name)) || key.as_str() == field_name {
-                return Some(value);
-            }
-        }
         self.global_variables.get(path.as_str())
     }
 

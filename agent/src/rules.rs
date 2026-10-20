@@ -506,7 +506,8 @@ mod tests {
 
     /// A report where every rule holds fits in a couple of thousand
     /// characters, whatever the rules are. Raised from 2'000 when the four
-    /// letter rules joined (2026-10-13).
+    /// letter rules joined (2026-10-13), and to 2'600 when the v3 requirements
+    /// brought the rule set to 60 (2026-10-20).
     #[test]
     fn an_all_positive_report_is_small() {
         let rules = rules().unwrap();
@@ -519,7 +520,7 @@ mod tests {
         let judged: Vec<_> =
             rules.judged.iter().map(|r| (r.clone(), Ok(RuleVerdict { pass: true, violations: vec![] }))).collect();
         let report = merge_rule_report(json!({ "verdicts": scripted, "package_findings": [] }), &judged).to_string();
-        assert!(report.len() < 2_200, "an all-positive rule_check is {} characters", report.len());
+        assert!(report.len() < 2_600, "an all-positive rule_check is {} characters", report.len());
     }
 
     #[test]

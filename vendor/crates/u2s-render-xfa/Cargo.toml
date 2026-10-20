@@ -40,6 +40,14 @@ name = "access"
 path = "tests/access.rs"
 
 [[test]]
+name = "acrobat_reference"
+path = "tests/acrobat_reference.rs"
+
+[[test]]
+name = "corpus_baseline"
+path = "tests/corpus_baseline.rs"
+
+[[test]]
 name = "facade"
 path = "tests/facade.rs"
 

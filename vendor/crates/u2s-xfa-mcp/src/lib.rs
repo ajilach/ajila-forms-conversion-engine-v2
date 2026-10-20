@@ -25,14 +25,18 @@ pub mod specs;
 use std::borrow::Cow;
 use std::sync::Arc;
 
+use rmcp::ErrorData as McpError;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::*;
 use rmcp::service::{RequestContext, RoleServer};
-use rmcp::ErrorData as McpError;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use u2s_render_core::{Grep, Pattern, RenderError, window_chars};
+use u2s_render_core::args::{InfoArgs, parse_args};
+use u2s_render_core::{BlobStore, Grep, Pattern, RenderError, window_chars};
 use u2s_xfa::query;
 use u2s_xfa::{XfaNode, XfaPacket, extract_xfa_packets};
+
+use crate::specs::{NodeArgs, OutlineArgs, ReadArgs, SearchArgs, XfaDataArgs};
 
 const MANIFEST_URI: &str = "u2s://manifest";
 
@@ -41,9 +45,26 @@ const MANIFEST_URI: &str = "u2s://manifest";
 const CONTEXT_RADIUS: usize = 80;
 
 #[derive(Clone)]
-pub struct XfaDataServer;
+pub struct XfaDataServer {
+    /// Where a document named by `doc` (a blob handle) is read from.
+    blobs: Arc<BlobStore>,
+}
 
 impl XfaDataServer {
+    /// Configured from the environment: the blob store `DATABASE_URL` or
+    /// `U2S_BLOB_DIR` selects.
+    pub fn new() -> Result<Self, RenderError> {
+        Ok(Self::with_parts(BlobStore::from_env()?))
+    }
+
+    /// [`Self::new`] for in-process hosts: the blob store comes from the
+    /// caller.
+    pub fn with_parts(blobs: BlobStore) -> Self {
+        Self {
+            blobs: Arc::new(blobs),
+        }
+    }
+
     fn packets_of(&self, doc_path: &str) -> Result<Vec<XfaPacket>, RenderError> {
         let bytes = std::fs::read(doc_path).map_err(|source| RenderError::Io {
             path: doc_path.to_string(),
@@ -87,10 +108,17 @@ impl XfaDataServer {
             .map_err(|e| RenderError::backend("xfa", format!("XFA parse: {e}")))
     }
 
+    /// A call's arguments as `XfaDataArgs<T>`: the path of the PDF it
+    /// names, and the tool's own arguments.
+    fn parse<T: DeserializeOwned>(&self, args: &Value) -> Result<(String, T), RenderError> {
+        let XfaDataArgs { document, args } = parse_args::<XfaDataArgs<T>>(args)?;
+        Ok((document.into_document()?.path(&self.blobs)?, args))
+    }
+
     pub fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
-        let path = arg_str(args, "doc_path")?;
         match name {
             "xfa_packets" => {
+                let (path, InfoArgs {}) = self.parse(args)?;
                 let packets = self.packets_of(&path)?;
                 let list: Vec<Value> = packets
                     .iter()
@@ -103,12 +131,12 @@ impl XfaDataServer {
             }
 
             "xfa_read" => {
+                let (path, a): (_, ReadArgs) = self.parse(args)?;
                 let packets = self.packets_of(&path)?;
-                let packet =
-                    self.packet_by_name(&packets, args.get("packet").and_then(Value::as_str))?;
+                let packet = self.packet_by_name(&packets, a.packet.as_deref())?;
                 let text = String::from_utf8_lossy(&packet.content);
-                let offset = arg_u64_opt(args, "offset").unwrap_or(0) as usize;
-                let limit = arg_u64_opt(args, "limit").unwrap_or(4000) as usize;
+                let offset = a.offset.unwrap_or(0);
+                let limit = a.limit.unwrap_or(4000);
                 let w = window_chars(&text, offset, limit);
                 Ok(CallToolResult::structured(json!({
                     "packet": packet.name,
@@ -120,19 +148,17 @@ impl XfaDataServer {
             }
 
             "xfa_search" => {
+                let (path, a): (_, SearchArgs) = self.parse(args)?;
                 let packets = self.packets_of(&path)?;
-                let query_str = arg_str(args, "query")?;
-                let regex = args.get("regex").and_then(Value::as_bool).unwrap_or(false);
-                let limit = arg_u64_opt(args, "limit").unwrap_or(50) as usize;
-                let requested = args.get("packet").and_then(Value::as_str);
-                let selected: Vec<&XfaPacket> = match requested {
+                let limit = a.limit.unwrap_or(50);
+                let selected: Vec<&XfaPacket> = match a.packet.as_deref() {
                     Some(n) => vec![self.packet_by_name(&packets, Some(n))?],
                     None => packets.iter().collect(),
                 };
 
                 // A bad pattern is the caller's, not the engine's, so it is
                 // converted at the edge and named as an argument fault.
-                let pattern = Pattern::parse(&query_str, regex)
+                let pattern = Pattern::parse(&a.query, a.regex)
                     .map_err(|detail| RenderError::invalid_argument("query", detail))?;
 
                 // `Grep` carries the cap and the running total across packets:
@@ -159,10 +185,11 @@ impl XfaDataServer {
             }
 
             "xfa_outline" => {
+                let (path, a): (_, OutlineArgs) = self.parse(args)?;
                 let packets = self.packets_of(&path)?;
                 let roots = self.roots_of(&packets)?;
-                let max_depth = arg_u64_opt(args, "max_depth").unwrap_or(10) as usize;
-                let limit = arg_u64_opt(args, "limit").unwrap_or(200) as usize;
+                let max_depth = a.max_depth.unwrap_or(10);
+                let limit = a.limit.unwrap_or(200);
                 let out = query::outline(&roots, max_depth, limit);
                 let value = serde_json::to_value(&out).map_err(|e| {
                     RenderError::backend("server", format!("serialize outline: {e}"))
@@ -171,9 +198,9 @@ impl XfaDataServer {
             }
 
             "xfa_node" => {
+                let (path, NodeArgs { path: node_path }) = self.parse(args)?;
                 let packets = self.packets_of(&path)?;
                 let roots = self.roots_of(&packets)?;
-                let node_path = arg_str(args, "path")?;
                 let info = query::node_at(&roots, &node_path).ok_or_else(|| {
                     RenderError::backend(
                         "xfa",
@@ -191,17 +218,6 @@ impl XfaDataServer {
             )),
         }
     }
-}
-
-fn arg_str(args: &Value, key: &str) -> Result<String, RenderError> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| RenderError::backend("server", format!("missing required argument {key}")))
-}
-
-fn arg_u64_opt(args: &Value, key: &str) -> Option<u64> {
-    args.get(key).and_then(Value::as_u64)
 }
 
 fn to_mcp_tool(spec: &Value) -> Option<Tool> {

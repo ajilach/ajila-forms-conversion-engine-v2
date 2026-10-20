@@ -61,7 +61,35 @@ function check(output, ctx) {
   }
   collect(output.form);
 
+  // The node kinds the writer can gate by `only_languages`.
+  const GATEABLE = ["Panel", "TextField", "NumberField", "DatePicker", "Dropdown", "Checkbox", "RadioButton",
+    "TextDraw", "TitleDraw", "MessageBox", "HtmlDisplayer"];
+
+  function typedGate(node, pointer) {
+    const only = node.only_languages;
+    if (!Array.isArray(only) || only.length === 0) return;
+    const say = function (message) {
+      violations.push({ pointer: pointer + "/only_languages", message: "`" + (node.name || node.type) + "` " + message });
+    };
+    for (const code of only) {
+      if (languages.indexOf(String(code).toLowerCase()) < 0) {
+        say("shows only in `" + code + "`, which the form does not ship (languages: " + languages.join(", ") + ")");
+      }
+    }
+    if (languages.every(function (l) { return only.map(function (c) { return String(c).toLowerCase(); }).indexOf(l) >= 0; })) {
+      say("shows in every language of the form: leave `only_languages` empty");
+    }
+    if (GATEABLE.indexOf(node.type) < 0 || (node.type === "Panel" && node.is_conditional === true) || targeted[node.name]) {
+      say("cannot be shown by language: only an input, a draw, a message box, an HtmlDisplayer or a Panel no " +
+        "condition shows can; wrap it in a Panel and set `only_languages` there");
+    }
+    if (node.visible === false) {
+      say("is shown by language, so it is authored visible: the gate shows and hides it");
+    }
+  }
+
   function visit(node, pointer) {
+    typedGate(node, pointer);
     const raw = (node.passthrough && node.passthrough.raw_children) || [];
     let gated = false;
     let scriptsElements = 0;
@@ -76,7 +104,11 @@ function check(output, ctx) {
           if (!readsLanguage(text)) continue;
           gated = true;
           const say = function (message) {
-            violations.push({ pointer: at, message: "`" + node.name + "`'s language script " + message });
+            violations.push({
+              pointer: at,
+              message: "`" + node.name + "`'s loaded language script " + message +
+                " (a script is never written by hand: drop it and author the node visible)",
+            });
           };
           if (name !== "fd:init") {
             say("is on " + name + ": it belongs on fd:init, the Initialize event, which runs when the form loads");
@@ -86,12 +118,12 @@ function check(output, ctx) {
           try {
             models = JSON.parse(text);
           } catch (e) {
-            say("is not a SCRIPTMODEL array once unescaped (" + e + "): write it in the shape the rule gives");
+            say("is not a SCRIPTMODEL array once unescaped (" + e + ")");
             continue;
           }
           const script = Array.isArray(models) && models.length === 1 && models[0] && models[0].script;
           if (!script || typeof script.content !== "string") {
-            say("is not one SCRIPTMODEL with a script content: write it in the shape the rule gives");
+            say("is not one SCRIPTMODEL with a script content");
             continue;
           }
           if (script.event !== "Initialize") {
@@ -132,13 +164,15 @@ function check(output, ctx) {
       if (scriptsElements > 1) {
         violations.push({
           pointer: pointer + "/passthrough/raw_children",
-          message: "`" + node.name + "` carries " + scriptsElements + " fd:scripts elements: AEM takes one, so put every event in it",
+          message: "`" + node.name + "` carries " + scriptsElements + " fd:scripts elements and AEM takes one: drop the " +
+            "language script and author the node visible",
         });
       }
       if (node.visible !== false) {
         violations.push({
           pointer: pointer + "/visible",
-          message: "`" + node.name + "` is gated by a language script but authored visible: author it visible: false, so it stays hidden until the script runs",
+          message: "`" + node.name + "` carries a language script but is authored visible: author it visible: false, so " +
+            "it stays hidden until the script runs",
         });
       }
       const conditional = node.is_conditional === true || targeted[node.name] === true ||
@@ -146,7 +180,8 @@ function check(output, ctx) {
       if (conditional) {
         violations.push({
           pointer: pointer,
-          message: "`" + node.name + "` already gets visibility scripts from the writer, so the language script would be a second fd:scripts: wrap the node in a Panel and gate the Panel",
+          message: "`" + node.name + "` already gets visibility scripts from the writer, so its loaded language script " +
+            "would be a second fd:scripts: drop the language script and author the node visible",
         });
       }
     }

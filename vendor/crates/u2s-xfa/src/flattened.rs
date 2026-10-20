@@ -1,4 +1,4 @@
-use crate::xfa::font_manager::get_font_manager;
+use crate::xfa::font_manager::{DocumentFonts, FontManager, LineGeometry, get_font_manager};
 // DEVIATION: upstream imports Presence via `scripting::{Presence, SomPath}`,
 // which routes through scripting/state.rs and pulls in boa_engine. Presence is
 // actually defined in xfa/mod.rs, and SomPath in scripting/som.rs — neither
@@ -7,7 +7,11 @@ use crate::xfa::font_manager::get_font_manager;
 use crate::draw_text::draw_text_mut;
 use crate::xfa::Presence;
 use crate::xfa::scripting::som::{SomPath, child_som_path, sibling_indices};
-use crate::xfa::text_metrics::{TextMeasurer, xfa_px_scale};
+use crate::xfa::text_metrics::{FontMetrics, LineMetrics, RunFontSet, TextMeasurer, space_advance, text_advance, wrap_words, xfa_px_scale};
+use crate::xfa::KerningMode;
+use crate::xfa::pagination::{
+    self, BreakRequest, BreakTarget, Extent, PageRequest, PageSets, Paginator, Splitting, Target,
+};
 use crate::xfa::{
     Border, Font, FontPosture, FontWeight, HAlign, Num, Para, StrokeStyle, VAlign, XfaNode,
     XfaNodeKind, num,
@@ -26,8 +30,14 @@ use std::sync::Arc;
 pub struct Flattened {
     pub page: Page,
     pub children: Vec<FlattenedKind>,
-    /// Document language (from XFA locale, e.g. "de", "en").
+    /// The document's locale as the root subform states it (`de_CH`), or
+    /// `en_US` (XFA 3.3 "Determining the Prevailing Locale").
     pub language: String,
+    /// SOM paths of every pageArea of the template, in document order.
+    pub page_areas: Vec<String>,
+    /// The document's own fonts (embedded faces, `equate`s): entered while
+    /// the layout is measured and drawn.
+    pub fonts: Arc<DocumentFonts>,
 }
 
 // ============================================================================
@@ -180,43 +190,108 @@ impl<'a> Iterator for FlattenedNodeIter<'a> {
     }
 }
 
-#[derive(Clone)]
-pub struct Page {
+/// Viewer chrome a rendering may add on top of what the template draws.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct RenderOptions {
+    /// Underline every open (`access="open"`) text or choice field along its
+    /// bottom edge, the way Acrobat highlights a fillable field. Not part of
+    /// the template: off by default.
+    pub field_underline: bool,
+}
+
+/// One page of the layout: where it sits in the column, its size, and the
+/// `pageArea` it is an instance of.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PageSlot {
+    /// Column Y of the page's top edge.
+    pub top: Num,
     pub width: Num,
     pub height: Num,
-    /// Y offset of the content area within the page (from XFA contentArea element).
-    /// For PDF-sourced documents this is 0.
-    pub content_area_y: Num,
-    /// Height of the content area within the page (from XFA contentArea element).
-    /// For PDF-sourced documents this equals `height`.
-    pub content_area_height: Num,
-    /// Pre-computed Y positions where page breaks occur in the flattened coordinate space.
-    /// Since the layout is a stack of whole pages these are the multiples of
-    /// [`Page::height`] strictly inside the column, kept because they are the
-    /// long-standing way to ask where the pages end.
+    /// SOM path of the pageArea (`form1.MPs.MP`); empty for a document
+    /// without one.
+    pub page_area: String,
+    /// The pageArea's name, which page-dependent master scripts are keyed by.
+    pub page_area_name: String,
+    /// Its content areas, in document order, in page coordinates.
+    pub content_areas: Vec<Bounds>,
+    /// A page holding no foreground content: a filler for a break to an odd
+    /// or even page, a blank designated last page, an occurrence minimum.
+    pub blank: bool,
+}
+
+/// The pages of a layout: a stack of whole pages, each at its own size.
+/// The flattened column is exactly as tall as the pages together; page `k`
+/// owns `[pages[k].top, pages[k].top + pages[k].height)`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Page {
+    /// The first page's width, for callers that need one size for the
+    /// document; every page's own size is in `pages`.
+    pub width: Num,
+    /// The first page's height.
+    pub height: Num,
+    /// Column Y positions where a page starts, for pages 2 on.
     pub page_breaks: Vec<Num>,
-    /// How many pages the layout produced. The flattened column is exactly this
-    /// many pages tall, whatever the last page's content ends at, so a short
-    /// final page is still a whole page.
     pub page_count: u32,
+    pub pages: Vec<PageSlot>,
 }
 
 impl Page {
-    /// Create a single-page Page where the content area spans the full page.
+    /// A single page of `width` x `height` whose content area is the whole
+    /// page.
     pub fn new(width: Num, height: Num) -> Self {
+        Self::uniform(width, height, 1)
+    }
+
+    /// `count` pages of one size, each a whole-page content area.
+    pub fn uniform(width: Num, height: Num, count: u32) -> Self {
+        let pages = (0..count.max(1))
+            .map(|k| PageSlot {
+                top: height * Decimal::from(k),
+                width,
+                height,
+                page_area: String::new(),
+                page_area_name: String::new(),
+                content_areas: vec![Bounds::new(Decimal::ZERO, Decimal::ZERO, width, height)],
+                blank: false,
+            })
+            .collect();
+        Self::stacked(pages)
+    }
+
+    /// Pages from their slots, which must be stacked without gaps.
+    pub fn stacked(pages: Vec<PageSlot>) -> Self {
+        assert!(!pages.is_empty(), "a layout has at least one page");
+        let mut expected = Decimal::ZERO;
+        for p in &pages {
+            assert_eq!(p.top, expected, "pages are stacked without gaps");
+            expected += p.height;
+        }
         Page {
-            width,
-            height,
-            content_area_y: Decimal::ZERO,
-            content_area_height: height,
-            page_breaks: Vec::new(),
-            page_count: 1,
+            width: pages[0].width,
+            height: pages[0].height,
+            page_breaks: pages.iter().skip(1).map(|p| p.top).collect(),
+            page_count: pages.len() as u32,
+            pages,
         }
     }
 
     /// The height of the whole flattened column: every page, at full height.
     pub fn column_height(&self) -> Num {
-        self.height * Decimal::from(self.page_count.max(1) as u64)
+        self.pages
+            .last()
+            .map(|p| p.top + p.height)
+            .unwrap_or(Decimal::ZERO)
+    }
+
+    /// The widest page.
+    pub fn column_width(&self) -> Num {
+        self.pages.iter().map(|p| p.width).max().unwrap_or(Decimal::ZERO)
+    }
+
+    /// The 0-based index of the page a column Y lands on: above the first
+    /// page is the first, past the last is the last.
+    pub fn index_of_y(&self, y: Num) -> usize {
+        self.pages.partition_point(|p| p.top <= y).saturating_sub(1)
     }
 }
 
@@ -228,9 +303,9 @@ impl Page {
 /// over the document-wide ones for that page only.
 #[derive(Debug, Clone, Default)]
 pub struct PageOverrides {
-    /// Field values, keyed both by leaf name and by full SOM path.
+    /// Field values, keyed by full SOM path.
     pub values: HashMap<SomPath, String>,
-    /// Presence, keyed both by leaf name and by full SOM path.
+    /// Presence, keyed by full SOM path.
     pub presence: HashMap<String, Presence>,
 }
 
@@ -305,6 +380,11 @@ pub struct FlattenedNode {
     /// content stream glyph widths — re-measuring with the resolved render
     /// font may produce different (wider) widths and cause unwanted wrapping.
     pub no_wrap: bool,
+    /// The locale that prevails at this node (XFA 3.3 "Determining the
+    /// Prevailing Locale": the nearest `locale` attribute on it or an
+    /// enclosing container), as the template wrote it. `None` when the
+    /// node came from a context without one, which means the document's.
+    pub locale: Option<String>,
 }
 
 /// Enum representing the specific kind of flattened node
@@ -360,20 +440,28 @@ pub enum ImageAspect {
     /// Scale to fit inside the box, keeping the aspect ratio (the XFA default).
     #[default]
     Fit,
-    /// Fill the box, keeping the aspect ratio and cropping the overflow.
+    /// The image's own size: its pixels at 72 per inch, the box playing no
+    /// part. (An image's own resolution metadata is not read.)
     Actual,
     /// Stretch to the box, ignoring the aspect ratio.
     None,
+    /// Scale so the width is the box's; the height follows.
+    Width,
+    /// Scale so the height is the box's; the width follows.
+    Height,
 }
 
 impl std::str::FromStr for ImageAspect {
-    type Err = std::convert::Infallible;
+    type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Ok(match s {
+            "fit" => ImageAspect::Fit,
             "none" => ImageAspect::None,
-            "actual" | "height" | "width" => ImageAspect::Actual,
-            _ => ImageAspect::Fit,
+            "actual" => ImageAspect::Actual,
+            "width" => ImageAspect::Width,
+            "height" => ImageAspect::Height,
+            other => return Err(format!("unknown image aspect {other:?}")),
         })
     }
 }
@@ -525,6 +613,10 @@ pub enum Hint {
     /// Widget type information
     WidgetType(WidgetKind),
 
+    /// A check box or radio button's `<checkButton>`: its size, mark and
+    /// shape, which is how it is drawn.
+    CheckButton(crate::xfa::CheckButton),
+
     /// Caption/label information
     Caption {
         /// Position relative to field (left, right, top, bottom, inline)
@@ -573,8 +665,8 @@ pub enum Hint {
     /// Used to uniquely identify fields and for radio button group naming.
     SomPath(SomPath),
 
-    /// The symbology of a barcode field, from `<ui><barcode type>`.
-    BarcodeSymbology(String),
+    /// The `<ui><barcode>` of a barcode field.
+    Barcode(crate::xfa::Barcode),
 
     /// SOM path of the parent exclGroup (for radio buttons)
     /// When a field is inside an exclGroup, this stores the exclGroup's full SOM path.
@@ -617,6 +709,7 @@ impl Hint {
             Hint::Validation { .. } => "Validation",
             Hint::FieldBehavior { .. } => "FieldBehavior",
             Hint::WidgetType(_) => "WidgetType",
+            Hint::CheckButton(_) => "CheckButton",
             Hint::Caption { .. } => "Caption",
             Hint::LayoutBreak { .. } => "LayoutBreak",
             Hint::RichContent(_) => "RichContent",
@@ -624,7 +717,7 @@ impl Hint {
             Hint::MasterPage { .. } => "MasterPage",
             Hint::NoPrint => "NoPrint",
             Hint::SomPath(_) => "SomPath",
-            Hint::BarcodeSymbology(_) => "BarcodeSymbology",
+            Hint::Barcode(_) => "Barcode",
             Hint::ExclGroupSomPath(_) => "ExclGroupSomPath",
             Hint::Dropdown { .. } => "Dropdown",
             Hint::ValueFormat(_) => "ValueFormat",
@@ -663,6 +756,26 @@ pub enum WidgetKind {
     Button,
     /// Image selection/display
     Image,
+}
+
+impl WidgetKind {
+    /// Whether a person fills this widget by typing or picking a value: the
+    /// edit widgets of XFA 3.3 "The ui element" (`textEdit`, `numericEdit`,
+    /// `passwordEdit`, `dateTimeEdit`, `choiceList`). A button, check
+    /// button, barcode, image or signature takes no typed value.
+    pub fn takes_typed_value(&self) -> bool {
+        matches!(
+            self,
+            WidgetKind::Text
+                | WidgetKind::TextArea
+                | WidgetKind::Dropdown
+                | WidgetKind::Date
+                | WidgetKind::Time
+                | WidgetKind::DateTime
+                | WidgetKind::Numeric
+                | WidgetKind::Password
+        )
+    }
 }
 
 /// Caption placement relative to its field
@@ -707,6 +820,8 @@ pub struct RichParagraph {
     pub is_empty: bool,
     /// Per-paragraph font size override (from CSS font-size on `<p>` style)
     pub font_size: Option<f32>,
+    /// Per-paragraph typeface (from CSS font-family on `<p>` style).
+    pub font_family: Option<String>,
     /// Per-paragraph line height override (from CSS line-height on `<p>` style)
     pub line_height: Option<f32>,
     /// Per-paragraph left margin (from CSS margin-left on `<p>` style)
@@ -750,6 +865,7 @@ impl RichRun {
         Decoration {
             underline: self.underline,
             line_through: self.line_through,
+            ..Decoration::default()
         }
     }
 }
@@ -762,15 +878,23 @@ impl RichRun {
 pub struct Decoration {
     pub underline: bool,
     pub line_through: bool,
+    /// A double underline (`underline="2"`, CSS `double`).
+    pub double_underline: bool,
+    /// A double line through (`lineThrough="2"`).
+    pub double_line_through: bool,
+    /// The underline breaks at word breaks (`underlinePeriod="word"`).
+    pub word_period: bool,
 }
 
 impl Decoration {
     /// The rectangles (x, y, width, height in pixels) of this decoration's
     /// lines under or through a run of text `width` wide whose line box
     /// starts at `top`, for a font with `ascent` and `descent` (positive) at
-    /// `font_px` pixels: the underline a third of the descent below the
-    /// baseline, the strikethrough at a third of the ascent above it, each
-    /// a fourteenth of the font size thick and at least a pixel.
+    /// `font_px` pixels. The face's own line geometry places them when it
+    /// is known; otherwise the underline is a third of the descent below the
+    /// baseline, the strikethrough a third of the ascent above it, each a
+    /// fourteenth of the font size thick and at least a pixel. A double line
+    /// is a second one a thickness further out.
     pub fn line_rects(
         self,
         x: f32,
@@ -779,37 +903,50 @@ impl Decoration {
         ascent: f32,
         descent: f32,
         font_px: f32,
+        geometry: Option<LineGeometry>,
     ) -> Vec<(i32, i32, i32, i32)> {
-        let thickness = (font_px / 14.0).round().max(1.0) as i32;
+        let default_thickness = (font_px / 14.0).round().max(1.0);
         let baseline = top + ascent;
         let mut rects = Vec::new();
-        let mut line_at = |y: f32| {
-            rects.push((x.round() as i32, y.round() as i32, width.round().max(1.0) as i32, thickness));
+        let mut line_at = |y: f32, thickness: f32, double: bool| {
+            let t = thickness.round().max(1.0) as i32;
+            rects.push((x.round() as i32, y.round() as i32, width.round().max(1.0) as i32, t));
+            if double {
+                rects.push((x.round() as i32, y.round() as i32 + 2 * t, width.round().max(1.0) as i32, t));
+            }
         };
         if self.underline {
-            line_at(baseline + descent / 3.0);
+            let (offset, thickness) = geometry
+                .map(|g| (g.underline_offset, g.underline_thickness))
+                .unwrap_or((descent / 3.0, default_thickness));
+            line_at(baseline + offset, thickness, self.double_underline);
         }
         if self.line_through {
-            line_at(baseline - ascent / 3.0);
+            let (offset, thickness) = geometry
+                .and_then(|g| g.strike_offset.zip(g.strike_thickness))
+                .unwrap_or((ascent / 3.0, default_thickness));
+            line_at(baseline - offset, thickness, self.double_line_through);
         }
         rects
     }
 
-    /// The decoration a `<font>` sets: a nonzero `underline`/`lineThrough`
-    /// (1 single, 2 double; drawn as single here).
+    /// The decoration a `<font>` sets: `underline`/`lineThrough` 1 for a
+    /// single line, 2 for a double one, and `underlinePeriod`.
     pub fn of_font(font: Option<&crate::xfa::Font>) -> Self {
         font.map(|f| Decoration {
             underline: f.underline,
             line_through: f.line_through,
+            double_underline: f.underline_double,
+            double_line_through: f.line_through_double,
+            word_period: f.underline_period_word,
         })
         .unwrap_or_default()
     }
 
     /// This decoration as an element's CSS `style` changes it. Only a
     /// `text-decoration` declaration does: `none` clears both lines, and
-    /// `underline`/`line-through` (alone or together) set exactly those.
-    /// The rich text reference's `text-decoration` extensions for word and
-    /// double underlines are drawn as a single underline.
+    /// `underline`/`line-through` (alone or together) set exactly those,
+    /// with the rich text reference's `double` and `word` keywords.
     pub fn with_css(self, style: &str) -> Self {
         let Some(value) = style.split(';').find_map(|decl| {
             let (name, value) = decl.split_once(':')?;
@@ -823,6 +960,9 @@ impl Decoration {
         Decoration {
             underline: value.contains("underline"),
             line_through: value.contains("line-through"),
+            double_underline: value.contains("underline") && value.contains("double"),
+            double_line_through: value.contains("line-through") && value.contains("double"),
+            word_period: value.contains("word"),
         }
     }
 }
@@ -866,6 +1006,20 @@ pub struct RenderedLine {
     /// `Some(value)` means CSS explicitly set margin-left (even if 0),
     /// `None` means no CSS override (use XFA `<para marginLeft>` default).
     pub margin_left: Option<f32>,
+}
+
+/// One paragraph of a rich-text block as laid out for measurement (see
+/// `Flattened::rich_paragraph_lines`).
+struct MeasuredParagraph {
+    /// The paragraph's effective font: the block's with the paragraph's own
+    /// CSS family and size applied.
+    font: Font,
+    /// The paragraph's effective properties over the draw's `<para>`.
+    props: Para,
+    /// Its lines as `layout_rich_text` wraps them; `None` when no face could
+    /// be loaded for `font`. An empty paragraph has no lines and is one line
+    /// tall.
+    lines: Option<Vec<RenderedLine>>,
 }
 
 /// A token for text layout - a word or preserved space run.
@@ -942,6 +1096,7 @@ pub struct FlattenedNodeBuilder {
     style: RenderStyle,
     hints: Vec<Hint>,
     no_wrap: bool,
+    locale: Option<String>,
 }
 
 impl Default for FlattenedNodeBuilder {
@@ -956,6 +1111,7 @@ impl Default for FlattenedNodeBuilder {
             style: RenderStyle::default(),
             hints: Vec::new(),
             no_wrap: false,
+            locale: None,
         }
     }
 }
@@ -1112,6 +1268,7 @@ impl FlattenedNodeBuilder {
             style: self.style,
             hints: self.hints,
             no_wrap: self.no_wrap,
+            locale: self.locale,
         }
     }
 }
@@ -1210,111 +1367,7 @@ impl FlattenedNode {
         Bounds::new(self.x, self.y, self.width, self.height)
     }
 
-    /// Get tight bounds around the actual rendered text content.
-    ///
-    /// For `Text` nodes this uses font metrics to compute the real text width
-    /// and height, then applies horizontal / vertical alignment to position the
-    /// text rectangle within the element box.  For `Field` nodes (and any node
-    /// without text content) the full element bounds are returned unchanged.
-    pub fn text_bounds(&self) -> Bounds {
-        let content = match &self.kind {
-            FlattenedNodeKind::Text { content, .. } if !content.is_empty() => content.as_str(),
-            _ => return self.bounds(),
-        };
 
-        let font = &self.style.font;
-        let para = &self.style.para;
-
-        // --- extract paragraph properties first --------------------------------
-        let h_align = para
-            .as_ref()
-            .map(|p| p.h_align)
-            .unwrap_or(crate::xfa::HAlign::Left);
-        let margin_left = para
-            .as_ref()
-            .and_then(|p| p.margin_left)
-            .unwrap_or(Decimal::ZERO);
-        let margin_right = para
-            .as_ref()
-            .and_then(|p| p.margin_right)
-            .unwrap_or(Decimal::ZERO);
-        let available_width = (self.width - margin_left - margin_right).max(Decimal::ONE);
-
-        // --- measure text block ------------------------------------------------
-        let mut measurer = TextMeasurer::new();
-        let metrics = match measurer.measure_text_block(content, font, para, available_width) {
-            Ok(m) => m,
-            Err(_) => return self.approximate_text_bounds(content),
-        };
-
-        let text_width = metrics.total_width;
-        let text_height = metrics.total_height;
-
-        // --- horizontal placement ----------------------------------------------
-        let text_x = match h_align {
-            crate::xfa::HAlign::Left
-            | crate::xfa::HAlign::Justify
-            | crate::xfa::HAlign::JustifyAll => self.x + margin_left,
-            crate::xfa::HAlign::Center => self.x + (self.width - text_width) / Decimal::TWO,
-            crate::xfa::HAlign::Right => self.x + self.width - text_width - margin_right,
-            crate::xfa::HAlign::Radix => self.x + self.width / Decimal::TWO,
-        };
-
-        // Use measured text width, capped at available width.
-        let effective_width = text_width.min(available_width);
-
-        // --- vertical placement ------------------------------------------------
-        let v_align = para
-            .as_ref()
-            .map(|p| p.v_align)
-            .unwrap_or(crate::xfa::VAlign::Top);
-        let v_offset = metrics.first_line_offset(self.height, v_align);
-        let text_y = self.y + v_offset;
-
-        Bounds::new(text_x, text_y, effective_width, text_height)
-    }
-
-    /// Approximate text bounds when font metrics are unavailable.
-    fn approximate_text_bounds(&self, content: &str) -> Bounds {
-        let font_size = self
-            .style
-            .font
-            .as_ref()
-            .map(|f| f.size)
-            .unwrap_or(num(10.0));
-        let char_width = font_size * num(0.6);
-        let text_width = char_width * Decimal::from(content.chars().count() as u32);
-        let text_width = text_width.min(self.width);
-
-        let line_height = font_size * num(1.2);
-        let chars_per_line = (self.width / char_width).to_u32().unwrap_or(1).max(1) as usize;
-        // Simple word-wrap estimate
-        let mut num_lines: usize = 1;
-        let mut current_len: usize = 0;
-        for word in content.split_whitespace() {
-            let wlen = word.chars().count();
-            if current_len + wlen > chars_per_line && current_len > 0 {
-                num_lines += 1;
-                current_len = wlen;
-            } else {
-                current_len += wlen + if current_len > 0 { 1 } else { 0 };
-            }
-        }
-        let text_height = (line_height * Decimal::from(num_lines as u32)).min(self.height);
-
-        let margin_left = self
-            .style
-            .para
-            .as_ref()
-            .and_then(|p| p.margin_left)
-            .unwrap_or(Decimal::ZERO);
-        Bounds::new(
-            self.x + margin_left,
-            self.y,
-            text_width.min(self.width - margin_left),
-            text_height,
-        )
-    }
 
     // ========================================================================
     // Hint accessor methods
@@ -1408,10 +1461,18 @@ impl FlattenedNode {
         })
     }
 
-    /// The barcode symbology this node carries, if it is a barcode field.
-    pub fn barcode_symbology(&self) -> Option<&str> {
+    /// The field's `<checkButton>`, for a check box or radio button.
+    pub fn check_button(&self) -> Option<&crate::xfa::CheckButton> {
         self.hints.iter().find_map(|h| match h {
-            Hint::BarcodeSymbology(s) => Some(s.as_str()),
+            Hint::CheckButton(b) => Some(b),
+            _ => None,
+        })
+    }
+
+    /// The `<barcode>` this node carries, if it is a barcode field.
+    pub fn barcode(&self) -> Option<&crate::xfa::Barcode> {
+        self.hints.iter().find_map(|h| match h {
+            Hint::Barcode(b) => Some(b),
             _ => None,
         })
     }
@@ -1991,7 +2052,10 @@ pub struct FlattenContext<'a> {
     /// Hints inherited from parent nodes that should be applied to all descendants
     /// Per XFA spec, certain attributes like `relevant` are inherited by descendants
     pub inherited_hints: Vec<Hint>,
-    /// Document language for hyphenation dictionary lookup
+    /// The locale prevailing at the node being flattened (XFA 3.3
+    /// "Determining the Prevailing Locale"): the nearest `locale` attribute
+    /// on it or an enclosing container, else the document's. It selects
+    /// the hyphenation dictionary.
     pub language: String,
     /// Resolved table column widths for descendants within a table layout.
     ///
@@ -2002,37 +2066,58 @@ pub struct FlattenContext<'a> {
     /// made of it. Consulted for presence ahead of the node's own attribute, so
     /// a block that is visible on page 1 and hidden afterwards can be both.
     pub page_overrides: Option<&'a PageOverrides>,
-    /// Where to record `keep`/`breakBefore`/`breakAfter` constraints seen
-    /// while laying out `layout="tb"` children, in absolute column
-    /// coordinates (XFA 3.3 §7 "Break Conditions", §8 "Content Splitting").
-    /// `Some` only for the single content column `from_xfa_paged_with` is
-    /// about to page-break; a shared `RefCell` rather than a return value
-    /// because these are found arbitrarily deep in the recursion, at every
-    /// nesting level whose own layout is "tb", not just at the top.
-    pub break_markers: Option<&'a RefCell<Vec<BreakMarker>>>,
+    /// Where to record the [`Extent`] of every laid-out object, for the
+    /// page breaking that follows (XFA 3.3 §7 "Break Conditions", §8
+    /// "Content Splitting"). `Some` only for the content column
+    /// `from_xfa_paged_with` is about to break into pages. A shared
+    /// `RefCell` rather than a return value because extents are found at
+    /// every depth of the recursion while `flatten_nodes` returns a height;
+    /// it is written only through [`ExtentRecorder`]'s three methods.
+    pub extents: Option<&'a RefCell<ExtentRecorder>>,
 }
 
-/// One child of a `layout="tb"` container, in absolute column coordinates,
-/// carrying whatever `keep`/`breakBefore`/`breakAfter` it declared. See
-/// [`FlattenContext::break_markers`].
-#[derive(Debug, Clone, Copy)]
-pub struct BreakMarker {
-    pub top: Num,
-    pub bottom: Num,
-    /// `keep intact="contentArea|pageArea"`: this child must not be split.
-    pub intact: bool,
-    /// `keep next="contentArea|pageArea"`: this child and the next sibling
-    /// must land in the same content area.
-    pub keep_next: bool,
-    /// `keep previous="contentArea|pageArea"`: this child and the previous
-    /// sibling must land in the same content area.
-    pub keep_previous: bool,
-    /// `breakBefore` with a `targetType` other than `auto` (the default):
-    /// this child must start a new content area or page.
-    pub force_before: bool,
-    /// `breakAfter` with a `targetType` other than `auto`: whatever follows
-    /// this child must start a new content area or page.
-    pub force_after: bool,
+/// Records the [`Extent`] of every laid-out object while the flattener
+/// recurses: a frame per open container, closed with the container's own
+/// extent once its children are known.
+#[derive(Debug, Default)]
+pub struct ExtentRecorder {
+    frames: Vec<Vec<Extent>>,
+}
+
+impl ExtentRecorder {
+    pub fn new() -> Self {
+        ExtentRecorder {
+            frames: vec![Vec::new()],
+        }
+    }
+
+    /// A container starts: its children are recorded until `end`.
+    pub fn begin(&mut self) {
+        self.frames.push(Vec::new());
+    }
+
+    /// The container that `begin` opened ends, as `extent`, with the
+    /// extents recorded since as its children.
+    pub fn end(&mut self, mut extent: Extent) {
+        extent.children = self.frames.pop().expect("`begin` before `end`");
+        self.frames
+            .last_mut()
+            .expect("the root frame is never popped")
+            .push(extent);
+    }
+
+    pub fn leaf(&mut self, extent: Extent) {
+        self.frames
+            .last_mut()
+            .expect("the root frame is never popped")
+            .push(extent);
+    }
+
+    /// The extents of the column's top-level objects, in document order.
+    pub fn into_extents(mut self) -> Vec<Extent> {
+        assert_eq!(self.frames.len(), 1, "every `begin` has its `end`");
+        self.frames.pop().unwrap_or_default()
+    }
 }
 
 impl<'a> FlattenContext<'a> {
@@ -2052,7 +2137,7 @@ impl<'a> FlattenContext<'a> {
             language: String::new(),
             table_column_widths: None,
             page_overrides: None,
-            break_markers: None,
+            extents: None,
         }
     }
 
@@ -2074,7 +2159,7 @@ impl<'a> FlattenContext<'a> {
             language: String::new(),
             table_column_widths: None,
             page_overrides: None,
-            break_markers: None,
+            extents: None,
         }
     }
 
@@ -2095,7 +2180,7 @@ impl<'a> FlattenContext<'a> {
             language: String::new(),
             table_column_widths: None,
             page_overrides: None,
-            break_markers: None,
+            extents: None,
         }
     }
 
@@ -2112,8 +2197,15 @@ impl<'a> FlattenContext<'a> {
             language: self.language.clone(),
             table_column_widths: self.table_column_widths.clone(),
             page_overrides: self.page_overrides,
-            break_markers: self.break_markers,
+            extents: self.extents,
         }
+    }
+
+    /// The context for the children of a container with its own `locale`
+    /// attribute.
+    pub fn with_locale(mut self, locale: &str) -> FlattenContext<'a> {
+        self.language = locale.to_string();
+        self
     }
 
     /// Create a child context with resolved table column widths.
@@ -2186,7 +2278,21 @@ impl<'a> FlattenContext<'a> {
         {
             return inherited;
         }
+        let own = self.own_presence(node);
+        // The contents of an `invisible` container inherit its restriction
+        // (XFA 3.3 "The presence property": they take their space but are
+        // not drawn), unless their own presence takes them out of layout
+        // altogether. ACYI_001_EN keeps its hidden option group `invisible`;
+        // without this its radio buttons were drawn as a stray box.
+        if self.inherited_presence == Some(Presence::Invisible) && !own.should_skip_layout() {
+            return Presence::Invisible;
+        }
+        own
+    }
 
+    /// The node's own presence, before anything inherited: what this page's
+    /// master-page scripts set, else what the node says.
+    fn own_presence(&self, node: &XfaNode) -> Presence {
         // On a master page, this page's own scripts have the last word: the
         // same node is visible on page 1 and hidden on page 2.
         if let Some(overrides) = self.page_overrides
@@ -2197,11 +2303,7 @@ impl<'a> FlattenContext<'a> {
             } else {
                 format!("{}.{}", self.current_path, name)
             };
-            if let Some(presence) = overrides
-                .presence
-                .get(&full)
-                .or_else(|| overrides.presence.get(name))
-            {
+            if let Some(presence) = overrides.presence.get(&full) {
                 return *presence;
             }
         }
@@ -2284,20 +2386,99 @@ impl ContentAreaBounds {
     }
 }
 
-/// One `pageArea` found by [`Flattened::find_all_page_areas`], together with
-/// its `contentArea` and the nearest enclosing `pageSet` (`None` for a
-/// pageArea that sits directly under the root, outside any pageSet).
-///
-/// The pageSet is what lets a content subform's own
-/// `<breakBefore targetType="pageArea" target="...">` (XFA 3.3 §7) scope a
-/// "run" of pages to one pageSet's areas, rather than to every pageArea in
-/// the document -- the fix for a document with more than one pageSet (e.g.
-/// AAOV: `MP1Set` for its first two pages, `MP2Set` for its third).
-#[derive(Clone, Copy)]
+/// One `pageArea` found by [`Flattened::find_all_page_areas`], with the
+/// nearest enclosing `pageSet` (`None` for a pageArea outside any pageSet,
+/// which the template grammar does not allow but a fragment may have).
+#[derive(Clone)]
 struct PageAreaRef<'a> {
     page_area: &'a XfaNode,
-    content_area: &'a XfaNode,
     page_set: Option<&'a XfaNode>,
+    /// The pageArea's SOM path (`form1.MPs.MP`), under which its content
+    /// is addressed by scripts and looked up in the values.
+    path: String,
+}
+
+/// One `contentArea` of a page, in page coordinates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ContentAreaGeometry {
+    name: Option<String>,
+    bounds: Bounds,
+}
+
+/// The physical layout of one `pageArea`: its page size and content areas,
+/// parallel to [`PageSets::areas`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PageGeometry {
+    width: Num,
+    height: Num,
+    /// SOM path of the pageArea; empty for the default page of a document
+    /// without any.
+    path: String,
+    name: String,
+    content_areas: Vec<ContentAreaGeometry>,
+}
+
+/// How a content area came to be opened, which decides whether a
+/// `startNew` break at its very start is already satisfied by it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Opening {
+    /// The document's first content area.
+    Start,
+    /// The previous one overflowed.
+    Overflow,
+    /// A forced break.
+    Break,
+}
+
+/// One content area the column is poured into: which page and which of its
+/// content areas, and the span of column Y it holds.
+#[derive(Debug, Clone)]
+struct Region {
+    /// Index into the paginator's pages.
+    page: usize,
+    /// Index into that page's content areas.
+    area: usize,
+    column_top: Num,
+    /// Set when the region is closed.
+    column_bottom: Option<Num>,
+    /// The content area's bounds at the time of opening (a designated last
+    /// page may replace the page afterwards; the final bounds are read from
+    /// the finished pages).
+    bounds: Bounds,
+    opened_by: Opening,
+}
+
+impl Region {
+    fn open(page: usize, area: usize, bounds: Bounds, opened_by: Opening) -> Self {
+        Region {
+            page,
+            area,
+            column_top: bounds.y,
+            column_bottom: None,
+            bounds,
+            opened_by,
+        }
+    }
+}
+
+/// Where one region's content goes on its page: nodes whose top is at or
+/// below `column_top` (and above the next placement's) move by `dx`/`dy`.
+#[derive(Debug, Clone, Copy)]
+struct RegionPlacement {
+    column_top: Num,
+    dx: Num,
+    dy: Num,
+}
+
+/// A node's `<keep>` (XFA 3.3 §8 "Content Splitting", "Adhesion").
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Keep {
+    /// `intact`: `Some(true)` for `contentArea`/`pageArea`, `Some(false)`
+    /// for an explicit `none`, `None` when absent (the default depends on
+    /// the object).
+    intact: Option<bool>,
+    next: bool,
+    previous: bool,
 }
 
 #[allow(dead_code)]
@@ -2308,6 +2489,8 @@ impl Flattened {
             page,
             children,
             language: String::new(),
+            page_areas: Vec::new(),
+            fonts: Arc::new(DocumentFonts::default()),
         }
     }
 
@@ -2318,7 +2501,24 @@ impl Flattened {
             page,
             children,
             language: String::new(),
+            page_areas: Vec::new(),
+            fonts: Arc::new(DocumentFonts::default()),
         }
+    }
+
+    /// The SOM paths of the template's pageAreas no page of this layout is
+    /// an instance of: their content is on no page.
+    pub fn unused_page_areas(&self) -> Vec<&str> {
+        self.page_areas
+            .iter()
+            .map(String::as_str)
+            .filter(|p| !self.page.pages.iter().any(|slot| slot.page_area == *p))
+            .collect()
+    }
+
+    /// The language part of the document's locale (`de` for `de_CH`).
+    pub fn language_code(&self) -> String {
+        super::xfa::language_of_locale(Some(&self.language))
     }
 
     /// Iterate over all leaf nodes recursively
@@ -2345,21 +2545,15 @@ impl Flattened {
     /// A Y past the last page clamps to it, rather than reporting a page that
     /// does not exist — `locate` is what refuses an out-of-range node instead.
     pub fn page_of_y(&self, y: Num) -> (u32, Num) {
-        let height = self.page.height;
-        if height <= Decimal::ZERO {
+        if self.page.column_height() <= Decimal::ZERO {
             return (1, Decimal::ZERO);
         }
-        let count = self.page.page_count.max(1);
-        let page_index = (y / height)
-            .floor()
-            .to_i64()
-            .unwrap_or(0)
-            .clamp(0, count as i64 - 1) as u32;
-        (page_index + 1, height * Decimal::from(page_index))
+        let k = self.page.index_of_y(y);
+        (k as u32 + 1, self.page.pages[k].top)
     }
 
     /// A node's page and page-local bounds, or `None` if the layout placed it
-    /// outside every page — negative Y, or at/past the bottom of the last
+    /// outside every page -- negative Y, or at/past the bottom of the last
     /// page. Unlike [`Self::page_of_y`], this never clamps: a caller asking
     /// where to crop a region needs to know when a node has no real page,
     /// not a plausible-looking wrong one.
@@ -2367,21 +2561,20 @@ impl Flattened {
         if node.y < Decimal::ZERO {
             return None;
         }
-        let height = self.page.height;
-        if height <= Decimal::ZERO {
+        let column = self.page.column_height();
+        if column <= Decimal::ZERO {
             // Degenerate height: one page covering the whole column, same as
             // `page_of_y` and `bands()`.
             return Some((1, Bounds::new(node.x, node.y, node.width, node.height)));
         }
-        let count = self.page.page_count.max(1) as i64;
-        let page_index = (node.y / height).floor().to_i64()?;
-        if page_index >= count {
+        if node.y >= column {
             return None;
         }
-        let page_top = height * Decimal::from(page_index);
+        let k = self.page.index_of_y(node.y);
+        let top = self.page.pages[k].top;
         Some((
-            page_index as u32 + 1,
-            Bounds::new(node.x, node.y - page_top, node.width, node.height),
+            k as u32 + 1,
+            Bounds::new(node.x, node.y - top, node.width, node.height),
         ))
     }
 
@@ -2440,18 +2633,13 @@ impl Flattened {
             return;
         }
 
-        // Build a set of leaf names that scripts already set presence for.
-        // These take priority over stale Form DOM values.
+        // A presence the scripts set wins over the saved one: the saved
+        // state is where the scripts started, not where they ended.
         let script_touched: HashSet<&str> = script_presence_changes
             .iter()
-            .map(|change| change.name.as_str())
+            .map(|change| change.path.as_str())
             .collect();
-
-        // Remove any form DOM paths whose leaf name was touched by scripts
-        form_presence.retain(|path, _| {
-            let leaf = path.rsplit('.').next().unwrap_or(path);
-            !script_touched.contains(leaf)
-        });
+        form_presence.retain(|path, _| !script_touched.contains(path.as_str()));
 
         // Step 2: Walk the template and apply presence from form DOM
         for node in xfa_nodes.iter_mut() {
@@ -2842,9 +3030,30 @@ impl Flattened {
         xfa_nodes: &[XfaNode],
         computed_values: &HashMap<SomPath, String>,
     ) -> Result<Self, String> {
+        Self::from_xfa_fonts(
+            xfa_nodes,
+            computed_values,
+            Arc::new(DocumentFonts::from_nodes(xfa_nodes)),
+        )
+    }
+
+    /// As [`Flattened::from_xfa`], with the document's fonts (its embedded
+    /// faces and `equate`s) rather than only what its packets declare.
+    pub fn from_xfa_fonts(
+        xfa_nodes: &[XfaNode],
+        computed_values: &HashMap<SomPath, String>,
+        fonts: Arc<DocumentFonts>,
+    ) -> Result<Self, String> {
         let id_to_field = Self::build_id_to_field_map(xfa_nodes);
-        let language = super::xfa::extract_language_from_nodes(xfa_nodes);
-        Self::from_xfa_with_computed_values(xfa_nodes, computed_values, &id_to_field, &language)
+        let language = super::xfa::document_locale(xfa_nodes);
+        Self::from_xfa_paged_with(
+            xfa_nodes,
+            computed_values,
+            &id_to_field,
+            &language,
+            fonts,
+            &mut |_, _, _| PageOverrides::default(),
+        )
     }
 
     /// As [`Flattened::from_xfa`], but evaluating page-dependent master-page
@@ -2859,9 +3068,24 @@ impl Flattened {
         computed_values: &HashMap<SomPath, String>,
         master: &mut dyn FnMut(&str, usize, usize) -> PageOverrides,
     ) -> Result<Self, String> {
+        Self::from_xfa_paged_fonts(
+            xfa_nodes,
+            computed_values,
+            Arc::new(DocumentFonts::from_nodes(xfa_nodes)),
+            master,
+        )
+    }
+
+    /// As [`Flattened::from_xfa_paged`], with the document's fonts.
+    pub fn from_xfa_paged_fonts(
+        xfa_nodes: &[XfaNode],
+        computed_values: &HashMap<SomPath, String>,
+        fonts: Arc<DocumentFonts>,
+        master: &mut dyn FnMut(&str, usize, usize) -> PageOverrides,
+    ) -> Result<Self, String> {
         let id_to_field = Self::build_id_to_field_map(xfa_nodes);
-        let language = super::xfa::extract_language_from_nodes(xfa_nodes);
-        Self::from_xfa_paged_with(xfa_nodes, computed_values, &id_to_field, &language, master)
+        let language = super::xfa::document_locale(xfa_nodes);
+        Self::from_xfa_paged_with(xfa_nodes, computed_values, &id_to_field, &language, fonts, master)
     }
 
     /// Alias for `from_xfa` - provided for backwards compatibility.
@@ -2895,11 +3119,8 @@ impl Flattened {
         id_map
     }
 
-    /// Recursively collect ID attributes and map them to full SOM paths.
-    ///
-    /// Path-building mirrors the script executor's rules:
-    /// - Only Subform and ExclGroup nodes contribute to the parent path prefix
-    /// - Fields and Draws get a full path but don't extend the parent prefix
+    /// Recursively collect ID attributes and map them to full SOM paths,
+    /// built by the same rule as everywhere else (`XfaNodeKind::extends_som_path`).
     fn collect_ids_recursive(
         nodes: &[XfaNode],
         id_map: &mut HashMap<String, String>,
@@ -2907,10 +3128,6 @@ impl Flattened {
     ) {
         for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
             let name = node.name.as_deref().unwrap_or("");
-
-            let is_subform = matches!(node.kind, XfaNodeKind::Subform)
-                || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "subform");
-            let is_exclgroup = matches!(node.kind, XfaNodeKind::ExclGroup);
 
             // Build the full SOM path for this node. Instances of a repeated
             // section carry their own ids (`instances::localize_ids`), so an
@@ -2928,8 +3145,7 @@ impl Flattened {
                 }
             }
 
-            // Only subforms and exclGroups extend the parent path
-            let next_parent = if !name.is_empty() && (is_subform || is_exclgroup) {
+            let next_parent = if !name.is_empty() && node.kind.extends_som_path() {
                 Some(full_path.as_str())
             } else {
                 parent_path
@@ -3045,27 +3261,6 @@ impl Flattened {
         }
     }
 
-    /// Create a flattened representation with pre-computed field values
-    ///
-    /// Parameters:
-    /// - `xfa_nodes`: The parsed XFA template nodes (presence already set by scripts)
-    /// - `computed_values`: Map of field name -> computed value from scripts
-    /// - `id_to_field`: Map of element ID -> field name for resolving xfa:embed references
-    fn from_xfa_with_computed_values(
-        xfa_nodes: &[XfaNode],
-        computed_values: &HashMap<SomPath, String>,
-        id_to_field: &HashMap<String, String>,
-        language: &str,
-    ) -> Result<Self, String> {
-        Self::from_xfa_paged_with(
-            xfa_nodes,
-            computed_values,
-            id_to_field,
-            language,
-            &mut |_, _, _| PageOverrides::default(),
-        )
-    }
-
     /// Lay the document out as a stack of whole pages.
     ///
     /// The result is a column exactly `page_count * page.height` tall: page `k`
@@ -3085,331 +3280,265 @@ impl Flattened {
         computed_values: &HashMap<SomPath, String>,
         id_to_field: &HashMap<String, String>,
         language: &str,
+        fonts: Arc<DocumentFonts>,
         master: &mut dyn FnMut(&str, usize, usize) -> PageOverrides,
     ) -> Result<Self, String> {
-        // Default to A4 size (210mm x 297mm in points)
-        let mut page = Page::new(
-            XfaNode::parse_dimension("210mm").unwrap_or_else(|_| num(595.27)),
-            XfaNode::parse_dimension("297mm").unwrap_or_else(|_| num(841.89)),
-        );
-
-        // Find page dimensions and contentArea offset from pageArea
-        let mut content_offset_x = Decimal::ZERO;
-        let mut content_offset_y = Decimal::ZERO;
-        let mut content_width = page.width;
-        let mut content_height = page.height;
-
-        // Find ALL pageAreas - XFA forms can have multiple (first page, last page, annex, etc.)
-        // Each pageArea may have its own background content that needs to be rendered.
-        let all_page_areas = Self::find_all_page_areas(xfa_nodes);
-
-        // Use the first pageArea for page dimensions and primary contentArea offset
-        if let Some(first) = all_page_areas.first() {
-            let (first_page_area, first_content_area) = (first.page_area, first.content_area);
-            // Get pageArea dimensions (defines the page size). A pageArea that
-            // states neither takes them from its <medium>, which is where the
-            // UBS masters (and most Designer output) put the paper size.
-            let medium = Self::medium_size(first_page_area);
-            if let Some(w) = first_page_area.w.or(medium.map(|(w, _)| w)) {
-                page.width = w;
-            }
-            if let Some(h) = first_page_area.h.or(medium.map(|(_, h)| h)) {
-                page.height = h;
-            }
-
-            // Get contentArea offset and dimensions (defines the usable area for form content)
-            content_offset_x = first_content_area.x.unwrap_or(Decimal::ZERO);
-            content_offset_y = first_content_area.y.unwrap_or(Decimal::ZERO);
-            content_width = first_content_area.w.unwrap_or(page.width);
-            content_height = first_content_area.h.unwrap_or(page.height);
-
-            // Store content area info in Page for downstream use (e.g. column layout detection)
-            page.content_area_y = content_offset_y;
-            page.content_area_height = content_height;
-        }
+        // Text is measured in the document's fonts for the whole layout.
+        let _document_fonts = fonts.enter();
 
         // ============================================================
-        // STEP 1: Render FORM CONTENT (from Form DOM) INTO contentArea
+        // The pages the template offers (XFA 3.3 §7 "Page Selection")
         // ============================================================
-        // Per XFA spec: "The Form DOM is the place where the data from the XFA Data DOM
-        // is bound to logical structure from the Template DOM."
-        //
-        // The root content subform (Form DOM root) is rendered into the contentArea.
-        // Its position is offset by the contentArea's x,y coordinates.
+        let page_area_refs = Self::find_all_page_areas(xfa_nodes);
+        let (page_sets, geometries) = Self::page_set_specs(xfa_nodes, &page_area_refs);
+
+        // The Form DOM root: its children flow in its own layout, and its
+        // pageSets are page structure, not content.
+        let root = Self::find_root_subform(xfa_nodes);
+        let recorder = RefCell::new(ExtentRecorder::new());
+        let root_ctx = root.as_ref().map(|(_, root_path)| {
+            let mut ctx =
+                FlattenContext::new_with_path(computed_values, id_to_field, root_path.clone());
+            ctx.language = language.to_string();
+            ctx.extents = Some(&recorder);
+            ctx
+        });
+
+        // Where the layout starts (XFA 3.3 §8 "Determining the start
+        // point"): the root subform's `breakBefore` target, else its first
+        // subform child's -- the first one in the layout, a hidden one
+        // (ACYI_001_EN's cover, once the form proper is shown) takes no
+        // part in it -- else the first page set in document order.
+        let entry = root
+            .as_ref()
+            .zip(root_ctx.as_ref())
+            .and_then(|((r, _), ctx)| {
+                Self::break_requests(r).0.and_then(|b| b.target).or_else(|| {
+                    r.children
+                        .iter()
+                        .find(|c| {
+                            matches!(c.kind, XfaNodeKind::Subform)
+                                && !ctx.get_effective_presence(c).should_skip_layout()
+                        })
+                        .and_then(|c| Self::break_requests(c).0.and_then(|b| b.target))
+                })
+            })
+            .and_then(|t| {
+                let resolved = page_sets.resolve_target(&t);
+                if resolved.is_none() {
+                    log::warn!(
+                        "the start page target {t:?} names no pageArea or pageSet; the first page set is used"
+                    );
+                }
+                resolved
+            });
+
+        let mut paginator =
+            Paginator::new(&page_sets, entry).map_err(|e| Self::describe_pagination_error(&e))?;
+        let mut regions: Vec<Region> = Vec::new();
+        let first_request = entry.map(PageRequest::Target).unwrap_or(PageRequest::Next);
+        let first_page = Self::open_page(&mut paginator, first_request, &geometries)?;
+        let first_bounds = geometries[paginator.pages()[first_page].area].content_areas[0].bounds;
+        regions.push(Region::open(first_page, 0, first_bounds, Opening::Start));
+        let origin = first_bounds;
+
+        // ============================================================
+        // STEP 1: lay the Form DOM out as one column
+        // ============================================================
+        // The column's coordinates are the first page's: content starts at
+        // the first content area's own x and y. Every later content area
+        // is reached by moving its span of the column into place.
         //
         // This runs *before* the master pages, unlike the XFA spec's drawing
         // order, because the number of pages is a result of it and the master
         // pages have to be repeated once per page.
         let mut content_children: Vec<FlattenedKind> = Vec::new();
-
-        // Where each page's content starts, in this content column's
-        // coordinates. Always at least one entry: every document has a page 1.
-        let mut page_starts: Vec<Num> = vec![content_offset_y];
-
-        let root_position = Position::new(
-            content_offset_x,
-            content_offset_y,
-            content_width,
-            content_height,
-        );
-
-        // Find and flatten ALL content subforms (the Form DOM)
-        // These are siblings to pageSet, NOT inside pageArea
-        // Some forms (e.g., AAGS) have multiple content subforms (Page, Page_66439)
-        // that are all siblings under the root container.
-        let content_subforms = Self::find_all_content_subforms_with_paths(xfa_nodes);
-
-        // Which pageSet's pageAreas each content subform's own pages are
-        // chosen from (XFA 3.3 §7: a subform's own `breakBefore
-        // targetType="pageArea"` names it), grouped into "runs" of subforms
-        // that share one -- see `group_content_subforms_into_runs`. A
-        // document with no explicit targets (the common case) is one run
-        // spanning every pageArea, exactly as before this distinction
-        // existed.
-        let (run_ids, run_pools): (Vec<usize>, Vec<Vec<PageAreaRef<'_>>>) =
-            if content_subforms.is_empty() {
-                (Vec::new(), vec![all_page_areas.clone()])
-            } else {
-                Self::group_content_subforms_into_runs(&content_subforms, &all_page_areas)
-            };
-        // Page 0 always exists (`page_starts`'s seed entry) and belongs to
-        // the first content subform's run; every further entry is pushed in
-        // lockstep with `page_starts` below, so the two stay the same length.
-        let mut run_id_of_page: Vec<usize> =
-            vec![if content_subforms.is_empty() { 0 } else { run_ids[0] }];
-
-        if !content_subforms.is_empty() {
-            // Track current y-offset for stacking multiple content subforms vertically.
-            // Each content subform represents a separate page in the XFA form.
-            // Per XFA spec, the root container's layout (typically "tb") determines
-            // how sibling content subforms are arranged.
-            let mut current_content_y = content_offset_y;
-
-            for (index, (content_subform, content_path)) in content_subforms.iter().enumerate() {
-                // Each content subform after the first starts a new page: that is
-                // what "a separate page in the XFA form" means for these forms.
-                if index > 0 {
-                    page_starts.push(current_content_y);
-                    run_id_of_page.push(run_ids[index]);
-                }
-
-                // Create flatten context with the content subform's path prefix
-                // This ensures computed_values lookups use the full SOM path
-                let mut ctx = FlattenContext::new_with_path(
-                    computed_values,
-                    id_to_field,
-                    content_path.clone(),
-                );
-                ctx.language = language.to_string();
-
-                // Collects `keep`/`breakBefore`/`breakAfter` constraints found
-                // while laying out this column, consulted below when deciding
-                // where it actually breaks into pages (XFA 3.3 §7-§8). Only
-                // meaningful for the single-subform case the break loop below
-                // handles; harmless to always collect it.
-                let break_cell: RefCell<Vec<BreakMarker>> = RefCell::new(Vec::new());
-                ctx.break_markers = Some(&break_cell);
-
-                // Get the layout from the content subform (often "tb" for top-to-bottom)
-                let layout = content_subform
+        let column_position = Position::new(origin.x, origin.y, origin.width, origin.height);
+        let consumed_height = match root.as_ref().zip(root_ctx.as_ref()) {
+            Some(((root_subform, _), ctx)) => {
+                let layout = root_subform
                     .layout
                     .as_ref()
                     .and_then(|l| l.parse().ok())
                     .unwrap_or(Layout::Position);
-
-                // Position this content subform at the current y-offset
-                let subform_position = Position::new(
-                    content_offset_x,
-                    current_content_y,
-                    content_width,
-                    content_height,
-                );
-
-                let consumed_height = Self::flatten_nodes(
-                    &content_subform.children,
-                    subform_position,
+                Self::flatten_nodes(
+                    &root_subform.children,
+                    column_position,
                     layout,
                     &mut content_children,
+                    ctx,
+                )?
+            }
+            None => {
+                // No root subform: every node is content (a template
+                // fragment), positioned.
+                let mut ctx = FlattenContext::new(computed_values, id_to_field);
+                ctx.language = language.to_string();
+                ctx.extents = Some(&recorder);
+                Self::flatten_nodes(
+                    xfa_nodes,
+                    column_position,
+                    Layout::Position,
+                    &mut content_children,
                     &ctx,
-                )?;
-
-                let markers = break_cell.into_inner();
-                let forced_points = Self::forced_break_points(&markers);
-
-                // Where content overflows the content area -- or where a
-                // `breakBefore`/`breakAfter` forces a page start regardless
-                // -- compute page breaks, then snap each one to the nearest
-                // positioned-subform boundary, unsplittable leaf,
-                // `keep`-constrained range, or forced break point. In XFA,
-                // positioned-layout subforms that straddle a page boundary
-                // are pushed entirely to the next page. Applies to every
-                // content subform, not only a document's sole one: each
-                // lays out (and, if it overflows, breaks) in its own column
-                // starting at `current_content_y`.
-                if content_height > Decimal::ZERO
-                    && (consumed_height > content_height || !forced_points.is_empty())
-                {
-                    let content_end = current_content_y + consumed_height;
-                    let boundaries = Self::subform_boundaries(
-                        &content_children,
-                        content_offset_x,
-                        content_width,
-                    );
-                    let spans = Self::leaf_spans(&content_children);
-                    let keep_ranges = Self::keep_ranges(&markers, &spans);
-
-                    // The last page of *this subform's run* can have a shorter
-                    // contentArea of its own (a `pagePosition="last"` master
-                    // that reserves room for a legal footnote). Breaks are
-                    // laid with the ordinary height and the tail is checked
-                    // against the last one afterwards.
-                    let last_content_height = Self::last_page_content_height(&run_pools[run_ids[index]]);
-
-                    // The next forced break strictly after `after`, if it
-                    // comes before the geometric ceiling `before` -- a forced
-                    // break is honored as soon as it is reached, not only
-                    // when content would otherwise overflow.
-                    let next_forced = |after: Num, before: Num| {
-                        forced_points
-                            .iter()
-                            .copied()
-                            .find(|&f| f > after && f < before)
-                    };
-
-                    let mut page_start = current_content_y;
-                    // One break per page; the content cannot be more pages long
-                    // than it is content-areas tall, and this bounds the loop
-                    // against a snap that fails to advance.
-                    let max_pages = (consumed_height / content_height)
-                        .ceil()
-                        .to_usize()
-                        .unwrap_or(1)
-                        + 2
-                        + forced_points.len();
-                    for _ in 0..max_pages {
-                        let geometric = page_start + content_height;
-                        let forced = next_forced(page_start, geometric);
-                        let theoretical = forced.unwrap_or(geometric);
-                        if theoretical >= content_end {
-                            break;
-                        }
-                        let chosen = match forced {
-                            // A forced break is an explicit instruction, not a
-                            // geometric estimate: honor it exactly.
-                            Some(f) => f,
-                            None => Self::snap_break(
-                                theoretical,
-                                page_start,
-                                content_end,
-                                content_height,
-                                &boundaries,
-                                &spans,
-                                &keep_ranges,
-                            ),
-                        };
-                        page_starts.push(chosen);
-                        run_id_of_page.push(run_ids[index]);
-                        page_start = chosen;
-                    }
-
-                    // Does the tail still overflow the (possibly shorter) last
-                    // contentArea? Then it is one page more.
-                    if let Some(last_h) = last_content_height
-                        && last_h > Decimal::ZERO
-                    {
-                        for _ in 0..max_pages {
-                            let geometric = page_start + last_h;
-                            let forced = next_forced(page_start, geometric);
-                            let theoretical = forced.unwrap_or(geometric);
-                            if theoretical >= content_end {
-                                break;
-                            }
-                            let chosen = match forced {
-                                Some(f) => f,
-                                None => Self::snap_break(
-                                    theoretical,
-                                    page_start,
-                                    content_end,
-                                    content_height,
-                                    &boundaries,
-                                    &spans,
-                                    &keep_ranges,
-                                ),
-                            };
-                            page_starts.push(chosen);
-                            run_id_of_page.push(run_ids[index]);
-                            page_start = chosen;
-                        }
-                    }
-                }
-
-                // Advance y-offset for the next content subform
-                // Use the subform's explicit height if set, otherwise use consumed height
-                let subform_height = content_subform.h.unwrap_or(consumed_height);
-                current_content_y += subform_height;
+                )?
             }
-        } else {
-            // Fallback: flatten all nodes (old behavior for simple forms without proper structure)
-            let mut ctx = FlattenContext::new(computed_values, id_to_field);
-            ctx.language = language.to_string();
-            Self::flatten_nodes(
-                xfa_nodes,
-                root_position,
-                Layout::Position,
-                &mut content_children,
-                &ctx,
-            )?;
         };
-
-        debug_assert_eq!(
-            run_id_of_page.len(),
-            page_starts.len(),
-            "run_id_of_page must track page_starts 1:1 -- every page_starts.push needs a \
-             matching run_id_of_page.push of the current subform's run id"
-        );
-
-        // For each page, this run's local index and length -- what
-        // `choose_page_area` needs below to pick a pagePosition
-        // "first"/"last" area *within this run*, not across the whole
-        // document (XFA 3.3 §7/§8: a pageSet's `pagePosition` is only
-        // meaningful among the pages that pageSet's areas actually produced).
-        let run_length_of_run: Vec<usize> = {
-            let mut lengths = vec![0usize; run_pools.len()];
-            for &r in &run_id_of_page {
-                lengths[r] += 1;
-            }
-            lengths
-        };
-        let run_local_index_of_page: Vec<usize> = {
-            let mut seen_so_far = vec![0usize; run_pools.len()];
-            run_id_of_page
-                .iter()
-                .map(|&r| {
-                    let idx = seen_so_far[r];
-                    seen_so_far[r] += 1;
-                    idx
-                })
-                .collect()
-        };
-
+        let extents = recorder.into_inner().into_extents();
+        let content_end = origin.y + consumed_height;
         Self::apply_computed_values(&mut content_children, computed_values);
 
         // ============================================================
-        // STEP 2: Stack the content column into whole pages
+        // STEP 2: break the column into content areas and pages
         // ============================================================
-        Self::stack_pages(
-            &mut content_children,
-            &page_starts,
-            page.height,
-            content_offset_y,
-        );
-        page.page_count = page_starts.len() as u32;
-        page.page_breaks = (1..page_starts.len())
-            .map(|k| page.height * Decimal::from(k as u64))
-            .collect();
+        // Each content area takes as much of the column as fits, or up to
+        // the next forced break (XFA 3.3 §7 "Break Conditions"), and where
+        // the content does not divide there the split consensus of §8
+        // "Content Splitting" moves the break up to where it does.
+        let breaks = pagination::forced_breaks(&extents);
+        let mut next_break = 0;
+        loop {
+            let region = regions.last().expect("a content area is open");
+            let capacity_end = region.column_top + region.bounds.height;
+            debug_assert!(
+                breaks.get(next_break).is_none_or(|b| b.at >= region.column_top),
+                "a forced break is never passed by: every break at or before a content area's \
+                 capacity is taken before a geometric break is chosen"
+            );
+            let forced = breaks.get(next_break).filter(|b| b.at <= capacity_end);
+            match forced {
+                Some(b) if b.at == region.column_top => {
+                    next_break += 1;
+                    if Self::break_satisfied(&b.request, &paginator, &page_sets, &geometries, region)
+                    {
+                        continue;
+                    }
+                    // Nothing is on this content area yet, but the break
+                    // asks for another one (`startNew`, or a page this one
+                    // is not).
+                    let (at, request) = (b.at, b.request.clone());
+                    Self::close_region(&mut regions, at);
+                    Self::open_after_break(
+                        &request,
+                        &mut regions,
+                        &mut paginator,
+                        &page_sets,
+                        &geometries,
+                        at,
+                    )?;
+                }
+                Some(b) => {
+                    let (at, request) = (b.at, b.request.clone());
+                    next_break += 1;
+                    Self::close_region(&mut regions, at);
+                    Self::open_after_break(
+                        &request,
+                        &mut regions,
+                        &mut paginator,
+                        &page_sets,
+                        &geometries,
+                        at,
+                    )?;
+                }
+                None => {
+                    if capacity_end >= content_end {
+                        let at = content_end.max(region.column_top);
+                        Self::close_region(&mut regions, at);
+                        break;
+                    }
+                    // A split that leaves the content area with less than a
+                    // hundredth of a point of column holds nothing: a
+                    // rounding residue, not content.
+                    let empty = |at: Num| at - region.column_top < num(0.01);
+                    let at = match pagination::split_point(&extents, region.column_top, capacity_end) {
+                        Some(at) if !empty(at) => at,
+                        _ => {
+                            // The object fits nowhere, not even split: it goes
+                            // on this page whole, past the content area's
+                            // boundary, and the next content area starts after
+                            // it.
+                            let at = pagination::split_point_below(&extents, capacity_end);
+                            log::warn!(
+                                "nothing of the content from {} on fits a content area {} tall, even \
+                                 split; the content area's boundary is overridden to {} (XFA 3.3 \
+                                 §8 \"Overriding ContentArea Boundaries\")",
+                                region.column_top,
+                                region.bounds.height,
+                                at
+                            );
+                            at
+                        }
+                    };
+                    Self::close_region(&mut regions, at);
+                    Self::open_overflow(
+                        &mut regions,
+                        &mut paginator,
+                        &geometries,
+                        at,
+                        None,
+                        Opening::Overflow,
+                    )?;
+                }
+            }
+        }
+        Self::finish_page_set(&mut paginator, &regions, &geometries);
+        let planned = paginator.into_pages();
+        for r in &regions {
+            log::debug!(
+                "content area: page {} area {} column {}..{:?} ({:?})",
+                r.page + 1,
+                r.area,
+                r.column_top,
+                r.column_bottom,
+                r.opened_by
+            );
+        }
 
         // ============================================================
-        // STEP 3: Render PAGE BACKGROUND (from Template DOM's pageAreas)
+        // STEP 3: stack the content areas into whole pages
+        // ============================================================
+        let mut slots: Vec<PageSlot> = Vec::with_capacity(planned.len());
+        let mut top = Decimal::ZERO;
+        for p in &planned {
+            let g = &geometries[p.area];
+            slots.push(PageSlot {
+                top,
+                width: g.width,
+                height: g.height,
+                page_area: g.path.clone(),
+                page_area_name: g.name.clone(),
+                content_areas: g.content_areas.iter().map(|c| c.bounds).collect(),
+                blank: p.blank,
+            });
+            top += g.height;
+        }
+        let page = Page::stacked(slots);
+        let placements: Vec<RegionPlacement> = regions
+            .iter()
+            .map(|r| {
+                let slot = &page.pages[r.page];
+                let bounds = slot.content_areas[r.area];
+                RegionPlacement {
+                    column_top: r.column_top,
+                    dx: bounds.x - origin.x,
+                    dy: slot.top + bounds.y - r.column_top,
+                }
+            })
+            .collect();
+        if regions
+            .iter()
+            .any(|r| page.pages[r.page].content_areas[r.area].width != origin.width)
+        {
+            log::warn!(
+                "content areas of different widths share one flow; the content is laid out at \
+                 the first one's width ({})",
+                origin.width
+            );
+        }
+        Self::stack_regions(&mut content_children, &placements);
+
+        // ============================================================
+        // STEP 4: the page background of every page (Template DOM pageAreas)
         // ============================================================
         // Per XFA spec (section 7, "Page Background"):
         // "A pageArea may contain content such as subforms. Such content, which is placed
@@ -3418,81 +3547,75 @@ impl Flattened {
         // Page background elements are positioned relative to the page origin (0,0),
         // NOT the contentArea. They use positioned layout (absolute coordinates).
         //
-        // One pageArea is chosen per page (`pagePosition`), and its content is
-        // emitted once for every page that uses it -- a header is on every page.
-        // Master content goes in front of the body in document order so that it
-        // is drawn first and the body sits on top of it, as before.
+        // Each page's own pageArea is emitted once for it -- a header is on
+        // every page. Master content goes in front of the body in document
+        // order so that it is drawn first and the body sits on top of it.
         let mut flattened_children: Vec<FlattenedKind> = Vec::new();
-        let page_count = page_starts.len();
-        if !all_page_areas.is_empty() {
-            let page_position =
-                Position::new(Decimal::ZERO, Decimal::ZERO, page.width, page.height);
+        let page_count = page.pages.len();
+        for (k, planned_page) in planned.iter().enumerate() {
+            let Some(page_area_ref) = page_area_refs.get(planned_page.area) else {
+                // The default page of a document without a pageArea.
+                continue;
+            };
+            let slot = &page.pages[k];
+            let page_area = page_area_ref.page_area;
+            let page_position = Position::new(Decimal::ZERO, Decimal::ZERO, slot.width, slot.height);
 
-            for k in 0..page_count {
-                let run_id = run_id_of_page[k];
-                let page_area_ref = Self::choose_page_area(
-                    &run_pools[run_id],
-                    run_local_index_of_page[k],
-                    run_length_of_run[run_id],
-                );
-                let page_area = page_area_ref.page_area;
+            // Collect content areas for region classification (header/footer detection)
+            let content_areas = Self::collect_content_areas(page_area, slot.width, slot.height);
 
-                // Collect content areas for region classification (header/footer detection)
-                let content_areas = Self::collect_content_areas(page_area, page.width, page.height);
+            // What this page's own scripts made of it: "Pagina 2/3", a
+            // first-page-only block hidden from page 2 on.
+            let overrides = master(&slot.page_area_name, k, page_count);
+            let values = overrides.merged_with(computed_values);
 
-                // What this page's own scripts made of it: "Pagina 2/3", a
-                // first-page-only block hidden from page 2 on.
-                let overrides = master(page_area.name.as_deref().unwrap_or(""), k, page_count);
-                let values = overrides.merged_with(computed_values);
+            let mut page_ctx =
+                FlattenContext::new_with_path(&values, id_to_field, page_area_ref.path.clone());
+            page_ctx.language = language.to_string();
+            page_ctx.page_overrides = Some(&overrides);
 
-                let mut page_ctx = FlattenContext::new(&values, id_to_field);
-                page_ctx.language = language.to_string();
-                page_ctx.page_overrides = Some(&overrides);
-
-                let mut per_page: Vec<FlattenedKind> = Vec::new();
-                for (child, child_index) in page_area
-                    .children
-                    .iter()
-                    .zip(sibling_indices(&page_area.children))
+            let mut per_page: Vec<FlattenedKind> = Vec::new();
+            for (child, child_index) in page_area
+                .children
+                .iter()
+                .zip(sibling_indices(&page_area.children))
+            {
+                // Skip contentArea and medium - these define page structure, not content
+                if matches!(child.kind, XfaNodeKind::ContentArea) {
+                    continue;
+                }
+                if let XfaNodeKind::Element { tag_name, .. } = &child.kind
+                    && (tag_name == "contentArea" || tag_name == "medium")
                 {
-                    // Skip contentArea and medium - these define page structure, not content
-                    if matches!(child.kind, XfaNodeKind::ContentArea) {
-                        continue;
-                    }
-                    if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                        && (tag_name == "contentArea" || tag_name == "medium")
-                    {
-                        continue;
-                    }
-
-                    // Render page background element with positioned layout relative to page origin
-                    let start_idx = per_page.len();
-                    Self::flatten_single_node(
-                        child,
-                        child_index,
-                        page_position,
-                        Layout::Position,
-                        &mut per_page,
-                        &page_ctx,
-                    )?;
-
-                    // Add MasterPage hint to all newly created nodes/groups
-                    // Classify each node based on its actual rendered position, not the parent container's position
-                    for item in &mut per_page[start_idx..] {
-                        Self::add_master_page_hint_by_position(item, &content_areas);
-                    }
+                    continue;
                 }
 
-                Self::apply_computed_values(&mut per_page, &values);
+                // Render page background element with positioned layout relative to page origin
+                let start_idx = per_page.len();
+                Self::flatten_single_node(
+                    child,
+                    child_index,
+                    page_position,
+                    Layout::Position,
+                    &mut per_page,
+                    &page_ctx,
+                )?;
 
-                // Classification happened in page-1 coordinates; move the page
-                // into its slot only afterwards.
-                let dy = page.height * Decimal::from(k as u64);
-                if !dy.is_zero() {
-                    Self::shift_y(&mut per_page, dy);
+                // Add MasterPage hint to all newly created nodes/groups
+                // Classify each node based on its actual rendered position, not the parent container's position
+                for item in &mut per_page[start_idx..] {
+                    Self::add_master_page_hint_by_position(item, &content_areas);
                 }
-                flattened_children.append(&mut per_page);
             }
+
+            Self::apply_computed_values(&mut per_page, &values);
+
+            // Classification happened in page coordinates; move the page
+            // into its slot only afterwards.
+            if !slot.top.is_zero() {
+                Self::shift_y(&mut per_page, slot.top);
+            }
+            flattened_children.append(&mut per_page);
         }
 
         flattened_children.extend(content_children);
@@ -3501,10 +3624,442 @@ impl Flattened {
             page,
             children: flattened_children,
             language: language.to_string(),
+            page_areas: geometries
+                .iter()
+                .map(|g| g.path.clone())
+                .filter(|p| !p.is_empty())
+                .collect(),
+            fonts: Arc::clone(&fonts),
         })
     }
 
-    /// Apply computed values from scripts to nodes that have none of their own.
+    /// The pagination's view of every `pageSet` and `pageArea` of the
+    /// template, and the physical layout of each pageArea (parallel to
+    /// `page_area_refs` and to the returned [`PageSets::areas`]). A
+    /// template without a pageArea gets one default A4 page whose content
+    /// area is the whole page, repeating as needed.
+    fn page_set_specs(
+        xfa_nodes: &[XfaNode],
+        page_area_refs: &[PageAreaRef<'_>],
+    ) -> (PageSets, Vec<PageGeometry>) {
+        use pagination::{AreaSpec, BlankOrNotBlank, OddOrEven, PagePosition, Relation, SetSpec};
+
+        if page_area_refs.is_empty() {
+            let width = XfaNode::parse_dimension("210mm").unwrap_or_else(|_| num(595.27));
+            let height = XfaNode::parse_dimension("297mm").unwrap_or_else(|_| num(841.89));
+            let specs = PageSets {
+                areas: vec![AreaSpec {
+                    name: None,
+                    position: PagePosition::Any,
+                    odd_or_even: OddOrEven::Any,
+                    blank: BlankOrNotBlank::Any,
+                    min_occur: 0,
+                    max_occur: None,
+                    content_areas: 1,
+                }],
+                sets: vec![SetSpec {
+                    name: None,
+                    relation: Relation::OrderedOccurrence,
+                    areas: vec![0],
+                    children: Vec::new(),
+                }],
+            };
+            let geometry = PageGeometry {
+                width,
+                height,
+                path: String::new(),
+                name: String::new(),
+                content_areas: vec![ContentAreaGeometry {
+                    name: None,
+                    bounds: Bounds::new(Decimal::ZERO, Decimal::ZERO, width, height),
+                }],
+            };
+            return (specs, vec![geometry]);
+        }
+
+        /// A pageArea qualifier as written, or its default when the value
+        /// is not one the specification names (reported).
+        fn qualifier<T>(node: &XfaNode, name: &str, parse: fn(Option<&str>) -> Result<T, String>) -> T {
+            parse(node.attributes.get(name).map(String::as_str)).unwrap_or_else(|e| {
+                log::warn!("{e} on pageArea {:?}; taken as the default", node.name);
+                parse(None).expect("the default parses")
+            })
+        }
+
+        let mut areas = Vec::with_capacity(page_area_refs.len());
+        let mut geometries = Vec::with_capacity(page_area_refs.len());
+        for r in page_area_refs {
+            let pa = r.page_area;
+            let (min_occur, max_occur) = Self::page_occurrence(pa);
+            let medium = Self::medium_size(pa);
+            let width = pa
+                .w
+                .or(medium.map(|(w, _)| w))
+                .unwrap_or_else(|| XfaNode::parse_dimension("210mm").unwrap_or_else(|_| num(595.27)));
+            let height = pa
+                .h
+                .or(medium.map(|(_, h)| h))
+                .unwrap_or_else(|| XfaNode::parse_dimension("297mm").unwrap_or_else(|_| num(841.89)));
+            let content_areas: Vec<ContentAreaGeometry> = pa
+                .children
+                .iter()
+                .filter(|c| {
+                    matches!(c.kind, XfaNodeKind::ContentArea)
+                        || matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "contentArea")
+                })
+                .map(|c| ContentAreaGeometry {
+                    name: c.name.clone(),
+                    bounds: Bounds::new(
+                        c.x.unwrap_or(Decimal::ZERO),
+                        c.y.unwrap_or(Decimal::ZERO),
+                        c.w.unwrap_or(width),
+                        c.h.unwrap_or(height),
+                    ),
+                })
+                .collect();
+            areas.push(AreaSpec {
+                name: pa.name.clone(),
+                position: qualifier(pa, "pagePosition", PagePosition::parse),
+                odd_or_even: qualifier(pa, "oddOrEven", OddOrEven::parse),
+                blank: qualifier(pa, "blankOrNotBlank", BlankOrNotBlank::parse),
+                min_occur,
+                max_occur,
+                content_areas: content_areas.len(),
+            });
+            geometries.push(PageGeometry {
+                width,
+                height,
+                path: r.path.clone(),
+                name: pa.name.clone().unwrap_or_default(),
+                content_areas,
+            });
+        }
+
+        // The pageSets, in document order, each with its direct pageAreas
+        // and child pageSets.
+        fn collect_sets(
+            nodes: &[XfaNode],
+            page_area_refs: &[PageAreaRef<'_>],
+            sets: &mut Vec<SetSpec>,
+        ) -> Vec<usize> {
+            let mut found = Vec::new();
+            for node in nodes {
+                let is_set = matches!(node.kind, XfaNodeKind::PageSet)
+                    || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "pageSet");
+                if is_set {
+                    let relation = Relation::parse(node.attributes.get("relation").map(String::as_str))
+                        .unwrap_or_else(|e| {
+                            log::warn!("{e} on pageSet {:?}; taken as orderedOccurrence", node.name);
+                            Relation::OrderedOccurrence
+                        });
+                    let index = sets.len();
+                    sets.push(SetSpec {
+                        name: node.name.clone(),
+                        relation,
+                        areas: page_area_refs
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, r)| r.page_set.is_some_and(|ps| std::ptr::eq(ps, node)))
+                            .map(|(i, _)| i)
+                            .collect(),
+                        children: Vec::new(),
+                    });
+                    let children = collect_sets(&node.children, page_area_refs, sets);
+                    sets[index].children = children;
+                    found.push(index);
+                } else if !matches!(node.kind, XfaNodeKind::PageArea) {
+                    found.extend(collect_sets(&node.children, page_area_refs, sets));
+                }
+            }
+            found
+        }
+        let mut sets = Vec::new();
+        collect_sets(xfa_nodes, page_area_refs, &mut sets);
+        let orphans: Vec<usize> = page_area_refs
+            .iter()
+            .enumerate()
+            .filter(|(_, r)| r.page_set.is_none())
+            .map(|(i, _)| i)
+            .collect();
+        if !orphans.is_empty() {
+            log::warn!(
+                "{} pageArea(s) outside any pageSet; they are taken as one ordered page set after \
+                 the others",
+                orphans.len()
+            );
+            sets.push(SetSpec {
+                name: None,
+                relation: Relation::OrderedOccurrence,
+                areas: orphans,
+                children: Vec::new(),
+            });
+        }
+        (PageSets { areas, sets }, geometries)
+    }
+
+    /// A pageArea's `<occur>` limits for ordered pagination: `min` (0 when
+    /// absent: only an explicit minimum adds blank pages) and `max` (`None`
+    /// for `-1` or absent: a page replicates without limit, XFA 3.3 §8
+    /// "Occurrence Limits in Ordered Pagination").
+    fn page_occurrence(page_area: &XfaNode) -> (u32, Option<u32>) {
+        let occur = page_area.children.iter().find(
+            |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "occur"),
+        );
+        let Some(occur) = occur else {
+            return (0, None);
+        };
+        let number = |name: &str| -> Option<i64> {
+            let v = occur.attributes.get(name)?;
+            match v.trim().parse::<i64>() {
+                Ok(n) => Some(n),
+                Err(_) => {
+                    log::warn!("occur {name}={v:?} on pageArea {:?} is not a number; ignored", page_area.name);
+                    None
+                }
+            }
+        };
+        let min = number("min").filter(|n| *n >= 0).map(|n| n as u32).unwrap_or(0);
+        let max = number("max").filter(|n| *n >= 0).map(|n| n as u32);
+        (min, max)
+    }
+
+    fn describe_pagination_error(error: &pagination::PaginationError) -> String {
+        use pagination::PaginationError;
+        match error {
+            PaginationError::NoQualifiedArea { set } => format!(
+                "no pageArea of pageSet {set:?} matches the layout state (XFA 3.3 §8: a fatal \
+                 error); its first pageArea is used"
+            ),
+            PaginationError::Exhausted { set } => format!(
+                "every pageArea of pageSet {set:?} has reached its occur max; its last pageArea is \
+                 used once more"
+            ),
+            PaginationError::NoPages => "the template has no pageArea".to_string(),
+        }
+    }
+
+    /// The next page the paginator chooses for `request`, skipping any pure
+    /// boilerplate page (one without a contentArea) it emits on the way
+    /// (XFA 3.3 §8 "Determining the start point").
+    fn open_page(
+        paginator: &mut Paginator<'_>,
+        request: PageRequest,
+        geometries: &[PageGeometry],
+    ) -> Result<usize, String> {
+        let mut request = request;
+        for _ in 0..8 {
+            let (page, error) = paginator.next_page(request);
+            if let Some(e) = error {
+                log::warn!("{}", Self::describe_pagination_error(&e));
+            }
+            if !geometries[paginator.pages()[page].area].content_areas.is_empty() {
+                return Ok(page);
+            }
+            request = PageRequest::Next;
+        }
+        Err("more than eight pure boilerplate pages in a row: the page set never reaches a \
+             content area"
+            .to_string())
+    }
+
+    fn close_region(regions: &mut [Region], at: Num) {
+        let region = regions.last_mut().expect("a content area is open");
+        region.column_bottom = Some(at);
+    }
+
+    /// Open the content area that follows the last one: the next on the
+    /// same page (the next with `name`, when one is asked for), else the
+    /// first of the next page.
+    fn open_overflow(
+        regions: &mut Vec<Region>,
+        paginator: &mut Paginator<'_>,
+        geometries: &[PageGeometry],
+        at: Num,
+        name: Option<&str>,
+        opened_by: Opening,
+    ) -> Result<(), String> {
+        let last = regions.last().expect("a content area is open");
+        let page = last.page;
+        let areas = &geometries[paginator.pages()[page].area].content_areas;
+        let next_on_page = (last.area + 1..areas.len())
+            .find(|&i| name.is_none_or(|n| areas[i].name.as_deref() == Some(n)));
+        let (page, index) = match next_on_page {
+            Some(i) => (page, i),
+            None => {
+                let page = Self::open_page(paginator, PageRequest::Next, geometries)?;
+                let areas = &geometries[paginator.pages()[page].area].content_areas;
+                let index = name
+                    .and_then(|n| areas.iter().position(|a| a.name.as_deref() == Some(n)))
+                    .unwrap_or(0);
+                (page, index)
+            }
+        };
+        let mut bounds = geometries[paginator.pages()[page].area].content_areas[index].bounds;
+        bounds.y = at;
+        let mut region = Region::open(page, index, bounds, opened_by);
+        region.bounds = geometries[paginator.pages()[page].area].content_areas[index].bounds;
+        regions.push(region);
+        Ok(())
+    }
+
+    /// Open the content area a forced break asks for, at column `at`.
+    fn open_after_break(
+        request: &BreakRequest,
+        regions: &mut Vec<Region>,
+        paginator: &mut Paginator<'_>,
+        page_sets: &PageSets,
+        geometries: &[PageGeometry],
+        at: Num,
+    ) -> Result<(), String> {
+        let page_request = match request.target_type {
+            BreakTarget::ContentArea => {
+                return Self::open_overflow(
+                    regions,
+                    paginator,
+                    geometries,
+                    at,
+                    request.target.as_deref(),
+                    Opening::Break,
+                );
+            }
+            BreakTarget::PageArea => {
+                let target = request.target.as_deref().and_then(|t| {
+                    let resolved = page_sets.resolve_target(t);
+                    if resolved.is_none() {
+                        log::warn!(
+                            "break target {t:?} names no pageArea or pageSet; the next page of the \
+                             current page set is used"
+                        );
+                    }
+                    resolved
+                });
+                target.map(PageRequest::Target).unwrap_or(PageRequest::Next)
+            }
+            BreakTarget::PageEven => PageRequest::Parity(pagination::Parity::Even),
+            BreakTarget::PageOdd => PageRequest::Parity(pagination::Parity::Odd),
+        };
+        if let Some(set) = paginator.set_change(page_request) {
+            // Leaving a page set ends its contiguous sequence of pages.
+            Self::finish_page_set(paginator, regions, geometries);
+            paginator.enter(set);
+        }
+        let page = Self::open_page(paginator, page_request, geometries)?;
+        let mut region = Region::open(
+            page,
+            0,
+            geometries[paginator.pages()[page].area].content_areas[0].bounds,
+            Opening::Break,
+        );
+        region.column_top = at;
+        regions.push(region);
+        Ok(())
+    }
+
+    /// Whether a forced break at the very start of the open content area is
+    /// already satisfied by it: the content area is on the page (or in the
+    /// page set) the break names, and the break does not insist on a new
+    /// one (`startNew`) -- unless this content area was itself opened
+    /// because the previous one overflowed at exactly this point, which is
+    /// the new one the break asks for.
+    fn break_satisfied(
+        request: &BreakRequest,
+        paginator: &Paginator<'_>,
+        page_sets: &PageSets,
+        geometries: &[PageGeometry],
+        region: &Region,
+    ) -> bool {
+        let current_area = paginator.pages()[region.page].area;
+        let target_ok = match request.target_type {
+            BreakTarget::PageArea => match request
+                .target
+                .as_deref()
+                .and_then(|t| page_sets.resolve_target(t))
+            {
+                None => true,
+                Some(Target::Area(a)) => a == current_area,
+                Some(Target::Set(s)) => {
+                    page_sets.effective_set(s) == Some(page_sets.set_of_area(current_area))
+                }
+            },
+            BreakTarget::ContentArea => request.target.as_deref().is_none_or(|n| {
+                geometries[current_area].content_areas[region.area].name.as_deref() == Some(n)
+            }),
+            BreakTarget::PageEven => (region.page + 1).is_multiple_of(2),
+            BreakTarget::PageOdd => !(region.page + 1).is_multiple_of(2),
+        };
+        target_ok && (!request.start_new || region.opened_by == Opening::Overflow)
+    }
+
+    /// Termination processing for the page set the layout is in (XFA 3.3 §8
+    /// "Termination processing"): the last page is redone on the designated
+    /// last (or only) page when everything on it fits that page's content
+    /// areas, and a blank instance of that page follows it otherwise.
+    fn finish_page_set(
+        paginator: &mut Paginator<'_>,
+        regions: &[Region],
+        geometries: &[PageGeometry],
+    ) {
+        let Some(last_page) = paginator.pages().len().checked_sub(1) else {
+            return;
+        };
+        let spans: Vec<(usize, Num)> = regions
+            .iter()
+            .filter(|r| r.page == last_page)
+            .map(|r| (r.area, r.column_bottom.unwrap_or(r.column_top) - r.column_top))
+            .collect();
+        let outcome = paginator.finish(|candidate| {
+            let areas = &geometries[candidate].content_areas;
+            spans
+                .iter()
+                .all(|(i, h)| areas.get(*i).is_some_and(|a| a.bounds.height >= *h))
+        });
+        log::debug!("page set termination: {outcome:?}");
+    }
+
+    /// Move a laid-out content column into its pages: every node goes with
+    /// the content area its top edge falls in.
+    fn stack_regions(children: &mut [FlattenedKind], placements: &[RegionPlacement]) {
+        for child in children {
+            match child {
+                FlattenedKind::Node(node) => {
+                    // A node above the first placement (there is none) stays
+                    // with the first content area.
+                    let k = placements
+                        .partition_point(|p| p.column_top <= node.y)
+                        .saturating_sub(1);
+                    let Some(placement) = placements.get(k) else {
+                        continue;
+                    };
+                    Self::shift_node_y(node, placement.dy);
+                    if !placement.dx.is_zero() {
+                        node.x += placement.dx;
+                        if let Some(border) = node.style.border.as_mut()
+                            && let Some((rx, _, _, _)) = border.render_bounds.as_mut().map(|b| &mut *b)
+                        {
+                            *rx += placement.dx;
+                        }
+                    }
+                }
+                FlattenedKind::Group { children, .. } => {
+                    Self::stack_regions(children, placements);
+                }
+            }
+        }
+    }
+
+    /// Apply the values the scripts hold to the laid-out nodes.
+    ///
+    /// A non-empty value under the node's own full path is the form's
+    /// current value for it -- the engine seeds every field from its
+    /// template value, so one that differs was written by a script or a
+    /// person -- and replaces whatever the template says, the way
+    /// ACYI_001_EN's initialize scripts replace a label's `*** [Last name]
+    /// ***` placeholder with its text in the form's language. An empty one
+    /// is not taken over a template text: a draw is carried in the values
+    /// with no value of its own, and its text would vanish. A node is only
+    /// ever looked up under its own full path: a bare name is shared by
+    /// every node of that name, one instance of a repeated section and
+    /// another, or two unrelated fields in different subforms.
     fn apply_computed_values(
         children: &mut [FlattenedKind],
         computed_values: &HashMap<SomPath, String>,
@@ -3513,33 +4068,18 @@ impl Flattened {
             match child {
                 FlattenedKind::Node(node) => {
                     let path = node.som_path().cloned();
-                    // The node's own path first. The bare name is only a
-                    // fallback for a path the values do not mention at all:
-                    // with repeated sections it is shared by every instance,
-                    // and would copy one instance's value into another.
-                    let computed_for = |name: &str| match &path {
-                        Some(p) if computed_values.contains_key(p.as_str()) => {
-                            computed_values.get(p.as_str())
-                        }
-                        _ => computed_values.get(name),
-                    };
+                    let computed = path
+                        .as_ref()
+                        .and_then(|p| computed_values.get(p.as_str()))
+                        .filter(|v| !v.is_empty());
                     match &mut node.kind {
-                        FlattenedNodeKind::Field { name, value, .. } => {
-                            if value.is_empty()
-                                && let Some(computed) = computed_for(name.as_str())
-                            {
+                        FlattenedNodeKind::Field { value, .. } => {
+                            if let Some(computed) = computed {
                                 *value = computed.clone();
                             }
                         }
-                        FlattenedNodeKind::Text {
-                            content,
-                            source_name,
-                            ..
-                        } => {
-                            if let Some(name) = source_name
-                                && content.is_empty()
-                                && let Some(computed) = computed_for(name.as_str())
-                            {
+                        FlattenedNodeKind::Text { content, .. } => {
+                            if let Some(computed) = computed {
                                 *content = computed.clone();
                             }
                         }
@@ -3589,319 +4129,6 @@ impl Flattened {
         None
     }
 
-    /// The `pagePosition` of a pageArea; absent means "any page".
-    fn page_position_of(page_area: &XfaNode) -> &str {
-        page_area
-            .attributes
-            .get("pagePosition")
-            .map(|s| s.as_str())
-            .unwrap_or("any")
-    }
-
-    /// Which master page page `page_index` (of `page_count`, both counting
-    /// only the pages in this run -- see `from_xfa_paged_with`'s "run"
-    /// grouping) uses.
-    ///
-    /// Per XFA, `pagePosition` selects between masters: `first` for the opening
-    /// page, `last` for the closing one, `only` for a document that is a single
-    /// page, and `any`/`rest` for everything else. A single-page document is the
-    /// interesting case -- it is both the first and the last page, and the
-    /// closing master (with its legal footnote) is the one that must win.
-    fn choose_page_area<'a>(
-        all: &[PageAreaRef<'a>],
-        page_index: usize,
-        page_count: usize,
-    ) -> PageAreaRef<'a> {
-        let with = |want: &str| {
-            all.iter()
-                .find(|r| Self::page_position_of(r.page_area) == want)
-                .copied()
-        };
-        let rest = || {
-            all.iter()
-                .find(|r| matches!(Self::page_position_of(r.page_area), "any" | "rest"))
-                .copied()
-        };
-
-        let chosen = if page_count <= 1 {
-            with("only")
-                .or_else(|| with("last"))
-                .or_else(|| with("first"))
-                .or_else(rest)
-        } else if page_index + 1 == page_count {
-            with("last").or_else(rest)
-        } else if page_index == 0 {
-            with("first").or_else(rest)
-        } else {
-            rest()
-        };
-
-        chosen.unwrap_or(all[0])
-    }
-
-    /// The content height of the master page used for the last page, when it
-    /// differs from the ordinary one (a `pagePosition="last"` master usually
-    /// reserves room for a footnote).
-    fn last_page_content_height(all: &[PageAreaRef<'_>]) -> Option<Num> {
-        all.iter()
-            .find(|r| Self::page_position_of(r.page_area) == "last")
-            .and_then(|r| r.content_area.h)
-    }
-
-    /// Y positions in the flattened output that look like the start of a
-    /// positioned subform: a Y with a wide element on both sides of the column
-    /// midpoint. In XFA a positioned subform that straddles a page boundary is
-    /// pushed whole to the next page, and these are the candidate boundaries.
-    fn subform_boundaries(
-        children: &[FlattenedKind],
-        content_offset_x: Num,
-        content_width: Num,
-    ) -> Vec<Num> {
-        let midpoint_x = content_offset_x + content_width / Decimal::TWO;
-        let wide_threshold = content_width * num(0.3);
-
-        fn collect_wide_columns(
-            nodes: &[FlattenedKind],
-            midpoint_x: Num,
-            wide_threshold: Num,
-            info: &mut std::collections::HashMap<rust_decimal::Decimal, (bool, bool)>,
-        ) {
-            for kind in nodes {
-                match kind {
-                    FlattenedKind::Node(node) => {
-                        if node.width >= wide_threshold {
-                            let entry = info.entry(node.y).or_insert((false, false));
-                            let center = node.x + node.width / Decimal::TWO;
-                            if center < midpoint_x {
-                                entry.0 = true;
-                            } else {
-                                entry.1 = true;
-                            }
-                        }
-                    }
-                    FlattenedKind::Group { children, .. } => {
-                        collect_wide_columns(children, midpoint_x, wide_threshold, info);
-                    }
-                }
-            }
-        }
-
-        let mut y_info: std::collections::HashMap<rust_decimal::Decimal, (bool, bool)> =
-            std::collections::HashMap::new();
-        collect_wide_columns(children, midpoint_x, wide_threshold, &mut y_info);
-
-        let mut boundaries: Vec<Num> = y_info
-            .iter()
-            .filter(|(_, (has_left, has_right))| *has_left && *has_right)
-            .map(|(&y, _)| y)
-            .collect();
-        boundaries.sort();
-        boundaries
-    }
-
-    /// Every leaf's vertical extent, ascending by top edge. Used to keep a page
-    /// break from cutting through the middle of an element.
-    fn leaf_spans(children: &[FlattenedKind]) -> Vec<(Num, Num)> {
-        fn walk(nodes: &[FlattenedKind], out: &mut Vec<(Num, Num)>) {
-            for kind in nodes {
-                match kind {
-                    FlattenedKind::Node(node) => out.push((node.y, node.y + node.height)),
-                    FlattenedKind::Group { children, .. } => walk(children, out),
-                }
-            }
-        }
-        let mut out = Vec::new();
-        walk(children, &mut out);
-        out.sort_by_key(|a| a.0);
-        out
-    }
-
-    /// Where a page actually breaks, given where it would break if content were
-    /// infinitely divisible.
-    ///
-    /// Three corrections: first to the start of a positioned subform that
-    /// straddles the break, then off any single element the break would cut
-    /// in half -- both bounded to a tenth of the content height so that a
-    /// coincidence far up the page cannot drag a break with it -- and finally
-    /// out of any `keep`-constrained range the break would cut through
-    /// (XFA 3.3 §8 "Content Splitting"), looped to a fixed point and
-    /// otherwise unbounded, because that one is not a heuristic but an
-    /// explicit author constraint (or, for a positioned subform, an implicit
-    /// one -- see the marker push in `flatten_nodes`): the template says this
-    /// span must not be split, so it never is, however far the snap has to
-    /// reach, even if doing so walks it into another such range. The result
-    /// is always strictly between `page_start` and the theoretical break, so
-    /// the page that follows is never *taller* than the content area --
-    /// which is the bug that made page 2 of the UBS forms 737pt tall against
-    /// a 723pt contentArea.
-    fn snap_break(
-        theoretical: Num,
-        page_start: Num,
-        content_end: Num,
-        content_height: Num,
-        boundaries: &[Num],
-        spans: &[(Num, Num)],
-        keep_ranges: &[(Num, Num)],
-    ) -> Num {
-        let max_snap_distance = content_height / num(10.0);
-        let mut chosen = theoretical;
-
-        // Find the last subform boundary before the theoretical break whose
-        // content extends past it (the subform overflows).
-        let snapped = boundaries
-            .iter()
-            .rev()
-            .filter(|&&b| {
-                b < theoretical && b > page_start && (theoretical - b) <= max_snap_distance
-            })
-            .find(|&&b| {
-                // Check the content from this boundary extends past the
-                // theoretical break: the next boundary (or content end) is past it.
-                let next_boundary = boundaries
-                    .iter()
-                    .find(|&&nb| nb > b)
-                    .copied()
-                    .unwrap_or(content_end);
-                next_boundary > theoretical
-            })
-            .copied();
-        if let Some(b) = snapped {
-            chosen = b;
-        }
-
-        // A leaf the break still runs through belongs entirely to the page it
-        // starts on; move the break up to its top edge.
-        for _ in 0..3 {
-            let straddler = spans
-                .iter()
-                .filter(|(top, bottom)| *top > page_start && *top < chosen && *bottom > chosen)
-                .map(|(top, _)| *top)
-                .min();
-            match straddler {
-                Some(top) if (chosen - top) <= max_snap_distance => chosen = top,
-                _ => break,
-            }
-        }
-
-        // A `keep`-constrained range the break still cuts through is pushed
-        // to its own start, whole, whatever the distance. Looped to a fixed
-        // point: snapping out of one range can land inside another (e.g. a
-        // draw with `keep next="contentArea"` immediately followed by a
-        // positioned subform that is itself implicitly keep-intact --
-        // snapping past the draw's range can still land inside the
-        // subform's, and vice versa). `chosen` strictly decreases each
-        // iteration, and no range can trigger against its own top twice, so
-        // this always terminates within `keep_ranges.len()` iterations.
-        for _ in 0..keep_ranges.len().max(1) {
-            let hit = keep_ranges
-                .iter()
-                .find(|&&(top, bottom)| top > page_start && top < chosen && bottom > chosen)
-                .copied();
-            match hit {
-                Some((top, _)) => chosen = top,
-                None => break,
-            }
-        }
-
-        if chosen <= page_start {
-            theoretical
-        } else {
-            chosen
-        }
-    }
-
-    /// The union of `keep`-constrained Y ranges from a set of break markers:
-    /// each marker's own span (`intact`, or as the anchor of a `next`/
-    /// `previous` request), extended to cover whichever leaf abuts it in the
-    /// direction requested. The neighbour a `keep_next`/`keep_previous`
-    /// marker must stay with is not necessarily another `keep`-carrying node
-    /// -- in the UBS forms it is a plain trailing `<draw>` -- so this reaches
-    /// into `spans` (every leaf in the column, not just marked ones) rather
-    /// than only pairing up markers with each other.
-    fn keep_ranges(markers: &[BreakMarker], spans: &[(Num, Num)]) -> Vec<(Num, Num)> {
-        let mut ranges = Vec::new();
-        for m in markers {
-            if !(m.intact || m.keep_next || m.keep_previous) {
-                continue;
-            }
-            let mut top = m.top;
-            let mut bottom = m.bottom;
-            if m.keep_next {
-                // The next leaf in the column: the one starting no earlier
-                // than this marker's own bottom edge, closest to it.
-                if let Some(&(_, next_bottom)) = spans
-                    .iter()
-                    .filter(|&&(s_top, _)| s_top >= m.bottom)
-                    .min_by_key(|&&(s_top, _)| s_top)
-                {
-                    bottom = bottom.max(next_bottom);
-                }
-            }
-            if m.keep_previous {
-                // The previous leaf: the one ending no later than this
-                // marker's own top edge, closest to it.
-                if let Some(&(prev_top, _)) = spans
-                    .iter()
-                    .filter(|&&(_, s_bottom)| s_bottom <= m.top)
-                    .max_by_key(|&&(_, s_bottom)| s_bottom)
-                {
-                    top = top.min(prev_top);
-                }
-            }
-            ranges.push((top, bottom));
-        }
-        ranges
-    }
-
-    /// Absolute Y positions where a page must start, from `breakBefore`
-    /// (`marker.top`) and `breakAfter` (`marker.bottom`) markers (XFA 3.3 §7
-    /// "Break Conditions").
-    fn forced_break_points(markers: &[BreakMarker]) -> Vec<Num> {
-        let mut points = Vec::new();
-        for m in markers {
-            if m.force_before {
-                points.push(m.top);
-            }
-            if m.force_after {
-                points.push(m.bottom);
-            }
-        }
-        points.sort();
-        points.dedup();
-        points
-    }
-
-    /// Move a laid-out content column into per-page slots.
-    ///
-    /// `starts` is where each page's content begins in the column's own
-    /// coordinates; afterwards page `k`'s content begins at
-    /// `k * page_height + content_top`, so the column becomes a stack of whole
-    /// pages with the page margins present rather than a continuous ribbon of
-    /// content areas.
-    fn stack_pages(
-        children: &mut [FlattenedKind],
-        starts: &[Num],
-        page_height: Num,
-        content_top: Num,
-    ) {
-        for child in children {
-            match child {
-                FlattenedKind::Node(node) => {
-                    // Which page this leaf starts on. A leaf above the first
-                    // start (there should be none) stays with page 1.
-                    let k = starts.partition_point(|s| *s <= node.y).saturating_sub(1);
-                    Self::shift_node_y(
-                        node,
-                        page_height * Decimal::from(k as u64) + content_top - starts[k],
-                    );
-                }
-                FlattenedKind::Group { children, .. } => {
-                    Self::stack_pages(children, starts, page_height, content_top);
-                }
-            }
-        }
-    }
-
     /// Move every node in a subtree down by `dy`.
     fn shift_y(children: &mut [FlattenedKind], dy: Num) {
         for child in children {
@@ -3931,336 +4158,102 @@ impl Flattened {
         }
     }
 
-    /// Find the content subform (the Form DOM root)
-    ///
-    /// Per XFA spec:
-    /// - Template DOM contains: pageSet (page structure) + root subform (form content)
-    /// - Form DOM is a duplicate of the subtree under the root subform (NOT including pageSet)
-    /// - The root content subform is typically a sibling to pageSet, not inside it
-    /// - xfa:datasets contains data and should NOT be used for layout
-    ///
-    /// Structure example:
-    ///   template
-    ///     subform 'UBSForms' (root container)
-    ///       pageSet 'MPs'        <-- page structure (stays in Template DOM)
-    ///       subform 'Page'       <-- root content subform (becomes Form DOM)
-    /// Returns (subform, full_path) where full_path is the SOM path to the subform (e.g., "UBSForms.Page")
-    fn find_root_subform_with_path(nodes: &[XfaNode]) -> Option<(&XfaNode, String)> {
-        /// Helper to check if a node is a pageSet or similar page structure element
-        fn is_page_structure(node: &XfaNode) -> bool {
-            matches!(
-                node.kind,
-                XfaNodeKind::PageSet | XfaNodeKind::PageArea | XfaNodeKind::ContentArea
-            ) || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } 
-                if tag_name == "pageSet" || tag_name == "pageArea" || tag_name == "contentArea")
-        }
-
-        /// Helper to check if a node is a non-content element (variables, proto, desc, event, etc.)
-        fn is_non_content_element(node: &XfaNode) -> bool {
-            if let XfaNodeKind::Element { tag_name, .. } = &node.kind {
-                matches!(
-                    tag_name.as_str(),
-                    "variables" | "proto" | "desc" | "event" | "extras" | "occur"
-                )
-            } else {
-                false
-            }
-        }
-
-        /// Helper to check if a node is a data-only element that should be skipped for layout
-        fn is_data_element(node: &XfaNode) -> bool {
-            if let XfaNodeKind::Element { tag_name, .. } = &node.kind {
-                // Skip xfa:datasets, xfa:data, form (Form DOM), and similar data containers
-                // The "form" element is the Form DOM root - it's a duplicate of Template content
-                tag_name.starts_with("xfa:") || 
-                tag_name.starts_with("dd:") ||  // data description
-                tag_name == "datasets" || 
-                tag_name == "data" ||
-                tag_name == "form" // Form DOM - duplicates Template content
-            } else {
-                false
-            }
-        }
-
-        /// Find content subform inside a container subform (sibling to pageSet)
-        /// Returns (subform, name) where name is the subform's name
-        fn find_content_subform_in_container(
-            container: &XfaNode,
-        ) -> Option<(&XfaNode, Option<&str>)> {
-            // Look for a subform that is NOT a pageSet and NOT a non-content element
-            // This is the actual content subform that goes into the Form DOM
-            for child in &container.children {
-                if is_page_structure(child) || is_non_content_element(child) {
-                    continue;
-                }
-
-                // Found a content subform
-                if matches!(child.kind, XfaNodeKind::Subform) {
-                    return Some((child, child.name.as_deref()));
-                }
-                if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                    && tag_name == "subform"
-                {
-                    return Some((child, child.name.as_deref()));
-                }
-            }
-            None
-        }
-
-        fn search_recursive(nodes: &[XfaNode]) -> Option<(&XfaNode, String)> {
-            for node in nodes {
-                // Skip data elements - we only want Template DOM content
-                if is_data_element(node) {
-                    continue;
-                }
-
-                // Look in template
-                if matches!(node.kind, XfaNodeKind::Template) {
-                    // Template's direct child subform is the root container
-                    for child in &node.children {
-                        if matches!(child.kind, XfaNodeKind::Subform) {
-                            // This is the root container subform (e.g., 'UBSForms')
-                            let container_name = child.name.as_deref().unwrap_or("");
-
-                            // Look for the content subform inside it (sibling to pageSet)
-                            if let Some((content_subform, content_name)) =
-                                find_content_subform_in_container(child)
-                            {
-                                // Build full path: container.content (e.g., "UBSForms.Page")
-                                let path = if let Some(name) = content_name {
-                                    if container_name.is_empty() {
-                                        name.to_string()
-                                    } else {
-                                        format!("{}.{}", container_name, name)
-                                    }
-                                } else {
-                                    container_name.to_string()
-                                };
-                                return Some((content_subform, path));
-                            }
-                            // If no content subform found, the container itself might be the content
-                            // (for simpler forms without separate pageSet)
-                            let has_page_set = child.children.iter().any(is_page_structure);
-                            if !has_page_set {
-                                return Some((child, container_name.to_string()));
-                            }
-                        }
-                    }
-                }
-
-                // Check Element nodes for template
-                if let XfaNodeKind::Element { tag_name, .. } = &node.kind
-                    && tag_name == "template"
-                {
-                    for child in &node.children {
-                        let is_subform = matches!(child.kind, XfaNodeKind::Subform)
-                            || matches!(&child.kind, XfaNodeKind::Element { tag_name: ct, .. } if ct == "subform");
-
-                        if is_subform {
-                            // This is the root container subform
-                            let container_name = child.name.as_deref().unwrap_or("");
-
-                            if let Some((content_subform, content_name)) =
-                                find_content_subform_in_container(child)
-                            {
-                                let path = if let Some(name) = content_name {
-                                    if container_name.is_empty() {
-                                        name.to_string()
-                                    } else {
-                                        format!("{}.{}", container_name, name)
-                                    }
-                                } else {
-                                    container_name.to_string()
-                                };
-                                return Some((content_subform, path));
-                            }
-                            // Fallback: use the container if no pageSet
-                            let has_page_set = child.children.iter().any(is_page_structure);
-                            if !has_page_set {
-                                return Some((child, container_name.to_string()));
-                            }
-                        }
-                    }
-                }
-
-                // Only recurse into Template or container nodes, skip data elements
-                if !is_data_element(node)
-                    && let Some(result) = search_recursive(&node.children)
-                {
-                    return Some(result);
-                }
-            }
-            None
-        }
-        search_recursive(nodes)
-    }
-
-    /// Find ALL content subforms (siblings to pageSet) with their full SOM paths.
-    ///
-    /// Per XFA spec, the root container subform can have multiple content subforms
-    /// as siblings to the pageSet. For example:
-    /// ```text
-    ///   template
-    ///     subform 'UBSForms' (root container)
-    ///       pageSet 'MPs'        <-- page structure
-    ///       subform 'Page'       <-- first content subform
-    ///       subform 'Page_66439' <-- second content subform
-    /// ```
-    ///
-    /// Returns a Vec of (subform, full_path) pairs for all content subforms found.
-    /// Falls back to `find_root_subform_with_path` to return a single-element Vec
-    /// if the multi-subform search doesn't find a container with pageSet.
-    fn find_all_content_subforms_with_paths(nodes: &[XfaNode]) -> Vec<(&XfaNode, String)> {
-        /// Helper to check if a node is a pageSet or similar page structure element
-        fn is_page_structure(node: &XfaNode) -> bool {
-            matches!(
-                node.kind,
-                XfaNodeKind::PageSet | XfaNodeKind::PageArea | XfaNodeKind::ContentArea
-            ) || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. }
-                if tag_name == "pageSet" || tag_name == "pageArea" || tag_name == "contentArea")
-        }
-
-        /// Helper to check if a node is a non-content element (variables, proto, desc, event, etc.)
-        fn is_non_content_element(node: &XfaNode) -> bool {
-            if let XfaNodeKind::Element { tag_name, .. } = &node.kind {
-                matches!(
-                    tag_name.as_str(),
-                    "variables"
-                        | "proto"
-                        | "desc"
-                        | "event"
-                        | "extras"
-                        | "occur"
-                        | "breakBefore"
-                        | "breakAfter"
-                        | "break"
-                        | "overflow"
-                        | "instanceManager"
-                )
-            } else {
-                false
-            }
-        }
-
-        /// Helper to check if a node is a data-only element
-        fn is_data_element(node: &XfaNode) -> bool {
-            if let XfaNodeKind::Element { tag_name, .. } = &node.kind {
-                tag_name.starts_with("xfa:")
-                    || tag_name.starts_with("dd:")
-                    || tag_name == "datasets"
-                    || tag_name == "data"
-                    || tag_name == "form"
-            } else {
-                false
-            }
-        }
-
-        /// Check if node is a content subform (subform that is not page structure)
-        fn is_content_subform(node: &XfaNode) -> bool {
-            if is_page_structure(node) || is_non_content_element(node) {
-                return false;
-            }
+    /// The template's root subform and its SOM path (XFA 3.3 §7: the
+    /// Template DOM is a root subform holding the page sets and the
+    /// content; the Form DOM is the content under that root). The first
+    /// `subform` child of the `template`, or, in a fragment without one,
+    /// the first subform anywhere.
+    fn find_root_subform(nodes: &[XfaNode]) -> Option<(&XfaNode, String)> {
+        fn is_subform(node: &XfaNode) -> bool {
             matches!(node.kind, XfaNodeKind::Subform)
                 || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "subform")
         }
-
-        /// Collect all content subforms from a container
-        fn collect_content_subforms_in_container<'a>(
-            container: &'a XfaNode,
-            container_name: &str,
-        ) -> Vec<(&'a XfaNode, String)> {
-            // Collect fingerprints of visible content subforms so we can detect
-            // hidden duplicates (e.g. XFA overflow page copies with identical structure).
-            let visible_fingerprints: Vec<Vec<Option<&str>>> = container
-                .children
-                .iter()
-                .filter(|c| is_content_subform(c) && !c.presence.should_skip_layout())
-                .map(|c| c.children.iter().map(|gc| gc.name.as_deref()).collect())
-                .collect();
-
-            let mut result = Vec::new();
-            for child in &container.children {
-                if is_content_subform(child) {
-                    // Skip hidden/inactive content subforms that are structural
-                    // duplicates of a visible sibling (same child names in same order).
-                    // These are XFA overflow page copies that should not be rendered.
-                    // Hidden subforms with unique structure are dynamic pages
-                    // toggled by scripts and must be kept.
-                    if child.presence.should_skip_layout() {
-                        let fingerprint: Vec<Option<&str>> =
-                            child.children.iter().map(|gc| gc.name.as_deref()).collect();
-                        if visible_fingerprints.contains(&fingerprint) {
-                            continue;
-                        }
-                    }
-                    let path = if let Some(name) = child.name.as_deref() {
-                        if container_name.is_empty() {
-                            name.to_string()
-                        } else {
-                            format!("{}.{}", container_name, name)
-                        }
-                    } else {
-                        container_name.to_string()
-                    };
-                    result.push((child, path));
-                }
-            }
-            result
+        fn is_template(node: &XfaNode) -> bool {
+            matches!(node.kind, XfaNodeKind::Template)
+                || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "template")
         }
-
-        fn search_recursive(nodes: &[XfaNode]) -> Vec<(&XfaNode, String)> {
+        fn is_data(node: &XfaNode) -> bool {
+            matches!(&node.kind, XfaNodeKind::Element { tag_name, .. }
+                if tag_name.starts_with("xfa:") || tag_name.starts_with("dd:")
+                    || tag_name == "datasets" || tag_name == "data" || tag_name == "form")
+        }
+        fn under_template(nodes: &[XfaNode]) -> Option<&XfaNode> {
             for node in nodes {
-                if is_data_element(node) {
+                if is_data(node) {
                     continue;
                 }
-
-                // Look in template
-                let is_template = matches!(node.kind, XfaNodeKind::Template)
-                    || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "template");
-
-                if is_template {
-                    for child in &node.children {
-                        let is_subform = matches!(child.kind, XfaNodeKind::Subform)
-                            || matches!(&child.kind, XfaNodeKind::Element { tag_name: ct, .. } if ct == "subform");
-
-                        if is_subform {
-                            let container_name = child.name.as_deref().unwrap_or("");
-                            let has_page_set = child.children.iter().any(is_page_structure);
-
-                            // Collect ALL content subforms from the container
-                            // (siblings to pageSet, skipping non-content elements)
-                            let subforms =
-                                collect_content_subforms_in_container(child, container_name);
-
-                            if !subforms.is_empty() {
-                                return subforms;
-                            }
-
-                            // If no content subforms found and no pageSet,
-                            // the container itself is the content
-                            if !has_page_set {
-                                return vec![(child, container_name.to_string())];
-                            }
-                        }
-                    }
+                if is_template(node)
+                    && let Some(root) = node.children.iter().find(|c| is_subform(c))
+                {
+                    return Some(root);
                 }
-
-                // Recurse into container nodes
-                if !is_data_element(node) {
-                    let result = search_recursive(&node.children);
-                    if !result.is_empty() {
-                        return result;
-                    }
+                if let Some(root) = under_template(&node.children) {
+                    return Some(root);
                 }
             }
-            Vec::new()
+            None
         }
-
-        search_recursive(nodes)
+        fn first_subform(nodes: &[XfaNode]) -> Option<&XfaNode> {
+            for node in nodes {
+                if is_data(node) {
+                    continue;
+                }
+                if is_subform(node) {
+                    return Some(node);
+                }
+                if let Some(found) = first_subform(&node.children) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        let root = under_template(nodes).or_else(|| first_subform(nodes))?;
+        Some((root, root.name.clone().unwrap_or_default()))
     }
 
     /// Flatten a single node (used for pageArea children)
     fn flatten_single_node(
+        node: &XfaNode,
+        index: usize,
+        parent_position: Position,
+        parent_layout: Layout,
+        flattened_children: &mut Vec<FlattenedKind>,
+        ctx: &FlattenContext,
+    ) -> Result<(), String> {
+        let first_new = flattened_children.len();
+        Self::flatten_single_node_untagged(
+            node,
+            index,
+            parent_position,
+            parent_layout,
+            flattened_children,
+            ctx,
+        )?;
+        // Every node this call produced is under the prevailing locale of
+        // `ctx`, unless a nested call already stamped a closer one.
+        for kind in &mut flattened_children[first_new..] {
+            Self::stamp_locale(kind, &ctx.language);
+        }
+        Ok(())
+    }
+
+    /// Give every node under `kind` that has no locale yet the `locale`.
+    fn stamp_locale(kind: &mut FlattenedKind, locale: &str) {
+        match kind {
+            FlattenedKind::Node(node) => {
+                if node.locale.is_none() {
+                    node.locale = Some(locale.to_string());
+                }
+            }
+            FlattenedKind::Group { children, .. } => {
+                for child in children {
+                    Self::stamp_locale(child, locale);
+                }
+            }
+        }
+    }
+
+    fn flatten_single_node_untagged(
         node: &XfaNode,
         index: usize,
         parent_position: Position,
@@ -4297,7 +4290,26 @@ impl Flattened {
                 node.min_w.unwrap_or(parent_position.width)
             }
         });
-        let height = node.h.unwrap_or_else(|| num(20.0));
+        // A node without `h` is growable (XFA 3.3 §8): as tall as its
+        // content, at least its `minH`; a container's own box does not
+        // size its positioned children.
+        let height = node.h.unwrap_or_else(|| {
+            let min_h = node.min_h.unwrap_or(Decimal::ZERO);
+            match &node.kind {
+                XfaNodeKind::Draw => Self::natural_draw_height(
+                    node,
+                    (width - node.margin_left.unwrap_or(Decimal::ZERO)
+                        - node.margin_right.unwrap_or(Decimal::ZERO))
+                        .max(Decimal::ZERO),
+                    min_h,
+                    node.margin_top.unwrap_or(Decimal::ZERO),
+                    node.margin_bottom.unwrap_or(Decimal::ZERO),
+                    ctx,
+                ),
+                XfaNodeKind::Field => Self::field_natural_height(node).max(min_h),
+                _ => min_h,
+            }
+        });
 
         let pos = Position::new(parent_position.x + x, parent_position.y + y, width, height);
 
@@ -4319,43 +4331,10 @@ impl Flattened {
                 let xfa_font_size = Self::extract_font_size(node);
                 let xfa_font_name = Self::extract_font_name(node);
 
-                // Check if HTML content has CSS font overrides
-                // Per XFA spec, CSS styles in exData content can override the <font> element
-                let (css_font_family, css_font_size, css_is_bold) =
-                    Self::extract_font_from_html_content(&node.children);
-
-                // Use CSS font if available, otherwise fall back to XFA font
-                let font_size = css_font_size.unwrap_or(xfa_font_size);
-                let font_name = css_font_family.clone().unwrap_or(xfa_font_name);
-
-                // Extract style
-                let mut style = Self::extract_style(node);
-
-                // Compute default_bold/italic from original XFA font BEFORE CSS overrides.
-                // CSS font-weight from individual paragraphs should not change the default
-                // for rich text parsing - each paragraph handles its own font-weight CSS.
+                let font_size = xfa_font_size;
+                let font_name = xfa_font_name;
+                let style = Self::extract_style(node);
                 let (default_bold, default_italic) = style.get_xfa_bold_italic();
-
-                // Only apply CSS overrides if at least one CSS property was found
-                // This ensures consistency: either all CSS properties are considered, or none
-                if (css_font_size.is_some() || css_font_family.is_some() || css_is_bold.is_some())
-                    && let Some(ref mut font) = style.font
-                {
-                    // Apply CSS overrides if present
-                    if let Some(size) = css_font_size {
-                        font.size = size;
-                    }
-                    if let Some(ref family) = css_font_family {
-                        font.typeface = family.clone();
-                    }
-                    if let Some(is_bold) = css_is_bold {
-                        font.weight = if is_bold {
-                            crate::xfa::FontWeight::Bold
-                        } else {
-                            crate::xfa::FontWeight::Normal
-                        };
-                    }
-                }
 
                 // Get default h_align from XFA para element
                 let default_h_align = node
@@ -4373,6 +4352,7 @@ impl Flattened {
                     default_bold,
                     default_italic,
                     Decoration::of_font(node.font.as_ref()),
+                    font_size,
                 );
 
                 let draw_node = FlattenedNode::new_text_with_rich_text(
@@ -4410,8 +4390,14 @@ impl Flattened {
                 let field_name = node.name.clone().unwrap_or_else(|| "unnamed".to_string());
                 let field_value = Self::extract_field_value(&node.children);
                 let style = Self::extract_style(node);
-                let is_checked =
-                    Self::compute_field_checked_state(&node.children, &ctx.parent_exclgroup_value);
+                let som_path = ctx.get_full_path(&field_name, index);
+                let is_checked = Self::checked_state(
+                    node,
+                    &som_path,
+                    &field_value,
+                    &ctx.parent_exclgroup_value,
+                    ctx,
+                );
                 let access = Self::extract_field_access(node);
 
                 let mut field_node = FlattenedNode::new_field_with_checked(
@@ -4429,7 +4415,6 @@ impl Flattened {
                 // Add SomPath hint with full XFA path
                 // In flatten_single_node, the ctx was NOT extended with the field's name,
                 // so we need to append it here
-                let som_path = ctx.get_full_path(&field_name, index);
                 field_node.add_hint(Hint::SomPath(SomPath::new(som_path)));
                 // Add ExclGroupSomPath hint if inside an exclGroup
                 if let Some(ref exclgroup_path) = ctx.parent_exclgroup_som_path {
@@ -4442,9 +4427,9 @@ impl Flattened {
                 // Add WidgetType hint if extracted
                 if let Some(kind) = Self::extract_widget_kind(node) {
                     if kind == WidgetKind::Barcode
-                        && let Some(sym) = Self::extract_barcode_symbology(node)
+                        && let Some(barcode) = Self::extract_barcode(node)
                     {
-                        field_node.add_hint(Hint::BarcodeSymbology(sym));
+                        field_node.add_hint(Hint::Barcode(barcode));
                     }
                     field_node.add_hint(Hint::WidgetType(kind));
                 }
@@ -4491,7 +4476,24 @@ impl Flattened {
 
                 // Repeated instances are ordinary siblings in the Form DOM
                 // (see `xfa::instances`); a subform is flattened the same way
-                // whether or not it repeats.
+                // whether or not it repeats. Its children are addressed
+                // under its own SOM path, as in the body (`flatten_nodes_indexed`),
+                // and inherit `relevant="-print"`.
+                let child_ctx = {
+                    let base = if Self::is_no_print(node) || ctx.has_inherited_hint(&Hint::NoPrint) {
+                        ctx.with_inherited_hint(Hint::NoPrint)
+                    } else {
+                        ctx.derive()
+                    };
+                    let base = match node.attributes.get("locale") {
+                        Some(locale) => base.with_locale(locale),
+                        None => base,
+                    };
+                    match &node.name {
+                        Some(name) => base.with_path_segment(name, index),
+                        None => base,
+                    }
+                };
                 for (child, child_index) in
                     node.children.iter().zip(sibling_indices(&node.children))
                 {
@@ -4501,7 +4503,7 @@ impl Flattened {
                         pos,
                         Layout::Position,
                         flattened_children,
-                        ctx,
+                        &child_ctx,
                     )?;
                 }
             }
@@ -4511,123 +4513,38 @@ impl Flattened {
         Ok(())
     }
 
-    fn find_page_and_content_area(nodes: &[XfaNode]) -> Option<(&XfaNode, &XfaNode)> {
-        fn search_recursive(nodes: &[XfaNode]) -> Option<(&XfaNode, &XfaNode)> {
-            for node in nodes {
-                // Check for PageArea node type
-                if matches!(node.kind, XfaNodeKind::PageArea) {
-                    // Found pageArea, now look for contentArea within it
-                    for child in &node.children {
-                        if matches!(child.kind, XfaNodeKind::ContentArea) {
-                            return Some((node, child));
-                        }
-                        // Also check Element nodes that might be contentArea
-                        if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                            && tag_name == "contentArea"
-                        {
-                            return Some((node, child));
-                        }
-                    }
-                    // If no contentArea found, return pageArea twice (use page dimensions)
-                    return Some((node, node));
-                }
-
-                // Check for pageArea as Element
-                if let XfaNodeKind::Element { tag_name, .. } = &node.kind
-                    && tag_name == "pageArea"
-                {
-                    // Found pageArea as Element, look for contentArea
-                    for child in &node.children {
-                        if matches!(child.kind, XfaNodeKind::ContentArea) {
-                            return Some((node, child));
-                        }
-                        if let XfaNodeKind::Element {
-                            tag_name: ca_tag, ..
-                        } = &child.kind
-                            && ca_tag == "contentArea"
-                        {
-                            return Some((node, child));
-                        }
-                    }
-                    return Some((node, node));
-                }
-
-                // Recurse into all container-like nodes to find pageArea
-                let should_recurse = matches!(
-                    node.kind,
-                    XfaNodeKind::Template
-                        | XfaNodeKind::PageSet
-                        | XfaNodeKind::Subform
-                        | XfaNodeKind::ExclGroup
-                ) || matches!(&node.kind, XfaNodeKind::Element { .. });
-
-                if should_recurse && let Some(result) = search_recursive(&node.children) {
-                    return Some(result);
-                }
-            }
-            None
-        }
-        search_recursive(nodes)
-    }
 
     /// Find ALL pageAreas and their contentAreas in the XFA tree.
     /// This is needed because XFA forms can have multiple pageAreas (e.g., first page, last page,
     /// annex pages), each with their own page background content that must be rendered.
     ///
-    /// Returns one [`PageAreaRef`] per pageArea found, each carrying the
-    /// nearest enclosing `pageSet` (needed to scope a content subform whose
-    /// own `breakBefore targetType="pageArea"` names one; see
-    /// `content_subform_page_area_target` and the "run" grouping in
-    /// `from_xfa_paged_with`).
+    /// Returns one [`PageAreaRef`] per pageArea found, in document order,
+    /// each carrying the nearest enclosing `pageSet`.
     fn find_all_page_areas(nodes: &[XfaNode]) -> Vec<PageAreaRef<'_>> {
-        fn find_content_area_in_page(page_area: &XfaNode) -> &XfaNode {
-            for child in &page_area.children {
-                if matches!(child.kind, XfaNodeKind::ContentArea) {
-                    return child;
-                }
-                if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                    && tag_name == "contentArea"
-                {
-                    return child;
-                }
-            }
-            // If no contentArea found, return pageArea itself (use page dimensions)
-            page_area
-        }
-
         fn collect_recursive<'a>(
             nodes: &'a [XfaNode],
             enclosing_page_set: Option<&'a XfaNode>,
+            parent_path: &str,
             result: &mut Vec<PageAreaRef<'a>>,
         ) {
-            for node in nodes {
-                // Check for PageArea node type
+            for (node, index) in nodes.iter().zip(sibling_indices(nodes)) {
+                let path = match node.name.as_deref() {
+                    Some(name) if node.kind.extends_som_path() => {
+                        child_som_path(parent_path, name, index)
+                    }
+                    _ => parent_path.to_string(),
+                };
                 if matches!(node.kind, XfaNodeKind::PageArea) {
-                    let content_area = find_content_area_in_page(node);
                     result.push(PageAreaRef {
                         page_area: node,
-                        content_area,
                         page_set: enclosing_page_set,
+                        path,
                     });
                     // Don't recurse into pageArea children - they are content, not structure
                     continue;
                 }
 
-                // Check for pageArea as Element
-                if let XfaNodeKind::Element { tag_name, .. } = &node.kind
-                    && tag_name == "pageArea"
-                {
-                    let content_area = find_content_area_in_page(node);
-                    result.push(PageAreaRef {
-                        page_area: node,
-                        content_area,
-                        page_set: enclosing_page_set,
-                    });
-                    continue;
-                }
-
-                let is_page_set = matches!(node.kind, XfaNodeKind::PageSet)
-                    || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "pageSet");
+                let is_page_set = matches!(node.kind, XfaNodeKind::PageSet);
 
                 // Recurse into container-like nodes to find more pageAreas
                 let should_recurse = matches!(
@@ -4644,13 +4561,13 @@ impl Flattened {
                     } else {
                         enclosing_page_set
                     };
-                    collect_recursive(&node.children, next_page_set, result);
+                    collect_recursive(&node.children, next_page_set, &path, result);
                 }
             }
         }
 
         let mut result = Vec::new();
-        collect_recursive(nodes, None, &mut result);
+        collect_recursive(nodes, None, "", &mut result);
         result
     }
 
@@ -4706,27 +4623,23 @@ impl Flattened {
             bounds
         } else {
             let reserve = caption.reserve.unwrap_or_else(|| match caption.placement {
-                CaptionPlacement::Top | CaptionPlacement::Bottom => {
-                    font.as_ref().map(|f| f.size).unwrap_or_else(|| num(10.0)) * num(1.2)
-                }
-                _ => Self::calculate_natural_text_width(&caption.text, &font) + num(2.0),
+                CaptionPlacement::Top | CaptionPlacement::Bottom => Self::text_line_height(&font),
+                _ => Self::measured_text_width(&caption.text, &font),
             });
             field_node.add_hint(Hint::Caption {
                 placement: caption.placement,
-                text: Some(caption.text.clone()),
+                text: (!caption.text.is_empty()).then(|| caption.text.clone()),
                 reserve,
             });
             crate::xfa::caption::split_caption_box(bounds, caption.placement, reserve.to_f32().unwrap_or(0.0)).0
         };
-        if !caption.drawn {
+        if !caption.drawn || caption.text.is_empty() {
             return None;
         }
-        let (font_size, font_name) = (
-            font.as_ref().map(|f| f.size).unwrap_or_else(|| num(10.0)),
-            font.as_ref()
-                .map(|f| f.typeface.clone())
-                .unwrap_or_else(|| "Courier".to_string()),
-        );
+        let (font_size, font_name) = {
+            let f = font.clone().unwrap_or_default();
+            (f.size, f.typeface)
+        };
         let mut text_node = FlattenedNode::builder()
             .bounds(num(caption_box.0 as f64), num(caption_box.1 as f64), num(caption_box.2 as f64), num(caption_box.3 as f64))
             .style(RenderStyle {
@@ -4757,6 +4670,9 @@ impl Flattened {
         if let Some(meta) = meta {
             field_node.add_hint(Hint::ValueFormat(Arc::new(meta.clone())));
         }
+        if let Some(button) = node.check_button() {
+            field_node.add_hint(Hint::CheckButton(button));
+        }
     }
 
     fn extract_field_access(node: &XfaNode) -> FieldAccess {
@@ -4766,229 +4682,49 @@ impl Flattened {
             .unwrap_or(FieldAccess::Open)
     }
 
-    /// Find the first leaf `FlattenedNode` in a mutable slice of `FlattenedKind`,
-    /// recursing into Groups.
-    fn first_leaf_node_mut(kinds: &mut [FlattenedKind]) -> Option<&mut FlattenedNode> {
-        for kind in kinds.iter_mut() {
-            match kind {
-                FlattenedKind::Node(node) => return Some(node),
-                FlattenedKind::Group { children, .. } => {
-                    if let Some(node) = Self::first_leaf_node_mut(children) {
-                        return Some(node);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Find the last leaf `FlattenedNode` in a mutable slice of `FlattenedKind`,
-    /// recursing into Groups.
-    fn last_leaf_node_mut(kinds: &mut [FlattenedKind]) -> Option<&mut FlattenedNode> {
-        for kind in kinds.iter_mut().rev() {
-            match kind {
-                FlattenedKind::Node(node) => return Some(node),
-                FlattenedKind::Group { children, .. } => {
-                    if let Some(node) = Self::last_leaf_node_mut(children) {
-                        return Some(node);
-                    }
-                }
-            }
-        }
-        None
-    }
-
-    /// Propagate a subform's explicitly-specified visible border edges to the first and last
-    /// leaf child nodes produced during that subform's flattening.
-    ///
-    /// Per XFA spec, a `<border>` element on a `subform` draws a box around the subform's
-    /// content area. For heading detection and visual fidelity we materialise this by
-    /// applying the subform's top border edge to the first enclosed leaf node and the
-    /// bottom edge to the last, but only when the node's own corresponding edge is not
-    /// already visible and only for edges explicitly specified in the XFA source.
-    ///
-    /// The `parent_x`, `parent_y`, `parent_width`, `parent_height` parameters specify
-    /// the subform's outer bounds; these are stored in the border's `render_bounds` field
-    /// so that edges are rendered at the subform's position rather than the individual
-    /// child node's position.
-    fn propagate_subform_border_to_children(
+    /// A container's own `<border>` as a node of its own, drawn under its
+    /// children (XFA 3.3 "The border element": the box model element of a
+    /// subform or exclusion group, like a draw's). `None` when the border is
+    /// hidden, or has neither a visible edge nor a fill. `(x, y, w, h)` is
+    /// the container's outer box at its final height; the border's own
+    /// margins inset it.
+    fn container_border_node(
         border: &crate::xfa::Border,
-        children_range: &mut [FlattenedKind],
-        parent_x: Num,
-        parent_y: Num,
-        parent_width: Num,
-        parent_height: Num,
-    ) {
-        // Per XFA spec: if fewer than 4 edge elements are supplied, the last is reused.
-        // We intentionally consume edges via get_edge() so reused visible edges are
-        // propagated consistently with runtime border rendering.
-        //
-        // We apply horizontal edges (top/bottom) to BOTH first and last leaf nodes
-        // so that heading detection and semantic queries can determine if ANY node
-        // in the row has a border. The render_bounds field ensures that edges render
-        // at the parent's position; since all nodes share the same render bounds,
-        // overlapping lines appear as a single visual line.
-        if let Some(top) = border.get_edge(0) {
-            if top.presence == "visible" && top.thickness.is_some() {
-                if let Some(node) = Self::first_leaf_node_mut(children_range) {
-                    Self::apply_edge_to_node_if_not_visible(
-                        node,
-                        top,
-                        0,
-                        parent_x,
-                        parent_y,
-                        parent_width,
-                        parent_height,
-                    );
-                }
-                if let Some(node) = Self::last_leaf_node_mut(children_range) {
-                    Self::apply_edge_to_node_if_not_visible(
-                        node,
-                        top,
-                        0,
-                        parent_x,
-                        parent_y,
-                        parent_width,
-                        parent_height,
-                    );
-                }
-            }
+        (x, y, w, h): (Num, Num, Num, Num),
+    ) -> Option<FlattenedKind> {
+        use crate::xfa::shapes::{Hand, RectangleShape, Shape, default_edge};
+        if border.presence == "hidden" || border.presence == "inactive" {
+            return None;
         }
-
-        if let Some(bottom) = border.get_edge(2) {
-            if bottom.presence == "visible" && bottom.thickness.is_some() {
-                if let Some(node) = Self::last_leaf_node_mut(children_range) {
-                    Self::apply_edge_to_node_if_not_visible(
-                        node,
-                        bottom,
-                        2,
-                        parent_x,
-                        parent_y,
-                        parent_width,
-                        parent_height,
-                    );
-                }
-                if let Some(node) = Self::first_leaf_node_mut(children_range) {
-                    Self::apply_edge_to_node_if_not_visible(
-                        node,
-                        bottom,
-                        2,
-                        parent_x,
-                        parent_y,
-                        parent_width,
-                        parent_height,
-                    );
-                }
-            }
+        // A border declaring no edge has the default edge, as a rectangle
+        // does.
+        let edges = if border.edges.is_empty() {
+            vec![default_edge()]
+        } else {
+            border.edges.clone()
+        };
+        let drawn = border.fill.as_ref().is_some_and(|f| f.presence == "visible")
+            || edges.iter().any(|e| e.presence == "visible");
+        if !drawn {
+            return None;
         }
-
-        // A subform's <border><fill> is its background colour (e.g. the AAOV
-        // "Form configurator" section's pink panel, whose border has every
-        // edge hidden but a visible fill). Painted the same way as the edges
-        // above: on the first enclosed leaf, at the subform's own bounds, and
-        // only when that leaf does not already carry a fill of its own.
-        if let Some(fill) = &border.fill
-            && fill.presence != "hidden"
-            && fill.presence != "inactive"
-            && fill.color.is_some()
-            && let Some(node) = Self::first_leaf_node_mut(children_range)
-        {
-            Self::apply_fill_to_node_if_absent(
-                node,
-                fill,
-                parent_x,
-                parent_y,
-                parent_width,
-                parent_height,
-            );
-        }
-    }
-
-    /// Apply `fill` as `node`'s border background when it does not already
-    /// have one, creating a minimal (edge-less) border to carry it if `node`
-    /// has none. The parent bounds are stored as `render_bounds` so the fill
-    /// paints at the subform's position, matching how a propagated edge does.
-    fn apply_fill_to_node_if_absent(
-        node: &mut FlattenedNode,
-        fill: &crate::xfa::Fill,
-        parent_x: Num,
-        parent_y: Num,
-        parent_width: Num,
-        parent_height: Num,
-    ) {
-        match &mut node.style.border {
-            Some(border) => {
-                if border.fill.is_none() {
-                    border.fill = Some(fill.clone());
-                    // Always anchor to the subform's bounds here, even if this
-                    // leaf's own border already carries `render_bounds` (e.g.
-                    // from `anchor_own_border`, pointing at the leaf's own
-                    // outer box): a fill propagated from an ancestor subform
-                    // must paint the subform's full row, not just this leaf.
-                    border.render_bounds =
-                        Some((parent_x, parent_y, parent_width, parent_height));
-                }
-            }
-            None => {
-                node.style.border = Some(crate::xfa::Border {
-                    fill: Some(fill.clone()),
-                    presence: "visible".to_string(),
-                    render_bounds: Some((parent_x, parent_y, parent_width, parent_height)),
-                    ..Default::default()
-                });
-            }
-        }
-    }
-
-    /// Apply `edge` to `edge_index` in `node`'s border when that edge is not already visible.
-    /// If the node has no border, create a minimal border with just this edge materialised.
-    /// The parent bounds are stored as render bounds so edges render at the parent's position.
-    fn apply_edge_to_node_if_not_visible(
-        node: &mut FlattenedNode,
-        edge: &crate::xfa::Edge,
-        edge_index: usize,
-        parent_x: Num,
-        parent_y: Num,
-        parent_width: Num,
-        parent_height: Num,
-    ) {
-        match &mut node.style.border {
-            Some(border) => {
-                let already_visible = border
-                    .get_edge(edge_index)
-                    .map(|e| e.presence == "visible" && e.thickness.is_some())
-                    .unwrap_or(false);
-
-                if !already_visible {
-                    if border.edges.len() < 4 {
-                        let materialised: Vec<_> = (0..4)
-                            .map(|i| border.get_edge(i).cloned().unwrap_or_default())
-                            .collect();
-                        border.edges = materialised;
-                    }
-                    border.edges[edge_index] = edge.clone();
-                    if border.presence == "hidden" || border.presence == "inactive" {
-                        border.presence = "visible".to_string();
-                    }
-                    // Store render bounds so edges render at parent's position
-                    border.render_bounds = Some((parent_x, parent_y, parent_width, parent_height));
-                }
-            }
-            None => {
-                let hidden = crate::xfa::Edge {
-                    presence: "hidden".to_string(),
-                    ..Default::default()
-                };
-                let mut edges = vec![hidden; 4];
-                edges[edge_index] = edge.clone();
-                node.style.border = Some(crate::xfa::Border {
-                    edges,
-                    presence: "visible".to_string(),
-                    render_bounds: Some((parent_x, parent_y, parent_width, parent_height)),
-                    ..Default::default()
-                });
-            }
-        }
+        let inset = |m: Option<Num>| m.unwrap_or(Decimal::ZERO);
+        let (ml, mt, mr, mb) = (
+            inset(border.margin_left),
+            inset(border.margin_top),
+            inset(border.margin_right),
+            inset(border.margin_bottom),
+        );
+        let node = FlattenedNode::builder()
+            .bounds(x + ml, y + mt, (w - ml - mr).max(Decimal::ZERO), (h - mt - mb).max(Decimal::ZERO))
+            .shape(Shape::Rectangle(RectangleShape {
+                hand: Hand::default(),
+                edges,
+                corners: border.corners.clone(),
+                fill: border.fill.clone(),
+            }))
+            .build();
+        Some(FlattenedKind::Node(node))
     }
 
     /// Extract widget kind from a field's <ui> child element.
@@ -5059,33 +4795,15 @@ impl Flattened {
 
     /// The `type` of a field's `<ui><barcode>`, which says how its value is
     /// turned into bars.
-    fn extract_barcode_symbology(node: &XfaNode) -> Option<String> {
-        for child in &node.children {
-            let XfaNodeKind::Element { tag_name, .. } = &child.kind else {
-                continue;
-            };
-            if tag_name != "ui" {
-                continue;
-            }
-            for ui_child in &child.children {
-                let XfaNodeKind::Element {
-                    tag_name: ui_tag, ..
-                } = &ui_child.kind
-                else {
-                    continue;
-                };
-                if ui_tag == "barcode" {
-                    return Some(
-                        ui_child
-                            .attributes
-                            .get("type")
-                            .cloned()
-                            .unwrap_or_else(|| "unspecified".to_string()),
-                    );
-                }
-            }
-        }
-        None
+    /// The field's `<ui><barcode>`, with its options.
+    fn extract_barcode(node: &XfaNode) -> Option<crate::xfa::Barcode> {
+        let ui = node.children.iter().find(
+            |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "ui"),
+        )?;
+        let barcode = ui.children.iter().find(
+            |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "barcode"),
+        )?;
+        Some(crate::xfa::Barcode::of(barcode))
     }
 
     /// Extract dropdown options from a field node's <items> children and <choiceList> attributes.
@@ -5138,14 +4856,24 @@ impl Flattened {
         })
     }
 
-    /// Check if a node has the relevant="-print" attribute.
-    /// Per XFA spec, relevant="-print" means the element should not appear in print output.
-    /// It's used for screen-only interactive elements like add/remove buttons.
+    /// Whether `relevant` leaves the node out of the print view (XFA 3.3
+    /// "The relevant property": a space-separated list of `[+|-]viewname`
+    /// tokens). `-print` excludes it; a list that only includes views and
+    /// does not name print excludes it too. Used for screen-only
+    /// interactive elements like add/remove buttons.
     fn is_no_print(node: &XfaNode) -> bool {
-        node.attributes
-            .get("relevant")
-            .map(|s| s == "-print")
-            .unwrap_or(false)
+        let Some(relevant) = node.attributes.get("relevant") else {
+            return false;
+        };
+        let tokens: Vec<&str> = relevant.split_whitespace().collect();
+        if tokens.is_empty() {
+            return false;
+        }
+        if tokens.contains(&"-print") {
+            return true;
+        }
+        tokens.iter().all(|t| !t.starts_with('-'))
+            && !tokens.iter().any(|t| t.trim_start_matches('+') == "print")
     }
 
     /// Extract font size from node, with default fallback
@@ -5153,15 +4881,16 @@ impl Flattened {
         node.font
             .as_ref()
             .map(|f| f.size)
-            .unwrap_or_else(|| num(10.0))
+            .unwrap_or_else(|| Font::default().size)
     }
 
-    /// Extract font name from node, with default fallback
+    /// Extract font name from node, with the XFA default (XFA 3.3 "The
+    /// font element": Courier) when it declares none
     fn extract_font_name(node: &XfaNode) -> String {
         node.font
             .as_ref()
             .map(|f| f.typeface.clone())
-            .unwrap_or_else(|| "Helvetica".to_string())
+            .unwrap_or_else(|| Font::default().typeface)
     }
 
     /// Count the number of paragraphs in HTML content.
@@ -5230,6 +4959,8 @@ impl Flattened {
         default_bold: bool,
         default_italic: bool,
         default_decoration: Decoration,
+        // The draw's own font size, the base of `em` lengths in its CSS.
+        default_font_size: Num,
     ) -> Option<RichText> {
         for child in children {
             // Check for XfaNodeKind::Value
@@ -5271,6 +5002,7 @@ impl Flattened {
                                         default_bold,
                                         default_italic,
                                         default_decoration,
+                                        default_font_size.to_f32().unwrap_or(10.0),
                                     ));
                                 }
                             }
@@ -5315,6 +5047,7 @@ impl Flattened {
                                         default_bold,
                                         default_italic,
                                         default_decoration,
+                                        default_font_size.to_f32().unwrap_or(10.0),
                                     ));
                                 }
                             }
@@ -5416,7 +5149,6 @@ impl Flattened {
         };
         let mut current_y = parent_position.y;
         let mut max_height_in_row = Decimal::ZERO;
-        let mut row_growable_slack = Decimal::ZERO;
         let start_y = parent_position.y;
 
         // For positioned layout, track the maximum extent (bottom-most point of all children)
@@ -5439,12 +5171,12 @@ impl Flattened {
                 continue;
             }
 
-            // Create child context - if this node's presence is hidden/inactive,
-            // children inherit that presence
+            // Create child context - if this node's presence is hidden,
+            // inactive or invisible, children inherit that presence
             // Also extend the SOM path if this node has a name
             // Also propagate NoPrint hint if this node has relevant="-print"
             let child_ctx = {
-                let base_ctx = if presence.should_skip_layout() {
+                let base_ctx = if presence.should_skip_render() {
                     ctx.with_inherited_presence(presence)
                 } else {
                     // Pass through existing inherited presence or none
@@ -5462,6 +5194,10 @@ impl Flattened {
                     base_ctx.with_inherited_hint(Hint::NoPrint)
                 } else {
                     base_ctx
+                };
+                let base_ctx = match node.attributes.get("locale") {
+                    Some(locale) => base_ctx.with_locale(locale),
+                    None => base_ctx,
                 };
                 // Extend the SOM path if this node has a name
                 if let Some(name) = &node.name {
@@ -5483,7 +5219,6 @@ impl Flattened {
                             &mut max_height_in_row,
                             flattened_children,
                             &child_ctx,
-                            &mut row_growable_slack,
                         )?;
 
                     let layout_ctx = if layout == Layout::Table {
@@ -5504,6 +5239,7 @@ impl Flattened {
                     let subform_border = node.border.clone();
                     let subform_children_start = flattened_children.len();
 
+                    Self::begin_extent(ctx);
                     let children_height = Self::flatten_nodes(
                         &node.children,
                         content_pos,
@@ -5530,24 +5266,20 @@ impl Flattened {
                         actual_height.max(min_h).max(consumed_height)
                     });
 
-                    // Per XFA spec: a subform's <border> draws a visual box around the subform.
-                    // Propagate visible border edges (and any background fill) to the
-                    // first/last enclosed child nodes so heading detection and
-                    // rendering reflect the subform border.
-                    // Pass the subform's outer_pos -- at its finalised height, when
-                    // it grew -- so edges/fill render at the row's true position/size.
-                    if let Some(ref border) = subform_border {
-                        if border.is_visible() || border.fill.is_some() {
-                            let range = &mut flattened_children[subform_children_start..];
-                            Self::propagate_subform_border_to_children(
-                                border,
-                                range,
+                    // The subform's own `<border>`, at its final (grown)
+                    // height, drawn under its children.
+                    if let Some(border_node) = subform_border.as_ref().and_then(|border| {
+                        Self::container_border_node(
+                            border,
+                            (
                                 outer_pos.x,
                                 outer_pos.y,
                                 outer_pos.width,
                                 finalised_height.unwrap_or(outer_pos.height),
-                            );
-                        }
+                            ),
+                        )
+                    }) {
+                        flattened_children.insert(subform_children_start, border_node);
                     }
 
                     // For tb layout, update current_y based on actual content height if no explicit height
@@ -5560,19 +5292,13 @@ impl Flattened {
                         }
                     }
 
-                    // Record this subform's keep/break constraints, if any,
-                    // now that `current_y` reflects its true bottom edge --
-                    // for a growable subform (the common case: `keep`/`break`
-                    // sit on a plain "tb" wrapper with no explicit `h`) that is
-                    // only true after the fixup just above, not from
-                    // `compute_position_for_node_with_children`'s own
-                    // still-zero placeholder height for an unsized container.
-                    Self::record_break_marker(
+                    // The subform's extent, at its true height now that its
+                    // children are laid out.
+                    Self::end_container_extent(
                         node,
-                        Some(layout),
                         parent_layout,
                         outer_pos.y,
-                        current_y,
+                        outer_pos.y + finalised_height.unwrap_or(outer_pos.height),
                         ctx,
                     );
 
@@ -5602,10 +5328,9 @@ impl Flattened {
                         let actual_height = children_height
                             + node.margin_top.unwrap_or(Decimal::ZERO)
                             + node.margin_bottom.unwrap_or(Decimal::ZERO);
-                        // Skip .max(min_h) — minH on container subforms in lr-tb
-                        // is a fixed-layout alignment property that shouldn't
-                        // inflate the row height in a flowable web layout.
-                        let effective_height = actual_height.max(consumed_height);
+                        // `minH` holds in every layout (XFA 3.3 §8).
+                        let min_h = node.min_h.unwrap_or(Decimal::ZERO);
+                        let effective_height = actual_height.max(min_h).max(consumed_height);
                         max_height_in_row = max_height_in_row.max(effective_height);
                     }
 
@@ -5633,7 +5358,6 @@ impl Flattened {
                             &mut max_height_in_row,
                             flattened_children,
                             &child_ctx,
-                            &mut row_growable_slack,
                         )?;
 
                     // For positioned layout, track the max extent (relative to parent_position)
@@ -5642,12 +5366,14 @@ impl Flattened {
                         max_extent_y = max_extent_y.max(node_bottom);
                     }
 
-                    // Record this field's keep/break constraints, if any. In
-                    // tb layout `compute_position_for_node_with_children` has
-                    // already advanced `current_y` past this leaf's true
-                    // bottom edge (unlike a growable container, a leaf's
-                    // height is known up front), so no fixup is needed first.
-                    Self::record_break_marker(node, None, parent_layout, outer_pos.y, current_y, ctx);
+                    // The field's extent: a leaf's height is known up front.
+                    Self::leaf_extent(
+                        node,
+                        outer_pos.y,
+                        outer_pos.y + outer_pos.height,
+                        Self::field_splitting(node, outer_pos.height),
+                        ctx,
+                    );
 
                     // Only add to output if not hidden
                     // For fields, use outer_pos for rendering (field box includes margins)
@@ -5656,9 +5382,12 @@ impl Flattened {
                         let field_value = Self::extract_field_value(&node.children);
                         let mut style = Self::extract_style(node);
                         Self::anchor_own_border(&mut style, outer_pos);
-                        let is_checked = Self::compute_field_checked_state(
-                            &node.children,
+                        let is_checked = Self::checked_state(
+                            node,
+                            child_ctx.current_path.as_str(),
+                            &field_value,
                             &child_ctx.parent_exclgroup_value,
+                            ctx,
                         );
                         let access = Self::extract_field_access(node);
                         let widget_kind = Self::extract_widget_kind(node);
@@ -5696,9 +5425,9 @@ impl Flattened {
                                 field_node.add_hint(dropdown_hint);
                             }
                             if kind == WidgetKind::Barcode
-                                && let Some(sym) = Self::extract_barcode_symbology(node)
+                                && let Some(barcode) = Self::extract_barcode(node)
                             {
-                                field_node.add_hint(Hint::BarcodeSymbology(sym));
+                                field_node.add_hint(Hint::Barcode(barcode));
                             }
                             field_node.add_hint(Hint::WidgetType(kind));
                         }
@@ -5725,7 +5454,6 @@ impl Flattened {
                             &mut max_height_in_row,
                             flattened_children,
                             ctx,
-                            &mut row_growable_slack,
                         )?;
 
                     // For positioned layout, track the max extent (relative to parent_position)
@@ -5734,14 +5462,17 @@ impl Flattened {
                         max_extent_y = max_extent_y.max(node_bottom);
                     }
 
-                    // Record this draw's keep/break constraints, if any --
-                    // regardless of `skip_render`, matching the subform case:
-                    // an invisible node still occupies layout space and can
-                    // still carry a constraint on it. This is what lets a
-                    // section-heading draw's `<keep next="contentArea"/>`
-                    // (e.g. AAJB_033_IT's `Text_B2`) drag it onto the same
-                    // page as the unsplittable question block that follows.
-                    Self::record_break_marker(node, None, parent_layout, outer_pos.y, current_y, ctx);
+                    // The draw's extent -- regardless of `skip_render`: an
+                    // invisible node still occupies layout space and can
+                    // still carry a `keep` (a section heading's `keep next`
+                    // drags it onto the page of the block it introduces).
+                    Self::leaf_extent(
+                        node,
+                        outer_pos.y,
+                        outer_pos.y + outer_pos.height,
+                        Self::draw_splitting(node),
+                        ctx,
+                    );
 
                     // Only add to output if not hidden
                     if !skip_render {
@@ -5760,8 +5491,8 @@ impl Flattened {
                         // Use context to resolve xfa:embed references
                         let text_content =
                             child_ctx.extract_text(&node.children).unwrap_or_default();
-                        let mut font_size = Self::extract_font_size(node);
-                        let mut font_name = Self::extract_font_name(node);
+                        let font_size = Self::extract_font_size(node);
+                        let font_name = Self::extract_font_name(node);
                         let mut style = Self::extract_style(node);
                         Self::anchor_own_border(&mut style, outer_pos);
 
@@ -5769,39 +5500,6 @@ impl Flattened {
                         // CSS font-weight from individual paragraphs should not change the default
                         // for rich text parsing - each paragraph handles its own font-weight CSS.
                         let (default_bold, default_italic) = style.get_xfa_bold_italic();
-
-                        // For HTML content (exData with contentType="text/html"), extract CSS font properties
-                        // which may override the XFA <font> element values
-                        let (css_font_family, css_font_size, css_is_bold) =
-                            Self::extract_font_from_html_content(&node.children);
-                        if let Some(ref name) = css_font_family {
-                            font_name = name.clone();
-                        }
-                        if let Some(size) = css_font_size {
-                            font_size = size;
-                        }
-
-                        // Only apply CSS overrides if at least one CSS property was found
-                        if (css_font_size.is_some()
-                            || css_font_family.is_some()
-                            || css_is_bold.is_some())
-                            && let Some(ref mut font) = style.font
-                        {
-                            // Apply CSS overrides if present
-                            if let Some(size) = css_font_size {
-                                font.size = size;
-                            }
-                            if let Some(ref family) = css_font_family {
-                                font.typeface = family.clone();
-                            }
-                            if let Some(is_bold) = css_is_bold {
-                                font.weight = if is_bold {
-                                    crate::xfa::FontWeight::Bold
-                                } else {
-                                    crate::xfa::FontWeight::Normal
-                                };
-                            }
-                        }
 
                         // Get default h_align from XFA para element
                         let default_h_align = node
@@ -5820,6 +5518,7 @@ impl Flattened {
                             default_bold,
                             default_italic,
                             Decoration::of_font(node.font.as_ref()),
+                            font_size,
                         );
 
                         let draw_node = FlattenedNode::new_text_with_rich_text(
@@ -5871,7 +5570,6 @@ impl Flattened {
                             &mut max_height_in_row,
                             flattened_children,
                             &child_ctx,
-                            &mut row_growable_slack,
                         )?;
 
                     // For positioned layout, track the max extent (relative to parent_position)
@@ -5915,6 +5613,8 @@ impl Flattened {
 
                     // Recurse into exclGroup children with the computed content position
                     // The exclGroup's layout applies to its children (the fields)
+                    let group_children_start = flattened_children.len();
+                    Self::begin_extent(ctx);
                     let children_height = Self::flatten_nodes(
                         &node.children,
                         content_pos,
@@ -5922,6 +5622,15 @@ impl Flattened {
                         flattened_children,
                         &exclgroup_ctx,
                     )?;
+                    // A growable group is as tall as its children, at least
+                    // its `minH`; a sized one as tall as it says.
+                    let grown_height = node.h.is_none().then(|| {
+                        (children_height
+                            + node.margin_top.unwrap_or(Decimal::ZERO)
+                            + node.margin_bottom.unwrap_or(Decimal::ZERO))
+                        .max(node.min_h.unwrap_or(Decimal::ZERO))
+                        .max(consumed_height)
+                    });
 
                     // For tb layout, update current_y based on actual content height if no explicit height
                     if parent_layout == Layout::TopToBottom && node.h.is_none() {
@@ -5948,335 +5657,54 @@ impl Flattened {
                         max_extent_y = max_extent_y.max(node_bottom);
                     }
 
-                    // Record this exclGroup's keep/break constraints, if
-                    // any, now that `current_y` reflects its true bottom
-                    // edge for a growable one (same reasoning as a subform,
-                    // which this is treated like for layout purposes).
-                    Self::record_break_marker(
+                    Self::end_container_extent(
                         node,
-                        Some(layout),
                         parent_layout,
                         outer_pos.y,
-                        current_y,
+                        outer_pos.y + grown_height.unwrap_or(outer_pos.height),
                         ctx,
                     );
+                    // The group's own `<border>`, drawn under its members.
+                    if let Some(border_node) = node.border.as_ref().and_then(|border| {
+                        Self::container_border_node(
+                            border,
+                            (
+                                outer_pos.x,
+                                outer_pos.y,
+                                outer_pos.width,
+                                grown_height.unwrap_or(outer_pos.height),
+                            ),
+                        )
+                    }) {
+                        flattened_children.insert(group_children_start, border_node);
+                    }
                 }
                 XfaNodeKind::Element { tag_name, .. } => {
                     // Handle generic elements that might be containers
                     match tag_name.as_str() {
-                        "subform" => {
-                            let (outer_pos, content_pos, layout, consumed_height) =
-                                Self::compute_position_for_node_with_children(
-                                    node,
-                                    parent_position,
-                                    parent_layout,
-                                    &mut current_x,
-                                    &mut current_y,
-                                    &mut max_height_in_row,
-                                    flattened_children,
-                                    &child_ctx,
-                                    &mut row_growable_slack,
-                                )?;
-
-                            // For positioned layout, track the max extent (relative to parent_position)
-                            if parent_layout == Layout::Position {
-                                let node_bottom =
-                                    (outer_pos.y - parent_position.y) + outer_pos.height;
-                                max_extent_y = max_extent_y.max(node_bottom);
-                            }
-
-                            let children_height = Self::flatten_nodes(
-                                &node.children,
-                                content_pos,
-                                layout,
-                                flattened_children,
-                                &child_ctx,
-                            )?;
-
-                            // For tb layout, update current_y based on actual content height
-                            if parent_layout == Layout::TopToBottom && node.h.is_none() {
-                                let actual_height = children_height
-                                    + node.margin_top.unwrap_or(Decimal::ZERO)
-                                    + node.margin_bottom.unwrap_or(Decimal::ZERO);
-                                let min_h = node.min_h.unwrap_or(Decimal::ZERO);
-                                let effective_height =
-                                    actual_height.max(min_h).max(consumed_height);
-
-                                if effective_height > consumed_height {
-                                    current_y = outer_pos.y + effective_height;
-                                }
-                            }
-
-                            // For lr-tb layout, update max_height_in_row based on actual
-                            // content height (growable subform, nominal extent from children).
-                            if matches!(
-                                parent_layout,
-                                Layout::LeftToRightTopToBottom | Layout::LeftToRight
-                            ) && node.h.is_none()
-                            {
-                                let actual_height = children_height
-                                    + node.margin_top.unwrap_or(Decimal::ZERO)
-                                    + node.margin_bottom.unwrap_or(Decimal::ZERO);
-                                // Skip .max(min_h) — see comment above for Subform.
-                                let effective_height = actual_height.max(consumed_height);
-                                max_height_in_row = max_height_in_row.max(effective_height);
-                            }
-
-                            // For positioned layout, update max_extent_y after recursion.
-                            // Per XFA spec, a container without explicit h grows to fit
-                            // its children's nominal extents.
-                            if parent_layout == Layout::Position && node.h.is_none() {
-                                let actual_height = children_height
-                                    + node.margin_top.unwrap_or(Decimal::ZERO)
-                                    + node.margin_bottom.unwrap_or(Decimal::ZERO);
-                                let effective_height = actual_height.max(consumed_height);
-                                let node_bottom =
-                                    (outer_pos.y - parent_position.y) + effective_height;
-                                max_extent_y = max_extent_y.max(node_bottom);
-                            }
+                        "pageSet" | "pageArea" | "contentArea" => {
+                            // Page structure (XFA 3.3 §7), not Form DOM
+                            // content; laid out per page by
+                            // `from_xfa_paged_with`.
                         }
-                        "field" => {
-                            let (outer_pos, content_pos, _layout, _) =
-                                Self::compute_position_for_node_with_children(
-                                    node,
-                                    parent_position,
-                                    parent_layout,
-                                    &mut current_x,
-                                    &mut current_y,
-                                    &mut max_height_in_row,
-                                    flattened_children,
-                                    &child_ctx,
-                                    &mut row_growable_slack,
-                                )?;
-
-                            // For positioned layout, track the max extent (relative to parent_position)
-                            if parent_layout == Layout::Position {
-                                let node_bottom =
-                                    (outer_pos.y - parent_position.y) + outer_pos.height;
-                                max_extent_y = max_extent_y.max(node_bottom);
-                            }
-
-                            // Only add to output if not hidden
-                            if !skip_render {
-                                let field_name =
-                                    node.name.clone().unwrap_or_else(|| "unnamed".to_string());
-                                let field_value = Self::extract_field_value(&node.children);
-                                let mut style = Self::extract_style(node);
-                                Self::anchor_own_border(&mut style, outer_pos);
-                                let is_checked = Self::compute_field_checked_state(
-                                    &node.children,
-                                    &child_ctx.parent_exclgroup_value,
-                                );
-                                let access = Self::extract_field_access(node);
-                                let widget_kind = Self::extract_widget_kind(node);
-
-                                let mut field_node = FlattenedNode::new_field_with_checked(
-                                    field_name.clone(),
-                                    field_value.clone(),
-                                    field_value,
-                                    content_pos.x,
-                                    content_pos.y,
-                                    content_pos.width,
-                                    content_pos.height,
-                                    style,
-                                    node.rotate,
-                                    is_checked,
-                                );
-                                // Add SomPath hint with full XFA path
-                                // The context path already includes this field's name (via with_path_segment)
-                                let som_path = child_ctx.current_path.clone();
-                                field_node.add_hint(Hint::SomPath(SomPath::new(som_path)));
-                                // Add ExclGroupSomPath hint if inside an exclGroup
-                                if let Some(ref exclgroup_path) =
-                                    child_ctx.parent_exclgroup_som_path
-                                {
-                                    field_node
-                                        .add_hint(Hint::ExclGroupSomPath(exclgroup_path.clone()));
-                                }
-                                // Access, length and lines, and how the value is shown.
-                                Self::add_field_value_hints(&mut field_node, node, access);
-                                // Its caption, beside, above or below the value.
-                                let caption_node = Self::caption_node(node, &mut field_node);
-                                // Add WidgetType hint if we could determine it
-                                if let Some(widget_kind) = widget_kind {
-                                    // Add Dropdown hint with options if this is a dropdown
-                                    if widget_kind == WidgetKind::Dropdown
-                                        && let Some(dropdown_hint) =
-                                            Self::extract_dropdown_hint(node)
-                                    {
-                                        field_node.add_hint(dropdown_hint);
-                                    }
-                                    if widget_kind == WidgetKind::Barcode
-                                        && let Some(sym) = Self::extract_barcode_symbology(node)
-                                    {
-                                        field_node.add_hint(Hint::BarcodeSymbology(sym));
-                                    }
-                                    field_node.add_hint(Hint::WidgetType(widget_kind));
-                                }
-                                // Add NoPrint hint if relevant="-print" or inherited from parent
-                                if Self::is_no_print(node)
-                                    || child_ctx.has_inherited_hint(&Hint::NoPrint)
-                                {
-                                    field_node.add_hint(Hint::NoPrint);
-                                }
-                                flattened_children.push(FlattenedKind::Node(field_node));
-                                if let Some(caption) = caption_node {
-                                    flattened_children.push(FlattenedKind::Node(caption));
-                                }
-                            }
+                        "proto" | "variables" => {
+                            // Not form content. A prototype "plays no part in
+                            // the form except when it is referenced by a use
+                            // or usehref attribute on some other element", and
+                            // even a fully specified field in one "will never
+                            // be directly visible or accessible to a form
+                            // filling user" (XFA 3.3 §6 "Prototypes"); the
+                            // references were merged into their users by
+                            // `XfaNode::resolve_use_prototypes`. Document
+                            // variables hold boilerplate a script inserts
+                            // elsewhere ("The variables element"), drawn only
+                            // where it is inserted.
                         }
-                        "draw" => {
-                            let (outer_pos, content_pos, _layout, _) =
-                                Self::compute_position_for_node_with_children(
-                                    node,
-                                    parent_position,
-                                    parent_layout,
-                                    &mut current_x,
-                                    &mut current_y,
-                                    &mut max_height_in_row,
-                                    flattened_children,
-                                    &child_ctx,
-                                    &mut row_growable_slack,
-                                )?;
-
-                            // For positioned layout, track the max extent (relative to parent_position)
-                            if parent_layout == Layout::Position {
-                                let node_bottom =
-                                    (outer_pos.y - parent_position.y) + outer_pos.height;
-                                max_extent_y = max_extent_y.max(node_bottom);
-                            }
-
-                            // Only add to output if not hidden
-                            if !skip_render {
-                                // An image draw carries pixels rather than text.
-                                if let Some(image_node) = Self::flatten_value_draw(
-                                    node,
-                                    node.name.as_ref().map(|_| child_ctx.current_path.clone()),
-                                    content_pos,
-                                    &child_ctx,
-                                )? {
-                                    flattened_children.push(FlattenedKind::Node(image_node));
-                                    continue;
-                                }
-
-                                // Draw nodes render text or images - use empty string if no content (scripts may fill it)
-                                // Use context to resolve xfa:embed references
-                                let text_content =
-                                    child_ctx.extract_text(&node.children).unwrap_or_default();
-                                let mut font_size = Self::extract_font_size(node);
-                                let mut font_name = Self::extract_font_name(node);
-                                let mut style = Self::extract_style(node);
-                                Self::anchor_own_border(&mut style, outer_pos);
-
-                                // Compute default_bold/italic from original XFA font BEFORE CSS overrides.
-                                // CSS font-weight from individual paragraphs should not change the default
-                                // for rich text parsing - each paragraph handles its own font-weight CSS.
-                                let (default_bold, default_italic) = style.get_xfa_bold_italic();
-
-                                // For HTML content (exData with contentType="text/html"), extract CSS font properties
-                                // which may override the XFA <font> element values
-                                let (css_font_family, css_font_size, css_is_bold) =
-                                    Self::extract_font_from_html_content(&node.children);
-                                if let Some(ref name) = css_font_family {
-                                    font_name = name.clone();
-                                }
-                                if let Some(size) = css_font_size {
-                                    font_size = size;
-                                }
-
-                                // Only apply CSS overrides if at least one CSS property was found
-                                if (css_font_size.is_some()
-                                    || css_font_family.is_some()
-                                    || css_is_bold.is_some())
-                                    && let Some(ref mut font) = style.font
-                                {
-                                    // Apply CSS overrides if present
-                                    if let Some(size) = css_font_size {
-                                        font.size = size;
-                                    }
-                                    if let Some(ref family) = css_font_family {
-                                        font.typeface = family.clone();
-                                    }
-                                    if let Some(is_bold) = css_is_bold {
-                                        font.weight = if is_bold {
-                                            crate::xfa::FontWeight::Bold
-                                        } else {
-                                            crate::xfa::FontWeight::Normal
-                                        };
-                                    }
-                                }
-
-                                // Get default h_align from XFA para element
-                                let default_h_align = node
-                                    .para
-                                    .as_ref()
-                                    .map(|p| p.h_align)
-                                    .unwrap_or(HAlign::Left);
-
-                                // Extract rich text if this is HTML content (exData with contentType="text/html")
-                                let rich_text = Self::extract_rich_text_from_node(
-                                    &node.children,
-                                    default_h_align,
-                                    Some(ctx.computed_values),
-                                    Some(ctx.id_to_field),
-                                    default_bold,
-                                    default_italic,
-                                    Decoration::of_font(node.font.as_ref()),
-                                );
-
-                                let draw_node = FlattenedNode::new_text_with_rich_text(
-                                    text_content,
-                                    font_size,
-                                    font_name,
-                                    content_pos.x,
-                                    content_pos.y,
-                                    content_pos.width,
-                                    content_pos.height,
-                                    style,
-                                    node.rotate,
-                                    node.name.clone(),
-                                    rich_text,
-                                );
-                                // Split multi-paragraph draw nodes into one FlattenedNode per paragraph
-                                let mut draw_kinds = Self::split_draw_into_paragraph_nodes(
-                                    draw_node,
-                                    &child_ctx.language,
-                                );
-                                // Add NoPrint hint if relevant="-print" or inherited from parent
-                                if Self::is_no_print(node)
-                                    || child_ctx.has_inherited_hint(&Hint::NoPrint)
-                                {
-                                    for kind in &mut draw_kinds {
-                                        kind.add_hint(Hint::NoPrint);
-                                    }
-                                }
-                                // Add SomPath hint to draw nodes (same pattern as fields)
-                                if !child_ctx.current_path.is_empty() {
-                                    let som = SomPath::new(child_ctx.current_path.clone());
-                                    for kind in &mut draw_kinds {
-                                        kind.add_hint(Hint::SomPath(som.clone()));
-                                    }
-                                }
-                                flattened_children.extend(draw_kinds);
-                            }
-
-                            // Don't recurse into draw children for positioning
-                        }
-                        "template" | "pageSet" | "pageArea" | "contentArea" => {
-                            // NOTE: These should NOT normally be encountered when processing Form DOM content,
-                            // since find_root_subform returns the content subform (sibling to pageSet).
-                            // This fallback handles edge cases or malformed documents.
-                            // Per XFA spec: pageSet/pageArea define page structure and are NOT part of Form DOM.
-                            let child_layout = if tag_name == "pageArea" {
-                                Layout::Position
-                            } else {
-                                parent_layout
-                            };
-
+                        "template" => {
                             Self::flatten_nodes(
                                 &node.children,
                                 parent_position,
-                                child_layout,
+                                parent_layout,
                                 flattened_children,
                                 &child_ctx,
                             )?;
@@ -6379,6 +5807,7 @@ impl Flattened {
 
                             // Recurse into children with the area's position as origin
                             // and Layout::Position (area's default internal layout per spec)
+                            Self::begin_extent(ctx);
                             let children_height = Self::flatten_nodes(
                                 &node.children,
                                 outer_pos,
@@ -6390,6 +5819,20 @@ impl Flattened {
                             // Post-recursion: if children grew beyond pre-computed height,
                             // update parent flow state (same pattern as subform growable containers)
                             let effective_height = children_height.max(area_height);
+                            // An area has no margins of its own and splits
+                            // where its children allow (XFA 3.3 §8: "Split
+                            // consensus is employed when splitting subforms,
+                            // areas, and exclusion groups").
+                            if let Some(recorder) = ctx.extents {
+                                recorder.borrow_mut().end(Extent::new(
+                                    outer_pos.y,
+                                    outer_pos.y + effective_height,
+                                    Splitting::Inside {
+                                        margin_top: Decimal::ZERO,
+                                        margin_bottom: Decimal::ZERO,
+                                    },
+                                ));
+                            }
                             if effective_height > area_height {
                                 match parent_layout {
                                     Layout::TopToBottom => {
@@ -6423,9 +5866,9 @@ impl Flattened {
                         }
                     }
                 }
-                XfaNodeKind::Template | XfaNodeKind::ContentArea | XfaNodeKind::PageSet => {
-                    // NOTE: These should NOT normally be encountered when processing Form DOM content.
-                    // This handles fallback cases. Pass through with same parent position and layout.
+                XfaNodeKind::Template | XfaNodeKind::ContentArea => {
+                    // Not Form DOM content; pass through with the same
+                    // position and layout.
                     Self::flatten_nodes(
                         &node.children,
                         parent_position,
@@ -6434,17 +5877,10 @@ impl Flattened {
                         &child_ctx,
                     )?;
                 }
-                XfaNodeKind::PageArea => {
-                    // NOTE: PageArea should NOT normally be encountered when processing Form DOM content.
-                    // Page background (pageArea children) are handled separately in from_xfa().
-                    // This fallback handles edge cases - pass through with positioned layout.
-                    Self::flatten_nodes(
-                        &node.children,
-                        parent_position,
-                        Layout::Position,
-                        flattened_children,
-                        &child_ctx,
-                    )?;
+                XfaNodeKind::PageSet | XfaNodeKind::PageArea => {
+                    // Page structure (XFA 3.3 §7): the root subform's page
+                    // sets are not part of the Form DOM, and page background
+                    // is laid out once per page by `from_xfa_paged_with`.
                 }
                 _ => {}
             }
@@ -6459,59 +5895,98 @@ impl Flattened {
         }
     }
 
-    /// A node's `<keep>` child, if it asks for anything (XFA 3.3 §8 "Content
-    /// Splitting"). `none`/absent on each sub-property is the default and
-    /// means "no constraint", so a `<keep>` with every sub-property `none`
-    /// is the same as no `<keep>` at all.
-    fn keep_of(node: &XfaNode) -> Option<(bool, bool, bool)> {
+    /// A node's `<keep>` (XFA 3.3 §8 "Content Splitting", "Adhesion").
+    fn keep_of(node: &XfaNode) -> Keep {
+        let mut keep = Keep::default();
         for child in &node.children {
             if let XfaNodeKind::Element { tag_name, .. } = &child.kind
                 && tag_name == "keep"
             {
-                let forces = |attr: &str| {
-                    matches!(
-                        child.attributes.get(attr).map(String::as_str),
-                        Some("contentArea") | Some("pageArea")
-                    )
+                let attr = |name: &str| child.attributes.get(name).map(String::as_str);
+                keep.intact = match attr("intact") {
+                    Some("contentArea" | "pageArea") => Some(true),
+                    Some("none") => Some(false),
+                    None => None,
+                    Some(other) => {
+                        log::warn!(
+                            "unknown keep intact={other:?} on {:?}; taken as none",
+                            node.name
+                        );
+                        Some(false)
+                    }
                 };
-                let (intact, next, previous) =
-                    (forces("intact"), forces("next"), forces("previous"));
-                return if intact || next || previous {
-                    Some((intact, next, previous))
-                } else {
-                    None
-                };
+                keep.next = matches!(attr("next"), Some("contentArea" | "pageArea"));
+                keep.previous = matches!(attr("previous"), Some("contentArea" | "pageArea"));
             }
         }
-        None
+        keep
     }
 
-    /// A node's `<breakBefore>`/`<breakAfter>` children, if either forces a
-    /// move to a new content area or page (XFA 3.3 §7 "Break Conditions").
-    /// The `targetType` default is `auto` ("layout continues using the
-    /// current layout container"), so a bare `<breakBefore/>` with no
-    /// `targetType` -- common in Designer output, left over from reordering
-    /// -- forces nothing; only `contentArea`, `pageArea`, `pageEven` and
-    /// `pageOdd` do. The deprecated combined `<break>` element uses
-    /// `before=`/`after=` attributes with the same value set.
-    fn forced_break(node: &XfaNode) -> (bool, bool) {
-        let forces = |v: Option<&String>| {
-            matches!(
-                v.map(String::as_str),
-                Some("contentArea") | Some("pageArea") | Some("pageEven") | Some("pageOdd")
-            )
+    /// A node's `breakBefore` and `breakAfter` requests (XFA 3.3 §7 "Break
+    /// Conditions"), including the deprecated combined `<break>`. The
+    /// `targetType` default is `auto` ("layout continues using the current
+    /// layout container"), so a bare `<breakBefore/>` with no `targetType`
+    /// -- common in Designer output, left over from reordering -- asks for
+    /// nothing. A break with a script is taken: the layout cannot run it,
+    /// and says so.
+    fn break_requests(node: &XfaNode) -> (Option<BreakRequest>, Option<BreakRequest>) {
+        let parse = |element: &XfaNode,
+                     target_type: Option<&String>,
+                     target: Option<&String>,
+                     start_new: Option<&String>|
+         -> Option<BreakRequest> {
+            let target_type = match target_type.map(String::as_str) {
+                None | Some("auto") => return None,
+                Some("contentArea") => BreakTarget::ContentArea,
+                Some("pageArea") => BreakTarget::PageArea,
+                Some("pageEven") => BreakTarget::PageEven,
+                Some("pageOdd") => BreakTarget::PageOdd,
+                Some(other) => {
+                    log::warn!(
+                        "unknown break targetType {other:?} on {:?}; the break is ignored",
+                        node.name
+                    );
+                    return None;
+                }
+            };
+            if element.children.iter().any(|c| {
+                matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "script")
+                    && c.template_value().is_some_and(|v| !v.trim().is_empty())
+            }) {
+                log::warn!(
+                    "a break condition script on {:?} cannot be evaluated by the layout; the \
+                     break is taken",
+                    node.name
+                );
+            }
+            Some(BreakRequest {
+                target_type,
+                target: target.filter(|t| !t.is_empty()).cloned(),
+                start_new: start_new.map(String::as_str) == Some("1"),
+            })
         };
-        let (mut before, mut after) = (false, false);
+        let (mut before, mut after) = (None, None);
         for child in &node.children {
             let XfaNodeKind::Element { tag_name, .. } = &child.kind else {
                 continue;
             };
+            let a = &child.attributes;
             match tag_name.as_str() {
-                "breakBefore" => before |= forces(child.attributes.get("targetType")),
-                "breakAfter" => after |= forces(child.attributes.get("targetType")),
+                "breakBefore" => {
+                    before = before.or_else(|| {
+                        parse(child, a.get("targetType"), a.get("target"), a.get("startNew"))
+                    })
+                }
+                "breakAfter" => {
+                    after = after.or_else(|| {
+                        parse(child, a.get("targetType"), a.get("target"), a.get("startNew"))
+                    })
+                }
                 "break" => {
-                    before |= forces(child.attributes.get("before"));
-                    after |= forces(child.attributes.get("after"));
+                    before = before.or_else(|| {
+                        parse(child, a.get("before"), a.get("beforeTarget"), a.get("startNew"))
+                    });
+                    after = after.or_else(|| parse(child, a.get("after"), a.get("afterTarget"), None));
                 }
                 _ => {}
             }
@@ -6519,148 +5994,113 @@ impl Flattened {
         (before, after)
     }
 
-    /// Record `node`'s `keep`/`breakBefore`/`breakAfter` constraints as a
-    /// [`BreakMarker`], if it has any and it is a direct child of the
-    /// `layout="tb"` container currently being page-broken (XFA 3.3 §7-§8).
-    ///
-    /// `own_layout` is `node`'s own layout attribute for a container
-    /// (`subform`/`exclGroup`); `None` for a leaf (`draw`/`field`), which has
-    /// no layout of its own. `top`/`bottom` are the node's final extent in
-    /// absolute column coordinates -- for a growable container this must be
-    /// its true bottom edge (`current_y` after the caller's own height
-    /// fixup), not `compute_position_for_node_with_children`'s still-zero
-    /// placeholder height for an unsized container.
-    ///
-    /// Every kind of `layout="tb"` child needs this, not only subforms: a
-    /// UBS section heading is a plain `<draw>` with `<keep next="contentArea"/>`
-    /// directly followed by the positioned question block it introduces
-    /// (`Text_B2` -> `STP_Economica` in AAJB_033_IT), and a `<keep>` the
-    /// layout never records cannot be honored by `snap_break`.
-    fn record_break_marker(
+    /// A container starts: its children's extents are recorded under it.
+    fn begin_extent(ctx: &FlattenContext) {
+        if let Some(recorder) = ctx.extents {
+            recorder.borrow_mut().begin();
+        }
+    }
+
+    /// A container ends, spanning `top`..`bottom` of the column. Whether it
+    /// may be split (XFA 3.3 §8 "Split Restrictions"): never with `keep
+    /// intact="contentArea"`; by default never as a table row, when placed
+    /// by a positioned parent, or when positioned itself (Acrobat's
+    /// reading, see `acrobat_compat` item 6); otherwise wherever its
+    /// children allow, outside its own margins.
+    fn end_container_extent(
         node: &XfaNode,
-        own_layout: Option<Layout>,
         parent_layout: Layout,
         top: Num,
         bottom: Num,
         ctx: &FlattenContext,
     ) {
-        if parent_layout != Layout::TopToBottom {
-            return;
-        }
-        let Some(cell) = ctx.break_markers else {
+        let Some(recorder) = ctx.extents else {
             return;
         };
         let keep = Self::keep_of(node);
-        let (force_before, force_after) = Self::forced_break(node);
-        // A subform/exclGroup whose own layout is "position" (XFA's default
-        // when no `layout` attribute is given) is never split across pages
-        // by any viewer we have observed: per XFA 3.3 ch. 8 "Content
-        // Splitting", "the individual object has a single position relative
-        // to the other positioned contents of its immediate container" -- an
-        // ancestor using flowing layout may still split *around* it, but its
-        // own children are never torn apart from each other. Treat it the
-        // same as an explicit `keep intact="contentArea"`. Not applicable to
-        // a leaf, which has no `own_layout` and nothing of its own to split.
-        let positioned_intact = own_layout == Some(Layout::Position);
-        if keep.is_some() || force_before || force_after || positioned_intact {
-            let (intact, keep_next, keep_previous) = keep.unwrap_or_default();
-            cell.borrow_mut().push(BreakMarker {
-                top,
-                bottom,
-                intact: intact || positioned_intact,
-                keep_next,
-                keep_previous,
-                force_before,
-                force_after,
-            });
+        let own_layout = node
+            .layout
+            .as_ref()
+            .and_then(|l| l.parse().ok())
+            .unwrap_or(Layout::Position);
+        let positioned = own_layout == Layout::Position
+            || matches!(parent_layout, Layout::Position | Layout::Table);
+        let splitting = match keep.intact {
+            Some(true) => Splitting::Never,
+            Some(false) => Self::inside_margins(node),
+            None if positioned => Splitting::Never,
+            None => Self::inside_margins(node),
+        };
+        let mut extent = Extent::new(top, bottom, splitting);
+        Self::set_extent_requests(&mut extent, node, keep);
+        recorder.borrow_mut().end(extent);
+    }
+
+    fn inside_margins(node: &XfaNode) -> Splitting {
+        Splitting::Inside {
+            margin_top: node.margin_top.unwrap_or(Decimal::ZERO),
+            margin_bottom: node.margin_bottom.unwrap_or(Decimal::ZERO),
         }
     }
 
-    /// A content subform's own page-area target: the `target` of a direct
-    /// `<breakBefore targetType="pageArea" target="...">` child (or the
-    /// deprecated `<break before="pageArea" beforeTarget="...">`), if it has
-    /// one, as the last SOM segment (`"MP2Set.MP1"` -> `"MP1"`).
-    ///
-    /// Per XFA 3.3 §7 "Break Conditions", this is how a content subform
-    /// states which pageArea -- and therefore which pageSet -- its own pages
-    /// start on (e.g. AAOV's `Page2` states `target="MP2Set.MP1"`, moving it
-    /// onto a different pageSet than `Page`, which precedes it). `None` means
-    /// the subform does not care, and its pages are chosen from every
-    /// pageArea in the document, as before this had a name.
-    fn content_subform_page_area_target(node: &XfaNode) -> Option<&str> {
-        for child in &node.children {
-            let XfaNodeKind::Element { tag_name, .. } = &child.kind else {
-                continue;
-            };
-            let target = match tag_name.as_str() {
-                "breakBefore"
-                    if child.attributes.get("targetType").map(String::as_str)
-                        == Some("pageArea") =>
-                {
-                    child.attributes.get("target")
-                }
-                "break" if child.attributes.get("before").map(String::as_str) == Some("pageArea") => {
-                    child.attributes.get("beforeTarget")
-                }
-                _ => None,
-            };
-            if let Some(t) = target {
-                return t.rsplit('.').next();
-            }
-        }
-        None
+    /// A leaf (draw or field) spanning `top`..`bottom` of the column.
+    /// `splitting` is what its content allows; `keep intact` overrides it.
+    fn leaf_extent(node: &XfaNode, top: Num, bottom: Num, splitting: Splitting, ctx: &FlattenContext) {
+        let Some(recorder) = ctx.extents else {
+            return;
+        };
+        let keep = Self::keep_of(node);
+        let splitting = if keep.intact == Some(true) {
+            Splitting::Never
+        } else {
+            splitting
+        };
+        let mut extent = Extent::new(top, bottom, splitting);
+        Self::set_extent_requests(&mut extent, node, keep);
+        recorder.borrow_mut().leaf(extent);
     }
 
-    /// Group content subforms into "runs": maximal consecutive sequences that
-    /// resolve (via [`Self::content_subform_page_area_target`]) to the same
-    /// pageSet -- or, for subforms with no target, to the same fallback of
-    /// "every pageArea in the document" (today's behaviour, preserved for a
-    /// document with one pageSet or with untargeted content subforms).
-    ///
-    /// Returns, in subform order, the run id each subform belongs to, and
-    /// each run's own pool of pageAreas to choose a master page from.
-    fn group_content_subforms_into_runs<'a>(
-        content_subforms: &[(&XfaNode, String)],
-        all_page_areas: &[PageAreaRef<'a>],
-    ) -> (Vec<usize>, Vec<Vec<PageAreaRef<'a>>>) {
-        let targets: Vec<Option<&XfaNode>> = content_subforms
-            .iter()
-            .map(|(subform, _)| {
-                Self::content_subform_page_area_target(subform).and_then(|name| {
-                    all_page_areas
-                        .iter()
-                        .find(|r| r.page_area.name.as_deref() == Some(name))
-                        .and_then(|r| r.page_set)
-                        .or_else(|| {
-                            all_page_areas
-                                .iter()
-                                .find(|r| r.page_set.is_some_and(|ps| ps.name.as_deref() == Some(name)))
-                                .and_then(|r| r.page_set)
-                        })
-                })
-            })
-            .collect();
+    fn set_extent_requests(extent: &mut Extent, node: &XfaNode, keep: Keep) {
+        extent.keep_next = keep.next;
+        extent.keep_previous = keep.previous;
+        let (before, after) = Self::break_requests(node);
+        extent.break_before = before;
+        extent.break_after = after;
+    }
 
-        let mut run_ids = Vec::with_capacity(targets.len());
-        let mut run_pools: Vec<Vec<PageAreaRef<'a>>> = Vec::new();
-        let mut prev_key: Option<Option<*const XfaNode>> = None;
-        for target in &targets {
-            let key = target.map(|ps| ps as *const XfaNode);
-            if prev_key != Some(key) {
-                let pool: Vec<PageAreaRef<'a>> = match target {
-                    Some(ps) => all_page_areas
-                        .iter()
-                        .filter(|r| r.page_set.is_some_and(|p| std::ptr::eq(p, *ps)))
-                        .copied()
-                        .collect(),
-                    None => all_page_areas.to_vec(),
-                };
-                run_pools.push(pool);
-                prev_key = Some(key);
-            }
-            run_ids.push(run_pools.len() - 1);
+    /// Where a draw's text may be split: a draw's `intact` defaults to
+    /// `contentArea` (XFA 3.3 §8 "Split Restrictions"), so only an explicit
+    /// `none` makes it splittable, and then only between its lines -- which
+    /// the renderer cannot yet draw in two parts, so it is reported and the
+    /// draw kept whole.
+    fn draw_splitting(node: &XfaNode) -> Splitting {
+        if Self::keep_of(node).intact == Some(false) {
+            log::warn!(
+                "draw {:?} allows splitting between its lines (keep intact=\"none\"), which is not \
+                 supported; it is kept whole",
+                node.name
+            );
         }
-        (run_ids, run_pools)
+        Splitting::Never
+    }
+
+    /// Where a field may be split: a widget never (XFA 3.3 §8 "Split
+    /// Restrictions"); a text field between its lines by default, which the
+    /// renderer cannot yet draw in two parts, so a multi-line text field is
+    /// reported and kept whole.
+    fn field_splitting(node: &XfaNode, height: Num) -> Splitting {
+        let is_text = matches!(
+            Self::extract_widget_kind(node),
+            None | Some(WidgetKind::Text | WidgetKind::TextArea)
+        );
+        if is_text && height > Self::text_line_height(&node.font) * num(1.5) {
+            log::debug!(
+                "text field {:?} may split between its lines, which is not supported; it is kept \
+                 whole",
+                node.name
+            );
+        }
+        Splitting::Never
     }
 
     /// Compute position for a node, considering its children for height calculation
@@ -6674,7 +6114,6 @@ impl Flattened {
         max_height_in_row: &mut Num,
         _flattened_children: &mut Vec<FlattenedKind>,
         ctx: &FlattenContext,
-        row_growable_slack: &mut Num,
     ) -> Result<(Position, Position, Layout, Num), String> {
         // Check if explicit coordinates are provided
         let has_explicit_x = node.x.is_some();
@@ -6703,18 +6142,18 @@ impl Flattened {
                         width
                     }
                 }
-                XfaNodeKind::Element { tag_name, .. } if tag_name == "draw" => {
-                    // Same logic for generic draw elements
-                    let natural_width = Self::growable_draw_width(node, ctx);
-                    let min_w = node.min_w.unwrap_or(Decimal::ZERO);
-                    let max_w = node.max_w;
-
-                    let width = natural_width.max(min_w);
-                    if let Some(max) = max_w {
-                        width.min(max)
-                    } else {
-                        width
-                    }
+                // A check box or radio button has a natural width of its own
+                // (XFA 3.3 §2 "Natural size of widgets"): the button's `size`
+                // plus the field's left and right margins. Without it a field
+                // whose `minW` only covers its left margin (ACYI_001_EN's
+                // confirm box: `minW="5mm"`, `leftInset="5mm"`) is left with
+                // no content width and no box to draw.
+                _ if node.check_button_size().is_some() => {
+                    let size = node.check_button_size().unwrap_or_default();
+                    let natural_width = size
+                        + node.margin_left.unwrap_or(Decimal::ZERO)
+                        + node.margin_right.unwrap_or(Decimal::ZERO);
+                    natural_width.max(node.min_w.unwrap_or(Decimal::ZERO))
                 }
                 _ => {
                     // For containers without explicit width, try natural width from children
@@ -6801,53 +6240,10 @@ impl Flattened {
                     margin_bottom,
                     ctx,
                 ),
-                XfaNodeKind::Field => {
-                    // For fields, calculate based on font size + margins
-                    // Per XFA spec: natural height of text widget is height of text block
-                    let font_size = node
-                        .font
-                        .as_ref()
-                        .map(|f| f.size)
-                        .unwrap_or_else(|| num(10.0));
-                    // Line gap of 20% plus some padding
-                    let content_height = font_size * num(1.4); // Font size + 20% line gap + padding
-                    let total_height = content_height + margin_top + margin_bottom;
-                    total_height.max(min_height)
-                }
-                XfaNodeKind::Element { tag_name, .. } => {
-                    match tag_name.as_str() {
-                        "draw" => Self::natural_draw_height(
-                            node,
-                            (width - margin_left - margin_right).max(Decimal::ZERO),
-                            min_height,
-                            margin_top,
-                            margin_bottom,
-                            ctx,
-                        ),
-                        "field" => {
-                            let font_size = node
-                                .font
-                                .as_ref()
-                                .map(|f| f.size)
-                                .unwrap_or_else(|| num(10.0));
-                            let content_height = font_size * num(1.4);
-                            let total_height = content_height + margin_top + margin_bottom;
-                            total_height.max(min_height)
-                        }
-                        _ => {
-                            // Containers: children determine height. Don't apply
-                            // minH here — the parent-layout-specific branches
-                            // handle it (tb/position apply .max(min_height) but
-                            // lr-tb intentionally does not, since minH on container
-                            // subforms is a fixed-layout alignment property that
-                            // shouldn't inflate row height in flowable web layout).
-                            Decimal::ZERO
-                        }
-                    }
-                }
+                XfaNodeKind::Field => Self::field_natural_height(node).max(min_height),
                 _ => {
-                    // Containers: children determine height. Don't apply
-                    // minH here — see comment above for Element containers.
+                    // Containers: children determine height, and the
+                    // parent-layout branches apply `minH` once that is known.
                     Decimal::ZERO
                 }
             }
@@ -6908,57 +6304,15 @@ impl Flattened {
                 // in the remaining width, it wraps to the next line.
 
                 // Check if we need to wrap to next line.
-                let mut should_wrap = *current_x + width
+                let should_wrap = *current_x + width
                     > parent_position.x + parent_position.width
                     && *current_x > parent_position.x;
-
-                // Suppress false wrapping caused by heuristic width overestimation of
-                // preceding growable elements. The `row_growable_slack` accumulates how
-                // much wider those elements were estimated vs their actual font-measured
-                // width. If the overflow is within that slack AND the current element
-                // has an explicit width, the row would fit with accurate measurements.
-                // Only explicitly-sized elements qualify because growable elements that
-                // overflow should wrap normally (their overflow is content-driven).
-                if should_wrap && node.w.is_some() {
-                    let overflow =
-                        (*current_x + width) - (parent_position.x + parent_position.width);
-                    if overflow <= *row_growable_slack {
-                        should_wrap = false;
-                    }
-                }
 
                 if should_wrap {
                     // Wrap to next line
                     *current_x = parent_position.x;
                     *current_y += *max_height_in_row;
                     *max_height_in_row = Decimal::ZERO;
-                    *row_growable_slack = Decimal::ZERO;
-                }
-
-                // Track heuristic slack for growable Draw elements (w not specified).
-                // The heuristic `calculate_natural_text_width` uses 60%-of-em which
-                // overestimates for most proportional fonts. Font-based measurement
-                // gives the accurate width; the difference is "slack" that can absorb
-                // overflow of later explicitly-sized siblings.
-                if node.w.is_none() {
-                    let is_draw = matches!(&node.kind, XfaNodeKind::Draw)
-                        || matches!(
-                            &node.kind,
-                            XfaNodeKind::Element { tag_name, .. } if tag_name == "draw"
-                        );
-                    if is_draw {
-                        let text = ctx.extract_text(&node.children).unwrap_or_default();
-                        if !text.is_empty() {
-                            let font_based =
-                                Self::calculate_natural_text_width_font_based(&text, &node.font);
-                            // Only count slack if font measurement is plausible (≥60% of heuristic).
-                            // This guards against incorrect font resolution producing
-                            // unrealistically small widths that inflate slack.
-                            if width > font_based && font_based >= width * num(0.6) {
-                                *row_growable_slack += width - font_based;
-                            }
-                        }
-                    }
                 }
 
                 // Position at current flow position (x and y properties are ignored)
@@ -7066,8 +6420,8 @@ impl Flattened {
     ///
     /// Area elements use positioned layout internally, so the bounding box is
     /// determined by the maximum (child.x + child.w, child.y + child.h) across
-    /// all non-hidden children. For children without explicit w/h, estimates are
-    /// used (min_w/min_h, font-based sizing, or 0).
+    /// all non-hidden children; a child without `w`/`h` counts at its
+    /// natural size.
     fn compute_area_dimensions(node: &XfaNode, ctx: &FlattenContext) -> (Num, Num) {
         let mut max_right = Decimal::ZERO;
         let mut max_bottom = Decimal::ZERO;
@@ -7087,34 +6441,24 @@ impl Flattened {
                 .w
                 .unwrap_or_else(|| child.min_w.unwrap_or(Decimal::ZERO));
 
-            // Estimate child height: use explicit h, else min_h, else font-based guess
+            // A child without a height is growable: as tall as its content
+            // (XFA 3.3 §8), at least its `minH`.
             let ch = child.h.unwrap_or_else(|| {
-                child.min_h.unwrap_or_else(|| {
-                    // Font-based estimate for leaf nodes
-                    match &child.kind {
-                        XfaNodeKind::Field => {
-                            let fs = child
-                                .font
-                                .as_ref()
-                                .map(|f| f.size)
-                                .unwrap_or_else(|| num(10.0));
-                            fs * num(1.4)
-                                + child.margin_top.unwrap_or(Decimal::ZERO)
-                                + child.margin_bottom.unwrap_or(Decimal::ZERO)
-                        }
-                        XfaNodeKind::Draw | XfaNodeKind::Element { .. } => {
-                            let fs = child
-                                .font
-                                .as_ref()
-                                .map(|f| f.size)
-                                .unwrap_or_else(|| num(10.0));
-                            fs * num(1.4)
-                                + child.margin_top.unwrap_or(Decimal::ZERO)
-                                + child.margin_bottom.unwrap_or(Decimal::ZERO)
-                        }
-                        _ => Decimal::ZERO,
-                    }
-                })
+                let min_h = child.min_h.unwrap_or(Decimal::ZERO);
+                match &child.kind {
+                    XfaNodeKind::Field => Self::field_natural_height(child).max(min_h),
+                    XfaNodeKind::Draw => Self::natural_draw_height(
+                        child,
+                        (cw - child.margin_left.unwrap_or(Decimal::ZERO)
+                            - child.margin_right.unwrap_or(Decimal::ZERO))
+                            .max(Decimal::ZERO),
+                        min_h,
+                        child.margin_top.unwrap_or(Decimal::ZERO),
+                        child.margin_bottom.unwrap_or(Decimal::ZERO),
+                        ctx,
+                    ),
+                    _ => min_h,
+                }
             });
 
             max_right = max_right.max(cx + cw);
@@ -7155,74 +6499,83 @@ impl Flattened {
     /// by them. Sizing the box to the bare text therefore leaves a content box
     /// *narrower* than the text, and zero-wide whenever the insets exceed it --
     /// which is how the 5mm/3mm-inset "USD" radio label disappeared entirely.
+    /// One line of text in `font` (the XFA default font when `None`): its
+    /// ascent plus descent (AXTE; no line gap, which does not apply to a
+    /// block's last line). Nothing to measure with is reported and counts
+    /// as the font size.
+    fn text_line_height(font: &Option<Font>) -> Num {
+        let font = font.clone().unwrap_or_default();
+        match TextMeasurer::new().get_metrics_for_style(&font) {
+            Ok(metrics) => metrics.text_height(),
+            Err(e) => {
+                log::warn!("text cannot be measured ({e}); a line is taken as its font size");
+                font.size
+            }
+        }
+    }
+
+    /// The natural height of a growable field (XFA 3.3 §2 "Natural size of
+    /// widgets", §8 "Layout for Growable Objects"): its widget -- a check
+    /// button's `size`, otherwise one line of its font -- with its caption
+    /// above or below it (the caption's `reserve`, or one line of the
+    /// caption's font) or beside it (the taller of the two), plus the
+    /// field's margins.
+    fn field_natural_height(node: &XfaNode) -> Num {
+        let widget = node
+            .check_button_size()
+            .unwrap_or_else(|| Self::text_line_height(&node.font));
+        let content = match crate::xfa::caption::Caption::of(node) {
+            Some(caption) => {
+                let caption_font = caption.font.clone().or_else(|| node.font.clone());
+                let caption_line = Self::text_line_height(&caption_font);
+                match caption.placement {
+                    CaptionPlacement::Top | CaptionPlacement::Bottom => {
+                        widget + caption.reserve.unwrap_or(caption_line)
+                    }
+                    _ => widget.max(caption_line),
+                }
+            }
+            None => widget,
+        };
+        content + node.margin_top.unwrap_or(Decimal::ZERO) + node.margin_bottom.unwrap_or(Decimal::ZERO)
+    }
+
+    /// The natural width of a growable `draw` (XFA 3.3 §8 "Layout for
+    /// Growable Objects"): its text measured in its font on one line, plus
+    /// its paragraph's and its own margins. The caller clamps to `minW` and
+    /// `maxW`.
     fn growable_draw_width(node: &XfaNode, ctx: &FlattenContext) -> Num {
-        let text = ctx.extract_text(&node.children).unwrap_or_default();
-        Self::calculate_natural_text_width(&text, &node.font)
+        // Rich text is measured run by run: a bold run is wider than the
+        // same words in the draw's own face, and a width taken from the
+        // plain text alone would wrap it onto a second line when drawn.
+        let text_width = match Self::draw_rich_text(node, ctx) {
+            Some((rich_text, font)) => {
+                Self::rich_text_natural_width(&rich_text, &font, &node.para, &ctx.language)
+            }
+            None => {
+                let text = ctx.extract_text(&node.children).unwrap_or_default();
+                Self::measured_text_width(&text, &node.font)
+            }
+        };
+        text_width
+            + node.para.as_ref().and_then(|p| p.margin_left).unwrap_or_default()
+            + node.para.as_ref().and_then(|p| p.margin_right).unwrap_or_default()
             + node.margin_left.unwrap_or(Decimal::ZERO)
             + node.margin_right.unwrap_or(Decimal::ZERO)
     }
 
-    fn calculate_natural_text_width(text: &str, font: &Option<Font>) -> Num {
-        // Get font size from style or use default
-        let font_size = font.as_ref().map(|f| f.size).unwrap_or_else(|| num(10.0));
-
-        let font_size_f32 = font_size.to_f32().unwrap_or(10.0);
-
-        // Approximate character width as 60% of font size (rough estimate)
-        // This is a simplified calculation; for accurate width we'd need actual font metrics
-        let char_width = font_size_f32 * 0.6;
-
-        // Calculate width of the text
-        let text_width = text.chars().count() as f32 * char_width;
-
-        // Add some padding for margins
-        let padded_width = text_width + font_size_f32 * 0.5;
-
-        Decimal::from_f32(padded_width).unwrap_or_else(|| num(100.0))
-    }
-
-    /// Calculate the natural width using font-based measurement for accurate results.
-    /// Returns the actual text width based on real font metrics (used for determining
-    /// how much the heuristic overestimates in lr-tb slack tracking).
-    fn calculate_natural_text_width_font_based(text: &str, font: &Option<Font>) -> Num {
-        let font_size = font.as_ref().map(|f| f.size).unwrap_or_else(|| num(10.0));
-
-        let xfa_font = font.clone().unwrap_or_default();
-        let mut measurer = TextMeasurer::new();
-        let large_width = num(10000.0);
-        if let Ok(block_metrics) =
-            measurer.measure_text_block(text, &Some(xfa_font), &None, large_width)
-        {
-            if block_metrics.total_width > Decimal::ZERO {
-                // Match the heuristic's padding style for consistent comparison
-                return block_metrics.total_width + font_size * num(0.5);
+    /// `text` on one line in `font` (the XFA default font when `None`),
+    /// measured with the font's letter spacing, kerning and horizontal
+    /// scale. Nothing to measure with is reported and counts as no width.
+    fn measured_text_width(text: &str, font: &Option<Font>) -> Num {
+        let font = font.clone().unwrap_or_default();
+        match TextMeasurer::new().measure_text_width_styled(text, &font) {
+            Ok(width) => width,
+            Err(e) => {
+                log::warn!("text cannot be measured ({e}); {text:?} is given no width");
+                Decimal::ZERO
             }
         }
-
-        // If font-based measurement fails, return the heuristic (no slack)
-        Self::calculate_natural_text_width(text, font)
-    }
-
-    /// Estimate the number of text lines for word-wrapped content.
-    /// This is a helper used for height calculation.
-    fn estimate_line_count(text: &str, chars_per_line: usize) -> usize {
-        let words: Vec<&str> = text.split_whitespace().collect();
-        let mut num_lines: usize = 1;
-        let mut current_line_chars: usize = 0;
-
-        for word in words {
-            let word_chars = word.chars().count();
-            if current_line_chars == 0 {
-                current_line_chars = word_chars;
-            } else if current_line_chars + 1 + word_chars <= chars_per_line {
-                current_line_chars += 1 + word_chars;
-            } else {
-                num_lines += 1;
-                current_line_chars = word_chars;
-            }
-        }
-
-        if text.is_empty() { 1 } else { num_lines }
     }
 
     /// Compute final height from line count, font size, and paragraph settings.
@@ -7246,15 +6599,7 @@ impl Flattened {
         ctx: &FlattenContext,
     ) -> Num {
         let natural_content_height = if Self::has_html_exdata(&node.children) {
-            Self::calculate_rich_text_draw_height(
-                &node.children,
-                &node.font,
-                &node.para,
-                content_width,
-                ctx.computed_values,
-                ctx.id_to_field,
-                &ctx.language,
-            )
+            Self::calculate_rich_text_draw_height(node, content_width, ctx)
         } else {
             None
         }
@@ -7273,7 +6618,9 @@ impl Flattened {
                     paragraph_count,
                 )
             } else {
-                num(12.0)
+                // No text: no content height. The margins and `minH` still
+                // apply.
+                Decimal::ZERO
             }
         });
         (natural_content_height + margin_top + margin_bottom).max(min_height)
@@ -7298,9 +6645,8 @@ impl Flattened {
         max_width: Num,
         paragraph_count: usize,
     ) -> Num {
-        let font_size = font.as_ref().map(|f| f.size).unwrap_or_else(|| num(10.0));
-        let font_size_f32 = font_size.to_f32().unwrap_or(10.0);
         let xfa_font = font.clone().unwrap_or_default();
+        let font_size = xfa_font.size;
         let mut measurer = TextMeasurer::new();
 
         let extra_lines = paragraph_count.saturating_sub(1)
@@ -7321,46 +6667,16 @@ impl Flattened {
                     });
                 block_metrics.total_height + num(extra_lines as f64) * extra_line_height
             }
-            Err(_) => {
-                // Fallback: crude character-width estimate (used when font is unavailable)
-                let char_width = font_size_f32 * 0.45;
-                let max_width_f32 = max_width.to_f32().unwrap_or(1000.0);
-                let chars_per_line = (max_width_f32 / char_width).max(1.0) as usize;
-                let num_lines = Self::estimate_line_count(text, chars_per_line) + extra_lines;
-
-                let line_height = para
-                    .as_ref()
-                    .and_then(|p| p.line_height)
-                    .unwrap_or(font_size * num(1.2));
-                let margin_top = para
-                    .as_ref()
-                    .and_then(|p| p.space_above)
-                    .unwrap_or(Decimal::ZERO);
-                let margin_bottom = para
-                    .as_ref()
-                    .and_then(|p| p.space_below)
-                    .unwrap_or(Decimal::ZERO);
-
-                if num_lines <= 1 {
-                    margin_top + font_size + margin_bottom
-                } else {
-                    let line_gap = line_height - font_size;
-                    let lines_height = num(num_lines as f64) * line_height - line_gap;
-                    margin_top + lines_height + margin_bottom
-                }
+            Err(e) => {
+                // Nothing to measure with: one line of the font size, said so.
+                log::warn!("text cannot be measured ({e}); its height is taken as one line");
+                let margin_top = para.as_ref().and_then(|p| p.space_above).unwrap_or(Decimal::ZERO);
+                let margin_bottom = para.as_ref().and_then(|p| p.space_below).unwrap_or(Decimal::ZERO);
+                margin_top + font_size + margin_bottom
             }
         }
     }
 
-    /// Calculate the natural height for a text/draw element (convenience wrapper).
-    fn calculate_natural_text_height(
-        text: &str,
-        font: &Option<Font>,
-        para: &Option<Para>,
-        max_width: Num,
-    ) -> Num {
-        Self::calculate_natural_text_height_with_paragraphs(text, font, para, max_width, 0)
-    }
 
     /// Calculate the natural content height for a draw element that has rich text
     /// (HTML exData with multiple `<p>` paragraphs at potentially different font sizes).
@@ -7368,80 +6684,69 @@ impl Flattened {
     /// Delegates to `rich_paragraph_heights`, the same per-paragraph measurement
     /// `split_draw_into_paragraph_nodes` uses to place the paragraphs, so a
     /// draw's natural height can never disagree with where its own content
-    /// actually lands. That function charges every line a full derived line
-    /// spacing (text height + line gap); per XFA AXTE spec (Appendix C, "Last
-    /// line in block: Any line gap value does not apply to the last line in a
-    /// text block"), one line gap is removed here, sized to the last visible
-    /// paragraph's own font.
+    /// actually lands. `None` when the draw has no rich text.
     fn calculate_rich_text_draw_height(
-        children: &[XfaNode],
-        node_font: &Option<Font>,
-        node_para: &Option<Para>,
+        node: &XfaNode,
         max_width: Num,
-        computed_values: &HashMap<SomPath, String>,
-        id_to_field: &HashMap<String, String>,
-        language: &str,
+        ctx: &FlattenContext,
     ) -> Option<Num> {
-        // Extract the default h_align and then parse rich text
-        let default_h_align = node_para
+        let (rich_text, xfa_font) = Self::draw_rich_text(node, ctx)?;
+        let paragraph_heights = Self::rich_paragraph_heights(
+            &rich_text,
+            &xfa_font,
+            &node.para,
+            max_width,
+            &ctx.language,
+        );
+        Some(paragraph_heights.iter().copied().sum())
+    }
+
+    /// A draw's rich text (HTML `exData`) with the font its runs inherit:
+    /// the draw's own `<font>`, or the default font when it has none.
+    /// `None` when the draw holds no rich text.
+    fn draw_rich_text(node: &XfaNode, ctx: &FlattenContext) -> Option<(RichText, Font)> {
+        let default_h_align = node
+            .para
             .as_ref()
             .map(|p| p.h_align)
             .unwrap_or(HAlign::Left);
-
-        let default_bold = node_font
-            .as_ref()
-            .map(|f| f.weight == crate::xfa::FontWeight::Bold)
-            .unwrap_or(false);
-        let default_italic = node_font
-            .as_ref()
-            .map(|f| f.posture == crate::xfa::FontPosture::Italic)
-            .unwrap_or(false);
+        let xfa_font = node.font.clone().unwrap_or_default();
         let rich_text = Self::extract_rich_text_from_node(
-            children,
+            &node.children,
             default_h_align,
-            Some(computed_values),
-            Some(id_to_field),
-            default_bold,
-            default_italic,
-            Decoration::of_font(node_font.as_ref()),
+            Some(ctx.computed_values),
+            Some(ctx.id_to_field),
+            xfa_font.weight == crate::xfa::FontWeight::Bold,
+            xfa_font.posture == crate::xfa::FontPosture::Italic,
+            Decoration::of_font(node.font.as_ref()),
+            xfa_font.size,
         )?;
+        Some((rich_text, xfa_font))
+    }
 
-        if rich_text.paragraphs.len() <= 1 {
-            return None; // Single paragraph — fall back to the standard heuristic
-        }
-
-        let base_font_size = node_font
-            .as_ref()
-            .map(|f| f.size)
-            .unwrap_or_else(|| num(10.0));
-        let base_font_name = node_font
-            .as_ref()
-            .map(|f| f.typeface.clone())
-            .unwrap_or_default();
-
-        let xfa_font = node_font.clone().unwrap_or_else(|| Font {
-            typeface: base_font_name,
-            size: base_font_size,
-            ..Font::default()
-        });
-
-        let paragraph_heights =
-            Self::rich_paragraph_heights(&rich_text, &xfa_font, node_para, max_width, language);
-        let total_height: Num = paragraph_heights.iter().copied().sum();
-
-        let last_font_size = rich_text
-            .paragraphs
+    /// The width of a rich-text block laid out on unbounded lines (XFA 3.3
+    /// §8 "Layout for Growable Objects": a draw with no `w` is as wide as
+    /// its text): the widest paragraph line, measured in the faces its runs
+    /// are drawn in, with the line's indent and the paragraph's CSS margins.
+    /// A block no face can be loaded for has no width.
+    fn rich_text_natural_width(
+        rich_text: &RichText,
+        xfa_font: &Font,
+        default_para: &Option<Para>,
+        language: &str,
+    ) -> Num {
+        // Wide enough that no paragraph ever wraps.
+        const UNBOUNDED: Num = Decimal::from_parts(1_000_000_000, 0, 0, false, 0);
+        Self::rich_paragraph_lines(rich_text, xfa_font, default_para, UNBOUNDED, language)
             .iter()
-            .rev()
-            .find(|p| !p.is_empty && p.runs.iter().any(|r| !r.text.trim().is_empty()))
-            .and_then(|p| p.font_size)
-            .map(|s| num(s as f64))
-            .unwrap_or(base_font_size);
-        // AXTE line gap is always 20% of font size (see the AXTE_LINE_GAP_RATIO
-        // constant used throughout this file's height calculations).
-        let last_line_gap = last_font_size * num(0.2);
-
-        Some((total_height - last_line_gap).max(Decimal::ZERO))
+            .flat_map(|paragraph| paragraph.lines.iter().flatten())
+            .map(|line| {
+                let indent = if line.is_first_line { line.text_indent } else { 0.0 };
+                let margin_left = line.margin_left.unwrap_or(0.0);
+                num((line.content_width + indent + margin_left) as f64)
+            })
+            .max()
+            .unwrap_or(Decimal::ZERO)
     }
 
     fn extract_col_span(node: &XfaNode) -> i32 {
@@ -7574,9 +6879,6 @@ impl Flattened {
             XfaNodeKind::Draw => {
                 Self::growable_draw_width(node, ctx).max(node.min_w.unwrap_or(Decimal::ZERO))
             }
-            XfaNodeKind::Element { tag_name, .. } if tag_name == "draw" => {
-                Self::growable_draw_width(node, ctx).max(node.min_w.unwrap_or(Decimal::ZERO))
-            }
             _ => node.min_w.unwrap_or(Decimal::ZERO),
         }
     }
@@ -7655,7 +6957,9 @@ impl Flattened {
             .map(|(idx, width)| {
                 width.unwrap_or_else(|| {
                     let w = widest_auto_cols[idx];
-                    if w > Decimal::ZERO { w } else { num(20.0) }
+                    // An auto column is as wide as its widest cell's content
+                    // (XFA 3.3 §17 `columnWidths`, -1): nothing to measure, no width.
+                    w
                 })
             })
             .collect()
@@ -7815,53 +7119,38 @@ impl Flattened {
         Ok(Some(image_node))
     }
 
-    /// Extract the key value from a field's `<items>` element
-    ///
-    /// Per XFA spec (section 4 "Exclusion Groups"):
-    /// Each field within an exclusion group is associated with a key value from its <items> element.
-    /// When a field is activated, the exclGroup's rawValue is set to that field's key.
-    /// A field is "on" when exclGroup.rawValue == field.items[0].text
-    fn extract_field_item_key(children: &[XfaNode]) -> Option<String> {
-        for child in children {
-            // Look for <items> element
-            if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                && tag_name == "items"
-            {
-                // Get the first <text> child's content
-                for item_child in &child.children {
-                    if let XfaNodeKind::Element {
-                        tag_name: t2,
-                        text_content,
-                        ..
-                    } = &item_child.kind
-                        && t2 == "text"
-                        && let Some(text) = text_content
-                    {
-                        return Some(text.clone());
-                    }
-                    if let XfaNodeKind::Text { content } = &item_child.kind {
-                        return Some(content.clone());
-                    }
-                }
-            }
-        }
-        None
-    }
-
     fn extract_text_content(children: &[XfaNode]) -> Option<String> {
         // Use empty context for backward compatibility
         Self::extract_text_content_with_embed(children, &HashMap::new(), &HashMap::new())
     }
 
-    /// Compute the is_checked state for a field that may be in an exclGroup.
-    /// Per XFA spec: A field in an exclGroup is "on" when exclGroup.rawValue == field.items[0].text
-    fn compute_field_checked_state(
-        children: &[XfaNode],
+    /// Whether a check button field is on, `None` for a field that is not
+    /// a check button. A field is on when its value is its on value (XFA
+    /// 3.3 §17, see [`XfaNode::check_button_values`]); an exclusion group
+    /// member's value is its group's (§17 "The exclGroup element": each
+    /// member is on if and only if the group's value is its on value). A
+    /// standalone box's value is the form's current one under the field's
+    /// full path, when the scripts hold a non-empty one, else the
+    /// template's.
+    fn checked_state(
+        node: &XfaNode,
+        path: &str,
+        template_value: &str,
         parent_exclgroup_value: &Option<String>,
+        ctx: &FlattenContext,
     ) -> Option<bool> {
-        parent_exclgroup_value.as_ref().and_then(|exclgroup_value| {
-            Self::extract_field_item_key(children).map(|key| exclgroup_value == &key)
-        })
+        node.check_button_size()?;
+        let on = node.check_button_values().on;
+        if let Some(group_value) = parent_exclgroup_value {
+            return Some(*group_value == on);
+        }
+        let value = ctx
+            .computed_values
+            .get(path)
+            .filter(|v| !v.is_empty())
+            .map(String::as_str)
+            .unwrap_or(template_value);
+        Some(value == on)
     }
 
     /// Extract text content with xfa:embed resolution support
@@ -8081,38 +7370,21 @@ impl Flattened {
         }
     }
 
-    /// Resolve an xfa:embed reference to the actual field value
-    ///
-    /// The embed reference can be:
-    /// - A URI fragment like "#uuid:field_id" (xfa:embedType="uri")
-    /// - A SOM expression like "FIELD_NAME" (xfa:embedType="som")
-    ///
-    /// Values in computed_values are now stored BOTH by field ID (primary) and by name (fallback).
-    /// This handles the case where multiple subforms have same-named children with different IDs.
+    /// The value an `xfa:embed` reference stands for (XFA 3.3 "Rich Text
+    /// That Contains External Objects"): a `#id` fragment names a node by
+    /// its `id`, which `id_to_field` maps to the node's SOM path; anything
+    /// else is taken as the SOM path itself. The value is read under that
+    /// path only.
     fn resolve_embed_reference(
         embed_ref: &str,
         computed_values: &HashMap<SomPath, String>,
         id_to_field: &HashMap<String, String>,
     ) -> Option<String> {
-        // Handle URI reference (starts with #)
-        if let Some(id) = embed_ref.strip_prefix('#') {
-            // Remove the # prefix
-
-            // FIRST: Try to look up the value directly by ID (preferred - handles multiple same-named fields)
-            if let Some(value) = computed_values.get(id) {
-                return Some(value.clone());
-            }
-
-            // SECOND: Look up the field name from the ID, then look up by name (fallback)
-            if let Some(field_name) = id_to_field.get(id) {
-                return computed_values.get(field_name.as_str()).cloned();
-            }
-
-            return None;
-        }
-
-        // Handle SOM expression (no # prefix) - direct field name reference
-        computed_values.get(embed_ref).cloned()
+        let path = match embed_ref.strip_prefix('#') {
+            Some(id) => id_to_field.get(id)?.as_str(),
+            None => embed_ref,
+        };
+        computed_values.get(path).cloned()
     }
 
     /// Render the flattened layout to an image file
@@ -8213,26 +7485,25 @@ impl Flattened {
         let scale_dec = num(scale as f64);
         let full_w = full.width();
         let full_h = full.height();
+        let px = |v: Num| (v * scale_dec).to_f32().unwrap_or(0.0).round() as u32;
 
-        let page_h_px = (self.page.height * scale_dec)
-            .to_f32()
-            .unwrap_or(0.0)
-            .round() as u32;
-        let page_count = self.page.page_count.max(1);
-        if page_h_px == 0 || page_count <= 1 {
+        if self.page.pages.len() <= 1 {
             return vec![full];
         }
 
         // Build vertical bands of one page each, clipped to the buffer: a
         // buffer shorter than the layout claims still yields whole pages up to
         // where it ends rather than an out-of-range crop.
-        let mut bands: Vec<(u32, u32)> = Vec::with_capacity(page_count as usize);
-        for k in 0..page_count {
-            let top = k * page_h_px;
+        let mut bands: Vec<(u32, u32)> = Vec::with_capacity(self.page.pages.len());
+        for slot in &self.page.pages {
+            let top = px(slot.top);
             if top >= full_h {
                 break;
             }
-            bands.push((top, ((k + 1) * page_h_px).min(full_h)));
+            let bottom = px(slot.top + slot.height).min(full_h);
+            if bottom > top {
+                bands.push((top, bottom));
+            }
         }
 
         if bands.len() <= 1 {
@@ -8249,11 +7520,23 @@ impl Flattened {
     ///
     /// Returns the rendered image without red debug overlays, only showing the actual content.
     pub fn render_to_image_buffer_plain(&self, scale: f32) -> Result<RgbaImage, String> {
+        self.render_to_image_buffer_with(scale, RenderOptions::default())
+    }
+
+    /// As [`Self::render_to_image_buffer_plain`], with viewer chrome chosen
+    /// by `options`.
+    pub fn render_to_image_buffer_with(
+        &self,
+        scale: f32,
+        options: RenderOptions,
+    ) -> Result<RgbaImage, String> {
+        // Text is drawn in the document's fonts, as it was measured.
+        let _document_fonts = self.fonts.enter();
         // Scale dimensions for better resolution (e.g., scale=2.0 for 2x)
         let scale_dec = num(scale as f64);
 
-        // Width is fixed to page width
-        let img_width = (self.page.width * scale_dec).to_f32().unwrap_or(0.0) as u32;
+        // Width is the widest page's
+        let img_width = (self.page.column_width() * scale_dec).to_f32().unwrap_or(0.0) as u32;
 
         // Height is the whole page stack, not the content extent: the last
         // page is a whole page even when its content stops early, and anything
@@ -8274,19 +7557,25 @@ impl Flattened {
         // Get a default fallback font
         let fallback_font = Self::load_fallback_font()?;
 
-        // Colors (RGBA - last value is alpha: 255=opaque, 0=transparent)
+        // Text without a fill of its own "is drawn with a solid black fill"
+        // (XFA 3.3 "The fill element").
         let black = Rgba([0u8, 0u8, 0u8, 255u8]);
-        let dark_gray = Rgba([80u8, 80u8, 80u8, 255u8]);
 
-        // Resolve hyphenation dictionary for the document language so that
-        // text wrapping during rendering matches the height calculation in
-        // split_draw_into_paragraph_nodes (which already uses the dict).
-        let hyph_dict = super::xfa::hyphenation::dict_for_language(&self.language);
+        // The hyphenation dictionary of the document's locale; a node under
+        // a container with its own `locale` uses that one instead, as the
+        // height calculation in split_draw_into_paragraph_nodes did.
+        let document_dict = super::xfa::hyphenation::dict_for_language(&self.language);
 
         // ============================================
         // Draw actual content (as in PDF) - no debug overlay
         // ============================================
         for node in self.iter_nodes() {
+            let hyph_dict = match &node.locale {
+                Some(locale) if *locale != self.language => {
+                    super::xfa::hyphenation::dict_for_language(locale)
+                }
+                _ => document_dict,
+            };
             // Handle rotation: for 90/270 degrees, we swap width/height and adjust position
             // Per XFA spec: rotation is counter-clockwise about anchor point
             let (x, y, w, h) = Self::apply_rotation_to_bounds(
@@ -8309,11 +7598,9 @@ impl Flattened {
                 continue;
             }
 
-            // Draw fill background if present. A fill propagated from a
-            // parent subform's border (see
-            // `propagate_subform_border_to_children`) carries `render_bounds`
-            // so it paints at the subform's own position, matching its
-            // propagated edges, rather than at just this one leaf's box.
+            // Draw fill background if present, in the box the border paints
+            // in (`render_bounds`: the leaf's outer box, see
+            // `anchor_own_border`).
             if let Some(border) = &node.style.border
                 && let Some(fill) = &border.fill
                 && fill.presence != "hidden"
@@ -8356,75 +7643,57 @@ impl Flattened {
                         // is a barcode whose script did not run; there is
                         // nothing to encode, so nothing is drawn.
                         if !value.is_empty() {
-                            Self::draw_barcode(
-                                &mut img,
-                                node.barcode_symbology().unwrap_or("unspecified"),
-                                value,
-                                x,
-                                y,
-                                w,
-                                h,
-                                black,
-                            );
+                            match node.barcode() {
+                                Some(spec) => {
+                                    // The human-readable text is in the field's font.
+                                    let xfa_font = node.style.font.clone().unwrap_or_default();
+                                    let legend_font =
+                                        Self::render_font_for(font_manager, &fallback_font, &xfa_font)?;
+                                    let legend_px = xfa_font.size.to_f32().unwrap_or(10.0) * scale;
+                                    Self::draw_barcode(
+                                        &mut img,
+                                        spec,
+                                        value,
+                                        (x, y, w, h),
+                                        node.rotate,
+                                        black,
+                                        &legend_font,
+                                        legend_px,
+                                    );
+                                }
+                                None => {
+                                    log::warn!("barcode field without a <barcode> element; a placeholder is drawn");
+                                    Self::draw_placeholder(&mut img, x, y, w, h);
+                                }
+                            }
                         }
                     } else if is_checkbox_or_radio {
-                        // A checkButton is square, unless shape="round" made it a
-                        // radio -- which is a circle in every viewer, and reads as
-                        // a different control when drawn as a box.
-                        let box_size = (w.min(h) as f32 * 0.8).max(8.0) as i32;
-                        let box_x = x + (w - box_size) / 2;
-                        let box_y = y + (h - box_size) / 2;
-                        let line_color = Rgba([80u8, 80u8, 80u8, 255u8]);
-
-                        if is_radio {
-                            let radius = box_size / 2;
-                            let cx = box_x + radius;
-                            let cy = box_y + radius;
-                            // Ring: a filled disc with the interior punched back
-                            // out, so the stroke scales with the widget.
-                            let stroke = ((scale).round() as i32).max(1);
-                            Self::fill_circle(&mut img, cx, cy, radius, line_color);
-                            Self::fill_circle(
-                                &mut img,
-                                cx,
-                                cy,
-                                (radius - stroke).max(0),
-                                Rgba([255u8, 255u8, 255u8, 255u8]),
-                            );
-                            if let Some(true) = is_checked {
-                                let dot = ((radius - stroke * 2).max(1) as f32 * 0.8) as i32;
-                                Self::fill_circle(&mut img, cx, cy, dot.max(1), line_color);
-                            }
-                        } else {
-                            Self::draw_rect_outline(
-                                &mut img, box_x, box_y, box_size, box_size, line_color,
-                            );
-
-                            if let Some(true) = is_checked {
-                                let inset = (box_size as f32 * 0.2) as i32;
-                                Flattened::fill_rect(
-                                    &mut img,
-                                    box_x + inset,
-                                    box_y + inset,
-                                    box_size - 2 * inset,
-                                    box_size - 2 * inset,
-                                    line_color,
-                                );
-                            }
-                        }
+                        Self::draw_check_button(
+                            &mut img,
+                            (x, y, w, h),
+                            node.check_button(),
+                            is_radio,
+                            is_checked == &Some(true),
+                            scale,
+                            black,
+                        );
                     } else {
                         // Text/choice fields: draw an underline instead of a blue
                         // fill, as Acrobat highlights a fillable field. Acrobat
-                        // does not highlight a field the user cannot type into
-                        // (access="protected"/"readOnly"/"nonInteractive"), so
-                        // neither do we -- only "open" fields get the synthetic
-                        // line; everything else shows only its own template
-                        // border, if any.
+                        // does not highlight a field the user cannot type into,
+                        // whether by its access ("protected"/"readOnly"/
+                        // "nonInteractive") or by its widget (a button, image
+                        // or signature takes no typed value), so neither do we
+                        // -- only "open" edit widgets get the synthetic line;
+                        // everything else shows only its own template border,
+                        // if any. A field without a `<ui>` has the default UI,
+                        // a text edit (XFA 3.3 "The defaultUi element").
                         let access = node
                             .field_behavior()
                             .map(|(access, ..)| access)
                             .unwrap_or(FieldAccess::Open);
-                        if access.is_interactive() {
+                        let takes_typed_value = widget.is_none_or(WidgetKind::takes_typed_value);
+                        if options.field_underline && access.is_interactive() && takes_typed_value {
                             let underline_color = Rgba([0u8, 0u8, 0u8, 180u8]);
                             let line_y = y + h - 1;
                             Flattened::fill_rect(&mut img, x, line_y, w, 1, underline_color);
@@ -8438,17 +7707,10 @@ impl Flattened {
                             // Get font style from node, or use XFA defaults
                             let xfa_font = node.style.font.clone().unwrap_or_default();
                             let font_size = xfa_font.size.to_f32().unwrap_or(10.0);
-                            let scaled_font_size = (font_size * scale).max(8.0);
+                            let scaled_font_size = font_size * scale;
 
-                            // Get the appropriate font for this style (with fallback)
-                            let render_font = {
-                                let mut mgr = font_manager
-                                    .lock()
-                                    .map_err(|e| format!("Lock error: {}", e))?;
-                                mgr.get_font(&xfa_font)
-                                    .unwrap_or_else(|_| fallback_font.clone())
-                            };
-                            let text_scale = xfa_px_scale(&render_font, scaled_font_size);
+                            let render_font =
+                                Self::render_font_for(font_manager, &fallback_font, &xfa_font)?;
 
                             // Get text color from style or use black
                             let text_color = node
@@ -8500,6 +7762,7 @@ impl Flattened {
                                 scaled_font_size,
                                 &node.style.para,
                                 &render_font,
+                            scale,
                             );
                             let text_y = Self::calculate_text_y(
                                 content_y,
@@ -8512,14 +7775,16 @@ impl Flattened {
                                 scale,
                             );
 
-                            draw_text_mut(
+                            Self::draw_glyphs(
                                 &mut img,
-                                text_color,
+                                value,
                                 text_x,
                                 text_y,
-                                text_scale,
+                                scaled_font_size,
                                 &render_font,
-                                value,
+                                text_color,
+                                0.0,
+                                Some(&xfa_font.typeface),
                             );
                             Self::draw_decoration(
                                 &mut img,
@@ -8531,6 +7796,7 @@ impl Flattened {
                                 &render_font,
                                 0.0,
                                 text_color,
+                                Self::line_geometry_of(&xfa_font, scaled_font_size),
                             );
                         }
                     }
@@ -8553,56 +7819,37 @@ impl Flattened {
                     } else {
                         font_size.to_f32().unwrap_or(10.0)
                     };
-                    let scaled_font_size = (effective_font_size * scale).max(8.0);
+                    let scaled_font_size = effective_font_size * scale;
 
                     // Get the appropriate font for this style (with fallback)
                     // Also get bold and italic variants for rich text rendering
+                    // The faces, resolved the same way the layout measured them
+                    // (`TextMeasurer::run_fonts`): the font as styled for plain
+                    // text, and the normal/bold/italic variants rich-text runs
+                    // are set in.
                     let (render_font, normal_font, bold_font, italic_font, bold_italic_font) = {
-                        let mut mgr = font_manager
-                            .lock()
-                            .map_err(|e| format!("Lock error: {}", e))?;
-
-                        // Get font as specified in XFA (may be bold/italic)
-                        let base = mgr
-                            .get_font(&xfa_font)
+                        let mut measurer = TextMeasurer::new();
+                        let render_font = measurer
+                            .get_font_for_style(&xfa_font)
+                            .cloned()
                             .unwrap_or_else(|_| fallback_font.clone());
-
-                        // Get normal weight variant (for rich text base)
-                        let mut normal_xfa_font = xfa_font.clone();
-                        normal_xfa_font.weight = crate::xfa::FontWeight::Normal;
-                        normal_xfa_font.posture = crate::xfa::FontPosture::Normal;
-                        let normal = mgr.get_font(&normal_xfa_font).ok();
-
-                        // Get bold variant
-                        let mut bold_xfa_font = xfa_font.clone();
-                        bold_xfa_font.weight = crate::xfa::FontWeight::Bold;
-                        bold_xfa_font.posture = crate::xfa::FontPosture::Normal;
-                        let bold = mgr.get_font(&bold_xfa_font).ok();
-
-                        // Get italic variant
-                        let mut italic_xfa_font = xfa_font.clone();
-                        italic_xfa_font.weight = crate::xfa::FontWeight::Normal;
-                        italic_xfa_font.posture = crate::xfa::FontPosture::Italic;
-                        let italic = mgr.get_font(&italic_xfa_font).ok();
-
-                        // Get bold italic variant
-                        let mut bold_italic_xfa_font = xfa_font.clone();
-                        bold_italic_xfa_font.weight = crate::xfa::FontWeight::Bold;
-                        bold_italic_xfa_font.posture = crate::xfa::FontPosture::Italic;
-                        let bold_italic = mgr.get_font(&bold_italic_xfa_font).ok();
-
-                        (base, normal, bold, italic, bold_italic)
+                        let RunFontSet {
+                            regular,
+                            bold,
+                            italic,
+                            bold_italic,
+                        } = measurer.run_fonts(&xfa_font);
+                        (render_font, regular, bold, italic, bold_italic)
                     };
-                    let text_scale = xfa_px_scale(&render_font, scaled_font_size);
 
-                    // Get text color from style or use dark gray
+                    // Get text color from style or use black
                     let text_color = node
                         .style
                         .font
                         .as_ref()
                         .and_then(|f| f.color)
                         .map(|(r, g, b)| Rgba([r, g, b, 255u8]))
-                        .unwrap_or(dark_gray);
+                        .unwrap_or(black);
 
                     // Calculate content area inside border margins
                     let (content_x, content_y, content_w, content_h) = {
@@ -8708,115 +7955,86 @@ impl Flattened {
                             &node.style.para,
                             scale,
                             letter_spacing,
+                            Self::line_geometry_of(&xfa_font, scaled_font_size),
                         );
                     } else if !content.is_empty() {
-                        // Check if content is a checkbox/ballot box symbol
-                        // These characters are commonly missing from fallback fonts
-                        let checkbox_char = content.trim().chars().next();
-                        if content.trim().len() <= 4
-                            && matches!(
-                                checkbox_char,
-                                Some('☐' | '☑' | '☒' | '□' | '■' | '▢' | '▪')
+                        // Fallback to simple text rendering for plain text content
+                        // Use styled version to account for letter spacing
+                        // Skip wrapping when the node's width was computed from PDF
+                        // content stream glyph widths (NoWrap hint) since re-measuring
+                        // with the resolved font may yield different widths.
+                        let no_wrap = node.no_wrap;
+                        let lines = if no_wrap {
+                            vec![content.to_string()]
+                        } else {
+                            Self::wrap_text_with_font_styled(
+                                content,
+                                content_w as f32,
+                                scaled_font_size,
+                                &render_font,
+                                letter_spacing,
                             )
-                        {
-                            // Draw checkbox symbol as a rectangle
-                            let box_size = (scaled_font_size * 0.75) as i32;
-                            let box_x = content_x + 1;
-                            let box_y =
-                                content_y + ((scaled_font_size - box_size as f32) * 0.5) as i32;
-                            let line_color = Rgba([100u8, 100u8, 100u8, 255u8]);
+                        };
+                        let total_lines = lines.len();
 
-                            // Draw outline rectangle
-                            Self::draw_rect_outline(
-                                &mut img, box_x, box_y, box_size, box_size, line_color,
+                        for (i, line) in lines.iter().enumerate() {
+                            // Calculate x position based on alignment (within content area)
+                            let line_x = Self::calculate_text_x(
+                                content_x,
+                                content_w,
+                                line,
+                                scaled_font_size,
+                                &node.style.para,
+                                &render_font,
+                            scale,
                             );
 
-                            // Draw check mark if checked
-                            if matches!(checkbox_char, Some('☑' | '☒' | '■' | '▪')) {
-                                let inset = (box_size as f32 * 0.2) as i32;
-                                Flattened::fill_rect(
+                            // Calculate y position using AXTE-compliant method (within content area)
+                            let line_y = Self::calculate_text_y(
+                                content_y,
+                                content_h,
+                                scaled_font_size,
+                                &node.style.para,
+                                &render_font,
+                                i,
+                                total_lines,
+                                scale,
+                            );
+
+                            if line_y >= 0
+                                && line_y < img_height as i32 - scaled_font_size as i32
+                            {
+                                Self::draw_glyphs(
                                     &mut img,
-                                    box_x + inset,
-                                    box_y + inset,
-                                    box_size - 2 * inset,
-                                    box_size - 2 * inset,
-                                    line_color,
+                                    line,
+                                    line_x,
+                                    line_y,
+                                    scaled_font_size,
+                                    &render_font,
+                                    text_color,
+                                    letter_spacing,
+                                    Some(&xfa_font.typeface),
                                 );
-                            }
-                        } else {
-                            // Fallback to simple text rendering for plain text content
-                            // Use styled version to account for letter spacing
-                            // Skip wrapping when the node's width was computed from PDF
-                            // content stream glyph widths (NoWrap hint) since re-measuring
-                            // with the resolved font may yield different widths.
-                            let no_wrap = node.no_wrap;
-                            let lines = if no_wrap {
-                                vec![content.to_string()]
-                            } else {
-                                Self::wrap_text_with_font_styled(
-                                    content,
-                                    content_w as f32,
+                                Self::draw_decoration(
+                                    &mut img,
+                                    Decoration::of_font(node.style.font.as_ref()),
+                                    line,
+                                    line_x,
+                                    line_y,
                                     scaled_font_size,
                                     &render_font,
                                     letter_spacing,
-                                )
-                            };
-                            let total_lines = lines.len();
-
-                            for (i, line) in lines.iter().enumerate() {
-                                // Calculate x position based on alignment (within content area)
-                                let line_x = Self::calculate_text_x(
-                                    content_x,
-                                    content_w,
-                                    line,
-                                    scaled_font_size,
-                                    &node.style.para,
-                                    &render_font,
+                                    text_color,
+                                    Self::line_geometry_of(&xfa_font, scaled_font_size),
                                 );
-
-                                // Calculate y position using AXTE-compliant method (within content area)
-                                let line_y = Self::calculate_text_y(
-                                    content_y,
-                                    content_h,
-                                    scaled_font_size,
-                                    &node.style.para,
-                                    &render_font,
-                                    i,
-                                    total_lines,
-                                    scale,
-                                );
-
-                                if line_y >= 0
-                                    && line_y < img_height as i32 - scaled_font_size as i32
-                                {
-                                    draw_text_mut(
-                                        &mut img,
-                                        text_color,
-                                        line_x,
-                                        line_y,
-                                        text_scale,
-                                        &render_font,
-                                        line,
-                                    );
-                                    Self::draw_decoration(
-                                        &mut img,
-                                        Decoration::of_font(node.style.font.as_ref()),
-                                        line,
-                                        line_x,
-                                        line_y,
-                                        scaled_font_size,
-                                        &render_font,
-                                        letter_spacing,
-                                        text_color,
-                                    );
-                                }
                             }
                         }
+                    
                     }
                 }
 
                 FlattenedNodeKind::Image(embedded) => {
-                    Self::draw_embedded_image(&mut img, embedded, x, y, w, h);
+                    Self::draw_embedded_image(&mut img, embedded, x, y, w, h, scale);
                 }
 
                 FlattenedNodeKind::Shape(shape) => {
@@ -8831,6 +8049,7 @@ impl Flattened {
     /// Draw `decoration`'s lines under or through one line of plain text
     /// drawn at (`x`, `top`), the way the rich-text path draws them per word.
     #[allow(clippy::too_many_arguments)]
+    #[allow(clippy::too_many_arguments)]
     fn draw_decoration(
         img: &mut RgbaImage,
         decoration: Decoration,
@@ -8841,22 +8060,124 @@ impl Flattened {
         font: &FontRef<'_>,
         letter_spacing: f32,
         color: Rgba<u8>,
+        geometry: Option<LineGeometry>,
     ) {
         if decoration == Decoration::default() || text.trim().is_empty() {
             return;
         }
         let scaled = font.as_scaled(xfa_px_scale(font, font_px));
-        let width = Self::measure_text_width(text, font_px, font, letter_spacing);
-        for (rx, ry, rw, rh) in decoration.line_rects(
-            x as f32,
-            top as f32,
-            width,
-            scaled.ascent(),
-            scaled.descent().abs(),
-            font_px,
-        ) {
-            Self::fill_rect(img, rx, ry, rw, rh, color);
+        let measure = |t: &str| Self::measure_text_width(t, font_px, font, letter_spacing);
+        // Each span the lines run under: the whole run, or each word of it
+        // (`underlinePeriod="word"`: "the rendered line is interrupted at
+        // word breaks").
+        let spans: Vec<(f32, f32)> = if decoration.word_period {
+            text.split_whitespace()
+                .filter_map(|word| {
+                    let start = text.find(word)?;
+                    Some((measure(&text[..start]), measure(word)))
+                })
+                .collect()
+        } else {
+            vec![(0.0, measure(text))]
+        };
+        for (offset, width) in spans {
+            for (rx, ry, rw, rh) in decoration.line_rects(
+                x as f32 + offset,
+                top as f32,
+                width,
+                scaled.ascent(),
+                scaled.descent().abs(),
+                font_px,
+                geometry,
+            ) {
+                Self::fill_rect(img, rx, ry, rw, rh, color);
+            }
         }
+    }
+
+    /// Where `font`'s face draws its lines at `font_px`, for
+    /// [`Self::draw_decoration`]; `None` when the face does not say.
+    fn line_geometry_of(font: &Font, font_px: f32) -> Option<LineGeometry> {
+        get_font_manager()
+            .lock()
+            .ok()
+            .and_then(|mut m| m.line_geometry(font, font_px))
+    }
+
+    /// Draw `text` at (`x`, `y`) in `font` at `font_px`, letter-spaced, taking
+    /// every glyph the font lacks from a face that has it (XFA 3.3 §28: a
+    /// codepoint's font is substituted when the requested one cannot show
+    /// it; the symbol fallback is DejaVu Sans). `family` is the text's own
+    /// typeface, for the `equateRange` lookup. A character no face has is
+    /// reported once and skipped, its space kept.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_glyphs(
+        img: &mut RgbaImage,
+        text: &str,
+        x: i32,
+        y: i32,
+        font_px: f32,
+        font: &FontRef<'_>,
+        color: Rgba<u8>,
+        letter_spacing: f32,
+        family: Option<&str>,
+    ) {
+        use ab_glyph::Font as _;
+        let missing = |c: char| !c.is_whitespace() && font.glyph_id(c).0 == 0;
+        let chars: Vec<char> = text.chars().collect();
+        let mut cursor = x as f32;
+        let mut i = 0;
+        while i < chars.len() {
+            let run_missing = missing(chars[i]);
+            let mut j = i + 1;
+            while j < chars.len() && missing(chars[j]) == run_missing {
+                j += 1;
+            }
+            let run: String = chars[i..j].iter().collect();
+            let fallback = if run_missing {
+                Self::fallback_font_for(chars[i], family)
+            } else {
+                None
+            };
+            let run_font: &FontRef<'_> = fallback.as_ref().unwrap_or(font);
+            let drawn = !run_missing || fallback.is_some();
+            let advance = |t: &str| text_advance(run_font, font_px, t, 0.0, 1.0, KerningMode::None);
+            if letter_spacing.abs() < 0.001 {
+                if drawn {
+                    draw_text_mut(img, color, cursor.round() as i32, y, xfa_px_scale(run_font, font_px), run_font, &run);
+                }
+                cursor += advance(&run);
+            } else {
+                for (k, ch) in run.chars().enumerate() {
+                    let ch = ch.to_string();
+                    if drawn {
+                        draw_text_mut(img, color, cursor.round() as i32, y, xfa_px_scale(run_font, font_px), run_font, &ch);
+                    }
+                    cursor += advance(&ch);
+                    if i + k + 1 < chars.len() {
+                        cursor += letter_spacing;
+                    }
+                }
+            }
+            i = j;
+        }
+    }
+
+    /// A face with a glyph for `c`, reported once per character when there
+    /// is none.
+    fn fallback_font_for(c: char, family: Option<&str>) -> Option<FontRef<'static>> {
+        static REPORTED: std::sync::Mutex<Option<HashSet<char>>> = std::sync::Mutex::new(None);
+        let found = get_font_manager()
+            .lock()
+            .ok()
+            .and_then(|mut m| m.font_for_glyph(c, family));
+        if found.is_none()
+            && let Ok(mut reported) = REPORTED.lock()
+            && reported.get_or_insert_with(HashSet::new).insert(c)
+        {
+            log::warn!("no registered font has a glyph for {c:?} (U+{:04X}); it is not drawn", c as u32);
+        }
+        found
     }
 
     /// Draw a `<line>`, `<rectangle>` or `<arc>` in its node's box (device
@@ -8968,6 +8289,7 @@ impl Flattened {
         y: i32,
         w: i32,
         h: i32,
+        scale: f32,
     ) {
         let decoded = match image::load_from_memory(&embedded.data) {
             Ok(d) => d,
@@ -8986,17 +8308,21 @@ impl Flattened {
         let (src_w, src_h) = (decoded.width().max(1), decoded.height().max(1));
         let (box_w, box_h) = (w.max(1) as u32, h.max(1) as u32);
 
+        let scaled = |factor: f32| {
+            (
+                ((src_w as f32 * factor).round() as u32).max(1),
+                ((src_h as f32 * factor).round() as u32).max(1),
+            )
+        };
         let (draw_w, draw_h) = match embedded.aspect {
             // Stretch to the box, aspect ratio be damned.
             ImageAspect::None => (box_w, box_h),
             // Keep the aspect ratio and fit inside the box.
-            ImageAspect::Fit | ImageAspect::Actual => {
-                let scale = (box_w as f32 / src_w as f32).min(box_h as f32 / src_h as f32);
-                (
-                    ((src_w as f32 * scale).round() as u32).max(1),
-                    ((src_h as f32 * scale).round() as u32).max(1),
-                )
-            }
+            ImageAspect::Fit => scaled((box_w as f32 / src_w as f32).min(box_h as f32 / src_h as f32)),
+            // One pixel per point at 72 dpi, times the render scale.
+            ImageAspect::Actual => scaled(scale),
+            ImageAspect::Width => scaled(box_w as f32 / src_w as f32),
+            ImageAspect::Height => scaled(box_h as f32 / src_h as f32),
         };
 
         let resized = image::imageops::resize(
@@ -9016,18 +8342,42 @@ impl Flattened {
     /// barcode and for the `rotate="90"` one in the UBS footer alike: the
     /// rotation has already been applied to the bounds, and a barcode is just
     /// stripes across whichever box comes out.
+    /// The face `font` resolves to through the font manager, else the
+    /// renderer's fallback face (the manager reports the substitution).
+    fn render_font_for(
+        font_manager: &std::sync::Mutex<FontManager>,
+        fallback: &FontRef<'static>,
+        font: &Font,
+    ) -> Result<FontRef<'static>, String> {
+        let mut mgr = font_manager
+            .lock()
+            .map_err(|e| format!("Lock error: {e}"))?;
+        Ok(mgr.get_font(font).unwrap_or_else(|_| fallback.clone()))
+    }
+
+    /// Draw the barcode `spec` for `value` in the box `(x, y, w, h)`, the
+    /// field's box after its `rotate`: the bars run along the field's own
+    /// width and its human-readable text sits where `textLocation` puts it
+    /// (XFA 3.3 "The barcode element": the field's `w` and `h` are the
+    /// barcode's, the field's font the text's), and the whole is turned by
+    /// the rotation. A value the symbology cannot encode, or a symbology or
+    /// checksum this renderer does not have, is reported and leaves a
+    /// placeholder.
+    #[allow(clippy::too_many_arguments)]
     fn draw_barcode(
         img: &mut RgbaImage,
-        symbology: &str,
+        spec: &crate::xfa::Barcode,
         value: &str,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
+        (x, y, w, h): (i32, i32, i32, i32),
+        rotate: i32,
         color: Rgba<u8>,
+        legend_font: &FontRef<'_>,
+        legend_px: f32,
     ) {
-        let bars = match crate::barcode::encode(symbology, value) {
-            Ok(bars) => bars,
+        use crate::xfa::BarcodeTextLocation as Location;
+
+        let encoded = match crate::barcode::encode(spec, value) {
+            Ok(encoded) => encoded,
             Err(e) => {
                 log::warn!("barcode not drawn: {e}");
                 Self::draw_placeholder(img, x, y, w, h);
@@ -9035,37 +8385,60 @@ impl Flattened {
             }
         };
 
-        let vertical = h > w;
-        let along = if vertical { h } else { w };
-        let across = if vertical { w } else { h };
+        // The barcode in the field's own orientation.
+        let turned = rotate.rem_euclid(180) == 90;
+        let (along, across) = if turned { (h, w) } else { (w, h) };
         if along <= 0 || across <= 0 {
             return;
         }
+        let mut strip = RgbaImage::from_pixel(along as u32, across as u32, Rgba([0, 0, 0, 0]));
+
+        // Embedded text has no region of its own in this symbology; the spec
+        // lets the processor read it as plain above or below.
+        let legend = (spec.text_location != Location::None)
+            .then_some(encoded.legend.as_str())
+            .filter(|l| !l.is_empty());
+        let above = matches!(
+            spec.text_location,
+            Location::Above | Location::AboveEmbedded
+        );
+        let legend_h = legend
+            .map_or(0, |_| (legend_px * 1.2).ceil() as i32)
+            .clamp(0, across - 1);
+        let bars_h = across - legend_h;
+        let bars_top = if above { legend_h } else { 0 };
 
         // A quiet zone of ten narrow modules at each end is what the
         // symbology requires to be scannable.
-        const QUIET_MODULES: i32 = 10;
-        let narrow_units: i32 = bars.iter().map(|b| if b.wide { 3 } else { 1 }).sum();
-        let total_units = narrow_units + 2 * QUIET_MODULES;
-        let module = (along as f32 / total_units as f32).max(0.0);
-        if module <= 0.0 {
-            return;
-        }
-
-        let mut offset = QUIET_MODULES as f32 * module;
-        for bar in &bars {
-            let len = if bar.wide { 3.0 } else { 1.0 } * module;
+        const QUIET_MODULES: f32 = 10.0;
+        let ratio = spec.wide_narrow_ratio;
+        let modules = crate::barcode::width_in_modules(spec, &encoded) + 2.0 * QUIET_MODULES;
+        let module = along as f32 / modules;
+        let mut offset = QUIET_MODULES * module;
+        for bar in &encoded.bars {
+            let len = if bar.wide { ratio } else { 1.0 } * module;
             if bar.black {
                 let start = offset.round() as i32;
                 let thickness = (len.round() as i32).max(1);
-                if vertical {
-                    Self::fill_rect(img, x, y + start, across, thickness, color);
-                } else {
-                    Self::fill_rect(img, x + start, y, thickness, across, color);
-                }
+                Self::fill_rect(&mut strip, start, bars_top, thickness, bars_h, color);
             }
             offset += len;
         }
+        if let Some(text) = legend {
+            let width = text_advance(legend_font, legend_px, text, 0.0, 1.0, KerningMode::None);
+            let lx = ((along as f32 - width) / 2.0).max(0.0).round() as i32;
+            let ly = if above { 0 } else { bars_h };
+            Self::draw_glyphs(&mut strip, text, lx, ly, legend_px, legend_font, color, 0.0, None);
+        }
+
+        // XFA rotation is counter-clockwise.
+        let turned = match rotate.rem_euclid(360) {
+            90 => image::imageops::rotate270(&strip),
+            180 => image::imageops::rotate180(&strip),
+            270 => image::imageops::rotate90(&strip),
+            _ => strip,
+        };
+        image::imageops::overlay(img, &turned, x as i64, y as i64);
     }
 
     /// A visibly marked box, for content that is present in the form but that
@@ -9120,12 +8493,10 @@ impl Flattened {
         }
     }
 
-    /// Resolve the box a border (or its fill) actually paints in: its own
-    /// leaf bounds, or -- when a parent subform propagated its border onto
-    /// this leaf (`render_bounds` set, e.g. by
-    /// [`Self::propagate_subform_border_to_children`]) -- the parent
-    /// subform's bounds, scaled to pixels. Shared so a propagated fill lines
-    /// up with its propagated edges.
+    /// Resolve the box a border (or its fill) actually paints in: the node's
+    /// bounds, or its `render_bounds` when set (a leaf's outer box, see
+    /// [`Self::anchor_own_border`]), scaled to pixels. Shared so a fill
+    /// lines up with its edges.
     fn resolve_border_render_bounds(
         border: &Border,
         x: i32,
@@ -9172,7 +8543,7 @@ impl Flattened {
             w: render_w as f32,
             h: render_h as f32,
         };
-        let radii = crate::xfa::shapes::rounded_corner_radii(border, border_box, scale);
+        let radii = crate::xfa::shapes::corner_trims(border, border_box, scale);
         // Each edge's (start, end) trim: the corners at its two ends, top and
         // bottom running left to right, left and right top to bottom.
         let trims = [
@@ -9217,114 +8588,82 @@ impl Flattened {
                     (render_x, render_y + start, render_w, render_h - start - end)
                 };
 
-                // Draw based on stroke style
+                // Draw based on stroke style (XFA 3.3 "The edge element").
+                // Dashes and dots are application-defined: a dash is 4pt, a
+                // gap 2pt, a dot as long as the stroke is thick (dots are
+                // square). A 3D stroke takes its light and dark shades from
+                // the edge's own color: lowered and raised shade the whole
+                // edge by side; etched and embossed split it into an outer
+                // and an inner half of opposite shades.
+                let pattern = Self::dash_pattern(edge.stroke, thickness_px as f32, scale);
+                let three_d = matches!(
+                    edge.stroke,
+                    StrokeStyle::Lowered | StrokeStyle::Raised | StrokeStyle::Etched | StrokeStyle::Embossed
+                );
+                if !three_d {
+                    Self::draw_edge_impl(
+                        img,
+                        edge_x,
+                        edge_y,
+                        edge_w,
+                        edge_h,
+                        edge_idx,
+                        thickness_px,
+                        color,
+                        img_width,
+                        img_height,
+                        pattern.as_deref(),
+                    );
+                    continue;
+                }
+                let (light, dark) = (Self::shade(color, 0.6), Self::shade(color, -0.4));
+                let top_or_left = edge_idx == 0 || edge_idx == 3;
                 match edge.stroke {
-                    StrokeStyle::Solid => {
-                        Self::draw_edge_solid(
-                            img,
-                            edge_x,
-                            edge_y,
-                            edge_w,
-                            edge_h,
-                            edge_idx,
-                            thickness_px,
-                            color,
-                            img_width,
-                            img_height,
-                        );
-                    }
-                    StrokeStyle::Dashed => {
-                        Self::draw_edge_dashed(
-                            img,
-                            edge_x,
-                            edge_y,
-                            edge_w,
-                            edge_h,
-                            edge_idx,
-                            thickness_px,
-                            color,
-                            img_width,
-                            img_height,
-                            6,
-                        );
-                    }
-                    StrokeStyle::Dotted => {
-                        Self::draw_edge_dashed(
-                            img,
-                            edge_x,
-                            edge_y,
-                            edge_w,
-                            edge_h,
-                            edge_idx,
-                            thickness_px,
-                            color,
-                            img_width,
-                            img_height,
-                            2,
-                        );
-                    }
-                    StrokeStyle::Lowered
-                    | StrokeStyle::Raised
-                    | StrokeStyle::Etched
-                    | StrokeStyle::Embossed => {
-                        // 3D effects - draw with two colors for highlight/shadow
-                        let (light, dark) =
-                            if matches!(edge.stroke, StrokeStyle::Raised | StrokeStyle::Embossed) {
-                                (
-                                    Rgba([255u8, 255u8, 255u8, 255u8]),
-                                    Rgba([128u8, 128u8, 128u8, 255u8]),
-                                )
-                            } else {
-                                (
-                                    Rgba([128u8, 128u8, 128u8, 255u8]),
-                                    Rgba([255u8, 255u8, 255u8, 255u8]),
-                                )
-                            };
-                        // Top and left get one color, bottom and right get the other
-                        let edge_color = if edge_idx == 0 || edge_idx == 3 {
-                            light
-                        } else {
-                            dark
-                        };
-                        Self::draw_edge_solid(
-                            img,
-                            edge_x,
-                            edge_y,
-                            edge_w,
-                            edge_h,
-                            edge_idx,
-                            thickness_px,
-                            edge_color,
-                            img_width,
-                            img_height,
+                    StrokeStyle::Lowered | StrokeStyle::Raised => {
+                        let raised = edge.stroke == StrokeStyle::Raised;
+                        let shade = if top_or_left == raised { light } else { dark };
+                        Self::draw_edge_impl(
+                            img, edge_x, edge_y, edge_w, edge_h, edge_idx, thickness_px, shade,
+                            img_width, img_height, None,
                         );
                     }
                     _ => {
-                        Self::draw_edge_solid(
+                        let embossed = edge.stroke == StrokeStyle::Embossed;
+                        let (outer, inner) = if embossed { (light, dark) } else { (dark, light) };
+                        let half = (thickness_px / 2).max(1);
+                        Self::draw_edge_impl(
+                            img, edge_x, edge_y, edge_w, edge_h, edge_idx, half, outer, img_width,
+                            img_height, None,
+                        );
+                        Self::draw_edge_impl(
                             img,
-                            edge_x,
-                            edge_y,
-                            edge_w,
-                            edge_h,
+                            edge_x + half,
+                            edge_y + half,
+                            edge_w - 2 * half,
+                            edge_h - 2 * half,
                             edge_idx,
-                            thickness_px,
-                            color,
+                            half,
+                            inner,
                             img_width,
                             img_height,
+                            None,
                         );
                     }
                 }
             }
         }
 
-        // The quarter circles of the rounded corners, drawn inside the box
-        // like the edges, in the color of the edge that starts at each.
+        // The corners, drawn inside the box like the edges, between the
+        // trimmed ends of the edges they join (XFA 3.3 "The corner element").
         for (corner_idx, radius) in radii.iter().enumerate() {
             let Some(corner) = border.get_corner(corner_idx) else {
                 continue;
             };
             if *radius <= 0.0 || !crate::xfa::shapes::is_drawn(&corner.presence) {
                 continue;
+            }
+            if corner.stroke != StrokeStyle::Solid {
+                log::debug!("a corner's stroke {:?} is drawn solid", corner.stroke);
             }
             let thickness = crate::xfa::shapes::thickness_px(corner.thickness, scale);
             let inset = crate::xfa::shapes::PixelBox {
@@ -9333,20 +8672,45 @@ impl Flattened {
                 w: border_box.w - thickness,
                 h: border_box.h - thickness,
             };
-            let (circle, start, sweep) =
-                crate::xfa::shapes::corner_arc(inset, corner_idx, (radius - thickness / 2.0).max(0.5));
-            let color = border
-                .get_edge(corner_idx)
-                .and_then(|e| e.color)
+            let color = corner
+                .color
+                .or_else(|| border.get_edge(corner_idx).and_then(|e| e.color))
                 .map(|(r, g, b)| Rgba([r, g, b, 255u8]))
                 .unwrap_or(Rgba([0u8, 0u8, 0u8, 255u8]));
-            let points = crate::xfa::shapes::arc_points(circle, false, start, sweep);
+            let points = crate::xfa::shapes::corner_outline(
+                inset,
+                corner_idx,
+                (radius - thickness / 2.0).max(0.5),
+                corner.join == crate::xfa::JoinStyle::Round,
+                corner.inverted,
+            );
             for pair in points.windows(2) {
                 for r in crate::xfa::shapes::stroke_segment(pair[0], pair[1], thickness) {
                     Self::fill_rect(img, r.x, r.y, r.w, r.h, color);
                 }
             }
         }
+    }
+
+    /// The on/off lengths in pixels of a stroke's dash pattern, or `None`
+    /// for a continuous one. A dot is as long as the stroke is thick.
+    fn dash_pattern(stroke: StrokeStyle, thickness_px: f32, scale: f32) -> Option<Vec<f32>> {
+        let (dash, gap, dot) = (4.0 * scale, 2.0 * scale, thickness_px.max(1.0));
+        match stroke {
+            StrokeStyle::Dashed => Some(vec![dash, gap]),
+            StrokeStyle::Dotted => Some(vec![dot, dot]),
+            StrokeStyle::DashDot => Some(vec![dash, gap, dot, gap]),
+            StrokeStyle::DashDotDot => Some(vec![dash, gap, dot, gap, dot, gap]),
+            _ => None,
+        }
+    }
+
+    /// `color` shaded toward white (`amount` > 0) or black (`amount` < 0).
+    fn shade(color: Rgba<u8>, amount: f32) -> Rgba<u8> {
+        let target = if amount > 0.0 { 255.0 } else { 0.0 };
+        let t = amount.abs().clamp(0.0, 1.0);
+        let mix = |c: u8| (c as f32 + (target - c as f32) * t).round() as u8;
+        Rgba([mix(color[0]), mix(color[1]), mix(color[2]), color[3]])
     }
 
     /// Draw a solid edge
@@ -9367,37 +8731,10 @@ impl Flattened {
         );
     }
 
-    /// Draw a dashed edge
-    fn draw_edge_dashed(
-        img: &mut RgbaImage,
-        x: i32,
-        y: i32,
-        w: i32,
-        h: i32,
-        edge_idx: usize,
-        thickness: i32,
-        color: Rgba<u8>,
-        img_width: i32,
-        img_height: i32,
-        dash_len: i32,
-    ) {
-        Self::draw_edge_impl(
-            img,
-            x,
-            y,
-            w,
-            h,
-            edge_idx,
-            thickness,
-            color,
-            img_width,
-            img_height,
-            Some(dash_len),
-        );
-    }
-
     /// Internal helper for drawing edges (solid or dashed).
-    /// If `dash_len` is Some, draws a dashed pattern; otherwise draws solid.
+    /// `pattern` is the dash pattern's on/off lengths in pixels, repeated
+    /// along the edge; `None` draws it solid.
+    #[allow(clippy::too_many_arguments)]
     fn draw_edge_impl(
         img: &mut RgbaImage,
         x: i32,
@@ -9409,14 +8746,22 @@ impl Flattened {
         color: Rgba<u8>,
         img_width: i32,
         img_height: i32,
-        dash_len: Option<i32>,
+        pattern: Option<&[f32]>,
     ) {
-        // Helper to check if we should draw at this position (for dashing)
+        // Whether the pattern is "on" at `pos` pixels along the edge.
+        let total: f32 = pattern.map(|p| p.iter().sum()).unwrap_or(0.0);
         let should_draw = |pos: i32| -> bool {
-            match dash_len {
-                Some(len) => (pos / len) % 2 == 0,
-                None => true,
+            let Some(pattern) = pattern.filter(|_| total > 0.0) else {
+                return true;
+            };
+            let mut along = (pos as f32 + 0.5).rem_euclid(total);
+            for (i, len) in pattern.iter().enumerate() {
+                if along < *len {
+                    return i % 2 == 0;
+                }
+                along -= len;
             }
+            true
         };
 
         // Helper to safely put pixel with bounds check
@@ -9482,10 +8827,18 @@ impl Flattened {
         rotate: i32,
         scale: Num,
     ) -> (i32, i32, i32, i32) {
-        let x = (node_x * scale).to_f32().unwrap_or(0.0);
-        let y = (node_y * scale).to_f32().unwrap_or(0.0);
-        let w = (node_width * scale).to_f32().unwrap_or(0.0);
-        let h = (node_height * scale).to_f32().unwrap_or(0.0);
+        // The pixel box covers the node's box: its origin rounded down, its
+        // far edges rounded up. Truncating the width lost up to a pixel,
+        // and a draw sized exactly to its text (a growable draw) then
+        // wrapped its last word at render.
+        let exact_x = (node_x * scale).to_f32().unwrap_or(0.0);
+        let exact_y = (node_y * scale).to_f32().unwrap_or(0.0);
+        let exact_w = (node_width * scale).to_f32().unwrap_or(0.0);
+        let exact_h = (node_height * scale).to_f32().unwrap_or(0.0);
+        let x = exact_x.floor();
+        let y = exact_y.floor();
+        let w = ((exact_x + exact_w).ceil() - x).max(0.0);
+        let h = ((exact_y + exact_h).ceil() - y).max(0.0);
 
         // Normalize rotation to 0, 90, 180, 270
         let rot = rotate.rem_euclid(360);
@@ -9541,7 +8894,7 @@ impl Flattened {
             w: w as f32,
             h: h as f32,
         };
-        let plain = fill.linear.is_none() && radii.iter().all(|r| *r <= 0.0);
+        let plain = fill.kind == crate::xfa::FillKind::Solid && radii.iter().all(|r| *r <= 0.0);
         if plain {
             let (r, g, b) = fill_color_at(fill, bx, 0.0, 0.0);
             Self::fill_rect(img, x, y, w, h, Rgba([r, g, b, 255u8]));
@@ -9574,6 +8927,91 @@ impl Flattened {
         }
     }
 
+    /// Draw a check box or radio button in the value box `(x, y, w, h)`
+    /// (pixels): its outline `button.size` wide, centered, square or round
+    /// (XFA 3.3 "The checkButton element"), and when `checked` its mark
+    /// ("The mark property": by default an X in a square, a disc in a
+    /// circle). `None` for a button the template did not declare: a square
+    /// as large as the box allows.
+    #[allow(clippy::too_many_arguments)]
+    fn draw_check_button(
+        img: &mut RgbaImage,
+        (x, y, w, h): (i32, i32, i32, i32),
+        button: Option<&crate::xfa::CheckButton>,
+        is_radio: bool,
+        checked: bool,
+        scale: f32,
+        color: Rgba<u8>,
+    ) {
+        use crate::xfa::CheckMark;
+        use crate::xfa::shapes::{DEFAULT_EDGE_THICKNESS_PT, polygon_fill, stroke_segment};
+
+        let size = button
+            .map(|b| (b.size.to_f32().unwrap_or(0.0) * scale).round() as i32)
+            .unwrap_or(w.min(h))
+            .max(1);
+        let round = button.map(|b| b.round).unwrap_or(is_radio);
+        let left = x + (w - size) / 2;
+        let top = y + (h - size) / 2;
+        let stroke = (DEFAULT_EDGE_THICKNESS_PT as f32 * scale).round().max(1.0) as i32;
+        let (cx, cy) = (left + size / 2, top + size / 2);
+        let white = Rgba([255u8, 255u8, 255u8, 255u8]);
+
+        if round {
+            let radius = size / 2;
+            Self::fill_circle(img, cx, cy, radius, color);
+            Self::fill_circle(img, cx, cy, (radius - stroke).max(0), white);
+        } else {
+            for t in 0..stroke {
+                Self::draw_rect_outline(img, left + t, top + t, size - 2 * t, size - 2 * t, color);
+            }
+        }
+        if !checked {
+            return;
+        }
+
+        let mark = button.map(|b| b.mark).unwrap_or_default();
+        let f = size as f32;
+        let at = |px: f32, py: f32| (left as f32 + px * f, top as f32 + py * f);
+        let thickness = (f / 8.0).max(stroke as f32);
+        let mut rects = Vec::new();
+        match mark {
+            CheckMark::Default if round => {
+                Self::fill_circle(img, cx, cy, ((f * 0.3) as i32).max(1), color);
+            }
+            CheckMark::Circle => {
+                Self::fill_circle(img, cx, cy, ((f * 0.3) as i32).max(1), color);
+            }
+            CheckMark::Default | CheckMark::Cross => {
+                rects.extend(stroke_segment(at(0.2, 0.2), at(0.8, 0.8), thickness));
+                rects.extend(stroke_segment(at(0.8, 0.2), at(0.2, 0.8), thickness));
+            }
+            CheckMark::Check => {
+                rects.extend(stroke_segment(at(0.2, 0.55), at(0.42, 0.78), thickness));
+                rects.extend(stroke_segment(at(0.42, 0.78), at(0.82, 0.25), thickness));
+            }
+            CheckMark::Square => {
+                rects.extend(polygon_fill(&[at(0.2, 0.2), at(0.8, 0.2), at(0.8, 0.8), at(0.2, 0.8)]));
+            }
+            CheckMark::Diamond => {
+                rects.extend(polygon_fill(&[at(0.5, 0.15), at(0.85, 0.5), at(0.5, 0.85), at(0.15, 0.5)]));
+            }
+            CheckMark::Star => {
+                let points: Vec<(f32, f32)> = (0..10)
+                    .map(|i| {
+                        let angle = -std::f32::consts::FRAC_PI_2 + i as f32 * std::f32::consts::PI / 5.0;
+                        let r = if i % 2 == 0 { 0.42 } else { 0.17 };
+                        at(0.5 + r * angle.cos(), 0.5 + r * angle.sin())
+                    })
+                    .collect();
+                rects.extend(polygon_fill(&points));
+            }
+        }
+        for r in rects {
+            Self::fill_rect(img, r.x, r.y, r.w, r.h, color);
+        }
+    }
+
     /// Draw a filled circle (used for radio button checked indicator)
     pub fn fill_circle(
         img: &mut RgbaImage,
@@ -9602,6 +9040,12 @@ impl Flattened {
 
     /// Calculate text X position based on horizontal alignment
     /// Uses actual font metrics for accurate text width measurement
+    /// The x of a line of `text` in a box `box_w` wide at `box_x` (pixels),
+    /// by the paragraph's `hAlign` (XFA 3.3 §2 "Horizontal alignment"): the
+    /// paragraph's margins (points, scaled by `scale`) inset the region;
+    /// `radix` puts the first radix character's left edge `radixOffset`
+    /// from the region's right edge, or the line's right edge there when
+    /// it has none.
     fn calculate_text_x(
         box_x: i32,
         box_w: i32,
@@ -9609,52 +9053,78 @@ impl Flattened {
         font_size: f32,
         para: &Option<Para>,
         font: &FontRef<'_>,
+        scale: f32,
     ) -> i32 {
         let h_align = para.as_ref().map(|p| p.h_align).unwrap_or(HAlign::Left);
+        let advance = |t: &str| text_advance(font, font_size, t, 0.0, 1.0, KerningMode::None);
+        let text_width = advance(text);
+        let points = |v: Option<Num>| v.and_then(|m| m.to_f32()).unwrap_or(0.0) * scale;
+        let margin_left = points(para.as_ref().and_then(|p| p.margin_left));
+        let margin_right = points(para.as_ref().and_then(|p| p.margin_right));
+        let (left, right) = (box_x as f32 + margin_left, (box_x + box_w) as f32 - margin_right);
 
-        // Measure actual text width using font metrics
-        let scale = xfa_px_scale(font, font_size);
-        let scaled_font = font.as_scaled(scale);
-        let mut text_width: f32 = 0.0;
-        for ch in text.chars() {
-            let glyph_id = font.glyph_id(ch);
-            if glyph_id.0 != 0 {
-                text_width += scaled_font.h_advance(glyph_id);
-            } else {
-                // Fallback for missing glyphs
-                text_width += font_size * 0.6;
+        let x = match h_align {
+            HAlign::Left | HAlign::Justify | HAlign::JustifyAll => left,
+            HAlign::Center => left + (right - left - text_width) / 2.0,
+            HAlign::Right => right - text_width,
+            HAlign::Radix => {
+                let anchor = right - points(para.as_ref().and_then(|p| p.radix_offset));
+                let before_radix = text
+                    .find(['.', ','])
+                    .map(|i| advance(&text[..i]))
+                    .unwrap_or(text_width);
+                anchor - before_radix
             }
-        }
-        let text_width = text_width as i32;
-
-        let margin_left = para
-            .as_ref()
-            .and_then(|p| p.margin_left)
-            .map(|m| m.to_f32().unwrap_or(0.0) as i32)
-            .unwrap_or(0);
-        let margin_right = para
-            .as_ref()
-            .and_then(|p| p.margin_right)
-            .map(|m| m.to_f32().unwrap_or(0.0) as i32)
-            .unwrap_or(0);
-
-        match h_align {
-            HAlign::Left | HAlign::Justify | HAlign::JustifyAll => box_x + margin_left + 2,
-            HAlign::Center => box_x + (box_w - text_width) / 2,
-            HAlign::Right => box_x + box_w - text_width - margin_right - 2,
-            HAlign::Radix => box_x + box_w / 2, // Simplified: center for radix
-        }
+        };
+        x.round() as i32
     }
 
-    /// Calculate text Y position based on vertical alignment using AXTE rules
-    /// Per AXTE spec:
-    /// - Baseline position: B = MT + TH - D
-    /// - Text is drawn from baseline, so we need to position at baseline - ascent
-    /// - Line gap is 20% of font size
-    ///
-    /// The `render_scale` parameter converts points to pixels (e.g., 2.0 for 2x resolution).
-    /// This is needed because `para` values (lineHeight, spaceAbove) are in points,
-    /// while `font_size` is already in scaled pixels.
+    /// Where each of `line_count` lines of text in `font` at `font_size`
+    /// (pixels) goes in a block styled by `para` (whose point values are
+    /// scaled by `scale`): the top of each line's glyph box, relative to
+    /// the block's top, and the block's full height -- from the same AXTE
+    /// line metrics the layout measured with (`LineMetrics`: the line
+    /// spacing override capped on the first line, the paragraph's space
+    /// above and below, no line gap on the last line), so what is drawn is
+    /// as tall as what was laid out.
+    fn line_tops(
+        font: &FontRef<'_>,
+        font_size: f32,
+        para: &Option<Para>,
+        scale: f32,
+        line_count: usize,
+    ) -> (Vec<f32>, f32) {
+        let metrics = FontMetrics::from_font(font, num(font_size as f64));
+        let real_ascent = num(font.as_scaled(xfa_px_scale(font, font_size)).ascent() as f64);
+        let scaled = |value: Option<Num>| {
+            value.and_then(|v| v.to_f32()).map(|v| num((v * scale) as f64))
+        };
+        let spacing_override = scaled(para.as_ref().and_then(|p| p.line_height));
+        let space_above = scaled(para.as_ref().and_then(|p| p.space_above)).unwrap_or_default();
+        let space_below = scaled(para.as_ref().and_then(|p| p.space_below)).unwrap_or_default();
+        let mut tops = Vec::with_capacity(line_count);
+        let mut y = Decimal::ZERO;
+        for i in 0..line_count {
+            let mut line = LineMetrics::new(i == 0, i + 1 == line_count);
+            line.accumulate(&metrics);
+            line.spacing_override = spacing_override;
+            if i == 0 {
+                line.margin_top = space_above;
+            }
+            if i + 1 == line_count {
+                line.margin_bottom = space_below;
+            }
+            tops.push((y + line.baseline_from_top() - real_ascent).to_f32().unwrap_or(0.0));
+            y += line.full_height();
+        }
+        (tops, y.to_f32().unwrap_or(0.0))
+    }
+
+    /// The y of line `line_index` of `total_lines` lines of plain text in a
+    /// box `box_h` tall at `box_y`: the block of lines placed by the
+    /// paragraph's vertical alignment (top when it does not fit), each line
+    /// where [`Self::line_tops`] puts it.
+    #[allow(clippy::too_many_arguments)]
     fn calculate_text_y(
         box_y: i32,
         box_h: i32,
@@ -9666,71 +9136,17 @@ impl Flattened {
         render_scale: f32,
     ) -> i32 {
         let v_align = para.as_ref().map(|p| p.v_align).unwrap_or(VAlign::Top);
-        // Scale paragraph values from points to pixels
-        let space_above = para
-            .as_ref()
-            .and_then(|p| p.space_above)
-            .map(|s| s.to_f32().unwrap_or(0.0) * render_scale)
-            .unwrap_or(0.0);
-        let line_height_override = para
-            .as_ref()
-            .and_then(|p| p.line_height)
-            .map(|lh| lh.to_f32().unwrap_or(0.0) * render_scale);
-
-        // Get font metrics (for glyph scaling, not render scaling)
-        let scale = xfa_px_scale(font, font_size);
-        let scaled_font = font.as_scaled(scale);
-        let ascent = scaled_font.ascent();
-        let descent = scaled_font.descent().abs();
-
-        // Per AXTE: ensure ascent + descent >= font_size
-        let mut effective_ascent = ascent;
-        if ascent + descent < font_size {
-            effective_ascent = font_size - descent;
-        }
-
-        // Per AXTE: line gap is 20% of font size
-        let line_gap = font_size * 0.2;
-
-        // Text height: TH = A + D
-        let text_height = effective_ascent + descent;
-
-        // Derived line spacing: DS = TH + LG (unless overridden)
-        let line_spacing = line_height_override.unwrap_or(text_height + line_gap);
-
-        // Full height calculation for all lines
-        let total_text_height = if total_lines == 1 {
-            // Single line: no line gap at end
-            text_height
-        } else {
-            // Multiple lines: full line spacing for all but last line
-            let _is_last_line = line_index == total_lines - 1;
-            let full_height_per_line = line_spacing;
-            let last_line_height = text_height; // No line gap on last line
-
-            (total_lines - 1) as f32 * full_height_per_line + last_line_height
-        };
-
-        // Calculate first line offset based on vertical alignment
-        // Per AXTE: if total height > block height, treat as top-aligned
-        let first_line_offset = if total_text_height > box_h as f32 {
+        let (tops, total_height) = Self::line_tops(font, font_size, para, render_scale, total_lines);
+        let first_line_offset = if total_height > box_h as f32 {
             0.0
         } else {
             match v_align {
                 VAlign::Top => 0.0,
-                VAlign::Middle => (box_h as f32 - total_text_height) / 2.0,
-                VAlign::Bottom => box_h as f32 - total_text_height,
+                VAlign::Middle => (box_h as f32 - total_height) / 2.0,
+                VAlign::Bottom => box_h as f32 - total_height,
             }
         };
-
-        // Position for this specific line
-        // Baseline position from top of text block: B = TH - D (for first line)
-        // Y for drawing = block_y + first_line_offset + space_above + baseline - ascent
-        // Since draw_text_mut positions at top-left of text, we use the top of the line
-        let line_y =
-            box_y as f32 + first_line_offset + space_above + (line_index as f32 * line_spacing);
-
-        line_y as i32
+        (box_y as f32 + first_line_offset + tops.get(line_index).copied().unwrap_or(0.0)) as i32
     }
 
     /// Text wrapping using actual font metrics for accurate width measurement
@@ -9745,54 +9161,7 @@ impl Flattened {
         if max_width <= 0.0 {
             return vec![text.to_string()];
         }
-
-        let scale = xfa_px_scale(font, font_size);
-        let scaled_font = font.as_scaled(scale);
-
-        // Get space width (also affected by letter spacing per XFA spec)
-        let space_glyph = font.glyph_id(' ');
-        let base_space_width = if space_glyph.0 != 0 {
-            scaled_font.h_advance(space_glyph)
-        } else {
-            font_size * 0.3
-        };
-        // Per XFA spec: letterSpacing affects spacing between grapheme clusters, including spaces
-        let space_width = base_space_width + letter_spacing;
-
-        let mut lines = Vec::new();
-        let mut current_line = String::new();
-        let mut current_width: f32 = 0.0;
-
-        for word in text.split_whitespace() {
-            // Measure word width (with letter spacing between characters)
-            let word_width = Self::measure_text_width(word, font_size, font, letter_spacing);
-
-            if current_line.is_empty() {
-                // First word on line
-                current_line = word.to_string();
-                current_width = word_width;
-            } else if current_width + space_width + word_width <= max_width {
-                // Word fits on current line
-                current_line.push(' ');
-                current_line.push_str(word);
-                current_width += space_width + word_width;
-            } else {
-                // Word doesn't fit, start new line
-                lines.push(current_line);
-                current_line = word.to_string();
-                current_width = word_width;
-            }
-        }
-
-        if !current_line.is_empty() {
-            lines.push(current_line);
-        }
-
-        if lines.is_empty() {
-            lines.push(String::new());
-        }
-
-        lines
+        wrap_words(font, font_size, text, max_width, 0.0, letter_spacing, 1.0, KerningMode::None)
     }
 
     /// Text wrapping using actual font metrics (backward compatible - no letter spacing)
@@ -9816,76 +9185,6 @@ impl Flattened {
         Self::wrap_text_with_font(text, max_width, font_size, font)
     }
 
-    /// Calculate the total text block height using AXTE rules
-    /// Per AXTE: FH = MT + DS + MB, with LG removed on last line
-    pub fn calculate_text_block_height(
-        text: &str,
-        font_size: f32,
-        max_width: f32,
-        para: &Option<Para>,
-        font: &FontRef<'_>,
-    ) -> f32 {
-        let lines = Self::wrap_text_with_font(text, max_width, font_size, font);
-        let num_lines = lines.len();
-
-        if num_lines == 0 {
-            return 0.0;
-        }
-
-        // Get font metrics
-        let scale = xfa_px_scale(font, font_size);
-        let scaled_font = font.as_scaled(scale);
-        let ascent = scaled_font.ascent();
-        let descent = scaled_font.descent().abs();
-
-        // Per AXTE: ensure ascent + descent >= font_size
-        let mut effective_ascent = ascent;
-        if ascent + descent < font_size {
-            effective_ascent = font_size - descent;
-        }
-
-        // Per AXTE: line gap is 20% of font size
-        let line_gap = font_size * 0.2;
-
-        // Text height: TH = A + D
-        let text_height = effective_ascent + descent;
-
-        // Line spacing override from para element
-        let line_spacing = para
-            .as_ref()
-            .and_then(|p| p.line_height)
-            .map(|lh| lh.to_f32().unwrap_or(0.0))
-            .unwrap_or(text_height + line_gap);
-
-        // Paragraph margins
-        let margin_top = para
-            .as_ref()
-            .and_then(|p| p.space_above)
-            .map(|s| s.to_f32().unwrap_or(0.0))
-            .unwrap_or(0.0);
-        let margin_bottom = para
-            .as_ref()
-            .and_then(|p| p.space_below)
-            .map(|s| s.to_f32().unwrap_or(0.0))
-            .unwrap_or(0.0);
-
-        // Calculate total height
-        // Per AXTE: FH = MT + DS + MB for each line, but LG removed on last line
-        if num_lines == 1 {
-            // Single line: MT + TH + MB (no line gap)
-            margin_top + text_height + margin_bottom
-        } else {
-            // Multiple lines:
-            // - First line: MT + DS
-            // - Middle lines: DS each
-            // - Last line: TH + MB (no line gap)
-            let first_line = margin_top + line_spacing;
-            let middle_lines = (num_lines - 2) as f32 * line_spacing;
-            let last_line = text_height + margin_bottom;
-
-            first_line + middle_lines + last_line
-        }
-    }
 
     /// Draw a transparent hollow rectangle by blending with existing pixels
     pub fn draw_transparent_rect(
@@ -9949,6 +9248,7 @@ impl Flattened {
     /// - Paragraph separators (U+2029)
     ///
     /// The `default_h_align` is used when CSS doesn't specify text-align (inherited from XFA para element)
+    #[allow(clippy::too_many_arguments)]
     pub fn parse_rich_text_from_html(
         children: &[XfaNode],
         default_h_align: HAlign,
@@ -9957,6 +9257,8 @@ impl Flattened {
         default_bold: bool,
         default_italic: bool,
         default_decoration: Decoration,
+        // The font size in effect outside the HTML, the base of `em` lengths.
+        default_font_size: f32,
     ) -> RichText {
         let mut paragraphs = Vec::new();
         Self::parse_html_nodes_to_rich_text(
@@ -9970,6 +9272,7 @@ impl Flattened {
             id_to_field,
             None,
             default_decoration,
+            default_font_size,
         );
 
         // If no paragraphs were created but we have content, create a single paragraph
@@ -9995,6 +9298,8 @@ impl Flattened {
         id_to_field: Option<&std::collections::HashMap<String, String>>,
         run_letter_spacing: Option<f32>,
         decoration: Decoration,
+        // The font size in effect here, in points: the base of `em`.
+        font_size: f32,
     ) {
         for child in children {
             match &child.kind {
@@ -10106,6 +9411,7 @@ impl Flattened {
                                 id_to_field,
                                 run_letter_spacing,
                                 decoration,
+                                font_size,
                             );
                         }
                         "p" => {
@@ -10117,51 +9423,44 @@ impl Flattened {
 
                             // Parse paragraph styles from style attribute
                             let para_bold = if let Some(style) = child.attributes.get("style") {
-                                para.text_indent = Self::parse_css_dimension(style, "text-indent");
-                                para.font_size = Self::parse_css_dimension(style, "font-size");
-                                para.line_height = Self::parse_css_dimension(style, "line-height");
-                                // Parse margin-top as space_above
-                                if let Some(mt) = Self::parse_css_dimension(style, "margin-top") {
+                                // `em` in the paragraph's own declarations is relative to
+                                // the font size in effect outside it; once the paragraph
+                                // sets its own size, that is the base for everything in it.
+                                para.font_size =
+                                    Self::parse_css_dimension_with_em(style, "font-size", font_size);
+                                para.font_family = Self::parse_css_font_family(style);
+                                let para_font = para.font_size.unwrap_or(font_size);
+                                para.text_indent =
+                                    Self::parse_css_dimension_with_em(style, "text-indent", para_font);
+                                para.line_height =
+                                    Self::parse_css_dimension_with_em(style, "line-height", para_font);
+                                if let Some(mt) =
+                                    Self::parse_css_dimension_with_em(style, "margin-top", para_font)
+                                {
                                     para.space_above = Some(mt);
                                 }
-                                // Parse CSS margin-left/margin-right for paragraph width reduction
-                                // Per XFA spec Chapter 27: margin-left reduces available width for text wrapping
-                                para.margin_left = Self::parse_css_dimension(style, "margin-left");
+                                // CSS margin-left/margin-right reduce the width the
+                                // paragraph's lines wrap in (XFA 3.3 "Rich Text Reference").
+                                para.margin_left =
+                                    Self::parse_css_dimension_with_em(style, "margin-left", para_font);
                                 para.margin_right =
-                                    Self::parse_css_dimension(style, "margin-right");
-                                // Parse CSS letter-spacing for paragraph-level override
-                                let para_font = para.font_size.unwrap_or(8.0);
-                                para.letter_spacing = Self::parse_css_dimension_with_em(
-                                    style,
-                                    "letter-spacing",
-                                    Some(para_font),
-                                );
+                                    Self::parse_css_dimension_with_em(style, "margin-right", para_font);
+                                para.letter_spacing =
+                                    Self::parse_css_dimension_with_em(style, "letter-spacing", para_font);
                                 // Only override h_align if CSS specifies it
                                 let css_align = Self::parse_css_alignment_optional(style);
                                 if let Some(align) = css_align {
                                     para.h_align = align;
                                 }
 
-                                // Check for font-weight in paragraph style
-                                // font-weight:bold sets bold, font-weight:normal resets it
-                                let has_bold = style.contains("font-weight:bold")
-                                    || style.contains("font-weight: bold");
-                                let has_normal = style.contains("font-weight:normal")
-                                    || style.contains("font-weight: normal");
-
-                                if has_bold {
-                                    Some(true)
-                                } else if has_normal {
-                                    Some(false)
-                                } else {
-                                    None
-                                }
+                                Self::parse_css_font_weight(style)
                             } else {
                                 None
                             };
 
                             // Compute effective bold: CSS overrides inherited, otherwise inherit
                             let effective_bold = para_bold.unwrap_or(bold);
+                            let para_font_size = para.font_size.unwrap_or(font_size);
 
                             // Add paragraph to list
                             paragraphs.push(para);
@@ -10206,6 +9505,7 @@ impl Flattened {
                                 id_to_field,
                                 None,
                                 decoration,
+                                para_font_size,
                             );
 
                             // Check if paragraph ended up empty (only whitespace spans)
@@ -10247,35 +9547,11 @@ impl Flattened {
                             // Parse CSS styles from span for font-weight/font-style and xfa-spacerun
                             let (new_preserve, span_bold, span_italic) =
                                 if let Some(style) = child.attributes.get("style") {
-                                    let preserve = style.contains("xfa-spacerun:yes")
-                                        || style.contains("xfa-spacerun: yes");
-
-                                    // Parse font-weight: bold sets, normal resets
-                                    let effective_bold = if style.contains("font-weight:bold")
-                                        || style.contains("font-weight: bold")
-                                    {
-                                        true
-                                    } else if style.contains("font-weight:normal")
-                                        || style.contains("font-weight: normal")
-                                    {
-                                        false
-                                    } else {
-                                        bold // inherit
-                                    };
-
-                                    // Parse font-style: italic sets, normal resets
-                                    let effective_italic = if style.contains("font-style:italic")
-                                        || style.contains("font-style: italic")
-                                    {
-                                        true
-                                    } else if style.contains("font-style:normal")
-                                        || style.contains("font-style: normal")
-                                    {
-                                        false
-                                    } else {
-                                        italic // inherit
-                                    };
-
+                                    let preserve = Self::css_declaration(style, "xfa-spacerun")
+                                        .is_some_and(|v| v.eq_ignore_ascii_case("yes"));
+                                    let effective_bold = Self::parse_css_font_weight(style).unwrap_or(bold);
+                                    let effective_italic =
+                                        Self::parse_css_font_italic(style).unwrap_or(italic);
                                     (preserve, effective_bold, effective_italic)
                                 } else {
                                     (preserve_spaces, bold, italic)
@@ -10286,7 +9562,7 @@ impl Flattened {
                                 .attributes
                                 .get("style")
                                 .map(|style| {
-                                    Self::parse_css_dimension(style, "vertical-align")
+                                    Self::parse_css_dimension_with_em(style, "vertical-align", font_size)
                                         .is_some_and(|va| va > 0.0)
                                 })
                                 .unwrap_or(false);
@@ -10297,14 +9573,8 @@ impl Flattened {
                             // Parse CSS letter-spacing from span style
                             let span_letter_spacing =
                                 if let Some(style) = child.attributes.get("style") {
-                                    let span_font =
-                                        paragraphs.last().and_then(|p| p.font_size).unwrap_or(8.0);
-                                    Self::parse_css_dimension_with_em(
-                                        style,
-                                        "letter-spacing",
-                                        Some(span_font),
-                                    )
-                                    .or(run_letter_spacing)
+                                    Self::parse_css_dimension_with_em(style, "letter-spacing", font_size)
+                                        .or(run_letter_spacing)
                                 } else {
                                     run_letter_spacing
                                 };
@@ -10344,6 +9614,7 @@ impl Flattened {
                                 id_to_field,
                                 span_letter_spacing,
                                 decoration,
+                                font_size,
                             );
 
                             // Mark newly added runs as superscript if vertical-align was positive
@@ -10392,6 +9663,7 @@ impl Flattened {
                                 id_to_field,
                                 run_letter_spacing,
                                 decoration,
+                                font_size,
                             );
                         }
                         "i" | "em" => {
@@ -10419,6 +9691,7 @@ impl Flattened {
                                 id_to_field,
                                 run_letter_spacing,
                                 decoration,
+                                font_size,
                             );
                         }
                         "br" => {
@@ -10494,6 +9767,7 @@ impl Flattened {
                                 id_to_field,
                                 run_letter_spacing,
                                 decoration,
+                                font_size,
                             );
                         }
                     }
@@ -10511,6 +9785,7 @@ impl Flattened {
                         id_to_field,
                         run_letter_spacing,
                         decoration,
+                        font_size,
                     );
                 }
             }
@@ -10618,41 +9893,40 @@ impl Flattened {
 
     /// Parse a CSS dimension value from a style string.
     /// Looks for "property: Xpt" or "property: Xin" etc.
-    fn parse_css_dimension(style: &str, property: &str) -> Option<f32> {
-        Self::parse_css_dimension_with_em(style, property, None)
+    /// The value of the CSS declaration `property` in a `style` attribute
+    /// (`name:value; name:value`), trimmed; `None` when the style has no
+    /// such declaration. Names match whole and case-insensitively, so
+    /// `font-size` is not found inside `xfa-font-size` (XFA 3.3 "Rich Text
+    /// Reference", CSS declarations).
+    fn css_declaration<'a>(style: &'a str, property: &str) -> Option<&'a str> {
+        style.split(';').find_map(|declaration| {
+            let (name, value) = declaration.split_once(':')?;
+            name.trim().eq_ignore_ascii_case(property).then(|| value.trim())
+        })
     }
 
-    /// Parse a CSS dimension value, with optional `em` unit support.
-    /// When `font_size_pt` is provided, `em` values are resolved relative to it.
-    fn parse_css_dimension_with_em(
-        style: &str,
-        property: &str,
-        font_size_pt: Option<f32>,
-    ) -> Option<f32> {
-        let search = format!("{}:", property);
-        if let Some(pos) = style.find(&search) {
-            let rest = &style[pos + search.len()..];
-            let value_str = rest.split(';').next()?.trim();
-
-            // Parse the dimension with unit
-            if let Some(val) = value_str.strip_suffix("pt") {
-                val.trim().parse().ok()
-            } else if let Some(val) = value_str.strip_suffix("em") {
-                let em_val = val.trim().parse::<f32>().ok()?;
-                Some(em_val * font_size_pt.unwrap_or(10.0))
-            } else if let Some(val) = value_str.strip_suffix("in") {
-                val.trim().parse::<f32>().ok().map(|v| v * 72.0)
-            } else if let Some(val) = value_str.strip_suffix("mm") {
-                val.trim().parse::<f32>().ok().map(|v| v * 2.834_645_7)
-            } else if let Some(val) = value_str.strip_suffix("px") {
-                // Approximate px to pt (1px ≈ 0.75pt at 96dpi)
-                val.trim().parse::<f32>().ok().map(|v| v * 0.75)
-            } else {
-                // Try parsing as bare number (assume pt)
-                value_str.parse().ok()
+    /// A CSS length declaration in points. `em` is relative to `em_base`,
+    /// the font size in effect where the declaration applies (XFA 3.3 "Rich
+    /// Text Reference": the length units of CSS 2, with `em` the current
+    /// font size); a unitless number is read as points, which is how
+    /// Designer writes `0`. An unknown unit is reported and ignored.
+    fn parse_css_dimension_with_em(style: &str, property: &str, em_base: f32) -> Option<f32> {
+        let value = Self::css_declaration(style, property)?;
+        let (number, unit) = value
+            .find(|c: char| c.is_ascii_alphabetic() || c == '%')
+            .map_or((value, ""), |i| value.split_at(i));
+        let number: f32 = number.trim().parse().ok()?;
+        match unit.trim().to_ascii_lowercase().as_str() {
+            "pt" | "" => Some(number),
+            "em" => Some(number * em_base),
+            "in" => Some(number * 72.0),
+            "mm" => Some(number * 72.0 / 25.4),
+            "cm" => Some(number * 72.0 / 2.54),
+            "px" => Some(number * 0.75),
+            other => {
+                log::warn!("CSS {property}: {value:?} has the unit {other:?}, which is not a length unit here; ignored");
+                None
             }
-        } else {
-            None
         }
     }
 
@@ -10662,161 +9936,60 @@ impl Flattened {
     /// - font-family: "Arial"
     /// - font-family: Helvetica
     fn parse_css_font_family(style: &str) -> Option<String> {
-        let search = "font-family:";
-        if let Some(pos) = style.find(search) {
-            let rest = &style[pos + search.len()..];
-            let value_str = rest.split(';').next()?.trim();
-
-            // Handle quoted font names
-            if value_str.starts_with('\'') || value_str.starts_with('"') {
-                let quote = value_str.chars().next()?;
-                let end_quote = value_str[1..].find(quote)?;
-                Some(value_str[1..end_quote + 1].to_string())
-            } else {
-                // Unquoted font name - take until comma or end
-                Some(value_str.split(',').next()?.trim().to_string())
-            }
-        } else {
-            None
-        }
+        let value = Self::css_declaration(style, "font-family")?;
+        let first = value.split(',').next()?.trim();
+        let name = first.trim_matches(|c| c == '\'' || c == '"').trim();
+        (!name.is_empty()).then(|| name.to_string())
     }
 
     /// Parse font-weight from CSS style string.
     /// Returns true if bold, false if normal/not specified.
     fn parse_css_font_weight(style: &str) -> Option<bool> {
-        let search = "font-weight:";
-        if let Some(pos) = style.find(search) {
-            let rest = &style[pos + search.len()..];
-            let value_str = rest.split(';').next()?.trim().to_lowercase();
-
-            // Check for bold values
-            if value_str == "bold" || value_str == "700" || value_str == "800" || value_str == "900"
-            {
-                Some(true)
-            } else if value_str == "normal"
-                || value_str == "400"
-                || value_str == "300"
-                || value_str == "200"
-                || value_str == "100"
-            {
-                Some(false)
-            } else {
-                // Unknown value, return None to not override
-                None
-            }
-        } else {
-            None
+        let value = Self::css_declaration(style, "font-weight")?.to_ascii_lowercase();
+        match value.as_str() {
+            "bold" | "bolder" => Some(true),
+            "normal" | "lighter" => Some(false),
+            numeric => match numeric.parse::<u32>() {
+                Ok(weight) => Some(weight >= 600),
+                Err(_) => {
+                    log::warn!("CSS font-weight {value:?} is not a weight; ignored");
+                    None
+                }
+            },
         }
     }
 
-    /// Extract font information (font-family, font-size, font-weight-is-bold) from HTML exData content.
-    /// Returns (font_family, font_size_pt, is_bold) if found in the first <p> element's style.
-    /// Per XFA spec, the HTML content inside exData can have CSS styles that should
-    /// override the <font> element's properties.
-    fn extract_font_from_html_content(
-        children: &[XfaNode],
-    ) -> (Option<String>, Option<Num>, Option<bool>) {
-        // Navigate to value -> exData -> body -> p and extract style
-        for child in children {
-            if matches!(child.kind, XfaNodeKind::Value) {
-                for value_child in &child.children {
-                    if let XfaNodeKind::Element { tag_name, .. } = &value_child.kind
-                        && tag_name == "exData"
-                    {
-                        // Find body element
-                        for ex_child in &value_child.children {
-                            if let XfaNodeKind::Element {
-                                tag_name: body_tag, ..
-                            } = &ex_child.kind
-                                && body_tag == "body"
-                            {
-                                // Find first <p> element with style
-                                for body_child in &ex_child.children {
-                                    if let XfaNodeKind::Element {
-                                        tag_name: p_tag, ..
-                                    } = &body_child.kind
-                                        && p_tag == "p"
-                                        && let Some(style) = body_child.attributes.get("style")
-                                    {
-                                        let font_family = Self::parse_css_font_family(style);
-                                        let font_size =
-                                            Self::parse_css_dimension(style, "font-size")
-                                                .map(|s| num(s as f64));
-                                        let is_bold = Self::parse_css_font_weight(style);
-                                        return (font_family, font_size, is_bold);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            // Also check Element with tag_name "value"
-            if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                && tag_name == "value"
-            {
-                for value_child in &child.children {
-                    if let XfaNodeKind::Element {
-                        tag_name: inner_tag,
-                        ..
-                    } = &value_child.kind
-                        && inner_tag == "exData"
-                    {
-                        for ex_child in &value_child.children {
-                            if let XfaNodeKind::Element {
-                                tag_name: body_tag, ..
-                            } = &ex_child.kind
-                                && body_tag == "body"
-                            {
-                                for body_child in &ex_child.children {
-                                    if let XfaNodeKind::Element {
-                                        tag_name: p_tag, ..
-                                    } = &body_child.kind
-                                        && p_tag == "p"
-                                        && let Some(style) = body_child.attributes.get("style")
-                                    {
-                                        let font_family = Self::parse_css_font_family(style);
-                                        let font_size =
-                                            Self::parse_css_dimension(style, "font-size")
-                                                .map(|s| num(s as f64));
-                                        let is_bold = Self::parse_css_font_weight(style);
-                                        return (font_family, font_size, is_bold);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+    /// `font-style`: `Some(true)` for italic or oblique, `Some(false)` for
+    /// normal, `None` when the style does not say.
+    fn parse_css_font_italic(style: &str) -> Option<bool> {
+        let value = Self::css_declaration(style, "font-style")?.to_ascii_lowercase();
+        match value.as_str() {
+            "italic" | "oblique" => Some(true),
+            "normal" => Some(false),
+            _ => {
+                log::warn!("CSS font-style {value:?} is not a style; ignored");
+                None
             }
         }
-        (None, None, None)
     }
 
     /// Parse CSS text-align property from style string
     fn parse_css_alignment(style: &str) -> HAlign {
-        if style.contains("text-align:justify") || style.contains("text-align: justify") {
-            HAlign::Justify
-        } else if style.contains("text-align:center") || style.contains("text-align: center") {
-            HAlign::Center
-        } else if style.contains("text-align:right") || style.contains("text-align: right") {
-            HAlign::Right
-        } else {
-            HAlign::Left
-        }
+        Self::parse_css_alignment_optional(style).unwrap_or(HAlign::Left)
     }
 
-    /// Parse CSS text-align property from style string, returning None if not specified
+    /// `text-align`, `None` when the style does not set it.
     fn parse_css_alignment_optional(style: &str) -> Option<HAlign> {
-        if style.contains("text-align:justify") || style.contains("text-align: justify") {
-            Some(HAlign::Justify)
-        } else if style.contains("text-align:center") || style.contains("text-align: center") {
-            Some(HAlign::Center)
-        } else if style.contains("text-align:right") || style.contains("text-align: right") {
-            Some(HAlign::Right)
-        } else if style.contains("text-align:left") || style.contains("text-align: left") {
-            Some(HAlign::Left)
-        } else {
-            None // CSS doesn't specify - use default
+        let value = Self::css_declaration(style, "text-align")?.to_ascii_lowercase();
+        match value.as_str() {
+            "left" => Some(HAlign::Left),
+            "center" => Some(HAlign::Center),
+            "right" => Some(HAlign::Right),
+            "justify" => Some(HAlign::Justify),
+            _ => {
+                log::warn!("CSS text-align {value:?} is not an alignment; ignored");
+                None
+            }
         }
     }
 
@@ -10849,17 +10022,6 @@ impl Flattened {
     ) -> Vec<RenderedLine> {
         let font = fonts.regular;
         let mut lines = Vec::new();
-        let px_scale = xfa_px_scale(font, font_size);
-        let scaled_font = font.as_scaled(px_scale);
-
-        // Get base space width from font metrics.
-        // Paragraph/run letter-spacing is applied below per paragraph.
-        let space_glyph = font.glyph_id(' ');
-        let base_space_width = if space_glyph.0 != 0 {
-            scaled_font.h_advance(space_glyph)
-        } else {
-            font_size * 0.3
-        };
 
         for para in &rich_text.paragraphs {
             // Paragraph CSS letter-spacing overrides inherited/font-level spacing,
@@ -10868,10 +10030,9 @@ impl Flattened {
                 .letter_spacing
                 .map(|ls| ls * scale)
                 .unwrap_or(letter_spacing);
-            // Interword spacing uses base space advance plus paragraph/run
-            // letter spacing (consistent with existing AXTE-compatible behavior
-            // in this pipeline).
-            let space_width = base_space_width + para_letter_spacing;
+            // The space between two words, letter spacing included, as
+            // `text_advance` measures it.
+            let space_width = space_advance(font, font_size, para_letter_spacing, 1.0);
 
             // Handle empty paragraphs as blank lines
             if para.is_empty {
@@ -10918,28 +10079,8 @@ impl Flattened {
                 continue;
             }
 
-            // Word-wrap the tokens using effective width (reduced by margins, using resolved value).
-            //
-            // Per XFA 3.3 spec the line breaking is per [UAX-14] (see §Layout
-            // "Break Individual Lines"), and our `space_width` already follows
-            // the spec rule that inter-cluster letter-spacing applies on both
-            // sides of an interword space. However, when paragraph-level
-            // letter-spacing is set explicitly on rich-text `<p>` (Adobe
-            // template inspector / AEM dor templates frequently use values
-            // like `letter-spacing:-0.002em`), the cumulative inter-cluster
-            // adjustment within the line can still differ from Adobe AXTE by
-            // less than a typographic point because of font-metric rounding
-            // (h_advance vs Adobe's measured cluster advance). To remain
-            // visually aligned with the Adobe-produced layout in those cases,
-            // we allow a tiny overshoot tolerance scaled to the font size, and
-            // ONLY when the paragraph requested explicit negative letter-
-            // spacing. This keeps standard (letter-spacing = 0) paragraphs at
-            // a strict UAX-14 break boundary.
-            let wrap_tolerance = if para_letter_spacing < 0.0 {
-                (font_size * 0.35).max(1.5)
-            } else {
-                0.0
-            };
+            // Lines break at UAX-14 opportunities (spaces here) exactly at the
+            // available width (XFA 3.3 "Break Individual Lines").
             let para_lines = Self::wrap_tokens_to_lines(
                 &tokens,
                 para_effective_width,
@@ -10950,7 +10091,6 @@ impl Flattened {
                 Some(font),
                 font_size,
                 letter_spacing,
-                wrap_tolerance,
             );
             let num_para_lines = para_lines.len();
 
@@ -11146,7 +10286,6 @@ impl Flattened {
         font: Option<&ab_glyph::FontRef<'_>>,
         font_size: f32,
         letter_spacing: f32,
-        wrap_tolerance: f32,
     ) -> Vec<Vec<LayoutToken>> {
         if tokens.is_empty() {
             return vec![vec![]];
@@ -11179,7 +10318,7 @@ impl Flattened {
                 space_width
             };
 
-            if current_width + token_space + token.width <= effective_max + wrap_tolerance
+            if current_width + token_space + token.width <= effective_max
                 || current_line.is_empty()
             {
                 // Token fits on current line
@@ -11347,95 +10486,25 @@ impl Flattened {
         font: &FontRef<'_>,
         letter_spacing: f32,
     ) -> f32 {
-        let px_scale = xfa_px_scale(font, font_size);
-        let scaled_font = font.as_scaled(px_scale);
-
-        let mut width: f32 = 0.0;
-        let char_count = text.chars().count();
-        for (i, ch) in text.chars().enumerate() {
-            let glyph_id = font.glyph_id(ch);
-            if glyph_id.0 != 0 {
-                width += scaled_font.h_advance(glyph_id);
-            } else {
-                // Fallback for missing glyphs
-                width += font_size * 0.6;
-            }
-            // Add letter spacing between characters (not after the last one)
-            if i < char_count - 1 {
-                width += letter_spacing;
-            }
-        }
-        width
+        text_advance(font, font_size, text, letter_spacing, 1.0, KerningMode::None)
     }
 
     // ========================================================================
     // Multi-Paragraph Draw Node Splitting
     // ========================================================================
 
-    /// Split a Draw FlattenedNode that contains multi-paragraph RichText into
-    /// separate FlattenedKind entries — one per paragraph.
-    ///
-    /// Per XFA spec (section on "Line Height" and "Paragraph Spacing"):
-    /// - Each paragraph's height is computed from text wrapping within the draw width,
-    ///   using AXTE line metrics (ascent, descent, line gap = 20% of font size).
-    ///
-    /// Determine the font weight override from a rich text paragraph's runs.
-    /// Returns `Some(Bold)` if all content runs are bold, `Some(Normal)` if all
-    /// are normal, or the dominant weight (by character count) for mixed paragraphs.
-    /// Returns `None` only for empty paragraphs.
-    fn rich_paragraph_weight_override(para: &RichParagraph) -> Option<FontWeight> {
-        if para.runs.is_empty() {
-            return None;
+    /// `font` with the paragraph's own CSS `font-family` and `font-size`
+    /// applied: a style applies to its own element, so these are the
+    /// paragraph's and not the draw's (XFA 3.3 "Rich Text Reference").
+    fn apply_paragraph_font(font: &mut Font, para: &RichParagraph) {
+        if let Some(family) = &para.font_family {
+            font.typeface = family.clone();
         }
-        let has_bold = para
-            .runs
-            .iter()
-            .any(|r| !r.text.trim().is_empty() && r.bold);
-        let has_normal = para
-            .runs
-            .iter()
-            .any(|r| !r.text.trim().is_empty() && !r.bold);
-        if has_bold && !has_normal {
-            Some(FontWeight::Bold)
-        } else if has_normal && !has_bold {
-            Some(FontWeight::Normal)
-        } else if has_bold && has_normal {
-            // Mixed: use the dominant weight by character count.
-            // A paragraph that starts with a short bold phrase but continues
-            // with normal text should not be marked as bold overall.
-            let bold_chars: usize = para
-                .runs
-                .iter()
-                .filter(|r| r.bold && !r.text.trim().is_empty())
-                .map(|r| r.text.len())
-                .sum();
-            let normal_chars: usize = para
-                .runs
-                .iter()
-                .filter(|r| !r.bold && !r.text.trim().is_empty())
-                .map(|r| r.text.len())
-                .sum();
-
-            if bold_chars >= normal_chars {
-                Some(FontWeight::Bold)
-            } else {
-                Some(FontWeight::Normal)
-            }
-        } else {
-            None
+        if let Some(size) = para.font_size {
+            font.size = num(size as f64);
         }
     }
 
-    /// - spaceAbove/spaceBelow on RichParagraph add inter-paragraph spacing.
-    /// - Empty paragraphs (is_empty=true) are preserved as spacing nodes.
-    ///
-    /// For single-paragraph or no-RichText nodes, returns the original node unchanged.
-    /// Per-paragraph text-block heights for a rich-text draw, using the same
-    /// per-paragraph font/line-height resolution and the same `layout_rich_text`
-    /// tokenizer that draws the paragraphs. Shared by `split_draw_into_paragraph_nodes`
-    /// (which places each paragraph at these heights) and `calculate_rich_text_draw_height`
-    /// (which sizes the draw's natural height before it is split), so natural-height
-    /// measurement can never drift from what actually gets drawn.
     /// Merge one `RichParagraph`'s CSS overrides (from its `<p style="...">`)
     /// onto the draw's own `<para>` element. The paragraph's own `line_height`
     /// / `space_above` / `space_below` / `text_indent` / `h_align` win when
@@ -11472,10 +10541,23 @@ impl Flattened {
                 .or_else(|| default_para.as_ref().and_then(|p| p.text_indent)),
             margin_left: default_para.as_ref().and_then(|p| p.margin_left),
             margin_right: default_para.as_ref().and_then(|p| p.margin_right),
+            radix_offset: default_para.as_ref().and_then(|p| p.radix_offset),
             hyphenation: default_para.as_ref().and_then(|p| p.hyphenation.clone()),
         }
     }
 
+    /// Per-paragraph heights of a rich-text draw `max_width` wide, from the
+    /// very lines `layout_rich_text` draws, measured in the same faces
+    /// (each run in its own weight and posture) with the same indent and
+    /// margins. Each line's height follows AXTE (XFA 3.3 appendix "Text
+    /// Layout"): ascent plus descent of the faces on it, the line gap or
+    /// the paragraph's `line-height` override (capped on the block's first
+    /// line), `spaceAbove`/`spaceBelow` on a paragraph's first and last
+    /// line, and no line gap on the block's last line. An empty paragraph
+    /// is one line. Shared by `split_draw_into_paragraph_nodes` (which
+    /// places each paragraph at these heights) and
+    /// `calculate_rich_text_draw_height` (which sizes the draw before it
+    /// is split), so the measured height is the drawn one.
     fn rich_paragraph_heights(
         rich_text: &RichText,
         xfa_font: &Font,
@@ -11484,242 +10566,131 @@ impl Flattened {
         language: &str,
     ) -> Vec<Num> {
         let mut measurer = TextMeasurer::new();
-        let hyph_dict = super::xfa::hyphenation::dict_for_language(language);
-        let base_font_size = xfa_font.size;
+        let paragraphs =
+            Self::rich_paragraph_lines(rich_text, xfa_font, default_para, max_width, language);
+        let count = paragraphs.len();
+        let mut heights: Vec<Num> = Vec::with_capacity(count);
 
-        let mut paragraph_heights: Vec<Num> = Vec::with_capacity(rich_text.paragraphs.len());
-
-        for para in rich_text.paragraphs.iter() {
-            // Use per-paragraph font size override if available
-            let para_font_size = para
-                .font_size
-                .map(|s| num(s as f64))
-                .unwrap_or(base_font_size);
-            let mut para_xfa_font = xfa_font.clone();
-            para_xfa_font.size = para_font_size;
-
-            // Override font weight/posture based on HTML CSS properties in the
-            // paragraph's runs. The XFA <font> element may specify weight="bold",
-            // but the rich text HTML CSS can override this
-            // (e.g. <p style="font-weight:normal">). Since layout_rich_text uses
-            // a single font for all tokens, we pick the dominant style.
-            //
-            // When a paragraph has BOTH bold and normal runs, we use the weight
-            // that covers the majority of the text (by character count). This
-            // prevents a short bold prefix from forcing the bold font for width
-            // measurement, which would inflate line widths and cause incorrect
-            // wrapping (e.g. AACX STP_Definitions_1 «Servizi» paragraph).
-            if !para.runs.is_empty() {
-                let has_bold = para
-                    .runs
-                    .iter()
-                    .any(|r| !r.text.trim().is_empty() && r.bold);
-                let has_normal = para
-                    .runs
-                    .iter()
-                    .any(|r| !r.text.trim().is_empty() && !r.bold);
-                if has_bold && !has_normal {
-                    // All content runs are bold: CSS overrides XFA normal to bold
-                    para_xfa_font.weight = FontWeight::Bold;
-                } else if has_normal && !has_bold {
-                    // All content runs are non-bold: CSS overrides XFA bold to normal
-                    para_xfa_font.weight = FontWeight::Normal;
-                } else if has_normal && has_bold {
-                    // Mixed: use the dominant weight by character count
-                    let bold_chars: usize = para
-                        .runs
-                        .iter()
-                        .filter(|r| r.bold && !r.text.trim().is_empty())
-                        .map(|r| r.text.len())
-                        .sum();
-                    let normal_chars: usize = para
-                        .runs
-                        .iter()
-                        .filter(|r| !r.bold && !r.text.trim().is_empty())
-                        .map(|r| r.text.len())
-                        .sum();
-                    if normal_chars > bold_chars {
-                        para_xfa_font.weight = FontWeight::Normal;
-                    }
-                }
-                let has_italic = para
-                    .runs
-                    .iter()
-                    .any(|r| !r.text.trim().is_empty() && r.italic);
-                let has_upright = para
-                    .runs
-                    .iter()
-                    .any(|r| !r.text.trim().is_empty() && !r.italic);
-                if has_upright && !has_italic {
-                    para_xfa_font.posture = FontPosture::Normal;
-                }
-            }
-
-            // Resolve the effective line height for this paragraph.
-            // Per XFA spec §17: lineHeight is the vertical distance between successive
-            // baselines. When splitting multi-paragraph draws, each line should occupy
-            // exactly lineHeight of vertical space for consistent alignment between
-            // overlapping draw elements (e.g. T_Left / T_LeftIndent in AAAI).
-            let effective_line_height = para
-                .line_height
-                .map(|lh| num(lh as f64))
-                .or_else(|| default_para.as_ref().and_then(|p| p.line_height))
-                .unwrap_or_else(|| {
-                    if let Ok(metrics) = measurer.get_metrics_for_style(&para_xfa_font) {
-                        metrics.derived_line_spacing()
-                    } else {
-                        para_font_size * num(1.2)
-                    }
-                });
-
-            if para.is_empty {
-                // Per XFA spec §2.5+: a leading `<p><br/></p>` at the very start
-                // of a rich text body (first paragraph, no text runs — only a <br/>
-                // marker) produces zero height.  The <br/> terminates an empty first
-                // line that has no content, so it does not advance the vertical
-                // position.  This is critical for alignment between overlapping draw
-                // elements (e.g. T_Indent / T_The_Authorized in BAGE) where the
-                // first br-only paragraph is a structural placeholder, not a visible
-                // blank line.
-                if paragraph_heights.is_empty() && para.runs.is_empty() && para.has_br {
-                    paragraph_heights.push(Decimal::ZERO);
-                    continue;
-                }
-                // Empty paragraph: height is one line
-                let space_above = para
-                    .space_above
-                    .map(|s| num(s as f64))
-                    .unwrap_or(Decimal::ZERO);
-                let space_below = para
-                    .space_below
-                    .map(|s| num(s as f64))
-                    .unwrap_or(Decimal::ZERO);
-                paragraph_heights.push(effective_line_height + space_above + space_below);
-                continue;
-            }
-
-            // Collect plain text for this paragraph
-            let plain_text: String = para
-                .runs
-                .iter()
-                .map(|r| r.text.as_str())
-                .collect::<Vec<_>>()
-                .join("");
-
-            if plain_text.trim().is_empty() {
-                // Paragraph with only whitespace runs — treat like empty,
-                // using the same line_height as empty paragraphs for consistency.
-                paragraph_heights.push(effective_line_height);
-                continue;
-            }
-
-            // Build a Para for this specific paragraph (merge RichParagraph props with defaults)
-            let para_props = Some(Self::para_for_rich_paragraph(para, default_para));
-
-            // Use layout_rich_text for line counting instead of measure_text_block.
-            // This ensures the same wrapping logic (tokenization, text width
-            // measurement) is used for both height calculation and rendering,
-            // preventing misalignment between overlapping draw elements.
-            let space_above = para_props
-                .as_ref()
-                .and_then(|p| p.space_above)
-                .unwrap_or(Decimal::ZERO);
-            let space_below = para_props
-                .as_ref()
-                .and_then(|p| p.space_below)
-                .unwrap_or(Decimal::ZERO);
-
-            // Per XFA spec Chapter 27: margin-left/margin-right on paragraphs reduce
-            // the available width for text wrapping. This is critical for proper
-            // alignment between overlapping draw elements (e.g. T_Left / T_LeftIndent
-            // in AAIS forms where T_Left paragraphs have margin-left:25.512pt).
-            let para_margin_left = para.margin_left.unwrap_or(0.0);
-            let para_margin_right = para.margin_right.unwrap_or(0.0);
-            let effective_width_f32 =
-                (max_width.to_f32().unwrap_or(500.0) - para_margin_left - para_margin_right)
-                    .max(0.0);
-            let effective_width = num(effective_width_f32 as f64);
-
-            // Get the font for layout_rich_text
-            let font_for_layout = measurer.get_font_for_style(&para_xfa_font).ok().cloned();
-
-            if let Some(layout_font) = &font_for_layout {
-                // Per XFA spec: text-indent shifts the first line's starting x position
-                // but does NOT reduce the available line width for wrapping purposes.
-                // Using text-indent in line-count measurement would cause extra line
-                // breaks compared to Adobe's XFA renderer, misaligning overlapping
-                // draw elements (e.g. T_Left / T_LeftIndent in AAAI).
-                let mut height_para = para.clone();
-                height_para.text_indent = None;
-                // Clear margins since effective_width_f32 already accounts for them.
-                // This prevents double-reduction in layout_rich_text.
-                height_para.margin_left = None;
-                height_para.margin_right = None;
-
-                let single_rt = RichText {
-                    paragraphs: vec![height_para.clone()],
-                };
-                // `para_xfa_font`'s weight/posture were already resolved to
-                // this paragraph's dominant style above, deliberately as one
-                // face for the whole paragraph rather than per run (see that
-                // comment); `only` carries that single choice through.
-                let run_fonts = RunFonts::only(layout_font);
-                let rendered_lines = Self::layout_rich_text(
-                    &single_rt,
-                    effective_width_f32,
-                    para_font_size.to_f32().unwrap_or(10.0),
-                    &run_fonts,
-                    1.0, // scale=1.0 for measurement in pt units
-                    if let Some(ls) = para.letter_spacing {
-                        ls
-                    } else {
-                        para_xfa_font
-                            .letter_spacing
-                            .and_then(|ls| ls.to_f32())
-                            .unwrap_or(0.0)
-                    },
-                    default_para.as_ref().and_then(|p| p.hyphenation.as_ref()),
-                    hyph_dict,
+        for (index, paragraph) in paragraphs.iter().enumerate() {
+            let props = &paragraph.props;
+            let Some(lines) = &paragraph.lines else {
+                heights.push(
+                    paragraph.font.size
+                        + props.space_above.unwrap_or_default()
+                        + props.space_below.unwrap_or_default(),
                 );
-                let num_lines = num(rendered_lines.len().max(1) as f64);
-                let height = num_lines * effective_line_height + space_above + space_below;
-                paragraph_heights.push(height);
+                continue;
+            };
+            let first_in_block = index == 0;
+            let last_in_block = index + 1 == count;
+            let metrics_of = |measurer: &mut TextMeasurer, weight: FontWeight, posture: FontPosture| {
+                let mut f = paragraph.font.clone();
+                f.weight = weight;
+                f.posture = posture;
+                measurer.get_metrics_for_style(&f).ok()
+            };
+
+            // The lines, exactly as drawn: an empty paragraph is one line.
+            let line_runs: Vec<(bool, bool)> = if lines.is_empty() {
+                vec![(false, false)]
             } else {
-                // Fallback to measure_text_block if font is unavailable.
-                // Also clear text_indent here to stay consistent with the primary path.
-                let para_props_no_indent = para_props.as_ref().map(|p| Para {
-                    text_indent: None,
-                    ..p.clone()
-                });
-                match measurer.measure_text_block(
-                    &plain_text,
-                    &Some(para_xfa_font.clone()),
-                    &para_props_no_indent,
-                    effective_width,
-                ) {
-                    Ok(block_metrics) => {
-                        let num_lines = num(block_metrics.lines.len() as f64);
-                        let height = num_lines * effective_line_height + space_above + space_below;
-                        paragraph_heights.push(height);
-                    }
-                    Err(_) => {
-                        let estimated_chars_per_line =
-                            effective_width / (para_font_size * num(0.5));
-                        let estimated_lines = if estimated_chars_per_line > Decimal::ZERO {
-                            let text_len = num(plain_text.len() as f64);
-                            (text_len / estimated_chars_per_line).ceil()
-                        } else {
-                            Decimal::ONE
-                        };
-                        paragraph_heights.push(
-                            estimated_lines * effective_line_height + space_above + space_below,
-                        );
-                    }
+                lines
+                    .iter()
+                    .map(|line| {
+                        (
+                            line.words.iter().any(|w| w.bold),
+                            line.words.iter().any(|w| w.italic),
+                        )
+                    })
+                    .collect()
+            };
+
+            let line_count = line_runs.len();
+            let mut height = Decimal::ZERO;
+            for (i, (has_bold, has_italic)) in line_runs.into_iter().enumerate() {
+                let mut line = LineMetrics::new(first_in_block && i == 0, last_in_block && i + 1 == line_count);
+                if let Some(m) = metrics_of(&mut measurer, FontWeight::Normal, FontPosture::Normal) {
+                    line.accumulate(&m);
                 }
+                if has_bold && let Some(m) = metrics_of(&mut measurer, FontWeight::Bold, FontPosture::Normal) {
+                    line.accumulate(&m);
+                }
+                if has_italic && let Some(m) = metrics_of(&mut measurer, FontWeight::Normal, FontPosture::Italic) {
+                    line.accumulate(&m);
+                }
+                line.spacing_override = props.line_height;
+                if i == 0 {
+                    line.margin_top = props.space_above.unwrap_or_default();
+                }
+                if i + 1 == line_count {
+                    line.margin_bottom = props.space_below.unwrap_or_default();
+                }
+                height += line.full_height();
             }
+            heights.push(height);
         }
 
-        paragraph_heights
+        heights
+    }
+
+    /// Every paragraph of a rich-text block laid out `max_width` wide for
+    /// measurement, in document order: the lines `layout_rich_text` wraps
+    /// it into, in the faces its runs are drawn in, with the paragraph's own
+    /// CSS font and properties applied over the draw's.
+    fn rich_paragraph_lines(
+        rich_text: &RichText,
+        xfa_font: &Font,
+        default_para: &Option<Para>,
+        max_width: Num,
+        language: &str,
+    ) -> Vec<MeasuredParagraph> {
+        let mut measurer = TextMeasurer::new();
+        let hyph_dict = super::xfa::hyphenation::dict_for_language(language);
+        rich_text
+            .paragraphs
+            .iter()
+            .map(|para| {
+                let mut font = xfa_font.clone();
+                Self::apply_paragraph_font(&mut font, para);
+                let props = Self::para_for_rich_paragraph(para, default_para);
+                let fonts = measurer.run_fonts(&font);
+                let Some(regular) = fonts.regular.clone() else {
+                    log::warn!(
+                        "no font for {:?}: paragraph taken as one line of its font size",
+                        font.typeface
+                    );
+                    return MeasuredParagraph { font, props, lines: None };
+                };
+                let lines = if para.is_empty || para.runs.iter().all(|r| r.text.trim().is_empty()) {
+                    Vec::new()
+                } else {
+                    // `max_width` is the draw's content width; the paragraph's own
+                    // CSS margins are taken off inside `layout_rich_text`.
+                    let run_fonts = RunFonts {
+                        regular: &regular,
+                        bold: fonts.bold.as_ref(),
+                        italic: fonts.italic.as_ref(),
+                        bold_italic: fonts.bold_italic.as_ref(),
+                    };
+                    let single = RichText { paragraphs: vec![para.clone()] };
+                    let letter_spacing = para
+                        .letter_spacing
+                        .or_else(|| font.letter_spacing.and_then(|ls| ls.to_f32()))
+                        .unwrap_or(0.0);
+                    Self::layout_rich_text(
+                        &single,
+                        max_width.to_f32().unwrap_or(0.0),
+                        font.size.to_f32().unwrap_or(10.0),
+                        &run_fonts,
+                        1.0,
+                        letter_spacing,
+                        default_para.as_ref().and_then(|p| p.hyphenation.as_ref()),
+                        hyph_dict,
+                    )
+                };
+                MeasuredParagraph { font, props, lines: Some(lines) }
+            })
+            .collect()
     }
 
     pub fn split_draw_into_paragraph_nodes(
@@ -11737,13 +10708,14 @@ impl Flattened {
                 // all rich text runs are bold (or vice versa).
                 let mut node = node;
                 let single_para = node.rich_text().and_then(|rt| rt.paragraphs.first()).cloned();
-                let weight_override = single_para
-                    .as_ref()
-                    .and_then(Self::rich_paragraph_weight_override);
-                if let Some(weight) = weight_override {
-                    if let Some(ref mut font) = node.style.font {
-                        font.weight = weight;
-                    }
+                // The paragraph's own CSS font-family and font-size are the
+                // font it is drawn and measured in; a run's weight and
+                // posture are its own (`RichRun`), so the draw's weight
+                // stays as the template set it.
+                if let Some(para) = &single_para
+                    && let Some(ref mut font) = node.style.font
+                {
+                    Self::apply_paragraph_font(font, para);
                 }
                 // Also carry the paragraph's own CSS line-height/margin-top
                 // (etc.) onto the node's rendered `<para>`, the same way the
@@ -11836,23 +10808,10 @@ impl Flattened {
                 paragraphs: vec![para.clone()],
             };
 
-            // Build per-paragraph style with font size override if needed
+            // The paragraph's own CSS font-family and font-size.
             let mut para_style = node.style.clone();
-            if para.font_size.is_some() {
-                if let Some(ref mut font) = para_style.font {
-                    font.size = para_font_size;
-                }
-            }
-
-            // Override font weight based on CSS in rich text runs.
-            // The XFA <font> element may specify weight="bold", but the HTML CSS
-            // in individual paragraphs can override this (e.g. font-weight:normal).
-            // Conversely, the XFA font may say Normal but all CSS runs are bold.
-            // We override in both directions when all content runs agree.
-            if let Some(weight) = Self::rich_paragraph_weight_override(para) {
-                if let Some(ref mut font) = para_style.font {
-                    font.weight = weight;
-                }
+            if let Some(ref mut font) = para_style.font {
+                Self::apply_paragraph_font(font, para);
             }
 
             // Carry this paragraph's own CSS line-height/margin-top/etc. onto
@@ -11953,54 +10912,30 @@ impl Flattened {
         para: &Option<Para>,
         scale: f32,
         letter_spacing: f32,
+        geometry: Option<LineGeometry>,
     ) {
-        let px_scale = xfa_px_scale(base_font, font_size);
-        let scaled_font = base_font.as_scaled(px_scale);
+        let scaled_font = base_font.as_scaled(xfa_px_scale(base_font, font_size));
+        // The space between two words, letter spacing included, as
+        // `text_advance` measures it.
+        let space_width = space_advance(base_font, font_size, letter_spacing, 1.0);
 
-        // Get space width and font metrics (space width affected by letter spacing)
-        let space_glyph = base_font.glyph_id(' ');
-        let base_space_width = if space_glyph.0 != 0 {
-            scaled_font.h_advance(space_glyph)
-        } else {
-            font_size * 0.3
-        };
-        let space_width = base_space_width + letter_spacing;
-
-        // Get vertical alignment and spacing from para
+        // The lines' tops and the block's height, from the AXTE metrics
+        // the layout measured with; a block taller than its box sits at the
+        // top, as `calculate_text_y` places plain text.
         let v_align = para.as_ref().map(|p| p.v_align).unwrap_or(VAlign::Top);
-        let space_above = para
-            .as_ref()
-            .and_then(|p| p.space_above)
-            .map(|s| s.to_f32().unwrap_or(0.0) * scale)
-            .unwrap_or(0.0);
-        let line_height_override = para
-            .as_ref()
-            .and_then(|p| p.line_height)
-            .map(|lh| lh.to_f32().unwrap_or(0.0) * scale);
-
-        // Font metrics
         let ascent = scaled_font.ascent();
         let descent = scaled_font.descent().abs();
-        let line_gap = font_size * 0.2;
-        let text_height = ascent + descent;
-        let line_spacing = line_height_override.unwrap_or(text_height + line_gap);
-
-        // Calculate total text block height
-        let total_lines = lines.len();
-        let total_height = if total_lines == 0 {
-            0.0
-        } else if total_lines == 1 {
-            text_height
-        } else {
-            (total_lines - 1) as f32 * line_spacing + text_height
-        };
-
-        // Calculate starting Y based on vertical alignment
-        let start_y = match v_align {
-            VAlign::Top => box_y as f32 + space_above,
-            VAlign::Middle => box_y as f32 + (box_h as f32 - total_height) / 2.0,
-            VAlign::Bottom => box_y as f32 + box_h as f32 - total_height,
-        };
+        let (tops, total_height) = Self::line_tops(base_font, font_size, para, scale, lines.len());
+        let start_y = box_y as f32
+            + if total_height > box_h as f32 {
+                0.0
+            } else {
+                match v_align {
+                    VAlign::Top => 0.0,
+                    VAlign::Middle => (box_h as f32 - total_height) / 2.0,
+                    VAlign::Bottom => box_h as f32 - total_height,
+                }
+            };
 
         // Get paragraph margins (node-level defaults, may be overridden per-line)
         let default_margin_left = para
@@ -12016,7 +10951,7 @@ impl Flattened {
 
         // Render each line
         for (line_idx, line) in lines.iter().enumerate() {
-            let line_y = start_y + (line_idx as f32 * line_spacing);
+            let line_y = start_y + tops[line_idx];
 
             if line_y < 0.0 || line_y > img.height() as f32 {
                 continue;
@@ -12121,7 +11056,7 @@ impl Flattened {
                     let span = word_width + if continues { space_width + extra_space } else { 0.0 };
                     for (rx, ry, rw, rh) in
                         word.decoration
-                            .line_rects(x, line_y, span, ascent, descent, font_size)
+                            .line_rects(x, line_y, span, ascent, descent, font_size, geometry)
                     {
                         Self::fill_rect(img, rx, ry, rw, rh, color);
                     }
@@ -12148,71 +11083,7 @@ impl Flattened {
         color: Rgba<u8>,
         letter_spacing: f32,
     ) {
-        let px_scale = xfa_px_scale(font, font_size);
-
-        // If no letter spacing, use the fast path
-        if letter_spacing.abs() < 0.001 {
-            draw_text_mut(img, color, x, y, px_scale, font, text);
-            return;
-        }
-
-        // Render each character with letter spacing
-        let scaled_font = font.as_scaled(px_scale);
-        let mut current_x = x as f32;
-        let char_count = text.chars().count();
-
-        for (i, ch) in text.chars().enumerate() {
-            let ch_str = ch.to_string();
-            draw_text_mut(img, color, current_x as i32, y, px_scale, font, &ch_str);
-
-            // Advance position by glyph width + letter spacing
-            let glyph_id = font.glyph_id(ch);
-            let advance = if glyph_id.0 != 0 {
-                scaled_font.h_advance(glyph_id)
-            } else {
-                font_size * 0.6
-            };
-            current_x += advance;
-
-            // Add letter spacing between characters (not after the last one)
-            if i < char_count - 1 {
-                current_x += letter_spacing;
-            }
-        }
-    }
-
-    // ========================================================================
-    // Helper: Extract rich text from exData for draw elements
-    // ========================================================================
-
-    /// Extract rich text from exData HTML content.
-    /// Returns RichText structure if HTML content is found, None otherwise.
-    pub fn extract_rich_text_from_exdata(
-        children: &[XfaNode],
-        default_h_align: HAlign,
-    ) -> Option<RichText> {
-        for child in children {
-            if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                && tag_name == "body"
-            {
-                return Some(Self::parse_rich_text_from_html(
-                    std::slice::from_ref(child),
-                    default_h_align,
-                    None,
-                    None,
-                    false,
-                    false,
-                    Decoration::default(),
-                ));
-            }
-            // Recurse into children
-            if let Some(rich_text) =
-                Self::extract_rich_text_from_exdata(&child.children, default_h_align)
-            {
-                return Some(rich_text);
-            }
-        }
-        None
+        Self::draw_glyphs(img, text, x, y, font_size, font, color, letter_spacing, None);
     }
 
     /// Check if the value node contains rich text (exData with HTML)
@@ -12241,26 +11112,28 @@ impl Flattened {
         false
     }
 
-    /// Get rich text from a node's value if present
-    pub fn get_rich_text_from_value(
-        children: &[XfaNode],
-        default_h_align: HAlign,
-    ) -> Option<RichText> {
-        for child in children {
-            if matches!(child.kind, XfaNodeKind::Value) {
-                for value_child in &child.children {
-                    if let XfaNodeKind::Element { tag_name, .. } = &value_child.kind
-                        && tag_name == "exData"
-                    {
-                        return Self::extract_rich_text_from_exdata(
-                            &value_child.children,
-                            default_h_align,
-                        );
-                    }
-                }
-            }
-        }
-        None
+}
+
+#[cfg(test)]
+mod relevant_tests {
+    use super::*;
+
+    fn draw(relevant: &str) -> XfaNode {
+        let xml = format!(r#"<xdp><draw name="D" relevant="{relevant}"/></xdp>"#);
+        XfaNode::parse(xml.as_bytes()).expect("xml")[0].children[0].clone()
+    }
+
+    /// XFA 3.3 "The relevant property": `-print` excludes the object from
+    /// print; a list naming only other views leaves print out as well.
+    #[test]
+    fn relevant_is_a_token_list() {
+        assert!(Flattened::is_no_print(&draw("-print")));
+        assert!(Flattened::is_no_print(&draw("+screen -print")));
+        assert!(Flattened::is_no_print(&draw("screen")));
+        assert!(!Flattened::is_no_print(&draw("+print")));
+        assert!(!Flattened::is_no_print(&draw("print screen")));
+        assert!(!Flattened::is_no_print(&draw("-screen")));
+        assert!(!Flattened::is_no_print(&draw("")));
     }
 }
 
@@ -12271,27 +11144,43 @@ mod tests {
     #[test]
     fn css_text_decoration_sets_clears_and_leaves_lines() {
         let none = Decoration::default();
-        let under = Decoration { underline: true, line_through: false };
+        let under = Decoration { underline: true, ..Decoration::default() };
         assert_eq!(none.with_css("text-decoration:underline"), under);
         assert_eq!(
             none.with_css("margin-left:2pt; text-decoration: underline line-through"),
-            Decoration { underline: true, line_through: true }
+            Decoration { underline: true, line_through: true, ..Decoration::default() }
         );
         assert_eq!(under.with_css("text-decoration:none"), none, "none clears");
         assert_eq!(under.with_css("letter-spacing:0in"), under, "no declaration inherits");
         assert_eq!(
             none.with_css("text-decoration:line-through"),
-            Decoration { underline: false, line_through: true }
+            Decoration { line_through: true, ..Decoration::default() }
+        );
+        assert_eq!(
+            none.with_css("text-decoration: underline double word"),
+            Decoration { underline: true, double_underline: true, word_period: true, ..Decoration::default() }
         );
     }
 
     #[test]
     fn decoration_lines_sit_below_and_across_the_baseline() {
-        let both = Decoration { underline: true, line_through: true };
+        let both = Decoration { underline: true, line_through: true, ..Decoration::default() };
         // A 28px font with ascent 21 and descent 6, its line box at y=100.
-        let rects = both.line_rects(10.0, 100.0, 50.0, 21.0, 6.0, 28.0);
+        let rects = both.line_rects(10.0, 100.0, 50.0, 21.0, 6.0, 28.0, None);
         assert_eq!(rects, vec![(10, 123, 50, 2), (10, 114, 50, 2)]);
-        assert!(Decoration::default().line_rects(0.0, 0.0, 9.0, 9.0, 3.0, 12.0).is_empty());
+        assert!(Decoration::default().line_rects(0.0, 0.0, 9.0, 9.0, 3.0, 12.0, None).is_empty());
+        // The face's own geometry places and sizes the lines; a double
+        // underline adds a second one a thickness further down.
+        let geometry = LineGeometry {
+            underline_offset: 3.0,
+            underline_thickness: 1.0,
+            strike_offset: Some(8.0),
+            strike_thickness: Some(1.0),
+        };
+        let double = Decoration { underline: true, double_underline: true, ..Decoration::default() };
+        assert_eq!(double.line_rects(10.0, 100.0, 50.0, 21.0, 6.0, 28.0, Some(geometry)), vec![(10, 124, 50, 1), (10, 126, 50, 1)]);
+        let strike = Decoration { line_through: true, ..Decoration::default() };
+        assert_eq!(strike.line_rects(10.0, 100.0, 50.0, 21.0, 6.0, 28.0, Some(geometry)), vec![(10, 113, 50, 1)]);
     }
     use crate::xfa::font_manager::get_font_manager;
     use crate::xfa::{HAlign, Para, VAlign, XfaNode, XfaNodeKind, num};
@@ -12476,7 +11365,7 @@ mod tests {
         };
 
         let rich =
-            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default());
+            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default(), 10.0);
 
         let text: String = rich
             .paragraphs
@@ -12553,6 +11442,7 @@ mod tests {
             false, // default_bold = false
             false,
             Decoration::default(),
+            10.0,
         );
 
         assert_eq!(rich.paragraphs.len(), 2, "Should have 2 paragraphs");
@@ -12633,7 +11523,7 @@ mod tests {
         };
 
         let rich =
-            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default());
+            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default(), 10.0);
 
         assert_eq!(rich.paragraphs.len(), 1);
         let runs = &rich.paragraphs[0].runs;
@@ -12711,7 +11601,7 @@ mod tests {
         };
 
         let rich =
-            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default());
+            Flattened::parse_rich_text_from_html(&[body], HAlign::Left, None, None, false, false, Decoration::default(), 10.0);
 
         assert_eq!(rich.paragraphs.len(), 1);
         let joined: String = rich.paragraphs[0]
@@ -12880,12 +11770,7 @@ mod tests {
 
     /// Build a minimal `Flattened` of `page_count` pages of the given size.
     fn flattened_with_pages(width: f64, height: f64, page_count: u32) -> Flattened {
-        let mut page = Page::new(num(width), num(height));
-        page.page_count = page_count;
-        page.page_breaks = (1..page_count)
-            .map(|k| num(height) * Decimal::from(k))
-            .collect();
-        Flattened::new(page, vec![])
+        Flattened::new(Page::uniform(num(width), num(height), page_count), vec![])
     }
 
     fn blank(width: u32, height: u32) -> RgbaImage {

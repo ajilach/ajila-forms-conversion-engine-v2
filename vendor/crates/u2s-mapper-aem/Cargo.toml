@@ -54,6 +54,9 @@ path = "tests/script_encoding.rs"
 [dependencies]
 quick-xml = "0.36"
 
+[dependencies.schemars]
+version = "1"
+
 [dependencies.serde]
 version = "1.0"
 features = ["derive"]

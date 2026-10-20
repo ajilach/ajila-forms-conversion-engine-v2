@@ -8,7 +8,7 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
-use super::{AemConfig, AemNode, AemOption, ConditionRule, OptionAlignment, Passthrough};
+use super::{AemConfig, AemNode, ConditionRule, OptionAlignment, Passthrough};
 use crate::value::InputValue;
 
 /// No fidelity passthrough (an authored document): every node is written
@@ -73,9 +73,12 @@ pub(super) struct RenderIndex {
     /// fragment's Initialize is the one that must, see `scripts::fragment_init` -- needs
     /// the path from the root, which a node cannot know on its own.
     pub(super) guide_paths: HashMap<Uuid, String>,
-    /// Trigger field name → the panels it decides, for approved configurator
-    /// choices only. Absent means "no reset for this field".
+    /// Trigger field name → the panels it decides, for the choices of the
+    /// form configurator band only. Absent means "no reset for this field".
     pub(super) resets: HashMap<String, Vec<ResetTarget>>,
+    /// Input name → the inputs that copy its value (`InputProps::copy_from`),
+    /// in document order. Absent means nothing copies it.
+    pub(super) copies: HashMap<String, Vec<String>>,
     /// Repeatable name → what a reader would say it repeats. Absent means
     /// nothing on screen names it.
     pub(super) add_subjects: HashMap<String, String>,
@@ -85,13 +88,13 @@ pub(super) struct RenderIndex {
     /// The inverse, by node name: a signature twin → the data panel driving it.
     /// A twin has no buttons of its own, and takes its title from that panel.
     pub(super) twin_data_panels: HashMap<String, String>,
+    /// Signature repeatable name → where its signers' names are filled from:
+    /// the twin of a party whose partner generic asks a person's name.
+    pub(super) name_fills: HashMap<String, super::scripts::NameFill>,
     /// The repeatables that carry the jump-to-field button, which on a page with
     /// repeatables is where it belongs — one per row, rather than one above the
     /// step heading. Only the page knows, so it is decided here.
     pub(super) jump_to_field_repeatables: HashSet<String>,
-    /// Configurator choice name → the value of the option that opens selected.
-    /// Absent means nothing is preselected.
-    pub(super) preselect: HashMap<String, String>,
     /// The first wizard step: the first page panel directly under the root.
     /// Its title is the subtitle under the form title when the page opens with
     /// the banking relationship, and the configurator's own when it is the
@@ -106,8 +109,9 @@ impl RenderIndex {
             visibility: collect_panel_visibility(root),
             guide_paths: collect_guide_paths(root),
             resets: collect_configurator_resets(root),
-            preselect: collect_preselections(root),
+            copies: collect_copies(root),
             add_subjects: collect_add_subjects(root),
+            name_fills: collect_name_fills(root, &twins.1),
             signature_twins: twins.0,
             twin_data_panels: twins.1,
             jump_to_field_repeatables: collect_jump_to_field_repeatables(root),
@@ -128,9 +132,10 @@ fn first_page(root: &AemNode) -> Option<Uuid> {
 }
 
 /// The longest a subject may be before it stops being a subject and starts being
-/// prose. Same limits the feedback rule applies when it reads the result back.
-const MAX_SUBJECT_WORDS: usize = 4;
-const MAX_SUBJECT_CHARS: usize = 42;
+/// prose: a repeatable's title is a noun phrase of at most six words naming one
+/// row (conversion guidelines, repeatable titles).
+const MAX_SUBJECT_WORDS: usize = 6;
+const MAX_SUBJECT_CHARS: usize = 60;
 
 /// The longest own title a repeatable of signatures (`affrg_SignatureGeneric1`)
 /// may carry as its subject. Such a block is named after who signs, and that is
@@ -457,7 +462,7 @@ fn signature_twin_candidates(data_panel: &str) -> Vec<String> {
 
 
 /// Drop any tags from a rich-text title and collapse the whitespace.
-fn strip_markup(text: &str) -> String {
+pub(super) fn strip_markup(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut in_tag = false;
     for ch in text.chars() {
@@ -471,39 +476,51 @@ fn strip_markup(text: &str) -> String {
     out.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Walk the tree and, for every choice whose wording is an approved
-/// configurator, record the panels it decides.
+/// Whether a panel is the form configurator band: the panel holding the
+/// choices that decide which of the form's variants is filled in. Its name is
+/// the one the configurator is always given (`PN_FormConfigurator`, with or
+/// without a suffix).
+pub(super) fn is_configurator_band(name: &str) -> bool {
+    name.starts_with("PN_FormConfigurator")
+}
+
+/// Walk the tree and, for every choice of the form configurator band, record
+/// the panels it decides (UBS-CFG-4): changing the configurator empties
+/// everything it shows or hides, whatever its option labels.
 fn collect_configurator_resets(root: &AemNode) -> HashMap<String, Vec<ResetTarget>> {
     let mut map = HashMap::new();
-    collect_configurator_resets_rec(root, root, &mut map);
+    collect_configurator_resets_rec(root, root, false, &mut map);
     map
 }
 
 fn collect_configurator_resets_rec(
     root: &AemNode,
     node: &AemNode,
+    in_band: bool,
     map: &mut HashMap<String, Vec<ResetTarget>>,
 ) {
     let choice = match node {
         AemNode::RadioButton {
             name,
-            options,
             conditions,
             ..
         }
         | AemNode::Dropdown {
             name,
-            options,
             conditions,
             ..
-        } => Some((name, options, conditions)),
-        // A checkbox group is a multi-select; "the option that was chosen
-        // instead" is not a well-defined thing to clear behind, and no approved
-        // configurator wording is a checkbox in this corpus.
+        }
+        // A configurator checkbox (the financial intermediary flag) empties
+        // what it shows when it is unticked, like any other configurator.
+        | AemNode::Checkbox {
+            name,
+            conditions,
+            ..
+        } => Some((name, conditions)),
         _ => None,
     };
-    if let Some((name, options, conditions)) = choice
-        && is_approved_configurator(options)
+    if let Some((name, conditions)) = choice
+        && in_band
     {
         let targets = reset_targets_for(root, conditions);
         if !targets.is_empty() {
@@ -511,92 +528,36 @@ fn collect_configurator_resets_rec(
         }
     }
 
+    let in_band = in_band || matches!(node, AemNode::Panel { name, .. } if is_configurator_band(name));
     match node {
         AemNode::Root { children, .. }
         | AemNode::Panel { children, .. }
         | AemNode::Repeatable { children, .. } => {
             for child in children {
-                collect_configurator_resets_rec(root, child, map);
+                collect_configurator_resets_rec(root, child, in_band, map);
             }
         }
         _ => {}
     }
 }
 
-/// Words that name an individual rather than a company, and the words that take
-/// a label back off that list.
-///
-/// `Persona giuridica` is a legal entity, and `persona` alone would otherwise
-/// claim it (PROBLEM-formconfig-private-person-default).
-const INDIVIDUAL_OPTION: &[&str] = &[
-    "private person",
-    "individual",
-    "individuo",
-    "individuale",
-    "persona fisica",
-    "privatperson",
-    "persona",
-];
-const NOT_INDIVIDUAL_OPTION: &[&str] = &[
-    "giuridica",
-    "legal",
-    "company",
-    "entity",
-    "corporate",
-    "firma",
-    "gesellschaft",
-];
-
-/// Which configurator choice opens on which option.
-///
-/// The form configurator asks what the form is for, and QA wants it opening on
-/// the individual option rather than on nothing
-/// (PROBLEM-formconfig-private-person-default). The choice is the one the reset
-/// rule acts on — an approved label set, deciding at least one panel — and the
-/// option is the one whose label names a person. The **value** is what matters:
-/// the widget marks an option checked by comparing its key to the field's
-/// `_value`, the key differs per form, and a `default` attribute does nothing in
-/// this runtime.
-fn collect_preselections(root: &AemNode) -> HashMap<String, String> {
+/// Every input other inputs copy (`InputProps::copy_from`), with the inputs
+/// that copy it, in document order.
+fn collect_copies(root: &AemNode) -> HashMap<String, Vec<String>> {
+    fn walk(node: &AemNode, map: &mut HashMap<String, Vec<String>>) {
+        if let (Some(name), Some(source)) = (
+            node.name(),
+            node.input().and_then(|input| input.copy_from.as_ref()),
+        ) {
+            map.entry(source.as_str().to_owned()).or_default().push(name.to_owned());
+        }
+        for child in node_children(node) {
+            walk(child, map);
+        }
+    }
     let mut map = HashMap::new();
-    collect_preselections_rec(root, &mut map);
+    walk(root, &mut map);
     map
-}
-
-fn collect_preselections_rec(node: &AemNode, map: &mut HashMap<String, String>) {
-    // A radio only: a dropdown opens on its first entry anyway, and no approved
-    // configurator wording is a checkbox in this corpus.
-    //
-    // The label set is the whole test. The reset rule additionally requires the
-    // choice to decide a panel, because it needs targets to clear; here there is
-    // nothing to act on but the choice itself, and a radio whose options read
-    // `Private Person / Minderjährige / Firma / GbR` is the configurator whether
-    // or not its panels are wired yet.
-    if let AemNode::RadioButton { name, options, .. } = node
-        && is_approved_configurator(options)
-        && let Some(value) = individual_option(options)
-    {
-        map.insert(name.clone(), value.to_string());
-    }
-
-    for child in node_children(node) {
-        collect_preselections_rec(child, map);
-    }
-}
-
-/// The value of the option that names an individual, or `None` when the choice
-/// offers none — which is never forced to an option it does not have.
-fn individual_option(options: &[AemOption]) -> Option<&str> {
-    options
-        .iter()
-        .find(|option| {
-            let label = strip_markup(&option.label).to_lowercase();
-            INDIVIDUAL_OPTION.iter().any(|word| label.contains(word))
-                && !NOT_INDIVIDUAL_OPTION
-                    .iter()
-                    .any(|word| label.contains(word))
-        })
-        .map(|option| option.value.as_str())
 }
 
 /// Walk the node tree and invert every trigger field's `show` conditions into
@@ -683,53 +644,12 @@ pub(super) fn holds_input(node: &AemNode) -> bool {
 // Configurator reset-on-change (feedback #107)
 // ============================================================================
 
-/// Option wordings of a form-configurator choice, as reviewed and approved for
-/// the reset (`configurator_reset.py::APPROVED_LABEL_SETS`).
-///
-/// Identifying the configurator by its wording is a deliberate narrowing, not a
-/// shortcut. Structurally, *any* choice that reveals two or more panels has the
-/// same defect — switch option, come back, and the first option's panel returns
-/// with every field still filled. But plenty of such choices are ordinary
-/// questions inside a form (an order type, an occupation) where whether the
-/// answer should be wiped is a judgement about that form. So only wordings a
-/// person has confirmed get a reset written for them; anything else is left
-/// alone. Adding a wording here means giving it the same review these had.
-///
-/// Compared casefolded, in order, as a whole set: a choice offering one of these
-/// sets plus another option does not match.
-const APPROVED_CONFIGURATOR_LABEL_SETS: &[&[&str]] = &[
-    &["Individual", "Company/Entity"],
-    &["Private Person", "Minderjährige", "Firma", "GbR"],
-    &["Individual", "Legal Entity"],
-    &["Individuo", "Entità giuridica"],
-    &["Individuale", "Persona giuridica / Società / Ditta"],
-    &["Private Person", "Firma"],
-    &["Private Person", "Minderjährige", "Firma"],
-    &["Individual", "Legal entity"],
-    &["Persona", "Persona giuridica"],
-    &["Individual", "Corporate"],
-    &["Private Person", "Minderjährige"],
-    &["For financial institutions", "For natural persons"],
-];
-
 /// One panel a configurator choice decides, and the repeatables inside it.
 ///
 /// The repeatables are reset first: a repeatable has to drop its added rows, not
 /// just blank them, so the row count is back to its declared minimum before the
 /// remaining fields are cleared.
 use super::scripts::ResetTarget;
-
-/// Whether a choice's option labels are one of the approved configurator sets.
-fn is_approved_configurator(options: &[AemOption]) -> bool {
-    let labels: Vec<String> = options.iter().map(|o| o.label.to_lowercase()).collect();
-    APPROVED_CONFIGURATOR_LABEL_SETS.iter().any(|set| {
-        set.len() == labels.len()
-            && set
-                .iter()
-                .zip(&labels)
-                .all(|(approved, actual)| approved.to_lowercase() == *actual)
-    })
-}
 
 /// The panels a trigger field reveals, in document order, each with the
 /// repeatables nested inside it.
@@ -745,27 +665,17 @@ fn reset_targets_for(root: &AemNode, conditions: &[ConditionRule]) -> Vec<ResetT
             wanted.push(&rule.target_panel_name);
         }
     }
-    // A choice that reveals fewer than two panels has nothing to clear behind
-    // it — there is no "other option" whose data could resurface.
-    if wanted.len() < 2 {
+    if wanted.is_empty() {
         return Vec::new();
     }
 
     let mut ordered: Vec<ResetTarget> = Vec::new();
     collect_reset_targets(root, &wanted, &mut ordered);
-    // A rule may name a panel that is not in the tree, and two panels can share
-    // a name. Either way the invariant is about what will actually be reset:
-    // below two panels there is no other option whose data could resurface, and
-    // a partial reset would be worse than none — it would clear some panels and
-    // leave the reader to discover the rest still filled.
-    // Not `dedup_by`: two panels sharing a name need not be adjacent in the
-    // tree, and only the first occurrence should be reset (resetting twice says
-    // nothing, but it does mislead anyone reading the script).
+    // Two panels can share a name. Not `dedup_by`: they need not be adjacent
+    // in the tree, and only the first occurrence should be reset (resetting
+    // twice says nothing, but it does mislead anyone reading the script).
     let mut seen = std::collections::HashSet::new();
     ordered.retain(|t| seen.insert(t.panel.clone()));
-    if ordered.len() < 2 {
-        return Vec::new();
-    }
     ordered
 }
 
@@ -823,6 +733,75 @@ fn with_repeat_prefix(name: &str) -> String {
         Some(p) if REPEAT_PREFIXES.contains(&p) => name.to_string(),
         _ => format!("{}_{}", REPEAT_PREFIXES[0], stem),
     }
+}
+
+/// The hidden field a signature repeatable's name fill runs on, named after
+/// the repeatable (`RCP_SGN_CPGRP` → `TXT_SGN_CPGRP_NameFill`).
+pub(crate) fn name_fill_anchor(name: &str) -> String {
+    format!("TXT_{}_NameFill", name.strip_prefix("RCP_").unwrap_or(name))
+}
+
+/// Where each paired signature's name is filled from (UBS-SIG-4): for every
+/// signature repeatable that is a party's twin (`twin_data_panels`), wrapping
+/// the signature generic, the party's partner generic that asks a person's
+/// name (its `PN_IndividualBasic` not hidden; the first such copy of a split
+/// party). A twin of anything else (a hand-built party, a company alone) has
+/// no name to take and gets none.
+fn collect_name_fills(
+    root: &AemNode,
+    twin_data_panels: &HashMap<String, String>,
+) -> HashMap<String, super::scripts::NameFill> {
+    use super::fragment_init::{SIGNATURE_GENERIC, file_of};
+    fn repeatables<'a>(node: &'a AemNode, out: &mut HashMap<&'a str, &'a [AemNode]>) {
+        if let AemNode::Repeatable { name, children, .. } = node {
+            out.entry(name.as_str()).or_insert(children.as_slice());
+        }
+        for child in node_children(node) {
+            repeatables(child, out);
+        }
+    }
+    let mut rows = HashMap::new();
+    repeatables(root, &mut rows);
+    let mut fills = HashMap::new();
+    for (signature, party) in twin_data_panels {
+        let (Some(sign_children), Some(party_children)) =
+            (rows.get(signature.as_str()), rows.get(party.as_str()))
+        else {
+            continue;
+        };
+        let sign_fragment = sign_children.iter().find_map(|c| match c {
+            AemNode::Fragment { name, frag_ref, .. } if file_of(frag_ref) == SIGNATURE_GENERIC => Some(name),
+            _ => None,
+        });
+        let party_fragment = party_children.iter().find_map(|c| match c {
+            AemNode::Fragment { name, frag_ref, init, .. }
+                if super::partner::is_partner_generic(frag_ref)
+                    && !init.init_hide.iter().any(|p| p.as_str() == "PN_IndividualBasic") =>
+            {
+                Some(name)
+            }
+            _ => None,
+        });
+        let (Some(sign_fragment), Some(party_fragment)) = (sign_fragment, party_fragment) else {
+            continue;
+        };
+        fills.insert(
+            signature.clone(),
+            super::scripts::NameFill {
+                data_repeat: repeat_panel_name(party),
+                data_path: format!(
+                    "{}.{party_fragment}.PN_IndividualBasic.PN_Name_Individual",
+                    repeat_row_name(party)
+                ),
+                sign_repeat: repeat_panel_name(signature),
+                sign_path: format!(
+                    "{}.{sign_fragment}.PN_GenericSignature.TXT_Name_Generic",
+                    repeat_row_name(signature)
+                ),
+            },
+        );
+    }
+    fills
 }
 
 /// The instance-managed panel's name, as the repeatable lowering writes it.
@@ -1097,7 +1076,7 @@ fn parse_attributes(s: &str) -> Vec<&str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::aem::AemAttrs;
+    use crate::aem::{AemAttrs, FragmentInit};
 
     /// The element of `xml` whose `name` is `name`.
     fn element(xml: &str, name: &str) -> u2s_mapper_aem::jcr::tree::JcrNode {
@@ -1377,6 +1356,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: TextFieldKind::Plain,
+                input: Default::default(),
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -1410,6 +1390,9 @@ mod tests {
                 dor_colspan: None,
                 conditions: vec![],
                 bind_ref: None,
+                mandatory: false,
+                input: Default::default(),
+                hide_title: false,
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -1443,6 +1426,8 @@ mod tests {
                 dor_colspan: None,
                 conditions: vec![],
                 bind_ref: None,
+                hide_title: false,
+                input: Default::default(),
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -1479,6 +1464,7 @@ mod tests {
                 dor_colspan: None,
                 conditions: vec![],
                 bind_ref: None,
+                input: Default::default(),
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -1514,6 +1500,9 @@ mod tests {
                 dor_colspan: None,
                 conditions: vec![],
                 bind_ref: None,
+                mandatory: false,
+                input: Default::default(),
+                hide_title: false,
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -1572,6 +1561,7 @@ mod tests {
                 dor_colspan: None,
                 conditions: vec![],
                 bind_ref: None,
+                input: Default::default(),
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -1671,6 +1661,8 @@ mod tests {
                         show: true,
                     }],
                     bind_ref: None,
+                    hide_title: false,
+                    input: Default::default(),
                 },
                 conditional_panel("COND_TargetPanel"),
             ],
@@ -1720,6 +1712,8 @@ mod tests {
                 dor_colspan: None,
                 conditions: vec![],
                 bind_ref: None,
+                hide_title: false,
+                input: Default::default(),
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -1763,6 +1757,7 @@ mod tests {
                         show: true,
                     }],
                     bind_ref: None,
+                    input: Default::default(),
                 },
                 conditional_panel("COND_PanelA"),
             ],
@@ -1806,6 +1801,9 @@ mod tests {
                         show: true,
                     }],
                     bind_ref: None,
+                    mandatory: false,
+                    input: Default::default(),
+                    hide_title: false,
                 },
                 conditional_panel("COND_AcceptPanel"),
             ],
@@ -1865,6 +1863,8 @@ mod tests {
                         },
                     ],
                     bind_ref: None,
+                    hide_title: false,
+                    input: Default::default(),
                 },
                 conditional_panel("COND_Entity"),
             ],
@@ -1912,6 +1912,7 @@ mod tests {
                         show: true,
                     }],
                     bind_ref: None,
+                    input: Default::default(),
                 },
                 conditional_panel("PN_Cond"),
             ],
@@ -1970,6 +1971,7 @@ mod tests {
                         dor_colspan: Some(2),
                         bind_ref: None,
                         kind: TextFieldKind::Plain,
+                        input: Default::default(),
                     },
                     AemNode::TextField {
                         attrs: AemAttrs::default(),
@@ -1983,6 +1985,7 @@ mod tests {
                         dor_colspan: Some(1),
                         bind_ref: None,
                         kind: TextFieldKind::Plain,
+                        input: Default::default(),
                     },
                 ],
             }],
@@ -2021,6 +2024,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: TextFieldKind::Plain,
+                input: Default::default(),
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -2228,6 +2232,7 @@ mod tests {
             colspan: 12,
             dor_colspan: None,
             bind_ref: None,
+            input: Default::default(),
         };
         let xml = render_one(&node, &config);
 
@@ -2590,62 +2595,6 @@ mod tests {
         }])
     }
 
-    /// Which option of a form configurator names an individual rather than a
-    /// company — the one the form opens on
-    /// (PROBLEM-formconfig-private-person-default).
-    #[test]
-    fn the_individual_option_is_the_person_not_the_legal_entity() {
-        let options = |pairs: &[(&str, &str)]| {
-            pairs
-                .iter()
-                .map(|(value, label)| AemOption {
-                    label: (*label).into(),
-                    value: (*value).into(),
-                })
-                .collect::<Vec<_>>()
-        };
-
-        // The key is the option's own, and it differs per form.
-        assert_eq!(
-            individual_option(&options(&[("3", "Individuo"), ("4", "Entità giuridica")])),
-            Some("3")
-        );
-        assert_eq!(
-            individual_option(&options(&[
-                ("1", "Private Person"),
-                ("2", "Minderjährige"),
-                ("3", "Firma"),
-                ("4", "GbR"),
-            ])),
-            Some("1")
-        );
-        // `Persona giuridica` is a legal entity; `persona` alone would claim it.
-        assert_eq!(
-            individual_option(&options(&[("1", "Persona giuridica"), ("2", "Persona")])),
-            Some("2")
-        );
-        assert_eq!(
-            individual_option(&options(&[
-                ("1", "Individuale"),
-                ("2", "Persona giuridica / Società / Ditta"),
-            ])),
-            Some("1")
-        );
-        // Markup around the label does not hide it.
-        assert_eq!(
-            individual_option(&options(&[("7", "<p><b>Individual</b></p>")])),
-            Some("7")
-        );
-        // A choice with no individual option is never forced to one it lacks.
-        assert_eq!(
-            individual_option(&options(&[
-                ("1", "For financial institutions"),
-                ("2", "Company/Entity"),
-            ])),
-            None
-        );
-    }
-
     /// Nothing in a click body may put the Add button back on screen.
     ///
     /// Its visibility is an expression over the instance count, so it returns by
@@ -2849,6 +2798,7 @@ mod tests {
             dor_colspan: None,
             bind_ref: None,
             kind: TextFieldKind::Plain,
+            input: Default::default(),
         };
         let page = |name: &str, children: Vec<AemNode>| AemNode::Panel {
             uuid: fixed_uuid(),
@@ -2993,6 +2943,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: TextFieldKind::Plain,
+                input: Default::default(),
             }],
             min_occur: 1,
             max_occur: 5,
@@ -3068,8 +3019,7 @@ mod tests {
             title: String::new(),
             frag_ref: frag_ref.into(),
             bind_ref: None,
-            init_hide: Vec::new(),
-            init_show: Vec::new(),
+            init: FragmentInit::default(),
             attrs: AemAttrs::default(),
             visible: true,
         };
@@ -3144,8 +3094,7 @@ mod tests {
             title: String::new(),
             frag_ref: frag_ref.into(),
             bind_ref: None,
-            init_hide: Vec::new(),
-            init_show: Vec::new(),
+            init: FragmentInit::default(),
             attrs: AemAttrs::default(),
             visible: true,
         };
@@ -3340,8 +3289,7 @@ mod tests {
                 attrs: AemAttrs::default(),
                 visible: true,
                 bind_ref: None,
-                init_hide: Vec::new(),
-                init_show: Vec::new(),
+                init: FragmentInit::default(),
             }
         } else {
             AemNode::TextField {
@@ -3356,6 +3304,7 @@ mod tests {
                 dor_colspan: None,
                 bind_ref: None,
                 kind: Default::default(),
+                input: Default::default(),
             }
         };
         AemNode::Root {
@@ -3394,13 +3343,14 @@ mod tests {
     }
 
     /// A block of signatures is named after who signs, an entity line of up to
-    /// eight words; any other repeatable keeps the four-word limit and falls back
+    /// eight words; any other repeatable keeps the six-word limit and falls back
     /// to the page's title. A sentence and a machine label stay no subject.
     #[test]
     fn a_signature_block_takes_an_entity_line_as_its_subject() {
         let entity = "UBS Europe SE (Succursale Italia)";
         assert_eq!(subject(entity, true).as_deref(), Some(entity));
-        assert_eq!(subject(entity, false).as_deref(), Some("Firme"));
+        assert_eq!(subject(entity, false).as_deref(), Some(entity));
+        assert_eq!(subject("Uno due tre quattro cinque sei sette", false).as_deref(), Some("Firme"));
         assert_eq!(subject("Uno due tre quattro cinque sei sette otto", true).as_deref(), Some("Uno due tre quattro cinque sei sette otto"));
         assert_eq!(subject("Uno due tre quattro cinque sei sette otto nove", true).as_deref(), Some("Firme"));
         assert_eq!(subject("Firmano i funzionari della banca.", true).as_deref(), Some("Firme"));

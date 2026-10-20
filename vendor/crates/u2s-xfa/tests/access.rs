@@ -285,55 +285,47 @@ fn a_locked_button_cannot_be_pressed() {
 }
 
 #[test]
-fn an_access_change_off_its_path_lands_only_on_an_unambiguous_name() {
-    let unique = template(&text_field("Once", "", ""));
-    let mut nodes = unique.clone();
-    // A master-page script path skips its pageSet and pageArea, so the walk
-    // misses and the leaf name decides.
+fn an_access_change_off_its_path_is_not_applied_anywhere() {
+    // A path that reaches no node is a defect in the paths the scripts ran
+    // under; the change is logged, never guessed onto a node of that name.
+    let mut nodes = template(&text_field("Once", "", ""));
     ScriptExecutor::apply_access_changes(
         &mut nodes,
         &[(SomPath::new("Root.Elsewhere.Once"), FieldAccess::ReadOnly)],
     );
     let form = XfaForm::new(nodes).expect("form");
-    assert_eq!(access_of(&form, "Root.Body.Once").0, FieldAccess::ReadOnly);
-
-    let mut twice = template(&format!(
-        r#"<subform name="A" layout="tb" w="540pt">{}</subform><subform name="B" layout="tb" w="540pt">{}</subform>"#,
-        text_field("Same", "", ""),
-        text_field("Same", "", ""),
-    ));
-    ScriptExecutor::apply_access_changes(
-        &mut twice,
-        &[(SomPath::new("Root.Elsewhere.Same"), FieldAccess::ReadOnly)],
-    );
-    let form = XfaForm::new(twice).expect("form");
-    assert_eq!(access_of(&form, "Root.Body.A.Same").0, FieldAccess::Open);
-    assert_eq!(access_of(&form, "Root.Body.B.Same").0, FieldAccess::Open);
+    assert_eq!(access_of(&form, "Root.Body.Once").0, FieldAccess::Open);
 }
 
 #[test]
-fn a_master_page_access_change_lands_on_every_page_area_copy() {
+fn a_master_page_access_change_lands_on_its_own_page_area_copy() {
     let xml = r#"<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
-<subform name="Root" layout="tb"><pageSet>
+<subform name="Root" layout="tb"><pageSet name="Masters">
 <pageArea name="P1" w="612pt" h="792pt"><contentArea x="36pt" y="36pt" w="540pt" h="720pt"/>
 <field name="Watermark" x="0pt" y="0pt" w="100pt" h="20pt"><ui><textEdit/></ui></field></pageArea>
 <pageArea name="P2" w="612pt" h="792pt"><contentArea x="36pt" y="36pt" w="540pt" h="720pt"/>
 <field name="Watermark" x="0pt" y="0pt" w="100pt" h="20pt"><ui><textEdit/></ui></field></pageArea>
 </pageSet><subform name="Body" layout="tb" w="540pt"/></subform></template></xdp:xdp>"#;
     let mut nodes = XfaNode::parse(xml.as_bytes()).expect("parse");
-    // The script path a master-page node's events run under skips the
-    // pageSet and pageArea.
+    // The pageSet and pageArea are part of a master-page node's SOM path
+    // (XFA 3.3 §3), so each copy of `Watermark` is its own node.
     ScriptExecutor::apply_access_changes(
         &mut nodes,
-        &[(SomPath::new("Root.Watermark"), FieldAccess::NonInteractive)],
+        &[(SomPath::new("Root.Masters.P2.Watermark"), FieldAccess::NonInteractive)],
     );
     let listed = controls(&nodes).expect("controls");
     let watermarks: Vec<_> = listed
         .controls
         .iter()
         .filter(|c| c.field.ends_with("Watermark"))
-        .map(|c| c.access)
+        .map(|c| (c.field.as_str(), c.access))
         .collect();
-    assert_eq!(watermarks, [FieldAccess::NonInteractive; 2]);
+    assert_eq!(
+        watermarks,
+        [
+            ("Root.Masters.P1.Watermark", FieldAccess::Open),
+            ("Root.Masters.P2.Watermark", FieldAccess::NonInteractive),
+        ]
+    );
 }

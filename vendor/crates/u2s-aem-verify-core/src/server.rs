@@ -17,15 +17,20 @@ use rmcp::model::*;
 use rmcp::service::{RequestContext, RoleServer, ServiceExt};
 use rmcp::{ErrorData as McpError, transport::stdio};
 use serde_json::{Value, json};
-use u2s_blob::BlobStore;
-use u2s_verify_core::browser::ImageFormat;
+use u2s_blob::{BlobOrPath, BlobStore, SourceArgs};
 use u2s_verify_core::docker::DockerLifecycle;
 
+use crate::args::{
+    ClickArgs, CloseArgs, ControlsArgs, FieldArgs, GotoArgs, LanguageArg, OpenArgs,
+    PackageCheckArgs, ScreenshotArgs, SetArgs, SetRequests, StatusArgs, StepArgs, VerifyRunArgs,
+    parse_args,
+};
+
 use crate::driver::FormDriver;
+use crate::instance::InstancePool;
 use crate::interactive;
 use crate::package_check;
 use crate::profile::Profile;
-use crate::instance::InstancePool;
 
 const MANIFEST_URI: &str = "u2s://manifest";
 
@@ -66,7 +71,8 @@ impl AemVerifyServer {
     /// reported, not fatal.
     fn new(config: Arc<ServerConfig>) -> Result<Self, String> {
         let profile = Profile::from_env().map_err(|err| format!("cannot start: {err}"))?;
-        Self::with_parts(config, profile, BlobStore::from_env())
+        let blobs = BlobStore::from_env().map_err(|err| format!("cannot start: {err}"))?;
+        Self::with_parts(config, profile, blobs)
     }
 
     /// [`Self::new`] with the profile and blob store supplied by the caller
@@ -139,19 +145,6 @@ impl AemVerifyServer {
         }
     }
 
-    /// `instance_id` names which caller's instance a call belongs to
-    /// (`crate::instance`'s module doc explains why this exists at all);
-    /// callers that omit it -- a human, a test, anything with no
-    /// `u2s-server` run behind it -- get
-    /// [`crate::instance::DEFAULT_INSTANCE_KEY`], one shared instance.
-    fn instance_id(args: &Value) -> String {
-        args.get("instance_id")
-            .and_then(Value::as_str)
-            .filter(|v| !v.is_empty())
-            .unwrap_or(crate::instance::DEFAULT_INSTANCE_KEY)
-            .to_owned()
-    }
-
     async fn verify_status(&self, args: &Value) -> Result<CallToolResult, String> {
         // A missing private AEM image is pulled on the first run only with a
         // registry login configured, so both facts are worth reporting before
@@ -175,7 +168,7 @@ impl AemVerifyServer {
             ),
             None => None,
         };
-        let instance_id = Self::instance_id(args);
+        let instance_id = parse_args::<StatusArgs>(args)?.instance_key();
         let instance_status = crate::instance::status(&self.instances, &instance_id).await;
         let active_instance_count = self.instances.active_count().await;
 
@@ -205,7 +198,9 @@ impl AemVerifyServer {
     }
 
     fn verify_package_check(&self, args: &Value) -> Result<CallToolResult, String> {
-        let bytes = self.read_package(args)?;
+        let bytes = parse_args::<PackageCheckArgs>(args)?
+            .package()?
+            .read(&self.blobs)?;
         let inspection = package_check::inspect(&bytes).map_err(|err| {
             format!(
                 "{}: {err}",
@@ -222,27 +217,18 @@ impl AemVerifyServer {
     }
 
     async fn verify_run(&self, args: &Value) -> Result<CallToolResult, String> {
-        let bytes = self.read_package(args)?;
-        let dry_run = args
-            .get("dry_run")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        // Read with the language argument whether or not this profile offers
+        // it: a driver that cannot open a language refuses one by name.
+        let run = parse_args::<VerifyRunArgs<LanguageArg>>(args)?;
+        let instance_id = run.instance_key();
+        let bytes = BlobOrPath::from_parts(run.package, run.package_path, SourceArgs::PACKAGE)?.read(&self.blobs)?;
 
-        let report = if dry_run {
+        let report = if run.dry_run {
             crate::flow::dry_run(&bytes).await
         } else {
-            let fill = args
-                .get("fill")
-                .and_then(Value::as_object)
-                .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-                .unwrap_or_default();
-            let submit = args.get("submit").and_then(Value::as_bool).unwrap_or(true);
-            let language = match args.get("language") {
-                None | Some(Value::Null) => None,
-                Some(Value::String(language)) => Some(language.clone()),
-                Some(other) => return Err(format!("language must be a string, got {other}")),
-            };
-            let instance_id = Self::instance_id(args);
+            let fill = run.fill.map(|obj| obj.into_iter().collect()).unwrap_or_default();
+            let submit = run.submit;
+            let language = run.language.language;
             crate::flow::run(
                 &self.profile,
                 self.config.driver.as_ref(),
@@ -268,8 +254,9 @@ impl AemVerifyServer {
     }
 
     async fn verify_open(&self, args: &Value) -> Result<CallToolResult, String> {
-        let bytes = self.read_package(args)?;
-        let instance_id = Self::instance_id(args);
+        let open = parse_args::<OpenArgs>(args)?;
+        let instance_id = open.instance.key();
+        let bytes = BlobOrPath::from_parts(open.package, open.package_path, SourceArgs::PACKAGE)?.read(&self.blobs)?;
         let result = interactive::open(
             &self.profile,
             self.config.driver.as_ref(),
@@ -283,20 +270,14 @@ impl AemVerifyServer {
     }
 
     async fn verify_controls(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let revision = require_u64(args, "revision")?;
-        let query = interactive::ControlsQuery::new(
-            optional_u64(args, "offset")?,
-            optional_u64(args, "limit")?,
-            parse_kinds(args)?,
-        )?;
-        let instance_id = Self::instance_id(args);
+        let a = parse_args::<ControlsArgs>(args)?;
+        let query = a.query()?;
         let result = interactive::controls(
             &self.instances,
             self.config.driver.as_ref(),
-            &instance_id,
-            session,
-            revision,
+            &a.instance.key(),
+            &a.session.session,
+            a.revision,
             &query,
         )
         .await
@@ -305,68 +286,64 @@ impl AemVerifyServer {
     }
 
     async fn verify_field(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let revision = require_u64(args, "revision")?;
-        let field = require_str(args, "field")?;
-        let instance_id = Self::instance_id(args);
-        let result = interactive::field(&self.instances, &instance_id, session, revision, field)
+        let a = parse_args::<FieldArgs>(args)?;
+        let result = interactive::field(
+            &self.instances,
+            &a.instance.key(),
+            &a.session.session,
+            a.revision,
+            &a.field,
+        )
             .await
             .map_err(|err| err.to_string())?;
         Ok(CallToolResult::structured(to_structured(&result)?))
     }
 
     async fn verify_set(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let expected_revision = require_u64(args, "expected_revision")?;
-        if let Some(fields) = args.get("fields").filter(|v| !v.is_null()) {
-            if args.get("field").is_some_and(|v| !v.is_null()) {
-                return Err("pass either `field`/`value` or `fields`, not both".to_owned());
+        let a = parse_args::<SetArgs>(args)?;
+        let session = a.session.session.clone();
+        let expected_revision = a.based_on.expected_revision;
+        let instance_id = a.instance.key();
+        match a.requests()? {
+            SetRequests::Many(requests) => {
+                let result = interactive::set_many(
+                    &self.instances,
+                    self.config.driver.as_ref(),
+                    &instance_id,
+                    &session,
+                    expected_revision,
+                    &requests,
+                )
+                .await
+                .map_err(|err| err.to_string())?;
+                Ok(CallToolResult::structured(to_structured(&result)?))
             }
-            let requests = parse_set_requests(fields)?;
-            let instance_id = Self::instance_id(args);
-            let result = interactive::set_many(
-                &self.instances,
-                self.config.driver.as_ref(),
-                &instance_id,
-                session,
-                expected_revision,
-                &requests,
-            )
-            .await
-            .map_err(|err| err.to_string())?;
-            return Ok(CallToolResult::structured(to_structured(&result)?));
+            SetRequests::One { field, value } => {
+                let result = interactive::set(
+                    &self.instances,
+                    self.config.driver.as_ref(),
+                    &instance_id,
+                    &session,
+                    expected_revision,
+                    &field,
+                    &value,
+                )
+                .await
+                .map_err(|err| err.to_string())?;
+                Ok(CallToolResult::structured(to_structured(&result)?))
+            }
         }
-        let field = require_str(args, "field")?;
-        let value = args
-            .get("value")
-            .ok_or_else(|| "missing required argument: value".to_owned())?;
-        let instance_id = Self::instance_id(args);
-        let result = interactive::set(
-            &self.instances,
-            self.config.driver.as_ref(),
-            &instance_id,
-            session,
-            expected_revision,
-            field,
-            value,
-        )
-        .await
-        .map_err(|err| err.to_string())?;
-        Ok(CallToolResult::structured(to_structured(&result)?))
     }
 
     async fn verify_click(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let expected_revision = require_u64(args, "expected_revision")?;
-        let field = require_str(args, "field")?;
-        let instance_id = Self::instance_id(args);
+        let a = parse_args::<ClickArgs>(args)?;
         let result = interactive::click(
             &self.instances,
             self.config.driver.as_ref(),
-            &instance_id,
-            session,
-            expected_revision,
-            field,
+            &a.instance.key(),
+            &a.session.session,
+            a.based_on.expected_revision,
+            &a.field,
         )
         .await
         .map_err(|err| err.to_string())?;
@@ -374,15 +351,13 @@ impl AemVerifyServer {
     }
 
     async fn verify_next(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let expected_revision = require_u64(args, "expected_revision")?;
-        let instance_id = Self::instance_id(args);
+        let a = parse_args::<StepArgs>(args)?;
         let result = interactive::next(
             &self.instances,
             self.config.driver.as_ref(),
-            &instance_id,
-            session,
-            expected_revision,
+            &a.instance.key(),
+            &a.session.session,
+            a.based_on.expected_revision,
         )
         .await
         .map_err(|err| err.to_string())?;
@@ -390,15 +365,13 @@ impl AemVerifyServer {
     }
 
     async fn verify_prev(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let expected_revision = require_u64(args, "expected_revision")?;
-        let instance_id = Self::instance_id(args);
+        let a = parse_args::<StepArgs>(args)?;
         let result = interactive::prev(
             &self.instances,
             self.config.driver.as_ref(),
-            &instance_id,
-            session,
-            expected_revision,
+            &a.instance.key(),
+            &a.session.session,
+            a.based_on.expected_revision,
         )
         .await
         .map_err(|err| err.to_string())?;
@@ -406,17 +379,14 @@ impl AemVerifyServer {
     }
 
     async fn verify_goto(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let expected_revision = require_u64(args, "expected_revision")?;
-        let panel = require_str(args, "panel")?;
-        let instance_id = Self::instance_id(args);
+        let a = parse_args::<GotoArgs>(args)?;
         let result = interactive::goto(
             &self.instances,
             self.config.driver.as_ref(),
-            &instance_id,
-            session,
-            expected_revision,
-            panel,
+            &a.instance.key(),
+            &a.session.session,
+            a.based_on.expected_revision,
+            &a.panel,
         )
         .await
         .map_err(|err| err.to_string())?;
@@ -424,16 +394,14 @@ impl AemVerifyServer {
     }
 
     async fn verify_reset(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let expected_revision = require_u64(args, "expected_revision")?;
-        let instance_id = Self::instance_id(args);
+        let a = parse_args::<StepArgs>(args)?;
         let result = interactive::reset(
             &self.profile,
             self.config.driver.as_ref(),
             &self.instances,
-            &instance_id,
-            session,
-            expected_revision,
+            &a.instance.key(),
+            &a.session.session,
+            a.based_on.expected_revision,
         )
         .await
         .map_err(|err| err.to_string())?;
@@ -441,29 +409,30 @@ impl AemVerifyServer {
     }
 
     async fn verify_screenshot(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let revision = require_u64(args, "revision")?;
-        let format = parse_image_format(args)?;
-        let field = args.get("field").and_then(Value::as_str);
-        let instance_id = Self::instance_id(args);
-        let result = interactive::screenshot(&self.instances, &instance_id, session, revision, format, field)
-            .await
-            .map_err(|err| err.to_string())?;
+        let a = parse_args::<ScreenshotArgs>(args)?;
+        let result = interactive::screenshot(
+            &self.instances,
+            &a.instance.key(),
+            &a.session.session,
+            a.revision,
+            a.format.unwrap_or_default().into(),
+            a.field.as_deref(),
+        )
+        .await
+        .map_err(|err| err.to_string())?;
         self.screenshot_content(result)
     }
 
     async fn verify_submit(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let expected_revision = require_u64(args, "expected_revision")?;
-        let instance_id = Self::instance_id(args);
+        let a = parse_args::<StepArgs>(args)?;
         let result = interactive::submit(
             &self.instances,
             self.config.driver.as_ref(),
             &self.profile,
             &self.blobs,
-            &instance_id,
-            session,
-            expected_revision,
+            &a.instance.key(),
+            &a.session.session,
+            a.based_on.expected_revision,
         )
         .await
         .map_err(|err| err.to_string())?;
@@ -471,9 +440,8 @@ impl AemVerifyServer {
     }
 
     async fn verify_close(&self, args: &Value) -> Result<CallToolResult, String> {
-        let session = require_str(args, "session")?;
-        let instance_id = Self::instance_id(args);
-        interactive::close(&self.instances, &self.profile, &instance_id, session)
+        let a = parse_args::<CloseArgs>(args)?;
+        interactive::close(&self.instances, &self.profile, &a.instance.key(), &a.session.session)
             .await
             .map_err(|err| err.to_string())?;
         Ok(CallToolResult::structured(json!({ "closed": true })))
@@ -531,22 +499,6 @@ impl AemVerifyServer {
             ))
         }
     }
-
-    fn read_package(&self, args: &Value) -> Result<Vec<u8>, String> {
-        let blob_handle = args.get("package").and_then(Value::as_str);
-        let path = args.get("package_path").and_then(Value::as_str);
-        match (blob_handle, path) {
-            (Some(handle), _) => self
-                .blobs
-                .get(handle)
-                .map_err(|err| format!("could not read package {handle}: {err}")),
-            (None, Some(path)) => std::fs::read(path)
-                .map_err(|err| format!("could not read package_path {path}: {err}")),
-            (None, None) => {
-                Err("missing required argument: exactly one of package or package_path".to_owned())
-            }
-        }
-    }
 }
 
 fn submit_str(submit: &crate::profile::SubmitArtefact) -> &'static str {
@@ -567,101 +519,8 @@ fn with_structured(mut result: CallToolResult, value: Value) -> CallToolResult {
 /// serialize would only ever mean a bug in this crate's own result types,
 /// never bad caller input, but this still reports it as a tool error
 /// rather than panicking.
-/// `verify_set`'s `fields`: a non-empty array of `{field, value}` objects,
-/// at most [`MAX_SETS_PER_CALL`] of them.
-fn parse_set_requests(fields: &Value) -> Result<Vec<interactive::SetRequest>, String> {
-    let entries = fields
-        .as_array()
-        .ok_or_else(|| "fields must be an array of {field, value} objects".to_owned())?;
-    if entries.is_empty() {
-        return Err("fields must name at least one control".to_owned());
-    }
-    if entries.len() > MAX_SETS_PER_CALL {
-        return Err(format!(
-            "fields names {} controls; set at most {MAX_SETS_PER_CALL} per call",
-            entries.len()
-        ));
-    }
-    entries
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| {
-            let field = entry
-                .get("field")
-                .and_then(Value::as_str)
-                .filter(|f| !f.is_empty())
-                .ok_or_else(|| format!("fields[{index}] has no `field`"))?;
-            let value = entry
-                .get("value")
-                .ok_or_else(|| format!("fields[{index}] ({field}) has no `value`"))?;
-            Ok(interactive::SetRequest { field: field.to_owned(), value: value.clone() })
-        })
-        .collect()
-}
-
-/// How many controls one batched `verify_set` may set.
-const MAX_SETS_PER_CALL: usize = 25;
-
 fn to_structured(value: &impl serde::Serialize) -> Result<Value, String> {
     serde_json::to_value(value).map_err(|err| format!("could not serialize the result: {err}"))
-}
-
-fn require_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, String> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| format!("missing required argument: {key}"))
-}
-
-/// `key` when present: absent and `null` both mean "not given"; anything
-/// else that is not a non-negative integer is refused.
-fn optional_u64(args: &Value, key: &str) -> Result<Option<u64>, String> {
-    match args.get(key) {
-        None | Some(Value::Null) => Ok(None),
-        Some(value) => value
-            .as_u64()
-            .map(Some)
-            .ok_or_else(|| format!("{key} must be a non-negative integer, got {value}")),
-    }
-}
-
-/// `verify_controls`' `kinds` filter, refused with the valid kinds when it
-/// names one that does not exist.
-fn parse_kinds(args: &Value) -> Result<Vec<interactive::ControlKind>, String> {
-    match args.get("kinds") {
-        None | Some(Value::Null) => Ok(Vec::new()),
-        Some(kinds) => serde_json::from_value(kinds.clone()).map_err(|_| {
-            format!(
-                "kinds must be an array of {}, got {kinds}",
-                interactive::ControlKind::ALL
-                    .iter()
-                    .map(|kind| serde_json::to_string(kind).expect("a kind serialises"))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        }),
-    }
-}
-
-fn require_u64(args: &Value, key: &str) -> Result<u64, String> {
-    args.get(key)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| format!("missing required argument: {key}"))
-}
-
-/// `format`'s default is `"png"`, matching every screenshot `verify_run`
-/// itself has always taken (`page.screenshot_full_page()`, PNG); `"jpeg"`
-/// always uses quality 82, the same vision-payload quality
-/// `u2s-render-core::limits::Limits`'s own default settled on, rather than
-/// exposing a third knob nothing has needed yet.
-fn parse_image_format(args: &Value) -> Result<ImageFormat, String> {
-    match args.get("format").and_then(Value::as_str) {
-        None | Some("png") => Ok(ImageFormat::Png),
-        Some("jpeg") => Ok(ImageFormat::Jpeg { quality: 82 }),
-        Some(other) => Err(format!(
-            "format must be \"png\" or \"jpeg\", not {other:?}"
-        )),
-    }
 }
 
 fn to_mcp_tool(spec: &Value) -> Option<Tool> {

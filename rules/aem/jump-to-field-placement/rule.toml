@@ -1,27 +1,29 @@
-# Mirrors `panel.xml`: a wizard step with a title gets a step-title panel that carries the button
-# itself (when the step holds an input, no repeatable, and is not the configurator), and a
-# repeatable on a page with an input carries one per row. An authored `jump_to_field` on a Panel is
-# written on that panel as well, which is the second or the misplaced button. A TitleDraw's flag is
-# not written by its template, so it needs no rule.
+# Mirrors the UBS writer: `Lower::step_title` (`lower.rs`) gives a titled step's title panel the
+# button when the step holds an input and no repeatable and is not the configurator, and
+# `collect_jump_to_field_repeatables` (`xml_writer.rs`) gives every repeatable, nested ones
+# included, on a page with an input one per row. An authored `jump_to_field` is written only on a
+# non-conditional Panel, in addition to those.
 id = "ubs-aem-jump-to-field-placement"
-title = "The Edit button sits where the summary needs it"
+title = "The writer places the summary's Edit buttons"
 output_formats = ["aem-ubs"]
 description = """
 The summary's Edit button (`jump_to_field`) jumps back to something a person filled in. The writer
-places it itself: on the step-title panel of a wizard step that holds an input and no repeatable,
-and on each row of a repeatable on a page that holds an input. It never goes on a step with nothing
-to fill in, and never on the form configurator. A `jump_to_field` you set on a Panel is written on
-that panel in addition, which is a second button or one in the wrong place.
+places it (backlog "Jump to field" and "Manual changes"): on the step-title panel of a titled page
+that holds an input and no repeatable, and on every row of every repeatable (nested ones and
+signatures included) on a page that holds an input. None goes on a text-only page or on the form
+configurator's step title. So leave `jump_to_field` unset; an authored one is written on a
+non-conditional Panel in addition, a second button or one in the wrong place, and ignored anywhere
+else.
 
-Reported, for a Panel with `jump_to_field: true`:
+Reported, for a node with `jump_to_field: true`:
 
-- the Panel is a page (`is_page: true`) with a title: the step already has a step-title panel that
+- it is not a Panel, or a conditional one: the writer ignores it;
+- it is the form configurator (`PN_FormConfigurator...`): it would join the summary's jump list;
+- it holds nothing to fill in (no input, fragment or letterhead below it);
+- it is a titled page, or a Panel on a titled page without repeatables: the step-title panel already
   carries the button, so AEM would render two above one heading;
-- the Panel holds nothing to fill in (no text field, number field, date, dropdown, checkbox, radio
-  button, fragment or repeatable anywhere below it): a text-only step has nothing to jump to;
-- the Panel is the form configurator (its name starts with `PN_FormConfigurator`): it would also
-  appear in the summary's jump list.
+- it is inside a repeatable or holds one: the rows carry the buttons.
 
-Delete `jump_to_field` from the Panel the finding names. A page with repeatables gets the buttons
-on its rows from the writer, and a page without a title keeps the one the writer places.
+The fix deletes `jump_to_field` from every reported node. An untitled page that holds an input and
+no repeatable gets no button from the writer, and may keep its own.
 """

@@ -1,0 +1,42 @@
+# CNV-TXT-5, -6, -8 and -11 and CNV-SRC-12: how the source's running text becomes TextDraws. Judged:
+# each needs the language sources side by side. The part a script can decide (empty paragraphs,
+# spacer breaks, filler-only draws) is ubs-aem-empty-panels', and a caption repeating its input's
+# label is ubs-aem-headings-rendered-once'.
+id = "ubs-aem-paragraphs"
+title = "Paragraphs and lists follow the source"
+output_formats = ["aem-ubs"]
+description = """
+Running text becomes TextDraws as the source sets it, in every language:
+
+- Paragraphs that correspond one to one across the languages are one TextDraw each. Where the
+  languages split the same content into a different number of paragraphs, group them so that each
+  TextDraw holds the same content in every language, with `<p>` between its paragraphs (CNV-TXT-5).
+  Content is language-specific (ubs-aem-language-specific-content) only where no paragraph of the
+  other language covers it.
+- A paragraph break inside a sentence (no sentence end, the next paragraph continues it), as a page
+  or column break leaves it, is joined into one paragraph (CNV-TXT-6).
+- A bold lead-in sentence, a table label or a bold connector word between blocks ("Between ... and
+  ...", "Zwischen ... und ...") is not a heading: it is `<b>` inside a TextDraw (UBS-TXT-4).
+- A list keeps its markers. Sources often draw them as a column of separate texts left of the items,
+  pairing by position: one per line, or one per indented paragraph or bold heading. A list of plain
+  items is one TextDraw with one `<p>` per item, each opening with its marker ("–", "a)", "1."); a
+  numbering continues across consecutive blocks where the source continues it, and a numbered
+  heading keeps its number ("3. Collection Fees") (CNV-SRC-12, UBS-TXT-7). A draw holding only a marker is a
+  break.
+- Text the rendered pages show twice is kept twice; a repetition that only comes from reading the
+  source twice (two page templates, two states) is kept once (CNV-TXT-7).
+
+How to judge: page by page, compare each language's xfa_page_text and xfa_render_pages (with
+xfa_render_region for bold text and a marker column) with the page's draws (json_outline,
+json_get). A break is a TextDraw whose content differs in extent between languages, a sentence split
+across draws or paragraphs, a bold lead-in made a TitleDraw, a list without its markers or split
+into one draw per marker and item, or a text doubled or dropped against the rendered pages.
+
+Fix: json_patch the draws: merge, split or regroup paragraphs so that the languages correspond,
+join split sentences, turn a lead-in heading into `<b>` in its paragraph, and rebuild a list as one
+TextDraw with its markers.
+"""
+
+[judge]
+pointers = ["/languages"]
+node_types = ["TextDraw", "TitleDraw", "MessageBox"]

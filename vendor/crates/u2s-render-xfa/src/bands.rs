@@ -1,9 +1,10 @@
 //! Pages, from a renderer that does not have any.
 //!
 //! The XFA engine lays a document out as one tall column, but that column is a
-//! stack of whole pages: it is exactly `page_count * page.height` tall and page
-//! `k` is the band `[k*H, (k+1)*H)`. "Page 3" is therefore a horizontal band of
-//! that column, and per-page rendering is a crop rather than a separate render.
+//! stack of whole pages: page `k` is the band `[pages[k].top, pages[k].top +
+//! pages[k].height)`, each page at its own size. "Page 3" is therefore a
+//! horizontal band of that column, and per-page rendering is a crop rather
+//! than a separate render.
 //!
 //! This module owns the band arithmetic, in points, so that page geometry,
 //! per-page text and region cropping all agree with what `slice_into_pages`
@@ -46,27 +47,26 @@ pub fn column_height(flat: &Flattened) -> f32 {
 /// at one dpi and not another. Page count must not depend on the resolution
 /// someone asked for.
 pub fn bands(flat: &Flattened) -> Vec<Band> {
-    let width = to_f32(flat.page.width);
-    let height = to_f32(flat.page.height);
-    let count = flat.page.page_count.max(1);
-
-    // A degenerate page height would make every band empty; one band covering
+    // A degenerate column would make every band empty; one band covering
     // the column is the only sensible reading of that.
-    if height <= 0.0 {
+    if column_height(flat) <= 0.0 {
         return vec![Band {
             page: 1,
             top: 0.0,
             bottom: column_height(flat).max(0.0),
-            width,
+            width: to_f32(flat.page.column_width()),
         }];
     }
 
-    (0..count)
-        .map(|k| Band {
-            page: k + 1,
-            top: k as f32 * height,
-            bottom: (k + 1) as f32 * height,
-            width,
+    flat.page
+        .pages
+        .iter()
+        .enumerate()
+        .map(|(k, slot)| Band {
+            page: k as u32 + 1,
+            top: to_f32(slot.top),
+            bottom: to_f32(slot.top + slot.height),
+            width: to_f32(slot.width),
         })
         .collect()
 }
@@ -98,11 +98,11 @@ mod tests {
     use u2s_xfa::{Num, Page};
 
     fn flat(width: f64, height: f64, page_count: u32) -> Flattened {
-        let mut page = Page::new(
+        let page = Page::uniform(
             Num::try_from(width).expect("width"),
             Num::try_from(height).expect("height"),
+            page_count,
         );
-        page.page_count = page_count;
         Flattened::new(page, vec![])
     }
 

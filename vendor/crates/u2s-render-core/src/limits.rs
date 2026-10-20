@@ -41,11 +41,20 @@ pub struct Limits {
     pub max_page_entries: usize,
 }
 
+/// The smallest long edge a render is ever clamped to. Also the `minimum`
+/// the render tools declare for `max_edge_px`, so a request below it is
+/// refused by the schema rather than silently clamped.
+pub const MIN_EDGE_PX: u32 = 16;
+
+/// The lowest dpi a render is ever clamped to, and the `minimum` the render
+/// tools declare for `dpi`.
+pub const MIN_DPI: f32 = 36.0;
+
 impl Default for Limits {
     fn default() -> Self {
         Limits {
             default_dpi: 144.0,
-            min_dpi: 36.0,
+            min_dpi: MIN_DPI,
             max_dpi: 600.0,
             max_edge_px: 2576,
             hard_max_edge_px: 8000,
@@ -108,7 +117,7 @@ impl Limits {
         let max_edge = requested_max_edge
             .unwrap_or(self.max_edge_px)
             .min(self.hard_max_edge_px)
-            .max(16);
+            .max(MIN_EDGE_PX);
         let long_pt = width_pt.max(height_pt).max(1.0);
         let mut scale = dpi / 72.0;
         if long_pt * scale > max_edge as f32 {

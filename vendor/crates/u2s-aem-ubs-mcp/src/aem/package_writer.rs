@@ -264,10 +264,13 @@ fn assemble_package(
     // wholesale win left the profile's other locales without the key at all. A
     // form whose own label happens to read "Company" would knock `Company` out of
     // the French and Italian dictionaries the profile itself emits.
-    merge_defaults(&mut translations, &config.default_translations);
+    // Their quotations are written `«…»` and printed as the form's language
+    // and entity country write them (`super::quotes`).
+    let entity = config.mandator.as_deref();
+    merge_defaults(&mut translations, &quoted_defaults(&config.default_translations, entity));
     // The letterhead's own headings and labels, where the form has one.
     if super::letterhead::holds_letterhead(root) {
-        merge_defaults(&mut translations, &config.letterhead_translations);
+        merge_defaults(&mut translations, &quoted_defaults(&config.letterhead_translations, entity));
     }
 
     // Fold every synonym code onto the language it is a synonym of, so content
@@ -409,6 +412,24 @@ fn assemble_package(
 // ============================================================================
 // Helpers
 // ============================================================================
+
+/// The profile's `defaults` with each quotation (`«…»`) printed with the marks
+/// of its language and of the form's `entity` ([`super::quotes::quoted`]).
+fn quoted_defaults(
+    defaults: &HashMap<String, HashMap<String, String>>,
+    entity: Option<&str>,
+) -> HashMap<String, HashMap<String, String>> {
+    defaults
+        .iter()
+        .map(|(key, by_language)| {
+            let by_language = by_language
+                .iter()
+                .map(|(lang, text)| (lang.clone(), super::quotes::quoted(text, lang, entity)))
+                .collect();
+            (key.clone(), by_language)
+        })
+        .collect()
+}
 
 /// Add `defaults` to `translations`, per language: a language a key already has
 /// keeps its own text.

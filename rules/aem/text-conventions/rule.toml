@@ -1,0 +1,27 @@
+# Three conventions a script settles without the source: Unicode NFC (CNV-TXT-3, as
+# `find_decomposed_characters.py` of the feedback repo), links in static text (UBS-TXT-1, as
+# `static_text_links.py`), and the UBS entity names per language (UBS-TXT-3).
+id = "ubs-aem-text-conventions"
+title = "Texts are NFC, link addresses, name entities"
+output_formats = ["aem-ubs"]
+description = """
+Three conventions hold for every text, in every language:
+
+- Unicode NFC (CNV-TXT-3): every string of the document is composed, `ü` one code point and never
+  `u` followed by a combining diaeresis (PDF text often comes decomposed). NFKC is not applied:
+  superscript digits, no-break spaces and `…` stay as they are.
+- Links (UBS-TXT-1): a web or e-mail address in static text (the content of a TextDraw, TitleDraw,
+  MessageBox or HtmlDisplayer) is a link, written as the corpus writes it:
+  `<a href="https://www.ubs.com/aei" target="_blank">www.ubs.com/aei</a>`, with `https://` added
+  to a `www.` address and `mailto:` to an e-mail address. Trailing punctuation stays outside the
+  link. Labels, titles and option labels are plain text and are never linked.
+- Entity names (UBS-TXT-3): "UBS Switzerland AG" is written so in every language (never "UBS
+  Schweiz AG", "UBS Suisse SA", "UBS Svizzera SA"); "UBS AG" and "UBS Group AG" are "UBS SA" and
+  "UBS Group SA" in French, Italian and Spanish. This holds in titles, labels, contents and option
+  labels, also where the source writes otherwise (ubs-aem-verbatim-source-text yields to it).
+
+Text inside tags (an `href`, a `style`) is not read. The autofix composes, links and renames. Two
+addresses it leaves to you: one written twice over (`www.a.itwww.a.it`, the link text run into its
+target), which you write once and link, and one with a query string, whose `<a href>` you write
+by hand.
+"""

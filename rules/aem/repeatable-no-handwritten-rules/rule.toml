@@ -1,17 +1,24 @@
+# The archetype is `Lower::repeatable` of the UBS writer (`lower.rs`) with the button rules of
+# `scripts::Repeating`; an unbounded `max_occur` (u32::MAX, what a loaded `maxOccur="-1"` becomes)
+# is written as `maxOccur="-1"`, which the backlog's "Unbounded repeatables" row replaces with 20.
 id = "ubs-aem-repeatable-no-handwritten-rules"
-title = "Repeatables carry the template's Add and Remove, not rules of the author's"
+title = "Repeatables keep the template's archetype"
 output_formats = ["aem-ubs"]
 description = """
-A repeatable carries a fixed archetype that the template writes: the Add and Remove buttons, all
-six of their rules (each one addresses the panel relatively and drives it through
-`window.forms.ubs.addInstance` and `removeInstance`, never through `instanceManager`) and the
-panel properties the UBS client library reads (`dorFieldStyling="Repeating Panel Numbering"`,
-`headingLevel`). Do not hand-author add or remove rules, and do not keep one that a loaded package
-carried: a rule that calls `instanceManager` bypasses the UBS routines.
+The template writes every repeatable as one archetype (backlog "Repeatables (V2)"): the Add and
+Remove buttons with their six rules (each addresses the panel relatively and drives it through
+`window.forms.ubs.addInstance` and `removeInstance`, never `instanceManager`), the panel properties
+the UBS client library reads (`dorFieldStyling="Repeating Panel Numbering"`, `headingLevel`), the
+row numbering (shown from two rows on) and the Add label. None of it is authored: write no add or
+remove rule, and keep none a loaded package had (a rule that calls `instanceManager` bypasses the UBS
+routines).
 
-Reported: any script in a node's `passthrough` (`raw_attributes` or
-`raw_children`) that calls `instanceManager` and is not one of the template's own generated
-scripts (those say `Generated automatically` and carry `_archetype`).
+Reported:
 
-Delete the offending entry from the node's `passthrough`; the template writes the working rules.
+- a script in a node's `passthrough` that calls `instanceManager` and is not the template's own
+  (those say `Generated automatically` and carry `_archetype`): delete the entry;
+- a Repeatable whose `max_occur` is below `min_occur`, or 0: set the source's bounds
+  (ubs-aem-repeatable-bounds);
+- a Repeatable left unbounded (`max_occur` 4294967295, a loaded `maxOccur="-1"`): an unbounded
+  section takes at most 20 rows. The fix sets `max_occur` to 20.
 """

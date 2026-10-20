@@ -1,0 +1,1218 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Authorization to share Client Data\n(\"Authorization\")\n0\nI confirm that I have read and understood the \"GWM Standard Authorization User Guidelines\" and will use the Authorization to share Client Data in line with it.\nPlease select the entity where you are the responsible Client Advisor and which will share client/prospect data.\nForm-ID: 65949,65955,65956,65957,\n              65958,65959,65960\nUBS - Eforms - Switzerland\n15.05.2026"
+  ],
+  "raster": [
+    "d12f56633fc513d9"
+  ],
+  "controls": {
+    "TopForm.Annex_2.Annex_2_Flow.Other_40.STP_Other_40.Other_DYN.STP_Other.Other": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Annex_2.Annex_2_Flow.Other_40.STP_Other_40.Other_DYN.STP_Other.Subform_Add_Minus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Annex_2.Annex_2_Flow.Other_40.STP_Other_40.Other_DYN.STP_Other.Subform_Add_Minus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.AB_Back_to_selection": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.APPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.APP_BARCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.Code2Of5InterleavedBarCode1": {
+      "value": "0101*****040101150120260101NaN",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.Each_Party": {
+      "value": "[***Each_Party***]",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.MANCode": {
+      "value": "001",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.PageNumbering": {
+      "value": "Page 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.Printdate": {
+      "value": "15.01.2026",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.txtformid": {
+      "value": "*****",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.txtjversion": {
+      "value": "N1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.txtlanguage": {
+      "value": "E",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.txtversiondate": {
+      "value": "15.05.2026",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Barcode.txtvversion": {
+      "value": "V1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.STP_Singular_Plural.DES_Singular_Plural": {
+      "value": "The singular form also includes the plural.",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.STP_Singular_Plural.DES_Term": {
+      "value": "The term Client also includes prospective clients. In cases where the form is signed by a financial intermediary (FIM) in its capacity as FIM, the term Client refers to FIM and includes prospective FIM.",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.STP_Singular_Plural.ffFootNote2": {
+      "value": "The term Client also includes prospective clients. In cases where the form is signed by a financial intermediary (FIM) in its capacity as FIM, the term Client refers to FIM and includes prospective FIM.",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Footer.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Header.BankingRelationship.STP.BC_Account_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Header.BankingRelationship.STP.DES_MasterNo": {
+      "value": "Banking relationship",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.Header.BankingRelationship.STP.MAST_Account_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.MyPresentPageCount": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP1.MyTotalPageCount": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.AB_Back_to_selection": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.APPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.APP_BARCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.Code2Of5InterleavedBarCode1": {
+      "value": "0101*****040101150120260101NaN",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.Each_Party": {
+      "value": "[***Each_Party***]",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.MANCode": {
+      "value": "001",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.PageNumbering": {
+      "value": "Page 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.Printdate": {
+      "value": "15.01.2026",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.txtformid": {
+      "value": "*****",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.txtjversion": {
+      "value": "N1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.txtlanguage": {
+      "value": "E",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.txtversiondate": {
+      "value": "15.05.2026",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Barcode.txtvversion": {
+      "value": "V1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.SignaturePrüfung.STP_UP1.DES_For_Bank_Use_only": {
+      "value": "For internal bank use only",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.SignaturePrüfung.STP_UP1.DES_OU_Ref": {
+      "value": "OU-Ref.",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.SignaturePrüfung.STP_UP1.DES_Signature": {
+      "value": "Signature",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.SignaturePrüfung.STP_UP1.DES_Signature_Verified": {
+      "value": "Signature(s) verified/Signed in my presence",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.SignaturePrüfung.STP_UP1.OE_Ref": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Footer.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Header.BankingRelationship.STP.BC_Account_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Header.BankingRelationship.STP.DES_MasterNo": {
+      "value": "Banking relationship",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.Header.BankingRelationship.STP.MAST_Account_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.MyPresentPageCount": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.MPs.SET.MP_Last.MyTotalPageCount": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Authorization.STP_Authorization_Part_2_5.CB_Specific_Instruction": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Authorization.STP_Authorization_Part_2_5.Specific_Program": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.CIF_Number.STP_CIF_Number.CIF": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.CIF_Number.STP_CIF_Number.DES_CIF": {
+      "value": "CIF number",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.DES_Country": {
+      "value": "Country",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.DES_Global_LEG_FST_FMLY_COMP_Name": {
+      "value": "Last name, first name / Company",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.DES_Postal_Code_Place": {
+      "value": "Postal code/City",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.DES_Street_Name": {
+      "value": "Street/no.",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.Global_LEG_FST_FMLY_COMP_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.Postal_Code_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.BasicData.STP_COMB_PersonalDetail.Street_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Definitions.Definitions_Part_3.STP_Authorization_Part_3_4.Data_Sharing": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_SGN_Titel.DES_SGN_Title": {
+      "value": "Signature",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.STP_SGN_Fields.DES_SGN_Date": {
+      "value": "Date (dd.mm.yyyy)",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.STP_SGN_Fields.DES_SGN_Name": {
+      "value": "Signature(s)",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.STP_SGN_Fields.DES_SGN_Place": {
+      "value": "Place",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.STP_SGN_Fields.SGN_Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.STP_SGN_Fields.SGN_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.STP_SGN_Fields.SGN_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.Subform_Add_Minus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page1.Signature.STP_Signature_DYN.Subform_Add_Minus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.BLOCK_CONTROL_Page_Mask": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.APPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Branch_Flag": {
+      "value": "00",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.MANCode": {
+      "value": "001",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Proceed_Flag": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_5": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_6": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_7": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_8": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.RB_Select_Option.RB_9": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_00": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_01": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_02": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_03": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_04": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_05": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_06": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_07": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_08": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_09": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_10": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_11": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_12": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_13": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_14": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_15": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_16": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_17": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_18": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_19": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_20": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_21": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_22": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_23": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_24": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_25": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_26": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_27": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_28": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_29": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_30": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_31": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_32": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_33": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_34": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_35": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_36": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_37": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_38": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_39": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_40": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.Receive_Flag_Transmitter.CB_41": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.SAVE_Flag": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.txtformid": {
+      "value": "*****",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.txtjversion": {
+      "value": "N1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.txtlanguage": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.txtversiondate": {
+      "value": "15.05.2026",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.DoNotDeleteSection.txtvversion": {
+      "value": "V1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.BC_Account_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.BC_Account_Number_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.BC_Account_Number_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.Global_IBAN_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.Global_UBS_Branch": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.MAST_Account_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.MAST_Account_Number_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.MAST_Account_Number_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.OBJ_Number_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.OBJ_Number_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Account_Section.SEQ_Number_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Address_Section.Global_Addr_Details1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Address_Section.Global_Addr_Details1_Descriptor": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Address_Section.Global_Addr_Details2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Address_Section.Global_Addr_Details2_Descriptor": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Address_Section.Global_Jurisdiction_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Address_Section.Global_Postal_Code_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Address_Section.Global_Street_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_Family_Name1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_Family_Name2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_Family_Name3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_Family_Name4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_First_Name1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_First_Name2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_First_Name3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ADD_Legal_First_Name4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Address_MS_MR": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Address_Title": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_BeneficialOwner": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Birth_Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_LEG_FST_FMLY_COMP_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Legal_Family_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Legal_First_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Nationality": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_Relation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.BasicPersonal_Section.Global_ResidenceCountry": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_CASuper_SGN_Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_CASuper_SGN_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_CASuper_SGN_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_CA_SGN_Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_CA_SGN_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_CA_SGN_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_SGN_Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_SGN_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Signature_Section.Global_SGN_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_CB_Spare1": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_CB_Spare2": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_CB_Spare3": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_CB_Spare4": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_Spare1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_Spare2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_Spare3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Spare_Section.Global_Spare4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.APPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.APP_BARCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.BLOCK_CONTROL_Page_Mask": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.DOC_Receipt_Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.Disable_EF_Flag": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.Each_Party": {
+      "value": "[***Each_Party***]",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.Edit_Field_Flag": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.MANCode": {
+      "value": "001",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.OE_Ref": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.OU_DOC_Receipt": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.OU_Reference_Advisor": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.OU_Reference_Supervisor": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.RB_Group_UP.RB_Opening_CSPON_G": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.RB_Group_UP.RB_Opening_CSPON_G_BC_CH": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.RB_Group_UP.RB_Opening_Person_G": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.RB_Group_UP.RB_Opening_Person_G_BC_CH": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.RB_Group_UP.RB_Opening_Third_G": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.SAVE_Flag": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.UCC_BARCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.txtformid": {
+      "value": "*****",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.txtjversion": {
+      "value": "N1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.txtversiondate": {
+      "value": "15.05.2026",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.GlobalFieldSection.Tech_Footer_and_Barcode_Section.txtvversion": {
+      "value": "V1",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.GWM_Option.GWM_Option_DYN.Reset.Reset_Button": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.GWM_Option.GWM_Option_DYN.STP_GWM_Option.CL_Branch_Receiving": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.GWM_Option.GWM_Option_DYN.STP_GWM_Option.Subform_Add_Minus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_I.CB_Confirm": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.8,
+          140.1,
+          11.0,
+          11.3
+        ]
+      ]
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_I.CL_Branch": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          80.8,
+          179.1,
+          425.2,
+          10.2
+        ]
+      ]
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_GFIM.SEL3.STP.RB_Select_Option.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_GFIM.Select_GFIM.RB_Pre_Select_Option.RB_GFIM": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_GWMOther.SEL4.STP.RB_Select_Option.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_GWMOther.SEL5.STP.RB_Select_Option.RB_5": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_GWMOther.SEL6.STP.RB_Select_Option.RB_6": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_GWMOther.SEL7.STP.RB_Select_Option.RB_7": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_GWMOther.Select_GWMOther.RB_Pre_Select_Option.RB_GWM_Other": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_UHNW.SEL1.STP.RB_Select_Option.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_UHNW.SEL2.STP.RB_Select_Option.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.Intro_II.Intro_II_Select_UHNW.Select_UHNW.RB_Pre_Select_Option.RB_UHNW": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Page_Mask.TopSection.Main_Selection.ProceedToForm.STP.AB_proceed_to_form": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_SGN_Titel.DES_SGN_Title": {
+      "value": "Signature(s)",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.STP_SGN_Fields.DES_SGN_Date": {
+      "value": "Date (dd.mm.yyyy)",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.STP_SGN_Fields.DES_SGN_Name": {
+      "value": "Signature(s)",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.STP_SGN_Fields.DES_SGN_Place": {
+      "value": "Place",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.STP_SGN_Fields.SGN_Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.STP_SGN_Fields.SGN_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.STP_SGN_Fields.SGN_Place": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.Subform_Add_Minus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "TopForm.Signatures.STP_Signature_DYN.Subform_Add_Minus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

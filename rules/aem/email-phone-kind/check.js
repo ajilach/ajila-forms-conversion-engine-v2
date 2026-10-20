@@ -24,6 +24,9 @@ const DENY_NAME = ["TXT_MailingAddressConfirmation", "TXT_Amountimobili", "TXT_T
 // inside `NumeroDiTelefonoFisso`.
 const CAMEL_RE = /(?<=[a-zà-ÿ0-9])(?=[A-ZÀ-Þ])|(?<=[A-ZÀ-Þ])(?=[A-ZÀ-Þ][a-zà-ÿ])/g;
 
+// What a panel holds that Redacto types as a row of its own (`find_contact_leaf_panel.py`).
+const PANELS = ["Panel", "Repeatable", "Fragment"];
+
 function norm(text) {
   return String(text || "").replace(/\s+/g, " ").trim();
 }
@@ -63,12 +66,48 @@ function classify(label, name) {
   return null;
 }
 
+function isContact(node) {
+  return node.type === "TextField" && (node.kind === "Email" || node.kind === "Telephone");
+}
+
+// Left out of the summary data: excluded and not put back for the PDF.
+function excluded(node) {
+  return (node.summary_exclude === true || node.dor_exclude === true) && node.always_in_pdf !== true;
+}
+
+// Posted to the summary (`summary-backend-creator.js::pushData`'s gate).
+function emitted(node) {
+  return !excluded(node) && (node.visible !== false || node.show_if_hidden === true || node.always_in_pdf === true);
+}
+
+// The runs of contact inputs, side by side, under a parent that also holds a panel: Redacto cannot
+// type such a row and the whole Document of Record comes out blank.
+function contactRuns(node) {
+  const children = node.children || [];
+  if (!children.some(function (c) { return PANELS.indexOf(c.type) >= 0 && !excluded(c); })) return [];
+  const runs = [];
+  let run = null;
+  for (let i = 0; i < children.length; i++) {
+    if (isContact(children[i])) {
+      if (run === null) run = { start: i, end: i, emitted: false };
+      run.end = i;
+      run.emitted = run.emitted || emitted(children[i]);
+    } else {
+      if (run !== null && run.emitted) runs.push(run);
+      run = null;
+    }
+  }
+  if (run !== null && run.emitted) runs.push(run);
+  return runs;
+}
+
 function check(output, ctx) {
   const violations = [];
   const master = masterLanguage(output);
-  function visit(node, pointer) {
+  function visit(node, pointer, hidden) {
     const isPlainText = node.type === "TextField" && (!node.kind || node.kind === "Plain");
-    if (isPlainText || node.type === "NumberField") {
+    // A value the form fills in itself is not asked of anybody (UBS-INP-8).
+    if ((isPlainText || node.type === "NumberField") && node.read_only !== true) {
       const kind = classify(masterText(node.label, master), node.name);
       if (kind) {
         const prefix = kind === "Email" ? "EML_" : "TEL_";
@@ -92,9 +131,21 @@ function check(output, ctx) {
         }
       }
     }
+    const out = hidden || excluded(node);
+    if (!out) {
+      for (const run of contactRuns(node)) {
+        const names = (node.children || []).slice(run.start, run.end + 1).map(function (c) { return c.name; });
+        violations.push({
+          pointer: pointer + "/children/" + run.start,
+          message: "`" + names.join("`, `") + "` sit" + (names.length === 1 ? "s" : "") + " beside a panel in `" +
+            (node.name || "the form") + "`, which empties the whole Document of Record: wrap " +
+            (names.length === 1 ? "it in a Panel of its own" : "them in a Panel of their own") + " (`PN_TelephoneAndEmail`)",
+        });
+      }
+    }
     const children = node.children || [];
-    for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i);
+    for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i, out);
   }
-  visit(output.form, "/form");
+  visit(output.form, "/form", false);
   return { pass: violations.length === 0, violations: violations };
 }

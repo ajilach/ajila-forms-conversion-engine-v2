@@ -71,7 +71,10 @@ impl FromStr for EventActivity {
             "mouseUp" => EventActivity::MouseUp,
             "mouseEnter" => EventActivity::MouseEnter,
             "mouseExit" => EventActivity::MouseExit,
-            _ => EventActivity::Other(s.to_string()),
+            _ => {
+                log::warn!("unknown event activity {s:?}; its scripts never run");
+                EventActivity::Other(s.to_string())
+            }
         })
     }
 }
@@ -164,7 +167,11 @@ impl FromStr for RunAt {
         Ok(match s {
             "server" => RunAt::Server,
             "both" => RunAt::Both,
-            _ => RunAt::Client,
+            "client" => RunAt::Client,
+            _ => {
+                log::warn!("unknown runAt {s:?}; read as client");
+                RunAt::Client
+            }
         })
     }
 }
@@ -180,6 +187,21 @@ pub struct XfaScript {
     pub run_at: RunAt,
     /// Per XFA 3.3 §10 p.387: controls upward event propagation.
     pub listen: ListenScope,
+}
+
+impl XfaScript {
+    /// Whether a client runs this script. XFA 3.3 §11 "Specifying Where to
+    /// Execute a Script": `runAt="server"` marks a script for an XFA
+    /// processor set up as a server, and the client-side event table
+    /// (§11 "Submitting data") has the client ignore such a script. This
+    /// engine fills the form the way Acrobat does, as the client, and
+    /// Acrobat does ignore them: ACYI_001_EN's cover page carries a
+    /// server-only calculate that hides it (for the server's final PDF),
+    /// and server-only docReady scripts that hide its row buttons, and
+    /// Acrobat shows both.
+    pub fn runs_on_client(&self) -> bool {
+        self.run_at != RunAt::Server
+    }
 }
 
 // =============================================================================

@@ -1,0 +1,45 @@
+# The subtitle is the first page's title because the writer prints it as one: `step_title` in
+# `lower.rs` writes the first page's title as a `subtitle-after-form-title` static text above the
+# banking relationship, except on the configurator page (PROBLEM-subtitle-detector of the feedback
+# repo). The form title is the root's `title`, written as the `formTitle` component.
+id = "ubs-aem-form-title"
+title = "Form title, subtitle and the title-area radio row"
+output_formats = ["aem-ubs"]
+description = """
+Read the top of page 1 in every language's own PDF: xfa_render_region for the layout, xfa_page_text
+for the words, and the template's draws (xfa_search for the text, xfa_node for its `font` size and
+weight).
+
+- Form title (UBS-TTL-1): `form.title`, the root's, is the 18 pt text at the start of page 1's
+  body, its 18 pt runs only, as plain text in every language of `languages`. A letter without
+  one takes its subject line (10.5 pt, "Oggetto: ..."); a form with neither takes the form code.
+  Runs made only of dashes or list markers at title size are list markers, not the title
+  (UBS-TTL-5).
+- Subtitles (UBS-TTL-2): a short paragraph between the title and the first section heading, set
+  smaller than the title (8 pt, often bold), in the title's box (same box in the runs) or right
+  below it: short (about 80 characters at most), capitalised, without final punctuation
+  ("(nachstehend «Vereinbarung»)", "Attestazione di avvenuta consegna"). A form may have several.
+  The first is the first page's `title`, which the writer prints under the form title as
+  `subtitle-after-form-title` text, above the banking relationship; each further one, in source
+  order, is a `TextDraw` (its runs' bold kept as `<b>`) on the first page right after the page
+  header and its notices (ubs-aem-page-header), before any other content. A subtitle is never a
+  section heading, never the configurator's heading and never the issuer. Without a subtitle the
+  first page's title stays empty. When the first page is the configurator
+  (`PN_FormConfigurator...`), its `title` is the band's heading, printed as its step heading; a
+  subtitle above the band then needs a first page of its own name holding the band as a
+  `PN_FormConfigurator...` Panel.
+- Further 8 pt paragraphs in the title's box (UBS-TTL-3) open the first page's content as
+  `TextDraw`s, after the page header (ubs-aem-page-header).
+- A radio row of the title area, between the title and the first section heading ("Neuanlage /
+  Änderung / Löschung"), is a `RadioButton` on the first page, never the subtitle (UBS-TTL-4).
+  Without a caption of its own, right under the subtitle, its `label` is the subtitle's text with
+  `hide_title: true`, and the subtitle stays the page's title.
+
+Reported: a form title empty, only markers or with markup in a language; a non-configurator first
+page whose title is the issuer, repeats the form title, is over 100 characters or ends in `.`,
+`:`, `;` or `,`; a node carrying the `subtitle-after-form-title` class, which is the writer's; a
+`RadioButton` on the first page labelled with the subtitle without `hide_title: true`.
+
+Fix: write the title from the source; move a subtitle draw's text into the first page's `title`;
+set `hide_title` (the fix script does).
+"""

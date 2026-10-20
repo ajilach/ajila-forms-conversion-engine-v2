@@ -22,7 +22,7 @@ letter. Only the first page counts (decision 2026-10-14): a form whose letter to
 (a mixed form, an order or internal notes first and the letter after, as AALN_019) is not a letter,
 and its letter page is built from ordinary nodes in the source's order.
 
-When it is a letter:
+When it is a letter, it loses no information (UBS-LTR-1):
 
 - The document holds exactly one `Letterhead` (its shape and place: ubs-aem-letter-letterhead).
 - The sender follows the source, and only what the PDF prints. The bank writes: `receiver` is
@@ -44,8 +44,11 @@ When it is a letter:
 - The salutation, the body, the closing ("Distinti saluti") and the attachments line stay body
   text, in the source's order.
 
-How to judge: read the first page of each source PDF (given in the prompt; xfa_render_pages for
-the layout) and decide whether it has a letter top. Then compare with the document
+How to judge: read the first page of each source (its text is in the prompt; xfa_render_page for
+the layout, xfa_page_text for the letter text, the template's master page (`pageSet`, xfa_search,
+xfa_node) for the lines that print a sender, xfa_controls for the receiver's address field, often
+`Reciever_Address`, and the
+date and reference inputs) and decide whether it has a letter top. Then compare with the document
 (json_search for `"type":"Letterhead"`, json_outline for the body).
 
 A break is any of these:

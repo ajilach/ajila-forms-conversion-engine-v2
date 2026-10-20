@@ -1,56 +1,92 @@
 id = "ubs-aem-account-holder-cluster"
-title = "An addressee-driven form carries its complete party and signature cluster"
+title = "Parties and signatures match the source"
 output_formats = ["aem-ubs"]
 description = """
-Parties and signatures (account holder or client, representative, legal guardian, beneficial owner,
-power of attorney, and their signatures) form the account-holder cluster, which a form has only when
-it is addressee-driven: it carries a configurator choice (Formular Adressat / Form addressee in
-Germany, Tipo in Italy) that decides who the parties are. In such a form the cluster is complete:
+Parties and their signatures follow the source's sections, roles, bounds and configurator options.
+Their AEM shape (rows, fragments, names) is described by ubs-aem-account-holder-wiring, whose script
+decides the wrapping; the names and the pairing are judged here. Signature titles and exclusions are
+ubs-aem-signatures'.
 
-- THE CHOICE is a `RadioButton` on the form configurator's page (`RB_FormularAdressat` in
-  Germany, `RB_GroupTipo` in Italy) with the source's options in every language, the individual
-  option (Private Person, Individual) first, keyed by number as every choice is
-  (ubs-aem-options-wellformed); the template preselects the individual option by its own key, so
-  the key is not always `1`. Its `conditions` show one conditional
-  Panel (`is_conditional: true`, `visible: false`) per option among the parties and one among the
-  signatures.
-- THE PARTIES sit on the configurator's page, in each option's panel, each a Repeatable wrapping
-  one partner generic (naming and wrapping: ubs-aem-account-holder-wiring). A minor who holds the
-  account is the contracting party (`PN_CPGRP`), not a partner, even though a guardian signs.
-  `init_hide` lists the sub-panels a party does not show, `init_show` the hidden ones it does
-  (`hideAFHideDor` and `showAFShowDor` in the fragment's Initialize rule, each for the form and the
-  Document of Record alike). A party the source introduces in a later section (an authorisation,
-  an annex of beneficial owners) stays in that section.
-- THE SIGNATURES sit on the signature page, in each option's panel, one signature Repeatable per
-  party that signs. The signature page is the source's own signature section, or a page of their
-  own after the data where the source has none; it is never the configurator's page, and the
-  sections the source prints after its signatures (notes, an annex, internal bank use) stay after
-  it. Count the signers the source shows against what the form
-  collects: a summary that says "two signature blocks" is not evidence of two.
+PARTIES (UBS-PTY-1 to 8):
 
-The bank's own signatories (a letter's officers under its entity line) are not a party and are
-outside the cluster: they are ubs-aem-letter-bank-signature's. A signer in a form with no
-configurator (the client of a client letter, the heirs of a declaration) is a signature Repeatable
-of its own, paired with no party: `RCP_SGN_<stem>` wrapping `PN_SGN_<stem>` with a stem that is
-none of the party codes (`RCP_SGN_Client`, `RCP_SGN_Heir`), so its Add and Remove are its own.
+- A section that captures the identity of a person or company in a role (account holder, client,
+  authorized representative, beneficial owner, ...), as its heading or context shows, is a party:
+  a partner generic in its row, with or without a configurator. Typical: last and first name,
+  company name, birth and nationality, an address, under "Kundendaten", "Kontoinhaber", "Titolare
+  del conto", "Zeichnungsberechtigte Person".
+- The role, and with it the generic, comes from, in order: the section's heading, the enclosing
+  heading, the signature that belongs to it, the configurator option that shows it, and finally "the
+  first party of the form is the contractual partner"; where nothing decides it, the most plausible
+  role for the content. Field paths are hints only. The roles and the generic each group takes
+  (ubs-aem-account-holder-wiring):
+  - contractual partner (`affrg_ContractualPartnerGeneric1`): account holder, client, contracting
+    partner, applicant, lessee, principal, minor, depositor, borrower, pension holder, end client,
+    co-owner;
+  - beneficial owner (`affrg_BeneficialOwnerGeneric1`): beneficial owner, trustee;
+  - partner to partner (`affrg_PartnertoPartnerGeneric1`): authorized representative, controlling
+    person, connected party, financial intermediary, legal representative, legal guardian,
+    guarantor, pledgor, responsible person, and the other roles: heir, spouse, child, third party,
+    beneficiary, payee, signatory;
+  - power of attorney (`affrg_PowerofAttorneyGeneric1`): authorized signer, attorney, e-banking
+    user.
+  Different words for one role are one role ("Berechtigte Person" in the signature and
+  "Vertretungsberechtigter" in the party section are both an authorized representative, UBS-WRD-3).
+- The sub-panels shown are the groups of inputs the source shows; where the configurator switches
+  between individual and company, each option's panel holds the party with that option's parts.
+- A person's address that repeats with the person is the generic's `PN_Address`. Where the persons
+  repeat but one address serves them all, the row hides `PN_Address` and the address follows the
+  row under its source heading (ubs-aem-addresses); a company name given once while its
+  representatives repeat is a `TextField` before their row.
+- Fields the source adds to a party are a content Panel in the row where the source places them; a
+  party split around them is copies of its generic (ubs-aem-account-holder-wiring).
+- A minor taking part is the contractual party (`PN_CPGRP`), not a partner. The legal guardians sign,
+  and are parties only where the source captures their data.
+- Client advisor, branch and bank officer blocks are not parties; neither is a name pair whose
+  context gives no role (a questionnaire's "Last name / First name(s)"), nor a single input for a
+  name ("Last name, first name(s) / Company"): those are `TextField`s, followed by the address
+  fragment where an address follows.
+- A party the source introduces in a later section (an authorisation, an annex) stays there.
 
-In a form with NO configurator a partner generic is a defect: the form has no parties to
-configure, so use plain `TXT_` fields.
+SIGNATURES (UBS-SIG-1 to 7):
 
-How to judge: read the source's configurator and signature pages (xfa_open, xfa_set for each
-option, xfa_render_pages) and compare with the tree's configurator, party panels and signature
-panels per option (json_outline). Check the options, their order and that every key is a number, the conditions, and for
-each option the parties and signers the source shows.
+- Each signature block of the source is one signature Repeatable, in the source's signature
+  section (or, where it has none, a page of its own after the data, never the configurator's
+  page); the sections the source prints after it stay after it. Count the signers the source shows:
+  a summary that says "two signature blocks" is not evidence of two.
+- The signer's role comes from the signature captions as the form shows them for each configurator
+  option (client for private persons, authorized representative for companies, legal guardian for
+  minors, signatory where the form says so). Signatures whose role, bounds or alignment differ per
+  option are one per option, in that option's conditional Panel.
+- A signature repeated per party (pressing the party's add control also adds a signature) is the
+  party's twin: the same `min_occur` and `max_occur` as the party row, and as many signatures as
+  parties. A single signer is 1 and 1; legal guardians signing for a minor take the source's bounds.
+- The bank's signatures pair with no party; UBS Europe SE signs as ubs-aem-signatures says.
+- The signer's name is filled from the party's first and last name (UBS-SIG-4): the writer does it
+  for every signature Repeatable paired with a party whose partner generic shows
+  `PN_IndividualBasic`, on a hidden field beside the rows, as the names change and when a form opens
+  with a party but no signer's name. Nothing is authored for it; a signature of the bank, of legal
+  guardians or of anyone else the form captures no data for gets none.
+- Place and date shared by all rows of one signature block (one place and one date for the whole
+  block, or inputs sharing one `bind`) are `shared_place_date: true` on its
+  `affrg_SignatureGeneric1` (UBS-SIG-7): the first row asks them, the further rows hide them.
+- None of this is ever authored through `passthrough`.
 
-A break is a missing party or signature for an option, a wrong or missing option or condition, a
-minor modelled as a partner, a signature count that differs from the source, or a partner generic
-in a form with no configurator.
+How to judge: read the configurator, the party sections and the signature section with
+xfa_controls (party path hints `FamilyName_FirstName`, `TF_FamilyName`, `Company`; signature hints
+`Signature`, `DYN_Signature`), the repeatable sections' `occur` (`min`, `max`, `initial`) in the
+template (xfa_node), and per configurator option a session (xfa_open, xfa_set; the result lists what
+`appeared` and `disappeared`, rows included) with xfa_render_pages or xfa_page_text for the
+captions; press a party's add
+control with xfa_click to see whether its signature section grows with it. Compare with the tree
+per option (json_outline).
 
-Fix: add the missing party or signature Repeatable inside the option's panel; correct the options
-or conditions; remove a partner generic from a form with no configurator and use plain `TXT_`
-fields.
+A break is a missing or invented party or signature for an option, a party in the wrong role or
+generic, a name pair with a role modelled as plain fields or a role-less one as a party, a minor
+modelled as a partner, a party's own address or field outside its row or a shared one inside it, a
+signature count, role or bounds that differ from the source, a twin whose bounds differ from its
+party's, or a party or signature named off the convention, which unpairs them.
 
-Precedence: this rule wins over ubs-aem-standard-sections-are-fragments. In a form with no
-configurator a person block is plain fields even where it looks like a standard section; the
-fragments rule yields.
+Fix: add, remove or move the party or signature Repeatable in the option's panel; change its
+generic and its names to the role's; set the twin's bounds to the party's; turn a role-less name
+pair into `TextField`s and a party section into a partner generic.
 """

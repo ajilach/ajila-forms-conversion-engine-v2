@@ -249,10 +249,7 @@ impl ConversionAgent {
         } else {
             self.runner()?;
             let runner = self.runner.as_ref().expect("started above");
-            let input = match &plan.scripted {
-                Some(ids) => json!({ "rule_ids": ids }),
-                None => json!({}),
-            };
+            let input = u2s_doc_tools::native::CheckRulesArgs { rule_ids: plan.scripted.clone() };
             let report =
                 u2s_doc_tools::native::check_rules(&input, self.document.value(), Some(&self.schema), &self.rules, runner)
                     .await
@@ -552,7 +549,7 @@ impl ConversionAgent {
         self.runner()?;
         let runner = self.runner.as_ref().expect("started above");
         let outcome = u2s_doc_tools::native::check_rules(
-            &json!({}),
+            &u2s_doc_tools::native::CheckRulesArgs::default(),
             self.document.value(),
             Some(&self.schema),
             &self.rules,
@@ -645,9 +642,13 @@ impl ConversionAgent {
         if let Err(e) = self.lint_baseline().await.and_then(|()| self.runner().map(|_| ())) {
             return ToolReply::Error(e);
         }
+        let args: u2s_doc_tools::native::AutofixArgs = match serde_json::from_value(input.clone()) {
+            Ok(args) => args,
+            Err(e) => return ToolReply::Error(format!("rule_autofix's arguments: {e}")),
+        };
         let runner = self.runner.as_ref().expect("started above");
         let result = match u2s_doc_tools::native::autofix_rules(
-            input,
+            args.rule_ids.as_deref(),
             self.document.value(),
             Some(&self.schema),
             &self.rules,

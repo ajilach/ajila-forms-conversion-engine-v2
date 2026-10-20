@@ -1,29 +1,33 @@
 id = "ubs-aem-sub-headings-are-title-draws"
-title = "Sub-headings inside a page are drawn, not left in a panel title"
+title = "Sub-headings are TitleDraws, level 3 and deeper"
 output_formats = ["aem-ubs"]
 description = """
-A Panel `title` renders as a visible heading only for a page (`is_page: true`). Below page level
-it does not render, so each sub-heading the source shows inside a page must be an explicit
-`TitleDraw` carrying that text; a source heading that exists only as a nested Panel's `title` is
-missing from the printed form. (Each TitleDraw belongs where the page shows the heading, and a page
-heading itself is the page's `title`, never a draw: see ubs-aem-step-titles.)
+A heading the source sets without a rule above it (a short standalone bold paragraph, 8 pt in UBS
+sources, followed by fields or paragraphs) is a sub-heading, never a section (UBS-SEC-3): a
+`TitleDraw` named `TTL_...`, level 3 right under the page heading and one level deeper per nesting.
+A Panel `title` below page level does not render, so a sub-heading carried only by a nested Panel's
+title is missing from the form: draw it, and clear that panel's title (backlog "Headings (V2)").
+Where what follows needs grouping (inputs under a common heading, such as "Issued by" over
+"OU ref." and "Date", read left to right then top to bottom: UBS-INP-3), the TitleDraw comes first
+and a Panel holds those inputs. A collapsible section (accordion) of the source is an ordinary
+section, its header a heading like any other (CNV-STR-2).
 
-How to judge: walk each page of the source (xfa_page_text, xfa_render_pages) and list its
-sub-headings, the headings that sit inside a page below its own heading. For each, find its text in
-the document (json_search) and check that a TitleDraw carries it, once, in every language, and not
-only the `title` of a nested Panel. Also look for nested Panels (`is_page: false`) whose `title` is
-non-empty and ask whether that title is a heading the page shows.
+Not sub-headings: a heading the source rules, which starts a page and is its `title`
+(ubs-aem-structure-matches-source); a bold lead-in or a bold connector word in running text
+(ubs-aem-paragraphs); a bold text right above a group of radio buttons or checkboxes, which is
+that group's label (UBS-INP-4). The heading above the bank's signature ("UBS Europe SE", UBS-SIG-6)
+is the signature rules' to place and is not judged here. In a letter the bank's closing (entity
+line and unit line) is a body draw above the officers (ubs-aem-letter-bank-signature).
 
-A break is a source sub-heading carried only by a nested Panel's `title`, or by no node at all.
+How to judge: walk each page of the source (xfa_render_pages for the rule lines, the template's draws
+for size and weight: xfa_search, xfa_node) and list its sub-headings. Find each one's text (json_search)
+and check that a TitleDraw carries it once, in every language, where the page shows it. Look at
+every nested Panel (`is_page: false`) with a non-empty title and ask whether the page shows that
+title as a heading.
 
-Fix: add a TitleDraw before the section's fields with the heading text in every language (name
-`TTL_...`), and clear the nested Panel's title if it only duplicated the heading.
+A break is a source sub-heading carried only by a nested Panel's title or by no node, or a
+TitleDraw for text the source does not set as a heading.
 
-Precedence: ubs-aem-banking-relationship-present wins over this rule for the heading "UBS Europe
-SE". Where the source heads the bank's signature block with "UBS Europe SE", that heading is the
-`title` of the bank's signature Repeatable, which AEM renders on each instance ("UBS Europe SE 1",
-"UBS Europe SE 2"); a draw that is only "UBS Europe SE" breaks that rule. So that heading needs no
-TitleDraw: do not report it while the signature Repeatable's title carries it.
-In a letter the bank's closing (entity line and unit line) is a body draw above the officers, not
-a title (ubs-aem-letter-bank-signature).
+Fix: add the TitleDraw before what it heads, with its text in every language and the level of its
+nesting, and clear the nested Panel's title.
 """

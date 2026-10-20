@@ -8,6 +8,7 @@
 use std::path::Path;
 
 use crate::XfaError;
+use crate::xfa::font_manager::EmbeddedFont;
 
 /// One `/XFA` packet: its declared name and its decompressed bytes.
 #[derive(Debug, Clone)]
@@ -107,6 +108,133 @@ pub fn extract_xfa_from_pdf_bytes(pdf_bytes: &[u8]) -> Result<Option<Vec<u8>>, X
     }))
 }
 
+/// The fonts embedded in a PDF: every font descriptor's `FontFile2`
+/// (TrueType) or `FontFile3` of subtype `OpenType`, under the descriptor's
+/// `FontName` without its subset prefix. A `FontFile3` of another subtype
+/// (a bare CFF program, `Type1C`/`CIDFontType0C`) is not an OpenType face
+/// and is reported and left out; a `FontFile` (Type 1) likewise.
+pub fn extract_embedded_fonts(pdf_bytes: &[u8]) -> Result<Vec<EmbeddedFont>, XfaError> {
+    let doc = lopdf::Document::load_mem(pdf_bytes).map_err(|e| XfaError::PdfParse(e.to_string()))?;
+    let mut fonts: Vec<EmbeddedFont> = Vec::new();
+    for (_, object) in doc.objects.iter() {
+        let Ok(dict) = object.as_dict() else {
+            continue;
+        };
+        let is_descriptor = dict
+            .get(b"Type")
+            .ok()
+            .and_then(|t| t.as_name().ok())
+            .is_some_and(|t| t == b"FontDescriptor");
+        if !is_descriptor {
+            continue;
+        }
+        let name = dict
+            .get(b"FontName")
+            .ok()
+            .and_then(|n| n.as_name().ok())
+            .map(|n| String::from_utf8_lossy(n).into_owned())
+            .unwrap_or_default();
+        let name = match name.split_once('+') {
+            Some((prefix, rest)) if prefix.len() == 6 && prefix.chars().all(|c| c.is_ascii_uppercase()) => {
+                rest.to_string()
+            }
+            _ => name,
+        };
+        let stream_of = |key: &[u8]| -> Option<lopdf::Stream> {
+            match dict.get(key).ok()? {
+                lopdf::Object::Reference(r) => doc.get_object(*r).ok()?.as_stream().ok().cloned(),
+                lopdf::Object::Stream(s) => Some(s.clone()),
+                _ => None,
+            }
+        };
+        let stream = if let Some(s) = stream_of(b"FontFile2") {
+            Some(s)
+        } else if let Some(s) = stream_of(b"FontFile3") {
+            let subtype = s
+                .dict
+                .get(b"Subtype")
+                .ok()
+                .and_then(|t| t.as_name().ok())
+                .map(|t| String::from_utf8_lossy(t).into_owned())
+                .unwrap_or_default();
+            if subtype == "OpenType" {
+                Some(s)
+            } else {
+                log::warn!("embedded font {name:?} is a {subtype} program, not an OpenType face; it is not used");
+                None
+            }
+        } else {
+            if dict.get(b"FontFile").is_ok() {
+                log::warn!("embedded font {name:?} is a Type 1 program; it is not used");
+            }
+            None
+        };
+        let Some(mut stream) = stream else {
+            continue;
+        };
+        let _ = stream.decompress();
+        if fonts.iter().any(|f| f.name == name) {
+            continue;
+        }
+        fonts.push(EmbeddedFont { name, data: stream.content.clone() });
+    }
+    Ok(fonts)
+}
+
 pub fn extract_xfa_from_pdf(path: impl AsRef<Path>) -> Result<Option<Vec<u8>>, XfaError> {
     extract_xfa_from_pdf_bytes(&std::fs::read(path)?)
+}
+
+#[cfg(test)]
+mod embedded_font_tests {
+    use super::*;
+    use lopdf::{Dictionary, Object, Stream, dictionary};
+
+    /// A PDF whose one font descriptor embeds DejaVu Sans as a subset
+    /// TrueType program (`FontFile2`), the way a producer writes it.
+    fn pdf_with_embedded(data: &[u8], key: &[u8], subtype: Option<&str>) -> Vec<u8> {
+        let mut doc = lopdf::Document::with_version("1.7");
+        let mut stream_dict = Dictionary::new();
+        if let Some(st) = subtype {
+            stream_dict.set("Subtype", Object::Name(st.as_bytes().to_vec()));
+        }
+        let file = doc.add_object(Stream::new(stream_dict, data.to_vec()));
+        let descriptor = doc.add_object(dictionary! {
+            "Type" => "FontDescriptor",
+            "FontName" => Object::Name(b"ABCDEF+DejaVuSans".to_vec()),
+            key => Object::Reference(file),
+        });
+        let font = doc.add_object(dictionary! {
+            "Type" => "Font",
+            "Subtype" => "TrueType",
+            "BaseFont" => Object::Name(b"ABCDEF+DejaVuSans".to_vec()),
+            "FontDescriptor" => Object::Reference(descriptor),
+        });
+        let pages = doc.add_object(dictionary! { "Type" => "Pages", "Kids" => Object::Array(vec![]), "Count" => 0 });
+        let catalog = doc.add_object(dictionary! { "Type" => "Catalog", "Pages" => Object::Reference(pages) });
+        doc.trailer.set("Root", Object::Reference(catalog));
+        let _ = font;
+        let mut out = Vec::new();
+        doc.save_to(&mut out).expect("save");
+        out
+    }
+
+    #[test]
+    fn a_truetype_font_file_is_extracted_without_its_subset_prefix() {
+        let data = std::fs::read(u2s_test_assets::fallback_font_dir().join("DejaVuSans.ttf")).expect("font");
+        let pdf = pdf_with_embedded(&data, b"FontFile2", None);
+        let fonts = extract_embedded_fonts(&pdf).expect("extract");
+        assert_eq!(fonts.len(), 1);
+        assert_eq!(fonts[0].name, "DejaVuSans");
+        assert_eq!(fonts[0].data.len(), data.len());
+    }
+
+    #[test]
+    fn a_cff_program_is_left_out_and_an_opentype_one_is_taken() {
+        let data = std::fs::read(u2s_test_assets::fallback_font_dir().join("DejaVuSans.ttf")).expect("font");
+        let cff = pdf_with_embedded(b"not a face", b"FontFile3", Some("Type1C"));
+        assert!(extract_embedded_fonts(&cff).expect("extract").is_empty());
+        let otf = pdf_with_embedded(&data, b"FontFile3", Some("OpenType"));
+        assert_eq!(extract_embedded_fonts(&otf).expect("extract").len(), 1);
+    }
 }

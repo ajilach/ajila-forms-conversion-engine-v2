@@ -212,6 +212,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             bind_ref,
             kind,
             attrs,
+            input,
         } => AemNodeTranslated::TextField {
             attrs: attrs.clone(),
             uuid: *uuid,
@@ -225,6 +226,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             dor_colspan: *dor_colspan,
             bind_ref: bind_ref.clone(),
             kind: *kind,
+            input: input.clone(),
         },
         AemNode::NumberField {
             uuid,
@@ -236,6 +238,9 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             dor_colspan,
             bind_ref,
             attrs,
+            lead_digits,
+            frac_digits,
+            input,
         } => AemNodeTranslated::NumberField {
             attrs: attrs.clone(),
             uuid: *uuid,
@@ -247,6 +252,9 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             colspan: *colspan,
             dor_colspan: *dor_colspan,
             bind_ref: bind_ref.clone(),
+            lead_digits: *lead_digits,
+            frac_digits: *frac_digits,
+            input: input.clone(),
         },
         AemNode::DatePicker {
             uuid,
@@ -258,6 +266,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             dor_colspan,
             bind_ref,
             attrs,
+            input,
         } => AemNodeTranslated::DatePicker {
             attrs: attrs.clone(),
             uuid: *uuid,
@@ -269,6 +278,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             colspan: *colspan,
             dor_colspan: *dor_colspan,
             bind_ref: bind_ref.clone(),
+            input: input.clone(),
         },
         AemNode::Dropdown {
             uuid,
@@ -282,6 +292,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             conditions,
             bind_ref,
             attrs,
+            input,
         } => AemNodeTranslated::Dropdown {
             attrs: attrs.clone(),
             uuid: *uuid,
@@ -295,6 +306,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             dor_colspan: *dor_colspan,
             conditions: conditions.clone(),
             bind_ref: bind_ref.clone(),
+            input: input.clone(),
         },
         AemNode::Checkbox {
             uuid,
@@ -308,6 +320,9 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             conditions,
             bind_ref,
             attrs,
+            mandatory,
+            input,
+            hide_title,
         } => AemNodeTranslated::Checkbox {
             attrs: attrs.clone(),
             uuid: *uuid,
@@ -321,6 +336,9 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             dor_colspan: *dor_colspan,
             conditions: conditions.clone(),
             bind_ref: bind_ref.clone(),
+            mandatory: *mandatory,
+            input: input.clone(),
+            hide_title: *hide_title,
         },
         AemNode::RadioButton {
             uuid,
@@ -335,6 +353,8 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             conditions,
             bind_ref,
             attrs,
+            hide_title,
+            input,
         } => AemNodeTranslated::RadioButton {
             attrs: attrs.clone(),
             uuid: *uuid,
@@ -349,6 +369,8 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             dor_colspan: *dor_colspan,
             conditions: conditions.clone(),
             bind_ref: bind_ref.clone(),
+            hide_title: *hide_title,
+            input: input.clone(),
         },
         AemNode::TextDraw {
             uuid,
@@ -459,11 +481,9 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             bind_ref,
             attrs,
             visible,
-            init_hide,
-            init_show,
+            init,
         } => AemNodeTranslated::Fragment {
-            init_hide: init_hide.clone(),
-            init_show: init_show.clone(),
+            init: init.clone(),
             attrs: attrs.clone(),
             visible: *visible,
             uuid: *uuid,

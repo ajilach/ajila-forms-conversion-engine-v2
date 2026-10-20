@@ -1,32 +1,30 @@
 //! Tool specifications and the `u2s.manifest` resource.
 //!
-//! Schemas are plain `serde_json::Value` rather than `schemars` derives. That
-//! decouples them from the rmcp and schemars versions entirely, and it keeps
-//! the tool descriptions — which are prompt surface, so a wording change is a
-//! behaviour change — visible in one file rather than scattered over derives.
+//! Each tool's input schema is generated from its argument type, which is
+//! also what its arguments parse into: the shared render arguments in
+//! [`u2s_render_core::args`] next to [`DocumentRef`]. Tool descriptions stay
+//! here; argument descriptions are the doc comments on those fields. Both are
+//! prompt surface, so a wording change is a behaviour change.
 
+use schemars::JsonSchema;
 use serde_json::{Value, json};
+use u2s_render_core::args::{
+    DocumentRef, InfoArgs, PageTextArgs, RenderPageArgs, RenderPagesArgs, RenderRegionArgs, SearchTextArgs,
+    ServerArgs,
+};
+use u2s_schema::tool_input_schema;
 
 pub const CONTRACT_VERSION: &str = "1.0.0";
 
-fn tool(name: &str, description: &str, properties: Value, required: Value) -> Value {
-    json!({
-        "name": name,
-        "description": description,
-        "input_schema": {
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }
-    })
+fn tool(name: &str, description: &str, input_schema: Value) -> Value {
+    json!({ "name": name, "description": description, "input_schema": input_schema })
 }
 
-fn doc_path_prop() -> Value {
-    json!({
-        "type": "string",
-        "description": "Absolute path to the PDF on the machine running this server, \
-                        normally inside U2S_BLOB_DIR."
-    })
+/// A pdf tool's arguments: the PDF it reads next to the tool's own.
+pub type PdfArgs<T> = ServerArgs<DocumentRef, T>;
+
+fn schema_of<T: JsonSchema>() -> Value {
+    tool_input_schema::<PdfArgs<T>>()
 }
 
 pub fn tool_specs() -> Vec<Value> {
@@ -37,8 +35,7 @@ pub fn tool_specs() -> Vec<Value> {
              Call this FIRST: when form_type is xfa_full or xfa_foreground the document \
              is an XFA form, and this server can only render its static \
              'please update your reader' shim page — route those to the XFA renderer instead.",
-            json!({ "doc_path": doc_path_prop() }),
-            json!(["doc_path"]),
+            schema_of::<InfoArgs>(),
         ),
         tool(
             "pdf_render_page",
@@ -46,14 +43,7 @@ pub fn tool_specs() -> Vec<Value> {
              enough, otherwise a blob handle the caller dereferences out of band. \
              dpi defaults to 144 and is clamped to 36..600; the long edge is clamped \
              to max_edge_px (default 2576) and the effective dpi is reported back.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "page": { "type": "integer", "minimum": 1, "description": "1-based page number." },
-                "dpi": { "type": "number", "description": "Target resolution; default 144." },
-                "format": { "type": "string", "enum": ["jpeg", "png"], "description": "Default jpeg." },
-                "max_edge_px": { "type": "integer", "description": "Long-edge clamp; default 2576." }
-            }),
-            json!(["doc_path", "page"]),
+            schema_of::<RenderPageArgs>(),
         ),
         tool(
             "pdf_render_pages",
@@ -62,53 +52,21 @@ pub fn tool_specs() -> Vec<Value> {
              binds first — an image count and a total byte budget — and reports which in \
              `budget_hit`, with `next_from` naming where to continue. Walk `next_from` \
              until it is null rather than asking for a whole document at once.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "pages": {
-                    "type": "array", "items": { "type": "integer", "minimum": 1 },
-                    "description": "Exact pages, in the order you want them."
-                },
-                "from": { "type": "integer", "minimum": 1, "description": "Window start; default 1." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Max images this call." },
-                "dpi": { "type": "number" },
-                "format": { "type": "string", "enum": ["jpeg", "png"] }
-            }),
-            json!(["doc_path"]),
+            schema_of::<RenderPagesArgs>(),
         ),
         tool(
             "pdf_render_region",
             "Render a rectangular region of one page at high resolution — the tool for \
              reading small print. The rect is in PDF points with the origin at the page's \
              TOP-LEFT. dpi defaults to 300.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "page": { "type": "integer", "minimum": 1 },
-                "rect_pt": {
-                    "type": "object",
-                    "description": "Region in points, origin top-left of the page.",
-                    "properties": {
-                        "x": { "type": "number" }, "y": { "type": "number" },
-                        "width": { "type": "number" }, "height": { "type": "number" }
-                    },
-                    "required": ["x", "y", "width", "height"]
-                },
-                "dpi": { "type": "number" },
-                "format": { "type": "string", "enum": ["jpeg", "png"] }
-            }),
-            json!(["doc_path", "page", "rect_pt"]),
+            schema_of::<RenderRegionArgs>(),
         ),
         tool(
             "pdf_page_text",
             "Extracted text of one page, windowed by character offset. Always reports \
              total_chars and truncated, so a caller can tell a partial read from a whole \
              one. Use this to quote exactly; use the render tools to see layout.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "page": { "type": "integer", "minimum": 1 },
-                "offset": { "type": "integer", "minimum": 0, "description": "Character offset; default 0." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Characters to return; default 4000." }
-            }),
-            json!(["doc_path", "page"]),
+            schema_of::<PageTextArgs>(),
         ),
         tool(
             "pdf_search_text",
@@ -123,14 +81,7 @@ pub fn tool_specs() -> Vec<Value> {
              THIS call scanned, and truncated says the match limit dropped entries — narrow \
              the query rather than raising limit. A query that could match the empty string \
              is refused, since it would report one hit per character.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "query": { "type": "string", "description": "Substring, or regex pattern when regex is true." },
-                "regex": { "type": "boolean", "description": "Treat query as a regex; default false. A literal is case-insensitive; a regex is not, so write (?i) if you want that." },
-                "from": { "type": "integer", "minimum": 1, "description": "First page to scan; default 1." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Max matches returned; default 50." }
-            }),
-            json!(["doc_path", "query"]),
+            schema_of::<SearchTextArgs>(),
         ),
     ]
 }

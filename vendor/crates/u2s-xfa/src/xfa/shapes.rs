@@ -6,7 +6,7 @@
 //! edge, into [`Shape`]; the geometry below is pure and works in device
 //! pixels, so the rasteriser only has to paint what it returns.
 
-use super::{Border, Corner, Edge, Fill, GradientDirection, JoinStyle, Num, XfaNode, XfaNodeKind, num};
+use super::{FillKind, PatternKind, Border, Corner, Edge, Fill, GradientDirection, JoinStyle, Num, XfaNode, XfaNodeKind, num};
 use rust_decimal::prelude::ToPrimitive;
 
 /// The default `thickness` of an `<edge>` (XFA 3.3 "The edge element").
@@ -234,6 +234,39 @@ fn run_start(centre: f32, t: f32) -> i32 {
 /// The pixels of a straight stroke `thickness` wide centred on the segment
 /// from `a` to `b`: one rectangle for a horizontal or vertical stroke, one
 /// square per step otherwise.
+/// The pixel rows inside a polygon (even-odd rule), one rect per row span:
+/// a scanline through each pixel row's center, its crossings with the
+/// polygon's edges paired up. Degenerate polygons (fewer than three points)
+/// fill nothing.
+pub fn polygon_fill(points: &[(f32, f32)]) -> Vec<PixelRect> {
+    let mut rects = Vec::new();
+    if points.len() < 3 {
+        return rects;
+    }
+    let top = points.iter().map(|p| p.1).fold(f32::INFINITY, f32::min).floor() as i32;
+    let bottom = points.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max).ceil() as i32;
+    for row in top..bottom {
+        let y = row as f32 + 0.5;
+        let mut crossings: Vec<f32> = Vec::new();
+        for i in 0..points.len() {
+            let (a, b) = (points[i], points[(i + 1) % points.len()]);
+            if (a.1 <= y) != (b.1 <= y) {
+                crossings.push(a.0 + (y - a.1) * (b.0 - a.0) / (b.1 - a.1));
+            }
+        }
+        crossings.sort_by(|p, q| p.partial_cmp(q).unwrap_or(std::cmp::Ordering::Equal));
+        for pair in crossings.chunks(2) {
+            if let [x0, x1] = pair {
+                let (x0, x1) = (x0.round() as i32, x1.round() as i32);
+                if x1 > x0 {
+                    rects.push(PixelRect { x: x0, y: row, w: x1 - x0, h: 1 });
+                }
+            }
+        }
+    }
+    rects
+}
+
 pub fn stroke_segment(a: (f32, f32), b: (f32, f32), thickness: f32) -> Vec<PixelRect> {
     let t = thickness.max(1.0);
     let side = t.round() as i32;
@@ -346,13 +379,19 @@ pub fn inside_ellipse(bx: PixelBox, circular: bool, px: f32, py: f32) -> bool {
 }
 
 /// The color of a `fill` at the pixel centre (`px`, `py`) of a fill box
-/// `bx`: its solid color, or for a `<linear>` fill the start color blended
-/// toward the end color across the box in the fill's direction. A fill with
-/// no `<color>` starts from white (XFA 3.3 "The fill element").
+/// `bx` (XFA 3.3 "The fill element" and its type elements): the start
+/// color, blended toward the end color across the box for a `<linear>` fill
+/// and outward from the centre for a `<radial>` one; the `<pattern>`'s
+/// stroke color on its hatching (strokes one pixel wide every
+/// [`PATTERN_INTERVAL_PX`] pixels, an application-defined interval); the
+/// `<stipple>`'s color on `rate` percent of the pixels, scattered by a
+/// fixed hash so the same box always stipples the same way. A fill with no
+/// `<color>` starts from white.
 pub fn fill_color_at(fill: &Fill, bx: PixelBox, px: f32, py: f32) -> (u8, u8, u8) {
     let start = fill.color.unwrap_or((255, 255, 255));
-    let Some(linear) = fill.linear else {
-        return start;
+    let mix = |end: (u8, u8, u8), t: f32| {
+        let m = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
+        (m(start.0, end.0), m(start.1, end.1), m(start.2, end.2))
     };
     let along = |pos: f32, origin: f32, extent: f32| {
         if extent <= 1.0 {
@@ -361,19 +400,110 @@ pub fn fill_color_at(fill: &Fill, bx: PixelBox, px: f32, py: f32) -> (u8, u8, u8
             ((pos - origin) / (extent - 1.0)).clamp(0.0, 1.0)
         }
     };
-    let t = match linear.direction {
-        GradientDirection::ToRight => along(px, bx.x, bx.w),
-        GradientDirection::ToLeft => 1.0 - along(px, bx.x, bx.w),
-        GradientDirection::ToBottom => along(py, bx.y, bx.h),
-        GradientDirection::ToTop => 1.0 - along(py, bx.y, bx.h),
-    };
-    let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round() as u8;
-    (
-        mix(start.0, linear.end.0),
-        mix(start.1, linear.end.1),
-        mix(start.2, linear.end.2),
-    )
+    match fill.kind {
+        FillKind::Solid => start,
+        FillKind::Linear(linear) => {
+            let t = match linear.direction {
+                GradientDirection::ToRight => along(px, bx.x, bx.w),
+                GradientDirection::ToLeft => 1.0 - along(px, bx.x, bx.w),
+                GradientDirection::ToBottom => along(py, bx.y, bx.h),
+                GradientDirection::ToTop => 1.0 - along(py, bx.y, bx.h),
+            };
+            mix(linear.end, t)
+        }
+        FillKind::Radial { end, to_center } => {
+            let (rx, ry) = ((bx.w / 2.0).max(0.5), (bx.h / 2.0).max(0.5));
+            let (dx, dy) = ((px - bx.x - rx) / rx, (py - bx.y - ry) / ry);
+            let t = (dx * dx + dy * dy).sqrt().clamp(0.0, 1.0);
+            mix(end, if to_center { 1.0 - t } else { t })
+        }
+        FillKind::Pattern { color, kind } => {
+            let (ox, oy) = ((px - bx.x).floor(), (py - bx.y).floor());
+            let on_line = |v: f32| v.rem_euclid(PATTERN_INTERVAL_PX) < 1.0;
+            let horizontal = on_line(oy);
+            let vertical = on_line(ox);
+            let down_right = on_line(ox - oy);
+            let up_right = on_line(ox + oy);
+            let on = match kind {
+                PatternKind::Horizontal => horizontal,
+                PatternKind::Vertical => vertical,
+                PatternKind::CrossHatch => horizontal || vertical,
+                PatternKind::DiagonalRight => up_right,
+                PatternKind::DiagonalLeft => down_right,
+                PatternKind::CrossDiagonal => up_right || down_right,
+            };
+            if on { color } else { start }
+        }
+        FillKind::Stipple { color, rate } => {
+            let (ix, iy) = ((px - bx.x) as i64, (py - bx.y) as i64);
+            // A small integer hash: uniform enough for a dither.
+            let h = (ix.wrapping_mul(73_856_093) ^ iy.wrapping_mul(19_349_663)).rem_euclid(100);
+            if (h as u8) < rate { color } else { start }
+        }
+    }
 }
+
+/// The interval of a `<pattern>` fill's strokes, in device pixels.
+pub const PATTERN_INTERVAL_PX: f32 = 6.0;
+
+/// The trim in pixels each of a border's corners takes off the ends of the
+/// edges it joins: its `radius`, "irrespective of whether the corner is
+/// round or square, inverted or not" (XFA 3.3 "The edge element"). Capped
+/// at half the box's shorter side.
+pub fn corner_trims(border: &Border, bx: PixelBox, scale: f32) -> [f32; 4] {
+    let cap = (bx.w.min(bx.h) / 2.0).max(0.0);
+    let mut trims = [0.0; 4];
+    for (i, trim) in trims.iter_mut().enumerate() {
+        if let Some(corner) = border.get_corner(i) {
+            *trim = (corner.radius.and_then(|r| r.to_f32()).unwrap_or(0.0) * scale).min(cap);
+        }
+    }
+    trims
+}
+
+/// The path a corner draws between the trimmed ends of its two edges, as a
+/// polyline in pixels, for the corner `index` (top-left, top-right,
+/// bottom-right, bottom-left) of the box `bx` whose edges are trimmed by
+/// `r` there (XFA 3.3 "The corner element"): a quarter circle for
+/// `join="round"`, bulging outward or, `inverted`, inward; two straight
+/// segments for `join="square"`, around the vertex or, inverted, notched
+/// into the box.
+pub fn corner_outline(bx: PixelBox, index: usize, r: f32, round: bool, inverted: bool) -> Vec<(f32, f32)> {
+    let (vx, vy) = match index {
+        0 => (bx.x, bx.y),
+        1 => (bx.x + bx.w, bx.y),
+        2 => (bx.x + bx.w, bx.y + bx.h),
+        _ => (bx.x, bx.y + bx.h),
+    };
+    // Unit steps from the vertex along the box's edges (horizontal, vertical).
+    let (sx, sy) = match index {
+        0 => (1.0, 1.0),
+        1 => (-1.0, 1.0),
+        2 => (-1.0, -1.0),
+        _ => (1.0, -1.0),
+    };
+    let on_horizontal = (vx + sx * r, vy);
+    let on_vertical = (vx, vy + sy * r);
+    if !round {
+        let middle = if inverted { (vx + sx * r, vy + sy * r) } else { (vx, vy) };
+        return vec![on_horizontal, middle, on_vertical];
+    }
+    let (circle, start) = if inverted {
+        // Centred on the vertex: the arc bows into the box.
+        let circle = PixelBox { x: vx - r, y: vy - r, w: 2.0 * r, h: 2.0 * r };
+        (circle, [270.0, 180.0, 90.0, 0.0][index.min(3)])
+    } else {
+        corner_arc(bx, index, r).0.pipe(|c| (c, [90.0, 0.0, 270.0, 180.0][index.min(3)]))
+    };
+    arc_points(circle, false, start, 90.0)
+}
+
+trait Pipe: Sized {
+    fn pipe<T>(self, f: impl FnOnce(Self) -> T) -> T {
+        f(self)
+    }
+}
+impl<T> Pipe for T {}
 
 /// The radius in pixels of each of a border's corners (top-left, top-right,
 /// bottom-right, bottom-left; fewer than four reuse the last) that is
@@ -592,7 +722,9 @@ mod tests {
         Fill {
             color: Some(color),
             presence: "visible".to_string(),
-            linear: linear.map(|(direction, end)| super::super::LinearGradient { direction, end }),
+            kind: linear
+                .map(|(direction, end)| FillKind::Linear(super::super::LinearGradient { direction, end }))
+                .unwrap_or_default(),
         }
     }
 
@@ -651,5 +783,24 @@ mod tests {
     fn thickness_is_at_least_one_pixel() {
         assert_eq!(thickness_px(Some(num(0.09)), 2.0), 1.0);
         assert_eq!(thickness_px(None, 4.0), 2.0);
+    }
+}
+
+#[cfg(test)]
+mod polygon_tests {
+    use super::*;
+
+    #[test]
+    fn a_square_fills_its_rows_and_a_diamond_narrows_towards_its_tips() {
+        let square = polygon_fill(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]);
+        assert_eq!(square.len(), 4);
+        assert!(square.iter().all(|r| r.x == 0 && r.w == 4 && r.h == 1));
+
+        let diamond = polygon_fill(&[(4.0, 0.0), (8.0, 4.0), (4.0, 8.0), (0.0, 4.0)]);
+        let widths: Vec<i32> = diamond.iter().map(|r| r.w).collect();
+        assert_eq!(widths.len(), 8);
+        assert!(widths[0] < widths[3] && widths[7] < widths[4], "{widths:?}");
+
+        assert!(polygon_fill(&[(0.0, 0.0), (1.0, 1.0)]).is_empty());
     }
 }

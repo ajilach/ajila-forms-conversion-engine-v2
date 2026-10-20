@@ -1,0 +1,1994 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.88965
+    ],
+    [
+      595.2756,
+      841.8899
+    ],
+    [
+      595.2756,
+      841.88965
+    ]
+  ],
+  "page_text": [
+    "Bitte immer die Bedingungen für Datenfernübertragung\nBankbeziehung\nnebst Anlage 1 – 3 CDOK 65714/66426 beilegen.\n0319\n00\nUBS Europe SE\nZugriffsberechtigungen im Rahmen der Nutzung von UBS KeyPort (EBICS)\nForm configurator\nPrivate Person\nFormular Adressat\nKundendaten 1\nKunde\nNachname\nVorname(n)\nStraße\nNr.\nPLZ\nStadt\nLand\nKunden-ID (durch UBS auszufüllen)\nErmächtigung\nDer Kunde wünscht hiermit, in Realisierung der «Vereinbarung zur Nutzung von UBS KeyPort (EBICS)», dass die nachfolgend benannten Teilnehmer mittels UBS KeyPort (EBICS) entsprechend der gewählten Berechtigung auf die bewirtschaftbaren Konten zugreifen können respektive als technischer und/oder administrativer Ansprechpartner gegenüber UBS gelten.\nTechnischer und administrativer Ansprechpartner\n1.\nFür die Kundenbetreuung muss der Kunde für die Realisierung der «Vereinbarung zur Nutzung von UBS KeyPort (EBICS)» nachfolgend einen technischen und administrativen Ansprechpartner definieren (z. B. für technischen Support und Serviceanfragen). UBS kann die angegebene E-Mail-Adresse verwenden, um unverschlüsselte elektronische Mitteilungen wie z. B. Informationen zu systembedingten Wartungsarbeiten oder Unterbrüchen zu versenden. Aus diesen Mitteilungen kann ersichtlich sein, dass der Kunde über bestimmte UBS-Produkte und -Dienstleistungen verfügt, wodurch Dritte wie Netz- und Dienstbetreiber allenfalls auf die Bankbeziehung schließen können. Der Kunde muss Änderungen dieses Ansprechpartners UBS stets unmittelbar mitteilen.\nNachname\nVorname(n)\nStraße\nNr.\nPLZ\nStadt\nLand\nGeburtsdatum\nNationalität\nSprache\nE-Mail\nTelefon-Nr.\n2.\nBenutzerunabhängige Datenübertragung (Corporate Seal)\n2\nJa\nNein\nEine benutzerunabhängige Direktanbindung an UBS KeyPort (EBICS) wird kundenseitig gewünscht.\n0101653630101001501202601056\n65363\nDE\nV0\n019\nAACR\n19.09.2025\nN1\n15.01.2026\nSeite 1/5",
+    "Bankbeziehung\n0319\n00\nEBICS-Zugriffsberechtigte\n3.\nNachfolgende Personen («Zugriffsberechtigte») sollen zur Abwicklung von Geschäftsvorfällen im Rahmen der folgenden Kontoberechtigungen unter Verwendung des zugewiesenen Zeichnungsrechts berechtigt sein. Sofern aus der nachfolgenden Berechtigung nicht etwas Anderes hervorgeht, ist der nachfolgend aufgeführte Zugriffsberechtigte für die Benutzung von UBS KeyPort (EBICS) analog zu dessen Ermächtigung gestützt auf die zugrundeliegende Vollmacht (z.B. «Rechtsverbindliche Unterschriften») berechtigt, falls eine solche Benutzung technisch machbar ist und angeboten wird. Eine Anpassung dieser Zugriffsberechtigten ist UBS durch den Kunden stets unmittelbar mitzuteilen.\nlndividuelle EBICS-Zugriffsberechtigte werden gewünscht\n2\nJa\nNein\nDie Listen der Zugriffsberechtigten sowie technischen und administrativen Ansprechpartner ergänzen allfällige bereits bestehende Listen im Rahmen der Nutzung von UBS KeyPort (EBICS); somit behalten die Einträge auf bereits bestehenden Listen ihre Gültigkeit solange sie nicht ausdrücklich schriftlich widerrufen werden.\nDies gilt insbesondere auch bei Änderungen der zugrundeliegenden Vollmacht (z.B. «Rechtsverbindliche Unterschriften»).\nUnterschrift(en)\nKunde\nOrt\nDatum\nUnterschrift des Kunden\nName des Kunden\nUBS Europe SE\nOrt\nDatum\nUnterschrift UBS Europe SE\nName der verantwortlichen Person\nOrt\nDatum\nUnterschrift UBS Europe SE\nName der verantwortlichen Person\n1 Die Einzahl umfasst auch die Mehrzahl, die männliche Form auch die weibliche\n2 Gemäß «Erläuterungen zu Zeichnungsrechten und Auftragsarten im Rahmen der Nutzung von UBS KeyPort (EBICS)»\n3 Umfasst auch die Auftragsart AS gemäß «Erläuterung zu Zeichnungsrechten und Auftragsarten im Rahmen der Nutzung von UBS KeyPort (EBICS)\n4 Gemäß «Besondere Bestimmungen zur Nutzung der Dienstleistung UBS KeyPort Mobile»\n0101653630101001501202605054\n65363\nDE\nV0\n019\nAACR\n19.09.2025\nN1\n15.01.2026\nSeite 5/5",
+    "Erläuterung zu Zeichnungsrechten und Auftragsarten\nim Rahmen der Nutzung von UBS KeyPort (EBICS)\nA.\nZeichnungsrechte\nFür die elektronischen Unterschriften («EU») der Teilnehmer bestehen folgende Zeichnungsrechte:\n–\nT = Transportunterschrift (Zeichnungsrecht Typ T)\n–\nE = Einzelunterschrift\n–\nA = Kollektivunterschrift allgemein (nur in Verbindung mit E, A oder B)\n–\nB = Kollektivunterschrift (nur in Verbindung mit A oder E)\nDie bankfachlichen elektronischen Unterschriften (Typ E, A und B) dienen der Autorisierung von Aufträgen. Aufträge können mehrere bankfachliche elektronische Unterschriften benötigen, die von unterschiedlichen Teilnehmern (Kontoinhaber und deren Bevollmächtigte) geleistet werden müssen. Elektronische Unterschriften vom Typ T werden nicht zur bankfachlichen Freigabe von Aufträgen, sondern lediglich zu deren Übertragung an das Banksystem verwendet.\nB.\nReportingeinstellung\nAllfällig schon definierte Reportingeinstellungen werden für die Nutzung von UBS KeyPort (EBICS) übernommen. Bei neuen Konten kommen die standardmäßigen Einstellungen für Auszüge zur Anwendung.\nC.\nAuftragsarten\nCT\nAuftragsarten und BTF Codes für Überweisungen\nElectronic Banking mit EBICS\nAuftragsart\nBTF Parameter\nEBICS V2.5\nEBICS V3.0\nGeschäftsvorfall\nCCT\nSCT/VOO/pain.001\nSEPA-Überweisung Opt-Out\nCIP 2\nSCI/VOO/pain.001\nSEPA-Echtzeit-Überweisung Opt-Out\nCTV\nSCT/VOI/pain.001\nSEPA-Überweisung Opt-In\nCIV 2\nSCI/VOI/pain.001\nSEPA-Echtzeit-Überweisung Opt-In\nCCX\nSCT/DE/OCCX/pain.001/SCV\nSEPA-Überweisung Container (SRZ) Opt-Out\nVCX1\nSCT/DE/OVCX/pain.001/SVC\nSEPA-Echtzeit-Überweisung Container (SRZ) Opt-In\nCIX 1\nSCI/DE/OCIX/pain.001/SCV\nSEPA-Echtzeit-Überweisung Container (SRZ) Opt-Out\nVIX\nSCI/DE/OVIX/pain.001/SVC\nSEPA-Echtzeit-Überweisung Container (SRZ) Opt-In\nCCU\nXCT/DE/URG/pain.001\nTaggleiche Eilüberweisung in Euro\nAXZ2\nXCT/DE/pain.001\nAuslandsüberweisung im XML Format ersetzt Auftragsart RFT ab Nov.2026\nRFT\nRFT/MT101\nRequest for Transfer (pain.001/Relay)\nXCU/XC2/XC3 3\nISO 20022 Credit transfer V1.1.2/1.1.3/1.1.9\nInternationale Zahlungen\n1 Nur optional\n2 Nur im Format pain.001.001.09 möglich\n3 Nur nach Rücksprache mit Ihrem Kundenberater\nDD\nAuftragsarten und BTF Codes für Lastschriften\nElectronic Banking mit EBICS\nAuftragsart\nBTF Parameter\nEBICS V2.5\nEBICS V3.0\nGeschäftsvorfall\nCDD\nSDD/COR/pain.008\nSEPA-Lastschrift (Basis)\nCDB\nSDD/B2B/pain.008\nSEPA-Lastschrift (B2B)\nCDX\nSDD/DE/OCDX/pain.008/SVC\nSEPA-Lastschrift (Basis, SVC, VEU intern) SRZ\nC2X\nSDD/DE/OC2X/pain.008/SVC\nSEPA-Lastschrift (B2B, SVC, VEU intern) SRZ\n0101665300101001501202603055\n66530\nDE\nV0\n019\nAACR\n19.09.2025\nN1\n15.01.2026\nSeite 3/5",
+    "KR\nKundenreport; umfasst zum Zeitpunkt der Vertragsunterzeichnung die EBICS Auftragsarten:\nlntraday-Kontoauszug\nC52\n–\nEnd-of-Day-Kontoauszug (DK)\nC53\n–\nGutschrifts- und Belastungsanzeige (DK)\nC54\n–\nEnd-of-Day-Kontoauszug in SWIFT-Format MT940\nSTA\n–\nlntraday-Kontoauszug in SWIFT-Format MT942\nVMK\n–\nUBS interne Dokumente als E-Doc\nZDF\n–\nAS\nAuftragsstatus; dieses Recht wird bei Zuteilung von CT und oder DD automatisch zugeteilt, damit die Statusmeldungen für übermittelte Transaktionen zugestellt werden können; umfasst zum Zeitpunkt der Vertragsunterzeichnung die EBICS Auftragsarten:\nPayment Status Report für Credit Transfer (DK)\nCRZ\n–\nPayment Status Report für Direct Debit (DK)\nCDZ\n–\nKundenprotokoll\nPTK\n–\nKundenprotokoll im XML-Format\nHAC\n–\nZusätzliche zukünftig eingeführte oder geänderte EBICS-Auftragsarten bzw. -Parameter werden durch UBS eigenständig den oben definierten Auftragsarten zugeordnet.\n0101665300101001501202604052\n66530\nDE\nV0\n019\nAACR\n19.09.2025\nN1\n15.01.2026\nSeite 4/5",
+    "Besondere Bestimmungen zur Nutzung der Dienstleistung \nUBS KeyPort Mobile\nMit diesen Besonderen Bestimmungen werden zwischen dem Kunden (Kontoinhaber), der kein Verbraucher ist (nachfolgend «Kunde») und UBS die Modalitäten der Nutzung der Dienstleistung UBS KeyPort Mobile geregelt. Diese «Besonderen Bestimmungen zur Nutzung der Dienstleistung UBS KeyPort Mobile» bilden einen integralen Bestandteil der Vereinbarung für die Benutzung von UBS Key Port (insbesondere der «Basisbestimmungen für UBS KeyPort (EBICS)»). Bei allfälligem Widerspruch gehen für die Dienstleistung UBS KeyPort Mobile diese besonderen Bestimmungen vor.\nDie Dienstleistung UBS KeyPort Mobile erlaubt es den Teilnehmern mittels der UBS KeyPort Mobile App Zahlungsaufträge zu Lasten der bewirtschaftbaren Konten sowie Lastschriften zu erteilen oder Kontoinformationen abzurufen. Dazu muss die UBS KeyPort Mobile App (gegebenenfalls von einem Drittanbieter) heruntergeladen und auf einem Endgerät installiert werden. Die Teilnehmer müssen sich unter Verwendung der ihnen zur Verfügung gestellten persönlichen Legitimationsmittel anmelden.\n1.\nDie Nutzung der Dienstleistung UBS KeyPort Mobile ist u.a. aufgrund des Downloads, der Installation und/oder der Verwendung der UBS KeyPort Mobile App und damit verbundenen Bezugspunkten zu Dritten (z.B. Apple, Netzbetreiber, Gerätehersteller) mit Risiken verbunden, insbesondere:\n2.\nOffenlegung der Bankbeziehung sowie von Bankkunden informationen gegenüber Dritten (z.B. bei Verlust des Endgeräts oder durch Speicherung von Informationen zum Download oder der Nutzung der UBS KeyPort Mobile App durch Apple Inc. und dadurch gegebenenfalls Zugriff ausländischer (insbesondere US) Behörden auf diese Informationen), wodurch das Bankgeheimnis insoweit nicht mehr sichergestellt werden kann;\n–\nSystemunterbrüche und andere Übermittlungsstörungen, die Verzögerungen, Verstümmelungen, Fehlleitungen oder Löschungen von Informationen verursachen können;\n–\nMissbrauch mit Schädigungsfolge durch das Abfangen von Informationen durch Dritte;\n–\nAbfrage der Informationen bei Verlust des Endgeräts.\n–\nZudem nimmt der Kunde zur Kenntnis, dass die von UBS bereitgestellten Informationen als vorläufig und unverbindlich gelten und sich die Anzeige der Informationen in der UBS KeyPort Mobile App von der Anzeige in anderen UBS KeyPort Services z.B. UBS KeyPort Web unterscheiden kann.\nFür die Nutzung der Dienstleistung UBS KeyPort Mobile gewährt UBS dem Teilnehmer das nicht ausschließliche nicht übertragbare, unentgeltliche Recht, die UBS KeyPort Mobile App (gegebenenfalls von einer autorisierten Drittpartei) herunterzuladen, auf einem für den eigenen privaten Gebrauch auf einem in ihrem Eigentum befindlichen Endgerät zu installieren und im Rahmen der Dienstleistung UBS KeyPort Mobile zu nutzen.\n3.\nDie UBS KeyPort Mobile App kann Software enthalten, die von Dritten lizenziert wurde. Der Kunde und die Teilnehmer anerkennen und akzeptieren die Rechte von UBS sowie gegebenenfalls von Dritten an der UBS KeyPort Mobile App.\nUBS übernimmt keine Gewähr für die Funktion und den Betrieb der UBS KeyPort Mobile App. UBS hat insbesondere keine Pflicht die UBS KeyPort Mobile App zu aktualisieren, anderweitig zu verbessern, zu erweitern oder zu unterstützen. UBS behält sich das Recht vor, die UBS KeyPort Mobile App jederzeit und ohne Vorankündigung vom Endgerät zu löschen oder löschen zu lassen.\nUBS übernimmt weiter keine Gewähr, dass die UBS KeyPort Mobile App auf dem Endgerät des Teilnehmers und mit dem entsprechenden Netzbetreiber fehlerfrei funktioniert.\nDie EBICS-Schlüssel werden nach erfolgter Initialisierung in der UBS KeyPort Mobile App auf dem Endgerät gespeichert. Mit der Nutzung der UBS KeyPort Mobile App durch die Teilnehmer akzeptiert der Kunde, dass diese Speicherung auf sein eigenes Risiko erfolgt.\n4.\nDer Kunde kennt und akzeptiert die Risiken im Zusammenhang mit der Dienstleistung UBS KeyPort Mobile, namentlich auch das Risiko der Offenlegung der Bankbeziehung und der Bankkundeninformationen gegenüber Dritten (vgl. Ziffer 2), und entbindet UBS von jeglicher Haftung, soweit dies das Gesetz erlaubt, für Schäden aus der Nutzung der Dienstleistung UBS KeyPort Mobile sowie auch dem Download, der Installation und/oder der Verwendung der UBS KeyPort Mobile App (z.B. bei Verlust des Endgerätes).\n5.\nUBS schließt zudem jede Gewährleistung oder Haftung für Aktualität, Richtigkeit und Vollständigkeit der auf dem Endgerät angezeigten Informationen aus.\nUBS ist berechtigt, den Umfang dieser Dienstleistung jederzeit ohne vorgängige Anzeige zu ändern oder diese ganz einzustellen.\n6.\nDie Dienstleistung UBS KeyPort Mobile erbringt UBS kostenlos, behält sich jedoch vor, für diese Dienstleistung später möglicherweise eine Entschädigung/Gebühr einzuführen.\n7.\nFür den Datentransfer über das Internet (inkl. Roaming) gelten die Gebühren gemäß dem Vertrag mit dem jeweiligen Netzbetreiber.\nDer Kunde und die Teilnehmer ermächtigen UBS, sämtliche im Zusammenhang mit der Nutzung der UBS KeyPort Mobile App bearbeiteten Informationen (z.B. Personendaten, Geodaten, Geräteinformationen) im Rahmen und zum Zweck der Erbringung der Dienstleistung UBS KeyPort Mobile innerhalb UBS zu verwenden. UBS räumt den Teilnehmern die Möglichkeit ein, diese Ermächtigung zu widerrufen.\n8.\n0101665310101001501202605056\n66531\nDE\nV0\n019\nAACR\n19.09.2025\nN1\n15.01.2026\nSeite 5/5"
+  ],
+  "raster": [
+    "648ee57ee193d8fb",
+    "4564ee46ffea550e",
+    "20af777b69b01c8a",
+    "72d2d17410935f5b",
+    "fe226e9559356395"
+  ],
+  "controls": {
+    "UBSForms_65363.MPs.MPs.MP.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          428.30002,
+          37.4,
+          117.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs.MP.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          428.30002,
+          37.4,
+          117.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs.MP_Last.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ],
+        [
+          4.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ],
+        [
+          4.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ],
+        [
+          4.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ],
+        [
+          4.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          4.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          4.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ],
+        [
+          4.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ],
+        [
+          4.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ],
+        [
+          4.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ],
+        [
+          4.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66530.MP_66530.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          3.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ],
+        [
+          4.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.MPs.MPs_66531.MP_66531.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          5.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          493.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          493.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Authorization.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Authorization.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          109.1,
+          550.2,
+          181.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          550.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          550.2,
+          56.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Authorization.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Authorization.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Authorization.STP_DOB_Nationality.DateOfBirth.TF_DateOfBirth": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          579.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.STP_DOB_Nationality.DateOfBirth.ffDateOfBirth": {
+      "value": "Geburtsdatum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Authorization.STP_DOB_Nationality.Nationality": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          579.60004,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.STP_Sprache_Email.EMail": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          608.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.STP_Sprache_Email.Sprache": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          608.7,
+          85.0,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.STP_Telefon.Telefon": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          635.9,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          521.0,
+          345.80002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          398.2,
+          521.0,
+          147.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Authorization.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Authorization.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_Benutzerunabhangige.RB_Group_EBICS.RB_No": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_Benutzerunabhangige.RB_Group_EBICS.RB_Yes": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_RB_Auftragsarten.CB_CT": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_RB_Auftragsarten.CB_DD": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_RB_Auftragsarten.CB_KR": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_RB_Zeichnungs.RB_Group_Zeichnungs.RB_Einzelunterschrift": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_RB_Zeichnungs.RB_Group_Zeichnungs.RB_Transportunterschrift": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Benutzerunabhangige.STP_Zugriffsberechtigen_ID.Zugriffsberechtigen_ID": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Authorize_Rep.Authorize_Rep_DYN.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Authorize_Rep.Authorize_Rep_DYN.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Authorize_Rep.Authorize_Rep_DYN.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Authorize_Rep.Authorize_Rep_DYN.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Authorize_Rep.Authorize_Rep_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Authorize_Rep.Authorize_Rep_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Authorize_Rep.Authorize_Rep_Title.ffAuthorizedRep": {
+      "value": "Vertretungsberechtigte(r)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.ClientID.ClientID": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          330.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          244.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          244.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          109.1,
+          300.7,
+          181.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          300.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          300.7,
+          56.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          229.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          229.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.STP_Subtitle.ffClient": {
+      "value": "Kunde",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.STP_Subtitle.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          271.5,
+          345.80002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          398.2,
+          271.5,
+          147.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Client_Details_DYN.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.ClientID.ClientID": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.Company": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.PostalCode_City_Country.ffCity": {
+      "value": "Stadt",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.PostalCode_City_Country.ffCountry": {
+      "value": "Land",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.PostalCode_City_Country.ffPostalCode": {
+      "value": "PLZ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.Street_StreetNumber.ffStreet": {
+      "value": "Straße",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.Street_StreetNumber.ffStreetNumber": {
+      "value": "Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.Company.ffCompany": {
+      "value": "Firma",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Client_Details.SectionTitle.ffClientDetails": {
+      "value": "Kundendaten",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Data_Transmission_1.RB_Group_Data.RB_No": {
+      "value": "2",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          454.1,
+          673.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Data_Transmission_1.RB_Group_Data.RB_Yes": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          673.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Data_Transmission_2.AccessRights_AuthorizationID": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Order_Types.CB_Order_Types_CT": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Order_Types.CB_Order_Types_DD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Order_Types.CB_Order_Types_KR": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Subscription.RB_Group_Signatures.RB_Individual_Signature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Data_Transmission.Data_Transmission_ctrl.STP_Subscription.RB_Group_Signatures.RB_Transport_Signature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.FamilyName_FirstName.ffFamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.FamilyName_FirstName.ffFirstName_s": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.CB_CT": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.CB_DD": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.CB_KR": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.DD_Status": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.DD_Zeichnungsrecht": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.Konto_IBAN": {
+      "value": "Alle Konten",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.Limite_Pro_Transaktion": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.Wahrung": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_Kontoberechtigung.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.Kontoberechtigung_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_Email_Telefon.EMail_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_Email_Telefon.Telefon_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_RB_Zugriffsberechtigter.Mobiltelefon": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_RB_Zugriffsberechtigter.RB_Corporate": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_RB_Zugriffsberechtigter.RB_Erfassung": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_RB_Zugriffsberechtigter.RB_Mobile_Zugang": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_RB_Zugriffsberechtigter.RB_Web_Zugang": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_Sprache.Sprache_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.STP_Sprache.Zugriffsberechtigen_ID_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.EBICS_Zugriffsberechtigte.DYN_Zugriffsberechtigter.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.FormConfigurator_ClientType.ClientType.CL_ClientType": {
+      "value": "Private Person",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          168.40001,
+          240.90001,
+          12.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.FormConfigurator_ClientType.ClientType.ffDesClientType": {
+      "value": "Formular Adressat",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.FamilyName_FirstName.TF_FamilyName": {
+      "value": " ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.FamilyName_FirstName.TF_FirstName": {
+      "value": " ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.CB_CT": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.CB_DD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.CB_KR": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.DD_Status": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.DD_Zeichnungsrecht": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.Konto_IBAN": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.Limite_Pro_Transaktion": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_Kontoberechtigung.Wahrung": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.Kontoberechtigung_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_AuthUser.Zugriffsberechtigen_ID_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_Email_Telefon.EMail_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_Email_Telefon.Telefon_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_RB_Zugriffsberechtigter.CB_Corporate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_RB_Zugriffsberechtigter.CB_Erfassung": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_RB_Zugriffsberechtigter.CB_Mobile_Zugang": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_RB_Zugriffsberechtigter.CB_Web_Zugang": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_RB_Zugriffsberechtigter.Mobiltelefon": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_Sprache.DateOfBirth.TF_DateOfBirth": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_Sprache.DateOfBirth.ffDateOfBirth": {
+      "value": "Geburtsdatum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.STP_Sprache.Sprache_Z": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.DYN_Authorised_User.ffIndex": {
+      "value": " ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Individual_Authorized.STP_PrintOnly.RB_Group_Individual.RB_No": {
+      "value": "2",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          311.5,
+          220.1,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Individual_Authorized.STP_PrintOnly.RB_Group_Individual.RB_Yes": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          275.6,
+          220.1,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Kunde.DYN_AuthReps.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.DYN_AuthReps.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.DYN_AuthReps.FamilyName_FirstName.ffFamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.DYN_AuthReps.FamilyName_FirstName.ffFirstName_s": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.DYN_AuthReps.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.DYN_AuthReps.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.STP_Firma.Firma": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.STP_Kunden_ID.Kunden_ID": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Kunde.STP_Vertretungsberechtigte.ffAuthRep": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          383.9,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          355.5,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          355.5,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.ffDesFullName": {
+      "value": "Name des Kunden",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.ffDesSignature": {
+      "value": "Unterschrift des Kunden",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.DYN_Signature.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.FullName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.ffDesFullName": {
+      "value": "Name des Kunden",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.ffDesSignature": {
+      "value": "Unterschrift des Kunden",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Minor.DYN_Signature_Minor.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.SectionTitle.ffSignature_s": {
+      "value": "Unterschrift(en)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          476.30002,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          448.0,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          448.0,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature.ffDesFullName": {
+      "value": "Name der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature.ffDesSignature": {
+      "value": "Unterschrift UBS Europe SE",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          552.3,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          524.0,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          524.0,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.ffDesFullName": {
+      "value": "Name der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.ffDesSignature": {
+      "value": "Unterschrift UBS Europe SE",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Signature.Signature_UBS.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Technischer_Und_Administrativer.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Technischer_Und_Administrativer.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Technischer_Und_Administrativer.FamilyName_FirstName.ffFamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Technischer_Und_Administrativer.FamilyName_FirstName.ffFirstName_s": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Technischer_Und_Administrativer.STP_Email_Telefon.EMail": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Technischer_Und_Administrativer.STP_Email_Telefon.Telefon": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_65363.Page.Technischer_Und_Administrativer.STP_Sprache.Sprache": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

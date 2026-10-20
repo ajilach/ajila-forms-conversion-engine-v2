@@ -21,14 +21,19 @@ use std::sync::Arc;
 
 use base64::Engine as _;
 use base64::engine::general_purpose::STANDARD as B64;
+use rmcp::ErrorData as McpError;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::*;
 use rmcp::service::{RequestContext, RoleServer};
-use rmcp::ErrorData as McpError;
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use u2s_render_pdf::{
-    BlobStore, ImageFormat, Limits, Pattern, RectPt, RenderError, RenderedPage, Renderer,
+use u2s_render_core::args::{
+    InfoArgs, PageTextArgs, RenderPageArgs, RenderPagesArgs, RenderRegionArgs, SearchTextArgs,
+    parse_args,
 };
+
+use crate::specs::PdfArgs;
+use u2s_render_pdf::{BlobStore, Limits, RenderError, RenderedPage, Renderer};
 
 const MANIFEST_URI: &str = "u2s://manifest";
 
@@ -41,7 +46,7 @@ pub struct PdfRenderServer {
 
 impl PdfRenderServer {
     pub fn new() -> Result<Self, RenderError> {
-        Self::with_parts(Limits::from_env(), BlobStore::from_env())
+        Self::with_parts(Limits::from_env(), BlobStore::from_env()?)
     }
 
     /// [`Self::new`] for in-process hosts: limits and blob store come from the
@@ -81,7 +86,6 @@ impl PdfRenderServer {
             meta["inline"] = json!(false);
             meta["blob"] = json!({
                 "handle": blob.handle,
-                "path": blob.path.display().to_string(),
                 "media_type": blob.media_type,
                 "byte_len": blob.byte_len,
                 "digest": blob.digest,
@@ -94,10 +98,18 @@ impl PdfRenderServer {
         }
     }
 
+    /// A call's arguments as `PdfArgs<T>`: the path of the PDF it names,
+    /// and the tool's own arguments.
+    fn parse<T: DeserializeOwned>(&self, args: &Value) -> Result<(String, T), RenderError> {
+        let PdfArgs { document, args } = parse_args::<PdfArgs<T>>(args)?;
+        let path = document.into_document()?.path(&self.blobs)?;
+        Ok((path, args))
+    }
+
     pub fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
-        let path = arg_str(args, "doc_path")?;
         match name {
             "pdf_info" => {
+                let (path, InfoArgs {}) = self.parse(args)?;
                 let info = self.renderer.info(&path)?;
                 let mut value = serde_json::to_value(&info)
                     .map_err(|e| RenderError::backend("server", format!("serialize info: {e}")))?;
@@ -112,12 +124,13 @@ impl PdfRenderServer {
             }
 
             "pdf_render_page" => {
+                let (path, a): (_, RenderPageArgs) = self.parse(args)?;
                 let (page, warning) = self.renderer.render_page(
                     &path,
-                    arg_u32(args, "page")?,
-                    arg_f32(args, "dpi"),
-                    arg_u32_opt(args, "max_edge_px"),
-                    ImageFormat::parse(args.get("format").and_then(Value::as_str))?,
+                    a.page,
+                    a.dpi,
+                    a.max_edge_px,
+                    a.format.unwrap_or_default(),
                 )?;
                 let (content, mut meta) = self.page_content(&page)?;
                 if let Some(w) = warning {
@@ -127,22 +140,15 @@ impl PdfRenderServer {
             }
 
             "pdf_render_pages" => {
-                let pages = args.get("pages").and_then(Value::as_array).map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_u64())
-                        .map(|v| v as u32)
-                        .collect::<Vec<_>>()
-                });
+                let (path, a): (_, RenderPagesArgs) = self.parse(args)?;
                 let batch = self.renderer.render_pages(
                     &path,
-                    pages,
-                    arg_u32_opt(args, "from"),
-                    args.get("limit")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                    arg_f32(args, "dpi"),
-                    arg_u32_opt(args, "max_edge_px"),
-                    ImageFormat::parse(args.get("format").and_then(Value::as_str))?,
+                    a.pages,
+                    a.from,
+                    a.limit,
+                    a.dpi,
+                    a.max_edge_px,
+                    a.format.unwrap_or_default(),
                 )?;
 
                 let mut blocks = Vec::new();
@@ -165,55 +171,29 @@ impl PdfRenderServer {
             }
 
             "pdf_render_region" => {
-                let rect = args.get("rect_pt").ok_or_else(|| {
-                    RenderError::backend("server", "missing required argument rect_pt")
-                })?;
-                let rect = RectPt {
-                    x: arg_f32(rect, "x").unwrap_or(0.0),
-                    y: arg_f32(rect, "y").unwrap_or(0.0),
-                    width: arg_f32(rect, "width").ok_or_else(|| {
-                        RenderError::backend("server", "rect_pt.width is required")
-                    })?,
-                    height: arg_f32(rect, "height").ok_or_else(|| {
-                        RenderError::backend("server", "rect_pt.height is required")
-                    })?,
-                };
+                let (path, a): (_, RenderRegionArgs) = self.parse(args)?;
                 let page = self.renderer.render_region(
                     &path,
-                    arg_u32(args, "page")?,
-                    rect,
-                    arg_f32(args, "dpi"),
-                    ImageFormat::parse(args.get("format").and_then(Value::as_str))?,
+                    a.page,
+                    a.rect_pt,
+                    a.dpi,
+                    a.format.unwrap_or_default(),
                 )?;
                 let (content, meta) = self.page_content(&page)?;
                 Ok(with_structured(CallToolResult::success(content), meta))
             }
 
             "pdf_page_text" => {
-                let text = self.renderer.page_text(
-                    &path,
-                    arg_u32(args, "page")?,
-                    args.get("offset")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                    args.get("limit")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                )?;
+                let (path, a): (_, PageTextArgs) = self.parse(args)?;
+                let text = self.renderer.page_text(&path, a.page, a.offset, a.limit)?;
                 let value = serde_json::to_value(&text)
                     .map_err(|e| RenderError::backend("server", format!("serialize text: {e}")))?;
                 Ok(CallToolResult::structured(value))
             }
 
             "pdf_search_text" => {
-                let search = self.renderer.search_text(
-                    &path,
-                    arg_u32_opt(args, "from"),
-                    pattern_of(args)?,
-                    args.get("limit")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                )?;
+                let (path, a): (_, SearchTextArgs) = self.parse(args)?;
+                let search = self.renderer.search_text(&path, a.from, a.pattern()?, a.limit)?;
                 let value = serde_json::to_value(&search).map_err(|e| {
                     RenderError::backend("server", format!("serialize search: {e}"))
                 })?;
@@ -234,37 +214,6 @@ impl PdfRenderServer {
 fn with_structured(mut result: CallToolResult, value: Value) -> CallToolResult {
     result.structured_content = Some(value);
     result
-}
-
-/// Compile the caller's query once, here at the edge, so nothing downstream
-/// can hold an invalid pattern. A bad regex is the caller's fault, so it is
-/// reported as a bad argument rather than as a pdfium failure.
-fn pattern_of(args: &Value) -> Result<Pattern, RenderError> {
-    let query = arg_str(args, "query")?;
-    let regex = args.get("regex").and_then(Value::as_bool).unwrap_or(false);
-    Pattern::parse(&query, regex).map_err(|detail| RenderError::invalid_argument("query", detail))
-}
-
-fn arg_str(args: &Value, key: &str) -> Result<String, RenderError> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| RenderError::backend("server", format!("missing required argument {key}")))
-}
-
-fn arg_u32(args: &Value, key: &str) -> Result<u32, RenderError> {
-    args.get(key)
-        .and_then(Value::as_u64)
-        .map(|v| v as u32)
-        .ok_or_else(|| RenderError::backend("server", format!("missing required argument {key}")))
-}
-
-fn arg_u32_opt(args: &Value, key: &str) -> Option<u32> {
-    args.get(key).and_then(Value::as_u64).map(|v| v as u32)
-}
-
-fn arg_f32(args: &Value, key: &str) -> Option<f32> {
-    args.get(key).and_then(Value::as_f64).map(|v| v as f32)
 }
 
 fn to_mcp_tool(spec: &Value) -> Option<Tool> {

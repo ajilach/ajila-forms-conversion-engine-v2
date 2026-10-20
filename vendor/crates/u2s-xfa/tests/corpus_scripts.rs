@@ -9,6 +9,7 @@
 
 use std::collections::BTreeMap;
 
+use u2s_xfa::xfa::script_executor::LayoutScripts;
 use u2s_xfa::xfa::scripting::{ScriptReport, XfaForm};
 use u2s_xfa::{XfaNode, fonts};
 
@@ -29,13 +30,20 @@ pub fn corpus_nodes(form: &str) -> Vec<XfaNode> {
 /// A corpus form opened as a session opens it, and everything its scripts
 /// reported while it did.
 pub fn opened(form: &str) -> (XfaForm, ScriptReport) {
-    fonts::register_dir_once(u2s_test_assets::font_dir(), None).expect("register the test fonts");
-    let (mut opened, layout) = XfaForm::new_with_layout(corpus_nodes(form)).expect("form");
-    if let Some(mut layout) = layout {
-        opened.refresh_paged(&mut layout).expect("refresh");
-    }
+    let (mut opened, _) = opened_with_layout(form);
     let report = opened.take_script_report();
     (opened, report)
+}
+
+/// As [`opened`], keeping the master-page scripts for further
+/// `refresh_paged` calls after interactions.
+pub fn opened_with_layout(form: &str) -> (XfaForm, Option<LayoutScripts>) {
+    fonts::register_dir_once(u2s_test_assets::font_dir(), None).expect("register the test fonts");
+    let (mut opened, mut layout) = XfaForm::new_with_layout(corpus_nodes(form)).expect("form");
+    if let Some(layout) = layout.as_mut() {
+        opened.refresh_paged(layout).expect("refresh");
+    }
+    (opened, layout)
 }
 
 #[test]
@@ -136,7 +144,8 @@ fn aagz_hides_its_provision_section_on_a_blank_form() {
 
 /// ACAV_001_DE numbers its pages with a FormCalc calculate on the master
 /// page, `$ = $.parent.index + 1` (the invisible `MyPresentPageCount`),
-/// which the footer's `PageNumbering` reads.
+/// which the footer's `PageNumbering` reads, prefixed by the word its
+/// language draw (`txtlanguage`, "D") selects: "Seite ".
 #[test]
 fn acav_numbers_its_pages() {
     fonts::register_dir_once(u2s_test_assets::font_dir(), None).expect("register the test fonts");
@@ -153,8 +162,98 @@ fn acav_numbers_its_pages() {
     numbers.sort();
     let count = flat.page.page_count as usize;
     let expected: Vec<(usize, String)> =
-        (0..count).map(|p| (p, format!("{}/{count}", p + 1))).collect();
+        (0..count).map(|p| (p, format!("Seite {}/{count}", p + 1))).collect();
     assert_eq!(numbers, expected);
+}
+
+/// AALU_019_DE: the account number typed into the header is copied by its
+/// exit script into `Global_AccountNumber`, a global binding every table
+/// row shares, including a row added afterwards; and choosing "Bereich"
+/// rebuilds the "Objektart" list through `soLocalLabelDefinition.onChangeArea`,
+/// unlocking it, or, for "Access", leaving it one preselected item, locked.
+#[test]
+fn aalu_carries_the_account_number_into_new_rows_and_builds_the_object_list() {
+    const HEADER: &str = "UBSForms_66492.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber";
+    const PRODUCT: &str = "UBSForms_66492.Page.Product.Product";
+    let (mut form, layout) = opened_with_layout("AALU_019_DE.pdf");
+    let mut layout = layout.expect("the scripts ran");
+    let row_number = |i: usize| {
+        let row = if i == 0 {
+            "Table_Row_DYN".to_string()
+        } else {
+            format!("Table_Row_DYN[{i}]")
+        };
+        format!("{PRODUCT}.Table_Optional.{row}.Row.CustodyAccount.Global_AccountNumber")
+    };
+
+    form.interact(HEADER, "123456").expect("header");
+    form.refresh_paged(&mut layout).expect("refresh");
+    assert_eq!(
+        form.current_field_values()
+            .get(row_number(0).as_str())
+            .map(String::as_str),
+        Some("123456")
+    );
+    assert_eq!(
+        form.current_field_values().get(HEADER).map(String::as_str),
+        Some("123456"),
+        "the typed header value survives the page pass"
+    );
+
+    form.click(&format!(
+        "{PRODUCT}.Table_Optional.Table_Row_DYN.STP_PlusMinus.Button_Add"
+    ))
+    .expect("add");
+    form.refresh_paged(&mut layout).expect("refresh");
+    assert_eq!(
+        form.current_field_values()
+            .get(row_number(1).as_str())
+            .map(String::as_str),
+        Some("123456")
+    );
+
+    let object = format!("{PRODUCT}.Product.Product");
+    assert_eq!(
+        form.effective_access(&object).map(|a| a.access.as_str()),
+        Some("protected")
+    );
+    form.interact(&format!("{PRODUCT}.Bereich.Bereich"), "Markt")
+        .expect("area");
+    form.refresh_paged(&mut layout).expect("refresh");
+    let options = form.resolve(&object).expect("Objektart").dropdown_options();
+    assert_eq!(options.len(), 5, "{options:?}");
+    assert_eq!(
+        options[1],
+        ("601  UBS Depot".to_string(), "601".to_string())
+    );
+    assert_eq!(
+        form.effective_access(&object).map(|a| a.access.as_str()),
+        Some("open")
+    );
+
+    form.interact(&format!("{PRODUCT}.Bereich.Bereich"), "Access")
+        .expect("area");
+    form.refresh_paged(&mut layout).expect("refresh");
+    let options = form.resolve(&object).expect("Objektart").dropdown_options();
+    assert_eq!(
+        options,
+        vec![(
+            "609  Depot mit Vermögensverwaltungsvertrag".to_string(),
+            "609 RA".to_string()
+        )]
+    );
+    assert_eq!(
+        form.current_field_values()
+            .get(object.as_str())
+            .map(String::as_str),
+        Some("609 RA")
+    );
+    assert_eq!(
+        form.effective_access(&object).map(|a| a.access.as_str()),
+        Some("protected")
+    );
+    let report = form.take_script_report();
+    assert!(report.errors.is_empty(), "{:?}", report.errors);
 }
 
 /// AALP_019_EN fills its branch dropdown in an initialize script that first

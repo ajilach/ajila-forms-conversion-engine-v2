@@ -1,23 +1,28 @@
 id = "ubs-aem-source-languages"
-title = "The form ships every source language and only those"
+title = "Every source language, and only those"
 output_formats = ["aem-ubs"]
 description = """
-The final form contains EVERY language that `get_source_info` lists, each written from that
-language's own PDF, and ONLY those. Never drop a language the source contains (the document's
-`languages` and the texts must agree), never invent a translation for a language it does not have,
-and never author a regional variant such as `de-ch`: the packager derives the profile's synonym
-locales (`de-ch` from `de`, `es` from `sp`) from their base language, so the deployed package
-legitimately carries more locales than the document does. Use the language codes that
-`get_source_info` reports. Where a content package was uploaded as a template and its own
-`languages` list a language the source does not have, that language and its texts are removed.
+The final form contains EVERY language of its source PDFs, each written from that language's own
+PDF, and ONLY those. A source's language is what xfa_info detects for it, and the suffix of its
+file name says the same (`AABF_019_DE.pdf`, `_EN`, `_IT`); UBS writes Spanish `SP`, which is `es`
+(UBS-GEN-1). Never drop a language the source has (the document's `languages` and the texts must
+agree), never invent a translation for a language it does not have, and never author a regional
+variant such as `de-ch`: the packager derives the profile's synonym locales (`de-ch` from `de`)
+from their base language, so the deployed package carries more locales than the document does.
+Where a content package was uploaded as a template and its own `languages` list a language the
+source does not have, that language and its texts are removed.
 
-The hidden metadata control's language fields (`formrange_language`, `formrange_afmasterlanguage`)
-are template output and are not judged.
+The master language is English for a multilingual form and the only language otherwise
+(UBS-GEN-2). The writer takes it from `languages` (English where the form has it, else the first
+language), so nothing is authored for it, but every text of a form with an English source carries
+that source's English wording. The hidden metadata control's language fields
+(`formrange_language`, `formrange_afmasterlanguage`) are template output and are not judged; that
+`languages` holds well-formed codes is ubs-aem-variables.
 
-How to judge: compare `/languages` with the languages `get_source_info` reports for each source
-PDF. Then open at least one text of every language (json_search for a distinctive source phrase) and
-confirm it is that language's wording as read from that language's PDF, not the master text or
-another language's.
+How to judge: compare `/languages` with the language of each source PDF (xfa_info). Then open at
+least one text of every language (json_search for a distinctive source phrase) and confirm it is
+that language's wording as that language's PDF prints it (xfa_search_text, xfa_page_text), not the
+master text or another language's.
 
 A break is a language the source has that is missing from `/languages`, a language in `/languages`
 that the source lacks, a regional variant authored as a language of its own, or texts that carry
@@ -31,7 +36,7 @@ with all its texts.
 Precedence: where a page exists in one language only (another language's PDF prints it in the
 same wording, as an internal page printed only in German), that wording under both keys is each
 language's own PDF, not another language's text, and is not a break. This wins over
-ubs-aem-repeatable-add-label: a party title on such a page copies the source's text in every
+ubs-aem-repeatable-title: a party title on such a page copies the source's text in every
 language, `title/en` included.
 
 Content that only some language versions carry is gated by a language script

@@ -4,9 +4,9 @@
 //! nodes, so a page's text is the nodes whose band it falls in, read in
 //! layout order.
 //!
-//! Two things are deliberate. Field *labels* are not used: verified against the
-//! real corpus, `FlattenedNode::Field.label` merely mirrors the field's name —
-//! human-readable captions arrive as separate `Text` nodes. And the text is
+//! Two things are deliberate. `FlattenedNode::Field.label` is not used: the
+//! flattener fills it from the field's name or value, not its caption, and a
+//! field's caption is emitted as a separate `Text` node of its own. And the text is
 //! **logical, not visual**: line breaking happens at render time, so this is
 //! what the page says, not how it wraps.
 //!

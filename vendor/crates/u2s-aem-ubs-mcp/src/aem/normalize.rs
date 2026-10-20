@@ -29,7 +29,7 @@
 
 use uuid::Uuid;
 
-use super::{AemAttrs, AemNode};
+use super::{AemAttrs, AemNode, FragmentInit};
 
 /// The CSS class that marks the first page's subtitle. Such a draw is a heading,
 /// not body text, so it is a run separator rather than a run member -- the same
@@ -417,8 +417,7 @@ pub fn copy_infobox_into_the_dor(root: &mut AemNode) {
         attrs: AemAttrs::pdf_only(),
         visible: false,
         bind_ref: None,
-        init_hide: Vec::new(),
-        init_show: Vec::new(),
+        init: FragmentInit::default(),
     };
     // `last_page` was checked above, so this is the page the copy belongs on.
     if let Some(AemNode::Panel { children, .. }) = last_page(root) {
@@ -577,6 +576,7 @@ mod tests {
             dor_colspan: None,
             bind_ref: None,
             kind: Default::default(),
+            input: Default::default(),
         }
     }
 
@@ -589,8 +589,7 @@ mod tests {
             attrs: AemAttrs::default(),
             visible,
             bind_ref: None,
-            init_hide: Vec::new(),
-            init_show: Vec::new(),
+            init: FragmentInit::default(),
         }
     }
 

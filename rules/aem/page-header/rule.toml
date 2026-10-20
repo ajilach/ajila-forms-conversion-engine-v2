@@ -1,0 +1,49 @@
+# Takes over the Preface half of the former ubs-aem-banking-relationship-present (its entity-line
+# half is ubs-aem-issuer-information). The order is the one the UBS writer builds: `children` of
+# `lower.rs` writes the header-slot draws that follow the `Preface` into its `PN_BR` wrapper, and
+# `step_title` prints the first page's title above everything as the subtitle.
+id = "ubs-aem-page-header"
+title = "The first page opens with the page header"
+output_formats = ["aem-ubs"]
+description = """
+What the source prints in the top right corner of page 1 is the page header (UBS-PAGE-1): the
+banking relationship, a custody account, the issuing entity and its validity line. Read it on
+page 1 (xfa_render_region of the top right corner), in the template's master page (`pageSet`,
+xfa_search and xfa_node for its draws), and with xfa_controls for its fields (path hints
+`BankingRelationship`, `CustodyAccount`). A part the source
+does not print is absent; a source with no such block has none of it. A form has one page header,
+the main document's, also where an annex prints a corner block of its own (UBS-SEC-6).
+
+The first page (the first `Panel` under `form` with `is_page: true`) opens with it, in this order:
+
+1. the `Preface` (`{"type": "Preface", "name": "PN_BR"}`), once, where the source has a banking
+   relationship (clearing and account number inputs). The writer renders it as the `PN_BR`
+   wrapper around `affrg_BankingRelationship1`, which fills the Document of Record header's
+   `slot1`; never a hand-built Fragment or Panel (ubs-aem-banking-relationship).
+2. The header lines: the issuer in `slot2` and the validity line in `slot3`, hidden `TextDraw`s
+   (ubs-aem-dor-header-slots) that the writer puts inside that wrapper. In a letter the
+   `Letterhead` comes between the `Preface` and them (ubs-aem-letter-letterhead).
+3. The custody account where the corner shows one ("Depot-Nr.", UBS-ACC-1): one `Fragment` of
+   `/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_CustodyAccount1`, kept in the
+   Document of Record. The issued forms also copy its number into a header slot through a hidden
+   text box reading the fragment's own field; a `calculate` cannot name that field, so no such
+   copy is authored.
+4. The page-furniture notices, each a `MessageBox` in the source's order: the red master-page text
+   of page 1 (a red `color` on the draw's `font`, UBS-PAGE-3), then other master-page header text particular
+   to the form (UBS-PAGE-4). Header text that describes the issuer is a further line of the `slot2`
+   draw instead.
+5. The subtitles after the first, each a `TextDraw` in source order (UBS-PAGE-5,
+   ubs-aem-form-title).
+6. Then the page's content.
+
+The first page's `title`, the first subtitle (ubs-aem-form-title), prints above all of it. Only pages sit
+directly under `form` (UBS-PAGE-5): page furniture goes into the first page, never beside it.
+
+Reported: a node directly under `form` that is not a `Panel`; a second `Preface`; a `Preface`
+that is not the first child of the first page; a header-slot `TextDraw` anywhere but right after
+the `Preface` (first on the first page without one, after the `Letterhead` in a letter); a second
+custody account in that run. Whether the source has each part is judged by
+ubs-aem-standard-sections-are-fragments and ubs-aem-source-coverage.
+
+Fix: move the node to its place on the first page, or delete the second one.
+"""

@@ -26,7 +26,7 @@ const GOLDEN: &[&str] = &["AAOS_033_IT", "AAEV_019_EN", "AABF_019"];
 /// carry them.
 const HOSTILE: &str = "Kunde, \"A\" & B's \\ C\n\tD/<E>";
 
-/// The same characters as a subject can carry them: at most four words
+/// The same characters as a subject can carry them: at most six words
 /// (`sane_subject`), and no `<`, since a subject is markup-stripped first.
 const HOSTILE_SUBJECT: &str = r#""A", B's \ C&D"#;
 

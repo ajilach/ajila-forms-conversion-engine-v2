@@ -1,0 +1,528 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Relazione bancaria\nUBS Europe SE (Succursale Italia)\n15 gennaio 2026\nOggetto: Accettazione diritto di voto su titoli a pegno\nEgregi Signori,\nabbiamo ricevuto la Sua proposta che di seguito riportiamo per accettazione integrale di tutto quanto in essa previsto.\n15 gennaio 2026\nOggetto: Diritto di voto su titoli a pegno\nEgregi Signori,\nForm configurator\nContratto di apertura di credito\nData\nMandato di gestione\nConto n.\nData\nVoto relativo alle azioni\nAzioni\nISIN\nData\nfaccio riferimento all'apertura di credito di cui al contratto sottoscritto in data (di seguito il «Contratto di credito»), nonché al relativo atto di pegno sul valore dell'insieme/credito da mandato di gestione sottoscritto in data sul conto n. (di seguito il «Pegno»).\n0101662660301001501202601022\n66266\nIT\nV0\n033\nAADQ\n28.05.2020\nN1\n15.01.2026\nPagina 1/2",
+    "Relazione bancaria\nVi richiedo con la presente, ai sensi dell'art. 2352 c.c., comma 1, che il diritto di voto relativo alle azioni (ISIN ) costituite in pegno in data permanga in capo al sottoscritto.\nRestano salve, comunque, tutte le previsioni contrattuali contenute nel Contratto di credito, il cui contenuto richiamo e confermo integralmente.\nDistinti saluti\nUBS Europe SE (Succursale Italia)\n0101662660301001501202602029\n66266\nIT\nV0\n033\nAADQ\n28.05.2020\nN1\n15.01.2026\nPagina 2/2"
+  ],
+  "raster": [
+    "037868f85aee55f7",
+    "557e53fa8e9aad54"
+  ],
+  "controls": {
+    "UBSForms_66266.MPs.MP.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          417.30002,
+          37.4,
+          128.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.BankingRelationship.BC_ClearingNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          389.80002,
+          37.4,
+          22.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.BankingRelationship.ffBankingRelation": {
+      "value": "Relazione bancaria",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.MPs.MP.Barcode": {
+      "value": "0101662660301001501202601015",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerCDOK": {
+      "value": "66266",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerEachParty": {
+      "value": "Ognuno dei contraenti riceve una copia",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerFormCode": {
+      "value": "AADQ",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerLanguage": {
+      "value": "IT",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerMandator": {
+      "value": "033",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerModDate": {
+      "value": "28.05.2020",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerPagination": {
+      "value": "Pagina 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          417.30002,
+          37.4,
+          128.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.BankingRelationship.BC_ClearingNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          389.80002,
+          37.4,
+          22.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.BankingRelationship.ffBankingRelation": {
+      "value": "Relazione bancaria",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.MPs.MP_Last.Barcode": {
+      "value": "0101662660301001501202601015",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerCDOK": {
+      "value": "66266",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerEachParty": {
+      "value": "Ognuno dei contraenti riceve una copia",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerFormCode": {
+      "value": "AADQ",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerLanguage": {
+      "value": "IT",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerMandator": {
+      "value": "033",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerModDate": {
+      "value": "28.05.2020",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerPagination": {
+      "value": "Pagina 1/1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.MPs.MP_Last.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.LetterTop.Date": {
+      "value": "15 gennaio 2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          256.5,
+          127.6,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.LetterTop.Multiline": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          85.0,
+          125.3,
+          167.2,
+          66.6
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.Page_66564.Body.STP_Text_1.ffAccountOpening": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.Page.Page_66564.Body.STP_Text_1.ffMandateAccount": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.Page.Page_66564.Body.STP_Text_1.ffMandateDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.Page.Page_66564.Body.STP_Text_2.ffShares": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.Page.Page_66564.Body.STP_Text_2.ffSharesDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.Page.Page_66564.Body.STP_Text_2.ffSharesISIN": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66266.Page.Page_66564.FormConfigurator_ClientType.Mutuatario.STP_Contratto_Credito.Contratto.Data_AccountOpenng": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          564.8,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.Page_66564.FormConfigurator_ClientType.Mutuatario.STP_Contratto_Credito.Mandato_Gestione.Data_Mandate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.4,
+          605.10004,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.Page_66564.FormConfigurator_ClientType.Mutuatario.STP_Contratto_Credito.Mandato_Gestione.TF_Conto": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          605.10004,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.Page_66564.FormConfigurator_ClientType.Mutuatario.STP_Contratto_Credito.Voto_Azioni.TF_Azioni": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          645.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.Page_66564.FormConfigurator_ClientType.Mutuatario.STP_Contratto_Credito.Voto_Azioni.TF_ISIN": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.4,
+          645.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.Page_66564.FormConfigurator_ClientType.Mutuatario.STP_Contratto_Credito.Voto_relativo.Data_Share_Date": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          672.60004,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66266.Page.Page_66564.PortfolioNo.Date.Date": {
+      "value": "15 gennaio 2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          439.5,
+          127.6,
+          11.3
+        ]
+      ]
+    }
+  },
+  "warning": null
+}

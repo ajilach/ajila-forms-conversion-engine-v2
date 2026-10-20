@@ -1,0 +1,765 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Relazione bancaria\nUBS Europe SE (Succursale Italia)\nValori patrimoniali e redditi assoggettati all'imposta di\nfonte statunitense\nDichiarazione per l'esenzione da imposta alla fonte in virtù di una convenzione sulla doppia imposizione\nForm configurator\nIndividual\nTipo\nDati del titolare del conto(di seguito il «Cliente»)\nTitolare del conto\nCognome\nNome/i\nVia\nN.\nCAP\nLocalità\nPaese\nNazionalità\nDichiarazione\nIn relazione ai requisiti ai fini della legislazione statunitense relativa all'imposta alla fonte e al «Qualified Intermediary Agreement» stipulato fra UBS Europe SE, Succursale Italia, e le autorità fiscali USA e al fine di ottenere l'esenzione dal pagamento dell'imposta alla fonte in virtù di un'eventuale convenzione sulla doppia imposizione stipulata tra gli Stati Uniti e il paese di domicilio del titolare del rapporto, con la presente quest'ultimo dichiara quanto segue:\nDiritto all'applicabilità della convenzione\n1.\nIn relazione al rapporto in essere presso UBS Europe SE, Succursale Italia, confermo che lo stesso soddisfa tutti i requisiti necessari per richiedere l'applicazione di un'aliquota ridotta per l'imposta applicata alla fonte dei redditi statunitensi, su tutti i valori patrimoniali e ai redditi ai quali questa dichiarazione fa riferimento, nell'ambito della convenzione sulla doppia imposizione tra gli Stati Uniti e .\nAvente diritto economico\n2.\nDi essere l'avente diritto economico, ai sensi del diritto fiscale statunitense, dei valori patrimoniali e dei redditi ai quali questo modulo fa riferimento.\nNuove condizioni\n3.\nCon la presente, mi impegno a notificare qualsiasi modifica alle condizioni relative alle dichiarazioni sopra rese.\nFirma/e\nLetto, confermato e sottoscritto.\nLuogo\nData\nFirma del titolare del conto\nNome del titolare del conto\n0101668160301001501202601029\n66816\nIT\nV0\n033\nAAOE\n01.01.2023\nN1\n15.01.2026\nPagina 1/2",
+    "Relazione bancaria\nUBS Europe SE, Succursale Italia, con sede in Via del Vecchio Politecnico, 3 - 20121 Milano. Iscritta all'Albo delle Banche tenuto da Banca d'Italia, Codice ABI 3041.1. Aderente al Fondo Regolamentare Tedesco per la Protezione dei Depositi. UBS Europe SE, Succursale Italia è la succursale italiana di UBS Europe SE, con sede in Bockenheimer Landstraße 2-4, D-60306 Francoforte sul Meno, Germania.\nSolo per uso interno della banca\nControllo firma/e / Firmato in mia presenza\nRif. UO\nVisto\n0101668160301001501202602026\n66816\nIT\nV0\n033\nAAOE\n01.01.2023\nN1\n15.01.2026\nPagina 2/2"
+  ],
+  "raster": [
+    "ce0bd3614679dd2e",
+    "11d9ba88f2692b96"
+  ],
+  "controls": {
+    "UBSForms_66816.MPs.MP.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          417.30002,
+          37.4,
+          128.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.BankingRelationship.BC_ClearingNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          389.80002,
+          37.4,
+          22.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.BankingRelationship.ffBankingRelation": {
+      "value": "Relazione bancaria",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.MPs.MP.Barcode": {
+      "value": "0101668160301001501202601012",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerCDOK": {
+      "value": "66816",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerEachParty": {
+      "value": "Ognuno dei contraenti riceve una copia",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerFormCode": {
+      "value": "AAOE",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerLanguage": {
+      "value": "IT",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerMandator": {
+      "value": "033",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerModDate": {
+      "value": "01.01.2023\n",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerPagination": {
+      "value": "Pagina 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          417.30002,
+          37.4,
+          128.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.BankingRelationship.BC_ClearingNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          389.80002,
+          37.4,
+          22.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.BankingRelationship.ffBankingRelation": {
+      "value": "Relazione bancaria",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.MPs.MP_Last.Barcode": {
+      "value": "0101668160301001501202601012",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerCDOK": {
+      "value": "66816",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerEachParty": {
+      "value": "Ognuno dei contraenti riceve una copia",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerFormCode": {
+      "value": "AAOE",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerLanguage": {
+      "value": "IT",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerMandator": {
+      "value": "033",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerModDate": {
+      "value": "01.01.2023\n",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerPagination": {
+      "value": "Pagina 1/1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.LastPageOnly.STP_UP1.ReferenceAdvisor": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          229.6,
+          795.4,
+          112.700005,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.MPs.MP_Last.LastPageOnly.STP_UP1.ffForInternalBankUse": {
+      "value": "Solo per uso interno della banca",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.MPs.MP_Last.LastPageOnly.STP_UP1.ffOuRef": {
+      "value": "Rif. UO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.MPs.MP_Last.LastPageOnly.STP_UP1.ffSignatureVerified": {
+      "value": "Controllo firma/e / Firmato in mia presenza",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.MPs.MP_Last.LastPageOnly.STP_UP1.ffUpSignature": {
+      "value": "Visto",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Agreement.Paragraph_2.Nationality": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Agreement.ffSectionTitle": {
+      "value": "Dichiarazione",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.FormConfigurator_ClientType.ClientType.CL_ClientType": {
+      "value": "Individual",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          192.7,
+          240.90001,
+          12.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.FormConfigurator_ClientType.ClientType.ffDesClientType": {
+      "value": "Tipo",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.Company": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.DYN_FamilyName_FirstName.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.DYN_FamilyName_FirstName.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.DYN_FamilyName_FirstName.FamilyName_FirstName.ffFamilyName": {
+      "value": "Cognome",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.DYN_FamilyName_FirstName.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Nome/i",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.DYN_FamilyName_FirstName.PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.DYN_FamilyName_FirstName.PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.PostalCode_City_Country.ffCity": {
+      "value": "Località",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.PostalCode_City_Country.ffCountry": {
+      "value": "Paese",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.PostalCode_City_Country.ffPostalCode": {
+      "value": "CAP",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.Street_StreetNumber.ffStreet": {
+      "value": "Via",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.Street_StreetNumber.ffStreetNumber": {
+      "value": "N.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.ffAuthRep": {
+      "value": "Legale/i rappresentante/i",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Company.ffCompany": {
+      "value": "Nome della società",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          266.80002,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          266.80002,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.FamilyName_FirstName.ffFamilyName": {
+      "value": "Cognome",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Nome/i",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.Nationality.Nationality": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          352.5,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.Nationality.ffNationality": {
+      "value": "Nazionalità",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.PostalCode_City_Country.TF_City": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          109.1,
+          323.30002,
+          181.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.PostalCode_City_Country.TF_Country": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          323.30002,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.PostalCode_City_Country.TF_PostalCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          323.30002,
+          56.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.PostalCode_City_Country.ffCity": {
+      "value": "Località",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.PostalCode_City_Country.ffCountry": {
+      "value": "Paese",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.PostalCode_City_Country.ffPostalCode": {
+      "value": "CAP",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.Street_StreetNumber.TF_Street": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          294.1,
+          345.80002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.Street_StreetNumber.TF_StreetNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          398.2,
+          294.1,
+          147.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.Street_StreetNumber.ffStreet": {
+      "value": "Via",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.Street_StreetNumber.ffStreetNumber": {
+      "value": "N.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.Individual.Individual_DYN.ffIndex": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Section.ffHereInAfter": {
+      "value": "(di seguito il «Cliente»)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          773.10004,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          744.7,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          744.7,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.ffDesDate": {
+      "value": "Data",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.ffDesFullName": {
+      "value": "Nome del titolare del conto",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.ffDesPlace": {
+      "value": "Luogo",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.ffDesSignature": {
+      "value": "Firma del titolare del conto",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Signature.DYN_Signature.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66816.Page.Signature.ffSectionTitle": {
+      "value": "Firma/e",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

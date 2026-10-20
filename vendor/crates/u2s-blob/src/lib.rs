@@ -15,6 +15,22 @@
 //! needs no separate authorization table beyond "this run produced this
 //! handle" — a forged or corrupted handle simply does not open.
 //!
+//! ## Backends
+//!
+//! A store keeps its blobs in one of two places, chosen once at startup
+//! ([`BlobStore::from_env`]):
+//!
+//! - **Postgres** (the `postgres` feature, `DATABASE_URL`): the `blobs` table
+//!   the u2s stack migrates. This is where the stack keeps every file, so a
+//!   database backup is a complete backup.
+//! - **A folder** (`U2S_BLOB_DIR`): one file per blob. What an MCP server
+//!   uses standalone, outside the stack, and what a vendoring consumer that
+//!   leaves the `postgres` feature off gets.
+//!
+//! Tools that can only open a file (pdfium, the XFA renderer) ask for one
+//! with [`BlobStore::materialize`]: the folder backend hands back the blob's
+//! own file, the Postgres backend writes the bytes once into a cache folder.
+//!
 //! [`get`]: BlobStore::get
 
 use std::path::{Path, PathBuf};
@@ -97,7 +113,6 @@ pub struct BlobRef {
     /// is what goes straight into a tool result's JSON, and every existing
     /// caller already treats it as a string.
     pub handle: String,
-    pub path: PathBuf,
     pub media_type: String,
     pub byte_len: usize,
     /// Hex sha256 of the contents — identical to the handle's digest, kept as
@@ -135,33 +150,134 @@ pub enum BlobError {
     /// corruption, or a handle that was never legitimately produced here.
     #[error("{handle}: content does not match the handle's digest")]
     DigestMismatch { handle: String },
+    /// No blob is stored under this handle.
+    #[error("{handle}: no such blob")]
+    Missing { handle: String },
+    /// The backend could not be reached or refused the operation.
+    #[error("blob database: {0}")]
+    Database(String),
+    /// The environment names no usable backend, or two at once.
+    #[error("blob store configuration: {0}")]
+    Configuration(String),
 }
 
+/// Where blobs are kept. See the module doc for the two backends.
 pub struct BlobStore {
-    dir: PathBuf,
+    backend: Backend,
+}
+
+enum Backend {
+    Folder(PathBuf),
+    /// The pool, and the URL it was opened with, for [`BlobStore::child_env`].
+    #[cfg(feature = "postgres")]
+    Postgres(postgres::PostgresBlobs, String),
+}
+
+/// The environment variable that selects the folder backend.
+pub const BLOB_DIR_VAR: &str = "U2S_BLOB_DIR";
+/// The environment variable that selects the Postgres backend.
+pub const DATABASE_URL_VAR: &str = "DATABASE_URL";
+
+/// Which backend an environment selects, decided by [`backend_choice`]
+/// without opening anything, so the rule is testable on its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackendChoice {
+    Folder(PathBuf),
+    Postgres(String),
+}
+
+/// The backend `DATABASE_URL` and `U2S_BLOB_DIR` select:
+///
+/// - only `DATABASE_URL`: Postgres (refused when this build has no
+///   `postgres` feature, rather than silently writing to a folder);
+/// - only `U2S_BLOB_DIR`: that folder;
+/// - both: refused, naming both, so the choice is never silent;
+/// - neither: a folder under the system temp dir, so standalone use still
+///   works with no configuration.
+pub fn backend_choice(
+    database_url: Option<&str>,
+    blob_dir: Option<&str>,
+) -> Result<BackendChoice, BlobError> {
+    match (database_url, blob_dir) {
+        (Some(_), Some(_)) => Err(BlobError::Configuration(format!(
+            "both {DATABASE_URL_VAR} and {BLOB_DIR_VAR} are set; set {DATABASE_URL_VAR} to \
+             keep blobs in Postgres or {BLOB_DIR_VAR} to keep them in a folder, not both"
+        ))),
+        (Some(url), None) => Ok(BackendChoice::Postgres(url.to_owned())),
+        (None, Some(dir)) => Ok(BackendChoice::Folder(PathBuf::from(dir))),
+        (None, None) => Ok(BackendChoice::Folder(
+            std::env::temp_dir().join("u2s-blobs"),
+        )),
+    }
 }
 
 impl BlobStore {
-    pub fn new(dir: impl AsRef<Path>) -> Self {
+    /// A store keeping one file per blob in `dir`.
+    pub fn in_folder(dir: impl AsRef<Path>) -> Self {
         Self {
-            dir: dir.as_ref().to_path_buf(),
+            backend: Backend::Folder(dir.as_ref().to_path_buf()),
         }
     }
 
-    /// `U2S_BLOB_DIR`, or the system temp dir when unset so standalone use
-    /// still works.
-    pub fn from_env() -> Self {
-        let dir = std::env::var("U2S_BLOB_DIR")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| std::env::temp_dir().join("u2s-blobs"));
-        Self::new(dir)
+    /// A store keeping blobs in the `blobs` table of the database at
+    /// `database_url`. Connects lazily: nothing is opened until the first
+    /// blob is read or written.
+    #[cfg(feature = "postgres")]
+    pub fn in_postgres(database_url: &str) -> Result<Self, BlobError> {
+        Ok(Self {
+            backend: Backend::Postgres(
+                postgres::PostgresBlobs::connect_lazy(database_url)?,
+                database_url.to_owned(),
+            ),
+        })
     }
 
-    pub fn dir(&self) -> &Path {
-        &self.dir
+    /// The store [`backend_choice`] selects from `DATABASE_URL` and
+    /// `U2S_BLOB_DIR`. An empty variable counts as unset.
+    pub fn from_env() -> Result<Self, BlobError> {
+        let var = |name| std::env::var(name).ok().filter(|value| !value.is_empty());
+        let database_url = var(DATABASE_URL_VAR);
+        let blob_dir = var(BLOB_DIR_VAR);
+        Self::from_choice(backend_choice(
+            database_url.as_deref(),
+            blob_dir.as_deref(),
+        )?)
     }
 
-    /// Content-addressed: the same bytes written twice yield one file and one
+    fn from_choice(choice: BackendChoice) -> Result<Self, BlobError> {
+        match choice {
+            BackendChoice::Folder(dir) => Ok(Self::in_folder(dir)),
+            #[cfg(feature = "postgres")]
+            BackendChoice::Postgres(url) => Self::in_postgres(&url),
+            #[cfg(not(feature = "postgres"))]
+            BackendChoice::Postgres(_) => Err(BlobError::Configuration(format!(
+                "{DATABASE_URL_VAR} is set, but this build keeps blobs in a folder only (the \
+                 `postgres` feature of u2s-blob is off); unset it or set {BLOB_DIR_VAR}"
+            ))),
+        }
+    }
+
+    /// The environment a child process needs to use this same store, through
+    /// its own [`BlobStore::from_env`]: `DATABASE_URL` for Postgres,
+    /// `U2S_BLOB_DIR` for a folder, and the other one set empty, which
+    /// `from_env` reads as unset. Set on every MCP server a host starts, so a
+    /// handle the server writes is one the host can read, and an inherited
+    /// value of the other variable cannot make the child refuse to start.
+    pub fn child_env(&self) -> Vec<(String, String)> {
+        match &self.backend {
+            Backend::Folder(dir) => vec![
+                (BLOB_DIR_VAR.to_owned(), dir.display().to_string()),
+                (DATABASE_URL_VAR.to_owned(), String::new()),
+            ],
+            #[cfg(feature = "postgres")]
+            Backend::Postgres(_, url) => vec![
+                (DATABASE_URL_VAR.to_owned(), url.clone()),
+                (BLOB_DIR_VAR.to_owned(), String::new()),
+            ],
+        }
+    }
+
+    /// Content-addressed: the same bytes written twice yield one blob and one
     /// handle.
     pub fn put(
         &self,
@@ -169,24 +285,21 @@ impl BlobStore {
         media_type: &str,
         extension: &str,
     ) -> Result<BlobRef, BlobError> {
-        std::fs::create_dir_all(&self.dir).map_err(|source| BlobError::CreateDir {
-            path: self.dir.display().to_string(),
-            source,
-        })?;
-
         let digest = hex(&Sha256::digest(data));
         let handle = format!("{digest}.{extension}");
-        let path = self.dir.join(&handle);
-        if !path.exists() {
-            std::fs::write(&path, data).map_err(|source| BlobError::Write {
-                path: path.display().to_string(),
-                source,
-            })?;
+        // Parsed so an extension that could not be read back (`get` parses)
+        // is refused here, at the write, rather than stored unreadable.
+        BlobHandle::parse(&handle).map_err(|source| BlobError::InvalidHandle {
+            handle: handle.clone(),
+            source,
+        })?;
+        match &self.backend {
+            Backend::Folder(dir) => write_into_folder(dir, &handle, data)?,
+            #[cfg(feature = "postgres")]
+            Backend::Postgres(blobs, _) => blobs.put(&handle, media_type, data)?,
         }
-
         Ok(BlobRef {
             handle,
-            path,
             media_type: media_type.to_owned(),
             byte_len: data.len(),
             digest,
@@ -203,25 +316,118 @@ impl BlobStore {
     /// means a caller cannot skip validation by holding the raw string a
     /// moment longer.
     pub fn get(&self, raw_handle: &str) -> Result<Vec<u8>, BlobError> {
-        let handle = BlobHandle::parse(raw_handle).map_err(|source| BlobError::InvalidHandle {
-            handle: raw_handle.to_owned(),
-            source,
-        })?;
+        let handle = parse_handle(raw_handle)?;
+        let data = match &self.backend {
+            Backend::Folder(dir) => read_from_folder(dir, &handle)?,
+            #[cfg(feature = "postgres")]
+            Backend::Postgres(blobs, _) => blobs.get(&handle)?,
+        };
+        verify(&handle, data)
+    }
 
-        let path = self.dir.join(handle.to_string());
-        let data = std::fs::read(&path).map_err(|source| BlobError::Read {
+    /// A file holding the blob's bytes, for a tool that can only open a path
+    /// (pdfium, the XFA renderer). The folder backend returns the blob's own
+    /// file; the Postgres backend writes the bytes once into a cache folder
+    /// under the system temp dir and returns that file. The cache needs no
+    /// backup and no cleanup beyond the temp dir's own: a handle names its
+    /// content, so a cached file can never go stale.
+    pub fn materialize(&self, raw_handle: &str) -> Result<PathBuf, BlobError> {
+        let handle = parse_handle(raw_handle)?;
+        match &self.backend {
+            Backend::Folder(dir) => {
+                let path = dir.join(handle.to_string());
+                if path.is_file() {
+                    Ok(path)
+                } else {
+                    Err(BlobError::Missing {
+                        handle: handle.to_string(),
+                    })
+                }
+            }
+            #[cfg(feature = "postgres")]
+            Backend::Postgres(blobs, _) => {
+                let cache = materialize_cache_dir();
+                let path = cache.join(handle.to_string());
+                if !path.is_file() {
+                    let data = verify(&handle, blobs.get(&handle)?)?;
+                    write_into_folder(&cache, &handle.to_string(), &data)?;
+                }
+                Ok(path)
+            }
+        }
+    }
+}
+
+/// Where the Postgres backend materializes blobs. Shared by every process
+/// on the machine, which is safe because a file is only ever written whole
+/// under its own content's name.
+#[cfg(feature = "postgres")]
+fn materialize_cache_dir() -> PathBuf {
+    std::env::temp_dir().join("u2s-blob-cache")
+}
+
+fn parse_handle(raw_handle: &str) -> Result<BlobHandle, BlobError> {
+    BlobHandle::parse(raw_handle).map_err(|source| BlobError::InvalidHandle {
+        handle: raw_handle.to_owned(),
+        source,
+    })
+}
+
+fn verify(handle: &BlobHandle, data: Vec<u8>) -> Result<Vec<u8>, BlobError> {
+    if hex(&Sha256::digest(&data)) != handle.digest() {
+        return Err(BlobError::DigestMismatch {
+            handle: handle.to_string(),
+        });
+    }
+    Ok(data)
+}
+
+/// Makes each staging file name unique within the process; the pid makes it
+/// unique across processes sharing the directory.
+static STAGING_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Writes `data` to `dir/handle` unless that file already exists.
+fn write_into_folder(dir: &Path, handle: &str, data: &[u8]) -> Result<(), BlobError> {
+    std::fs::create_dir_all(dir).map_err(|source| BlobError::CreateDir {
+        path: dir.display().to_string(),
+        source,
+    })?;
+    let path = dir.join(handle);
+    if path.exists() {
+        return Ok(());
+    }
+    // Written aside and renamed into place, so the handle's path only ever
+    // holds the whole blob. Written in place, a crash mid-write would leave a
+    // truncated file that every later `put` of the same bytes skips, since
+    // the path then exists, and a concurrent `get` could read half a blob.
+    let staging = dir.join(format!(
+        ".{handle}.{}.{}.tmp",
+        std::process::id(),
+        STAGING_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    ));
+    let write_err = |source| BlobError::Write {
+        path: path.display().to_string(),
+        source,
+    };
+    std::fs::write(&staging, data).map_err(write_err)?;
+    if let Err(source) = std::fs::rename(&staging, &path) {
+        let _ = std::fs::remove_file(&staging);
+        return Err(write_err(source));
+    }
+    Ok(())
+}
+
+fn read_from_folder(dir: &Path, handle: &BlobHandle) -> Result<Vec<u8>, BlobError> {
+    let path = dir.join(handle.to_string());
+    std::fs::read(&path).map_err(|source| match source.kind() {
+        std::io::ErrorKind::NotFound => BlobError::Missing {
+            handle: handle.to_string(),
+        },
+        _ => BlobError::Read {
             path: path.display().to_string(),
             source,
-        })?;
-
-        let actual = hex(&Sha256::digest(&data));
-        if actual != handle.digest() {
-            return Err(BlobError::DigestMismatch {
-                handle: handle.to_string(),
-            });
-        }
-        Ok(data)
-    }
+        },
+    })
 }
 
 fn hex(bytes: &[u8]) -> String {
@@ -231,6 +437,11 @@ fn hex(bytes: &[u8]) -> String {
         s
     })
 }
+
+#[cfg(feature = "postgres")]
+mod postgres;
+mod source;
+pub use source::{BlobOrPath, Source, SourceArgs};
 
 #[cfg(test)]
 mod tests {
@@ -269,7 +480,7 @@ mod tests {
             std::thread::current().id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
-        (BlobStore::new(&dir), dir)
+        (BlobStore::in_folder(&dir), dir)
     }
 
     #[test]
@@ -312,19 +523,76 @@ mod tests {
 
     #[test]
     fn get_refuses_content_that_does_not_match_the_digest() {
-        let (store, _dir) = store();
+        let (store, dir) = store();
         let put = store.put(b"original", "text/plain", "txt").expect("put");
-        std::fs::write(&put.path, b"tampered").expect("overwrite");
+        std::fs::write(dir.join(&put.handle), b"tampered").expect("overwrite");
 
         let err = store.get(&put.handle).expect_err("digest must not match");
         assert!(matches!(err, BlobError::DigestMismatch { .. }));
     }
 
     #[test]
-    fn get_of_a_never_written_handle_is_a_read_error_not_a_panic() {
+    fn get_of_a_never_written_handle_is_missing_not_a_panic() {
         let (store, _dir) = store();
         let handle = format!("{}.txt", "a".repeat(64));
-        assert!(matches!(store.get(&handle), Err(BlobError::Read { .. })));
+        assert!(matches!(store.get(&handle), Err(BlobError::Missing { .. })));
+        assert!(matches!(
+            store.materialize(&handle),
+            Err(BlobError::Missing { .. })
+        ));
+    }
+
+    #[test]
+    fn a_folder_blob_materializes_as_its_own_file() {
+        let (store, dir) = store();
+        let put = store
+            .put(b"%PDF-1.7", "application/pdf", "pdf")
+            .expect("put");
+        let path = store.materialize(&put.handle).expect("materialize");
+        assert_eq!(path, dir.join(&put.handle));
+        assert_eq!(std::fs::read(path).expect("read"), b"%PDF-1.7");
+    }
+
+    #[test]
+    fn an_extension_that_could_not_be_read_back_is_refused_at_the_write() {
+        let (store, _dir) = store();
+        assert!(matches!(
+            store.put(b"x", "text/plain", "t/xt"),
+            Err(BlobError::InvalidHandle { .. })
+        ));
+    }
+
+    /// The backend is chosen by which variable is set, and two at once is
+    /// refused rather than resolved by precedence.
+    #[test]
+    fn the_environment_selects_exactly_one_backend() {
+        assert_eq!(
+            backend_choice(Some("postgres://db"), None).expect("postgres"),
+            BackendChoice::Postgres("postgres://db".to_owned())
+        );
+        assert_eq!(
+            backend_choice(None, Some("/blobs")).expect("folder"),
+            BackendChoice::Folder(PathBuf::from("/blobs"))
+        );
+        let both =
+            backend_choice(Some("postgres://db"), Some("/blobs")).expect_err("both is ambiguous");
+        assert!(
+            both.to_string().contains(DATABASE_URL_VAR) && both.to_string().contains(BLOB_DIR_VAR),
+            "{both}"
+        );
+        let child = BlobStore::in_folder("/blobs").child_env();
+        assert_eq!(
+            child,
+            vec![
+                (BLOB_DIR_VAR.to_owned(), "/blobs".to_owned()),
+                (DATABASE_URL_VAR.to_owned(), String::new()),
+            ],
+            "a child is told the store and has the other variable emptied"
+        );
+        assert_eq!(
+            backend_choice(None, None).expect("default"),
+            BackendChoice::Folder(std::env::temp_dir().join("u2s-blobs"))
+        );
     }
 
     #[test]

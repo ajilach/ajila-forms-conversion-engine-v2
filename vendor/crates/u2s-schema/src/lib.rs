@@ -36,6 +36,8 @@
 //! Everything here is pure: no I/O, no provider types.
 
 mod adapt;
+mod empties;
+mod generate;
 mod ref_resolve;
 mod restore;
 mod skeleton;
@@ -43,6 +45,10 @@ mod strict;
 mod validate;
 
 pub use adapt::{AdaptError, Adapted, Relaxation, adapt};
+pub use empties::empty_optionals;
+pub use generate::{
+    NoArgs, answer_schema, parse_tool_args, tool_input_schema, tool_schema_violations,
+};
 pub use restore::restore;
 pub use skeleton::{SkeletonError, skeleton};
 pub use strict::strict_violations;

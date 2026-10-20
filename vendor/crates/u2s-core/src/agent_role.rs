@@ -19,8 +19,7 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One of the agents in PLAN.md: the Conversion Agent, the Rule Agent, the
-/// description agent and the Judge.
+/// One of the agents: the Conversion Agent, the Rule Agent and the Judge.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
@@ -28,8 +27,6 @@ pub enum AgentRole {
     /// Off the conversion path and interactive (PLAN.md). Calls one native
     /// tool, `rule_try`, and no MCP tool.
     Rule,
-    /// Writes the text description of one input. Calls no tool.
-    Describe,
     /// Decides one judged rule (a rule without a check script) against one
     /// output and its source. Calls only reading tools: the native JSON
     /// readers over the output, and the Conversion Agent's enabled MCP tools
@@ -39,9 +36,7 @@ pub enum AgentRole {
 
 /// A role name that is not one of the agents.
 #[derive(Debug, Clone, thiserror::Error)]
-#[error(
-    "unknown agent role {value:?}: expected one of conversion, rule, describe, judge"
-)]
+#[error("unknown agent role {value:?}: expected one of conversion, rule, judge")]
 pub struct AgentRoleError {
     pub value: String,
 }
@@ -50,18 +45,13 @@ impl AgentRole {
     /// Every role, including the ones no tool enablement may name. This is
     /// the vocabulary `agent_turns.agent_role` records, because a call by any
     /// of them is still a model call worth auditing and costing.
-    pub const ALL: &'static [AgentRole] = &[
-        AgentRole::Conversion,
-        AgentRole::Rule,
-        AgentRole::Describe,
-        AgentRole::Judge,
-    ];
+    pub const ALL: &'static [AgentRole] =
+        &[AgentRole::Conversion, AgentRole::Rule, AgentRole::Judge];
 
     /// The roles a tool enablement may name. Excludes [`AgentRole::Rule`],
-    /// which calls no *enableable* (MCP) tool, and [`AgentRole::Describe`],
-    /// which calls no tool at all: enabling a tool for either would be a row
-    /// that can never be read, which is worse than a row that cannot be
-    /// written. Excludes [`AgentRole::Judge`] too: its MCP tools are the
+    /// which calls no *enableable* (MCP) tool: enabling a tool for it would
+    /// be a row that can never be read, which is worse than a row that cannot
+    /// be written. Excludes [`AgentRole::Judge`] too: its MCP tools are the
     /// Conversion Agent's reading ones, derived rather than enabled, so a
     /// judge always reads the source through what the conversion read.
     pub const TOOL_USING: &'static [AgentRole] = &[AgentRole::Conversion];
@@ -72,7 +62,6 @@ impl AgentRole {
         match self {
             AgentRole::Conversion => "conversion",
             AgentRole::Rule => "rule",
-            AgentRole::Describe => "describe",
             AgentRole::Judge => "judge",
         }
     }
@@ -121,16 +110,21 @@ pub enum TurnPhase {
     Gather,
     /// One structured completion over the transcript, no tools.
     Answer,
+    /// A summary of the turns the context window evicted, written by the
+    /// model so a long gather keeps what it learnt. No tools, no schema.
+    Compaction,
 }
 
 impl TurnPhase {
-    pub const ALL: &'static [TurnPhase] = &[TurnPhase::Gather, TurnPhase::Answer];
+    pub const ALL: &'static [TurnPhase] =
+        &[TurnPhase::Gather, TurnPhase::Answer, TurnPhase::Compaction];
 
     /// Must stay in step with the `agent_turns.phase` CHECK constraint.
     pub fn as_str(self) -> &'static str {
         match self {
             TurnPhase::Gather => "gather",
             TurnPhase::Answer => "answer",
+            TurnPhase::Compaction => "compaction",
         }
     }
 
@@ -188,7 +182,6 @@ mod tests {
     #[test]
     fn only_the_conversion_agent_is_tool_using() {
         assert!(!AgentRole::Rule.is_tool_using());
-        assert!(!AgentRole::Describe.is_tool_using());
         assert!(!AgentRole::Judge.is_tool_using());
         assert!(AgentRole::Conversion.is_tool_using());
         assert_eq!(AgentRole::TOOL_USING, &[AgentRole::Conversion]);

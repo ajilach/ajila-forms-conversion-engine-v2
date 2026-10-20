@@ -1,0 +1,28 @@
+id = "ubs-aem-dates"
+title = "A full date is one DatePicker"
+output_formats = ["aem-ubs"]
+description = """
+A date the source asks is one `DatePicker` named `DATE_...` (CNV-INP-3): every control of kind
+`date` or `date_time` in `xfa_controls`, a text field captioned as a date, and a date the source
+asks as separate day, month and year inputs aligned with separators or under a "TT.MM.JJJJ"
+caption. That one picker takes the date's caption as its label; the separators and the format
+hint are not carried.
+
+A partial date, where the source asks only the month and the year, or only the year (its `format`
+picture, such as `date{MM.YYYY}`, its captions, or a day printed as fixed text, "01.__.____"), has
+no picker in AEM, which always asks a day. Each part asked is a `TextField` of its own, side by
+side on one row: the month with `max_chars` 2, the year with `max_chars` 4, each labelled with the
+caption the source prints for that part ("Monat", "Jahr"), else with the date's caption. Not a
+NumberField: a number box formats its value as an amount. A day printed as fixed text stays a
+TextDraw before them on the row.
+
+A picker opens on the source's default only (`default_value`, `YYYY-MM-DD`, as `xfa_controls`
+reports `default`), never on today's date: AEM's current-date default is not used (backlog
+"Inputs"), also where the source fills in today's date by script.
+
+Reported: a DatePicker `default_value` that is no `YYYY-MM-DD` date; a DatePicker whose label (or
+name, when it has no label) names a month or a year but no day; a plain TextField or NumberField
+that is not read-only whose master-language label (or name) asks a date ("Date", "Datum",
+"Geburtsdatum", "Data", "Fecha", or day, month and year together) and no place, signature or span;
+three inputs side by side that each ask one of day, month and year. Replace them as described.
+"""

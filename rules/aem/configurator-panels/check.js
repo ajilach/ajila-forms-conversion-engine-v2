@@ -1,142 +1,112 @@
-// Copied from `configurator_reset.py` / `xml_writer.rs`; see rule.toml.
-const APPROVED = [
-  ["Individual", "Company/Entity"],
-  ["Private Person", "Minderjährige", "Firma", "GbR"],
-  ["Individual", "Legal Entity"],
-  ["Individuo", "Entità giuridica"],
-  ["Individuale", "Persona giuridica / Società / Ditta"],
-  ["Private Person", "Firma"],
-  ["Private Person", "Minderjährige", "Firma"],
-  ["Individual", "Legal entity"],
-  ["Persona", "Persona giuridica"],
-  ["Individual", "Corporate"],
-  ["Private Person", "Minderjährige"],
-  ["For financial institutions", "For natural persons"],
-].map(function (set) { return set.map(function (l) { return l.toLowerCase(); }).join("\u0000"); });
-
-// What a reset clears: the node types the detector counts as a field, a fragment or a repeatable.
-const CLEARABLE = [
-  "TextField", "NumberField", "DatePicker", "Dropdown", "Checkbox", "RadioButton", "HtmlDisplayer",
-  "FootnotePlaceholder", "Fragment", "Preface", "Repeatable",
-];
+// The band is the panel the writer's `is_configurator_band` recognises; see rule.toml.
+const BAND = "PN_FormConfigurator";
 const CHOICES = ["RadioButton", "Dropdown"];
+// A rule document of a script model starts at `"script":{` (the XML carries it as `&quot;script&quot;:{`).
+const SEGMENT = /(?:&quot;|")script(?:&quot;|")\s*:\s*\{/;
+const RESET = /resetData\s*\(|resetAllPanelInstances\s*\(/;
 
-function masterLanguage(output) {
-  const languages = output.languages || [];
-  return languages.indexOf("en") >= 0 ? "en" : languages[0];
+function isBand(node) {
+  return node.type === "Panel" && typeof node.name === "string" && node.name.indexOf(BAND) === 0;
 }
 
-function masterText(texts, master) {
-  const map = texts || {};
-  if (Object.prototype.hasOwnProperty.call(map, master)) return String(map[master]);
-  const keys = Object.keys(map).sort();
-  return keys.length > 0 ? String(map[keys[0]]) : "";
-}
-
-function plain(text) {
-  return text.replace(/<[^>]+>/g, "").replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function showTargets(node) {
-  const seen = [];
-  (node.conditions || []).forEach(function (rule) {
-    if (rule.show && seen.indexOf(rule.target_panel_name) < 0) seen.push(rule.target_panel_name);
+// Whether `text` holds a rule that resets data and is not one the writer generated.
+function handWrittenReset(text) {
+  if (!RESET.test(text)) return false;
+  return text.split(SEGMENT).some(function (segment) {
+    return RESET.test(segment) && segment.indexOf("Generated automatically") < 0;
   });
-  return seen;
+}
+
+// The band's own choices that are not a horizontal RadioButton, as {node, pointer}.
+// The band is the first page itself or, when a subtitle needs the first page's title, a Panel
+// directly inside it (ubs-aem-form-title).
+function crooked(output) {
+  const out = [];
+  function choices(band, pointer) {
+    (band.children || []).forEach(function (child, j) {
+      if (CHOICES.indexOf(child.type) < 0) return;
+      if (child.type === "RadioButton" && child.alignment === "Horizontal") return;
+      out.push({ node: child, pointer: pointer + "/children/" + j });
+    });
+  }
+  const pages = output.form.children || [];
+  pages.forEach(function (page, i) {
+    const pointer = "/form/children/" + i;
+    if (isBand(page)) return choices(page, pointer);
+    (page.children || []).forEach(function (child, j) {
+      if (isBand(child)) choices(child, pointer + "/children/" + j);
+    });
+  });
+  return out;
 }
 
 function check(output, ctx) {
   const violations = [];
-  const master = masterLanguage(output);
-  const nodes = []; // {node, pointer, children pointers via descent}
-  const counts = {}; // name -> how many nodes carry it
-  const panels = {}; // name -> first {node, pointer} of type Panel
-  function index(node, pointer) {
-    nodes.push({ node: node, pointer: pointer });
-    if (typeof node.name === "string" && node.name !== "") {
-      counts[node.name] = (counts[node.name] || 0) + 1;
-      if (node.type === "Panel" && !panels[node.name]) panels[node.name] = { node: node, pointer: pointer };
-    }
-    const children = node.children || [];
-    for (let i = 0; i < children.length; i++) index(children[i], pointer + "/children/" + i);
-  }
-  index(output.form, "/form");
+  const pages = output.form.children || [];
+  let firstPanel = -1;
+  for (let i = 0; i < pages.length && firstPanel < 0; i++) if (pages[i].type === "Panel") firstPanel = i;
 
-  // The conditional panels a choice shows, in first-seen order.
-  function drivenPanels(choice) {
-    return showTargets(choice)
-      .filter(function (name) { return panels[name] && panels[name].node.is_conditional === true; })
-      .map(function (name) { return panels[name]; });
-  }
-
-  function descendants(node, pointer, out) {
-    const children = node.children || [];
-    for (let i = 0; i < children.length; i++) {
-      out.push({ node: children[i], pointer: pointer + "/children/" + i });
-      descendants(children[i], pointer + "/children/" + i, out);
-    }
-    return out;
-  }
-
-  nodes.forEach(function (entry) {
-    const choice = entry.node;
-    if (CHOICES.indexOf(choice.type) < 0) return;
-    const key = (choice.options || []).map(function (o) { return plain(masterText(o.label, master)); }).join("\u0000");
-    if (APPROVED.indexOf(key) < 0) return;
-
-    const targets = showTargets(choice);
-    const resolved = targets.filter(function (name) { return panels[name]; });
-    if (resolved.length < 2) {
-      violations.push({
-        pointer: entry.pointer,
-        message:
-          choice.type + " `" + choice.name + "` offers a form configurator's options but shows " +
-          resolved.length + " panel(s) (show: true conditions naming a Panel in the tree)" +
-          (targets.length > resolved.length ? "; no Panel is named " +
-            targets.filter(function (n) { return !panels[n]; }).join(", ") : "") +
-          ": give each option its conditional panel, or reword the options if this is an ordinary question",
+  let bands = 0;
+  function visit(node, pointer, depth, index) {
+    if (isBand(node)) {
+      bands++;
+      // The first page, or a Panel directly inside a first page that is not the band itself.
+      const firstPage = firstPanel >= 0 ? pages[firstPanel] : null;
+      const first = (depth === 1 && index === firstPanel && node.is_page === true) ||
+        (depth === 2 && firstPage !== null && !isBand(firstPage) &&
+          pointer.indexOf("/form/children/" + firstPanel + "/children/") === 0);
+      if (!first || bands > 1) {
+        violations.push({
+          pointer: pointer + "/name",
+          message: "`" + node.name + "` is " + (bands > 1 ? "a second configurator band" : "not the form's first page") +
+            ": the configurator inputs form one band, the first page or a Panel directly inside it (UBS-CFG-2), and the writer resets every choice " +
+            "inside a panel so named; move it there, or rename it",
+        });
+      }
+      (node.children || []).forEach(function (child, j) {
+        if (CHOICES.indexOf(child.type) < 0) return;
+        const at = pointer + "/children/" + j;
+        (child.conditions || []).forEach(function (rule, k) {
+          if (rule.show === false) {
+            violations.push({
+              pointer: at + "/conditions/" + k,
+              message: "the configurator `" + child.name + "` hides `" + rule.target_panel_name + "` with show: false, which the " +
+                "writer ignores, for the visibility and the reset alike: show each option's panel with show: true instead",
+            });
+          }
+        });
       });
-      return;
     }
-    resolved.forEach(function (name) {
-      const target = panels[name];
-      if (target.node.is_conditional !== true) {
+    const passthrough = node.passthrough || {};
+    const attrs = passthrough.raw_attributes || {};
+    Object.keys(attrs).forEach(function (key) {
+      if (handWrittenReset(String(attrs[key]))) {
         violations.push({
-          pointer: target.pointer + "/is_conditional",
-          message:
-            "panel `" + name + "` is shown by the configurator `" + choice.name +
-            "`, so it must be a conditional panel (is_conditional: true), or the reset script cannot be tied to it",
-        });
-        return;
-      }
-      if (counts[name] > 1) {
-        violations.push({
-          pointer: target.pointer + "/name",
-          message:
-            "panel `" + name + "` is shown by the configurator `" + choice.name + "` but " + counts[name] +
-            " nodes carry that name; the reset script names the panel, so rename the others (and any condition naming them)",
+          pointer: pointer + "/passthrough/raw_attributes/" + key,
+          message: "`" + node.name + "` carries a reset of its own (resetData or resetAllPanelInstances); the writer writes " +
+            "the configurator's reset (UBS-CFG-4): delete the entry",
         });
       }
-      const inside = descendants(target.node, target.pointer, []);
-      if (!inside.some(function (d) { return CLEARABLE.indexOf(d.node.type) >= 0; })) {
+    });
+    (passthrough.raw_children || []).forEach(function (raw, k) {
+      if (handWrittenReset(String(raw))) {
         violations.push({
-          pointer: target.pointer,
-          message:
-            "panel `" + name + "` is shown by the configurator `" + choice.name +
-            "` but holds nothing a reset could clear (no input, HtmlDisplayer, fragment or repeatable): move its text out of the panel or into the panel that holds the inputs",
+          pointer: pointer + "/passthrough/raw_children/" + k,
+          message: "`" + node.name + "` carries a reset of its own (resetData or resetAllPanelInstances); the writer writes " +
+            "the configurator's reset (UBS-CFG-4): delete the element",
         });
       }
-      inside.forEach(function (d) {
-        if (CHOICES.indexOf(d.node.type) >= 0 && drivenPanels(d.node).length >= 2) {
-          violations.push({
-            pointer: d.pointer,
-            message:
-              d.node.type + " `" + d.node.name + "` decides which panels are shown and sits inside panel `" +
-              name + "`, which the configurator `" + choice.name +
-              "` resets: move it out of that panel, or the reset discards its value",
-          });
-        }
-      });
+    });
+    const children = node.children || [];
+    for (let i = 0; i < children.length; i++) visit(children[i], pointer + "/children/" + i, depth + 1, i);
+  }
+  visit(output.form, "/form", 0, 0);
+
+  crooked(output).forEach(function (entry) {
+    violations.push({
+      pointer: entry.pointer + (entry.node.type === "Dropdown" ? "/type" : "/alignment"),
+      message: entry.node.type + " `" + entry.node.name + "` is a configurator choice, which is rendered as horizontal radio " +
+        "buttons whatever the source control: make it a RadioButton with alignment Horizontal",
     });
   });
   return { pass: violations.length === 0, violations: violations };

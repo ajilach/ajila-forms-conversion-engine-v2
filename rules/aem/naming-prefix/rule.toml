@@ -1,5 +1,5 @@
 id = "ubs-aem-naming-prefix"
-title = "Component names carry their type's UBS prefix"
+title = "Names carry their type's UBS prefix"
 output_formats = ["aem-ubs"]
 description = """
 Every component a form author names starts its `name` with the prefix UBS assigns to its type,
@@ -22,7 +22,8 @@ names like `textbox_<uuid>`, and that is correct and expected. Names are not cos
 `bind_ref` the `name` IS the binding, so scripts, conditions and fragments resolve panels and
 fields by it.
 
-Rename the node. A panel's name is also what conditions target (`target_panel_name`), so rename
+Rename the node. A panel's name is also what conditions target (`target_panel_name`), and an
+input's is what `copy_from` and the `{NAME}` of a `calculate` or a letter's subject read, so rename
 those references with it. A repeatable named `RP_...` or `PN_...` is one authorable rename too:
 the writer derives its inner panels from the name you give it.
 """

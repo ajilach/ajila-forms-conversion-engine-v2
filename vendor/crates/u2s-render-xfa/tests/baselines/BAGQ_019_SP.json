@@ -1,0 +1,628 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Relación bancaria\n0319 00\nUBS Europe SE\nInstrucciones de transferencia\nForm configurator\nCurrencies (max. 4 Währungen)\n0\n0\n0\n0\n0\n0\n0\n0\nEUR\nUSD\nCHF\nGBP\nCAD\nJPY\nAUD\nMXN\n0101642960501001501202601018\n64296\nSP\nV0\n019\nBAGQ\n31.10.2019\nN1\n15.01.2026\nPágina 1/1"
+  ],
+  "raster": [
+    "b0efb60b50b8434a"
+  ],
+  "controls": {
+    "UBSForms.MPs.MP.Barcode": {
+      "value": "0101642960501001501202601018",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "64296",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "BAGQ",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "SP",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "31.10.2019",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Página 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Barcode": {
+      "value": "0101642960501001501202601018",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "64296",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "BAGQ",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "SP",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerModDate": {
+      "value": "31.10.2019",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Página 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.Page.AUD.STP_BIC_IBAN_AUD.BIC_AUD": {
+      "value": "ANZBAU3M",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.AUD.STP_BIC_IBAN_AUD.Beneficiary_Bank_AUD": {
+      "value": "UBS Europe SE Frankfurt (BIC: SMHBDEFF)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.AUD.STP_Final_Beneficiary_AUD.Final_Beneficiary_AUD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.AUD.STP_Final_Beneficiary_AUD.IBAN_AUD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.AUD.STP_Intermediary_Forward_To_AUD.Forward_To_AUD": {
+      "value": "UBS AG, Zürich (BIC: UBSBCHZZXXX)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.AUD.STP_Intermediary_Forward_To_AUD.Intermediary_AUD": {
+      "value": "ANZ Banking Group Ltd., Melbourne",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CAD.STP_BIC_IBAN_CAD.BIC_CAD": {
+      "value": "CIBCCATT",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CAD.STP_BIC_IBAN_CAD.Beneficiary_Bank_CAD": {
+      "value": "UBS Europe SE Frankfurt (BIC: SMHBDEFF)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CAD.STP_Final_Beneficiary_CAD.Final_Beneficiary_CAD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CAD.STP_Final_Beneficiary_CAD.IBAN_CAD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CAD.STP_Intermediary_Forward_To_CAD.Forward_To_CAD": {
+      "value": "UBS AG, Zürich (BIC: UBSBCHZZXXX)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CAD.STP_Intermediary_Forward_To_CAD.Intermediary_CAD": {
+      "value": "Canadian Imperial Bank of Commerce, Toronto",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CHF.STP_Beneficiary_Bank_IBAN_CHF.Beneficiary_Bank_CHF": {
+      "value": "UBS Europe SE Frankfurt (BIC: SMHBDEFF)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CHF.STP_Final_Beneficiary_CHF.Final_Beneficiary_CHF": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CHF.STP_Final_Beneficiary_CHF.IBAN_CHF": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CHF.STP_Intermediary_BIC_CHF.BIC_CHF": {
+      "value": "UBSBCHZZXXX",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.CHF.STP_Intermediary_BIC_CHF.Intermediary_CHF": {
+      "value": "UBS AG, Zürich",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.EUR.STP_Bank_Account_Name_EUR.Account_Name_EUR": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.EUR.STP_Bank_Account_Name_EUR.Bank_EUR": {
+      "value": "UBS Europe SE",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.EUR.STP_IBAN_SWIFT_EUR.IBAN_EUR": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.EUR.STP_IBAN_SWIFT_EUR.SWIFT_EUR": {
+      "value": "SMHBDEFF",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_AUD": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          310.9,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_CAD": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          224.6,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_CHF": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          137.2,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_EUR": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_GBP": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          181.0,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_JPY": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          270.1,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_MXN": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          356.5,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Currency.STP_Currencies.CB_USD": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          93.0,
+          156.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.GBP.STP_BIC_IBAN_GBP.BIC_GBP": {
+      "value": "UBSWGB55",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.GBP.STP_BIC_IBAN_GBP.Beneficiary_Bank_GBP": {
+      "value": "UBS Europe SE Frankfurt (BIC: SMHBDEFF)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.GBP.STP_Final_Beneficiary_GBP.Final_Beneficiary_GBP": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.GBP.STP_Final_Beneficiary_GBP.IBAN_GBP": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.GBP.STP_Intermediary_Forward_To_GBP.Forward_To_GBP": {
+      "value": "UBS AG, Zürich (BIC: UBSBCHZZXXX)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.GBP.STP_Intermediary_Forward_To_GBP.Intermediary_GBP": {
+      "value": "UBS AG, London",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.JPY.STP_BIC_IBAN_JPY.BIC_JPY": {
+      "value": "UBSWJPJT",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.JPY.STP_BIC_IBAN_JPY.Beneficiary_Bank_JPY": {
+      "value": "UBS Europe SE Frankfurt (BIC: SMHBDEFF)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.JPY.STP_Final_Beneficiary_JPY.Final_Beneficiary_JPY": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.JPY.STP_Final_Beneficiary_JPY.IBAN_JPY": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.JPY.STP_Intermediary_Forward_To_JPY.Forward_To_JPY": {
+      "value": "UBS AG, Zürich (BIC: UBSBCHZZXXX)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.JPY.STP_Intermediary_Forward_To_JPY.Intermediary_JPY": {
+      "value": "UBS AG Tokyo",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.MXN.STP_Account_No_BIC_MXN.Account_No_MXN": {
+      "value": "564000021",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.MXN.STP_Account_No_BIC_MXN.BIC_MXN": {
+      "value": "BNMXMXMMCVT",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.MXN.STP_Beneficiary_Bank_IBAN_MXN.Beneficiary_Bank_MXN": {
+      "value": "UBS Europe SE Frankfurt (BIC: SMHBDEFF)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.MXN.STP_Final_Beneficiary_MXN.Final_Beneficiary_MXN": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.MXN.STP_Final_Beneficiary_MXN.IBAN_MXN": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.MXN.STP_Intermediary_Forward_To_MXN.Forward_To_MXN": {
+      "value": "UBS AG, Zürich (BIC: UBSBCHZZXXX)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.MXN.STP_Intermediary_Forward_To_MXN.Intermediary_MXN": {
+      "value": "Banco Nacional de Mexico SA, Mexico City",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_Beneficiary_Bank_Account_No_USD.Account_No_USD": {
+      "value": "101-WA-315389-000",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_Beneficiary_Bank_Account_No_USD.Beneficiary_Bank_USD": {
+      "value": "UBS Europe SE Germany (SWIFT: SMHBDEFF)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_Final_Account_No_USD.Final_Account_No_USD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_Final_Beneficiary_USD.Final_Beneficiary_USD": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_Intermediary_Address_USD.Address_USD": {
+      "value": "677 Washington Boulevard, Stamford CT 6901, USA",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_Intermediary_Address_USD.Intermediary_USD": {
+      "value": "UBS AG Stamford",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_SWIFT_ABA_USD.ABA_USD": {
+      "value": "026007993",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.USD.STP_SWIFT_ABA_USD.SWIFT_USD": {
+      "value": "UBSWUS33",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

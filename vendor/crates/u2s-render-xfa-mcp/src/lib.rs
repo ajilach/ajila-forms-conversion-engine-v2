@@ -35,11 +35,19 @@ use rmcp::ErrorData as McpError;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::*;
 use rmcp::service::{RequestContext, RoleServer};
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use u2s_render_xfa::states::{ControlKind, SelectionSpec, Step};
-use u2s_render_xfa::{
-    BlobStore, ImageFormat, Limits, Pattern, RectPt, RenderError, RenderedPage, Renderer, Target,
-    fonts, states::StateSpec,
+use u2s_render_core::args::{
+    InfoArgs, PageTextArgs, RenderPageArgs, RenderPagesArgs, RenderRegionArgs, SearchTextArgs,
+    ServerArgs, parse_args,
+};
+use u2s_render_core::document::DocumentArg;
+use u2s_render_xfa::RenderOptions;
+use u2s_render_xfa::{BlobStore, Limits, RenderError, RenderedPage, Renderer, Target, fonts};
+
+use crate::specs::{
+    ClickArgs, CloseArgs, ControlsArgs, FieldArgs, ResetArgs, SetArgs, StateArg, XfaArgs,
+    XfaDocument, XfaTarget,
 };
 
 const MANIFEST_URI: &str = "u2s://manifest";
@@ -67,7 +75,7 @@ impl XfaRenderServer {
             searched: vec![e.to_string()],
         })?;
 
-        Self::with_parts(Limits::from_env(), BlobStore::from_env())
+        Self::with_parts(Limits::from_env(), BlobStore::from_env()?)
     }
 
     /// [`Self::new`] for in-process hosts: limits and blob store come from the
@@ -78,14 +86,21 @@ impl XfaRenderServer {
         if !fonts::fallback_registered() {
             return Err(RenderError::EngineUnavailable {
                 engine: "xfa",
-                searched: vec!["no fallback font is registered: register the fonts before \
+                searched: vec![
+                    "no fallback font is registered: register the fonts before \
                                 creating the server"
-                    .into()],
+                        .into(),
+                ],
             });
         }
         let max_inline_bytes = limits.max_inline_bytes;
         Ok(XfaRenderServer {
-            renderer: Renderer::new(limits),
+            // Open text fields are underlined so a model reading the image
+            // can tell where it may type; the template itself draws no such
+            // line (see the xfa_render_* tool descriptions).
+            renderer: Renderer::new(limits).with_chrome(RenderOptions {
+                field_underline: true,
+            }),
             blobs: Arc::new(blobs),
             max_inline_bytes,
         })
@@ -122,7 +137,6 @@ impl XfaRenderServer {
             meta["inline"] = json!(false);
             meta["blob"] = json!({
                 "handle": blob.handle,
-                "path": blob.path.display().to_string(),
                 "media_type": blob.media_type,
                 "byte_len": blob.byte_len,
                 "digest": blob.digest,
@@ -137,148 +151,65 @@ impl XfaRenderServer {
         }
     }
 
-    /// Parse the shared `state` argument. Absent or explicitly null means
-    /// the default state; anything else that does not match the shape is a
-    /// hard failure rather than a silent fallback to default, since a
-    /// misspelled key would otherwise render the wrong thing without a word.
-    fn state_of(args: &Value) -> Result<StateSpec, RenderError> {
-        let Some(state) = args.get("state") else {
-            return Ok(StateSpec::default());
-        };
-        if state.is_null() {
-            return Ok(StateSpec::default());
-        }
-        let Some(obj) = state.as_object() else {
-            return Err(RenderError::invalid_argument(
-                "state",
-                "must be an object of the shape { \"steps\": [...] }",
-            ));
-        };
-        let field_of = |item: &Value, what: &str| -> Result<String, RenderError> {
-            item.get("field")
-                .and_then(Value::as_str)
-                .map(str::to_string)
-                .ok_or_else(|| {
-                    RenderError::invalid_argument("state", format!("each {what} needs a \"field\""))
-                })
-        };
-        let selection_of = |item: &Value, what: &str| -> Result<SelectionSpec, RenderError> {
-            let value = item.get("value").and_then(Value::as_str).ok_or_else(|| {
-                RenderError::invalid_argument("state", format!("each {what} needs a \"value\""))
-            })?;
-            Ok(SelectionSpec {
-                field: field_of(item, what)?,
-                value: value.to_string(),
-            })
-        };
-        match (obj.get("steps"), obj.get("selections")) {
-            (Some(_), Some(_)) => Err(RenderError::invalid_argument(
-                "state",
-                "has both \"steps\" and \"selections\"; give one (selections are set steps)",
-            )),
-            (Some(steps), None) => {
-                let list = steps.as_array().ok_or_else(|| {
-                    RenderError::invalid_argument("state", "\"steps\" must be an array")
-                })?;
-                let mut out = Vec::with_capacity(list.len());
-                for item in list {
-                    match (item.get("set"), item.get("click")) {
-                        (Some(set), None) => out.push(Step::Set(selection_of(set, "set step")?)),
-                        (None, Some(click)) => out.push(Step::Click {
-                            field: field_of(click, "click step")?,
-                        }),
-                        _ => {
-                            return Err(RenderError::invalid_argument(
-                                "state",
-                                "each step is {\"set\": {field, value}} or {\"click\": {field}}",
-                            ));
-                        }
+    /// What a call addresses: a document in a requested state, or one
+    /// revision of an open session. Exactly one of `doc`, `doc_path` and
+    /// `session` must be given; naming two or none is a mistake worth
+    /// reporting rather than resolving by precedence, since they would often
+    /// answer about different things.
+    fn target_of(&self, target: XfaTarget) -> Result<Target, RenderError> {
+        let XfaTarget {
+            document: XfaDocument { doc, doc_path },
+            session,
+            revision,
+            state,
+        } = target;
+        let document = DocumentArg::from_parts(doc, doc_path)?;
+        match (document, session) {
+            (Some(document), Some(_)) => Err(RenderError::invalid_argument(
+                "session",
+                format!(
+                    "both {} and session were given; supply exactly one",
+                    match document {
+                        DocumentArg::Blob(_) => "doc",
+                        DocumentArg::Path(_) => "doc_path",
                     }
-                }
-                Ok(StateSpec { steps: out })
-            }
-            (None, Some(selections)) => {
-                let list = selections.as_array().ok_or_else(|| {
-                    RenderError::invalid_argument("state", "\"selections\" must be an array")
-                })?;
-                let selections = list
-                    .iter()
-                    .map(|item| selection_of(item, "selection"))
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(StateSpec::selections(selections))
-            }
-            (None, None) => {
-                let keys: Vec<&str> = obj.keys().map(String::as_str).collect();
-                Err(RenderError::invalid_argument(
-                    "state",
-                    format!(
-                        "must have a \"steps\" array (or the older \"selections\"); this \
-                         object has keys {keys:?}"
-                    ),
-                ))
-            }
-        }
-    }
-
-    /// The optional `kinds` filter of `xfa_controls`, parsed once here into
-    /// [`ControlKind`]s; an unknown kind is refused, naming the valid ones.
-    fn kinds_of(args: &Value) -> Result<Option<Vec<ControlKind>>, RenderError> {
-        let Some(list) = args.get("kinds") else {
-            return Ok(None);
-        };
-        let list = list.as_array().ok_or_else(|| {
-            RenderError::invalid_argument("kinds", "must be an array of control kinds")
-        })?;
-        list.iter()
-            .map(|k| {
-                serde_json::from_value::<ControlKind>(k.clone()).map_err(|_| {
-                    RenderError::invalid_argument(
-                        "kinds",
-                        format!(
-                            "{k} is not a control kind; use any of {}",
-                            ControlKind::ALL.map(ControlKind::wire_name).join(", ")
-                        ),
-                    )
-                })
-            })
-            .collect::<Result<Vec<_>, _>>()
-            .map(Some)
-    }
-
-    /// What a call addresses: a document on disk in a requested state, or
-    /// one revision of an open session. Exactly one of `doc_path` and
-    /// `session` must be given; naming both or neither is a mistake worth
-    /// reporting rather than resolving by precedence, since the two would
-    /// often answer about different things.
-    fn target_of(args: &Value) -> Result<Target, RenderError> {
-        let doc_path = args.get("doc_path").and_then(Value::as_str);
-        let session = args.get("session").and_then(Value::as_str);
-        match (doc_path, session) {
-            (Some(_), Some(_)) => Err(RenderError::invalid_argument(
-                "doc_path",
-                "both doc_path and session were given; supply exactly one",
+                ),
             )),
             (None, None) => Err(RenderError::invalid_argument(
-                "doc_path",
-                "neither doc_path nor session was given; supply exactly one",
+                "doc",
+                "none of doc, doc_path and session was given; supply exactly one",
             )),
-            (Some(path), None) => Ok(Target::doc(path, &Self::state_of(args)?)),
+            (Some(document), None) => Ok(Target::doc(
+                &document.path(&self.blobs)?,
+                &state.map(StateArg::into_spec).unwrap_or_default(),
+            )),
             (None, Some(handle)) => {
-                let revision = args.get("revision").and_then(Value::as_u64).ok_or_else(|| {
+                let revision = revision.ok_or_else(|| {
                     RenderError::invalid_argument(
                         "revision",
                         "required when addressing by session — pass the revision you last saw",
                     )
                 })?;
-                Ok(Target::view(handle, revision))
+                Ok(Target::view(&handle, revision))
             }
         }
+    }
+
+    /// A read tool's arguments as `XfaArgs<T>`: what it addresses, and the
+    /// tool's own arguments.
+    fn read<T: DeserializeOwned>(&self, args: &Value) -> Result<(Target, T), RenderError> {
+        let XfaArgs { document, args } = parse_args::<XfaArgs<T>>(args)?;
+        Ok((self.target_of(document)?, args))
     }
 
     pub fn dispatch(&self, name: &str, args: &Value) -> Result<CallToolResult, RenderError> {
         match name {
             "xfa_open" => {
-                let path = arg_str(args, "doc_path")?;
+                let ServerArgs {
+                    document: XfaDocument { doc, doc_path },
+                    args: InfoArgs {},
+                } = parse_args::<ServerArgs<XfaDocument, InfoArgs>>(args)?;
+                let path = DocumentArg::required(doc, doc_path)?.path(&self.blobs)?;
                 let (session, revision, info) = self.renderer.open(&path)?;
                 let mut value = serde_json::to_value(&info)
                     .map_err(|e| RenderError::backend("xfa", format!("serialize info: {e}")))?;
@@ -288,17 +219,15 @@ impl XfaRenderServer {
             }
 
             "xfa_close" => {
-                let handle = arg_str(args, "session")?;
-                self.renderer.close(&handle)?;
+                let CloseArgs { session } = parse_args(args)?;
+                self.renderer.close(&session)?;
                 Ok(CallToolResult::structured(json!({ "closed": true })))
             }
 
             "xfa_set" => {
-                let handle = arg_str(args, "session")?;
-                let expected_revision = arg_u64(args, "expected_revision")?;
-                let field = arg_str(args, "field")?;
-                let value = arg_str(args, "value")?;
-                let interaction = self.renderer.set(handle, expected_revision, field, value)?;
+                let SetArgs { at, field, value } = parse_args(args)?;
+                let interaction =
+                    self.renderer.set(at.session, at.expected_revision, field, value)?;
                 let value = serde_json::to_value(&interaction).map_err(|e| {
                     RenderError::backend("xfa", format!("serialize interaction: {e}"))
                 })?;
@@ -306,10 +235,8 @@ impl XfaRenderServer {
             }
 
             "xfa_click" => {
-                let handle = arg_str(args, "session")?;
-                let expected_revision = arg_u64(args, "expected_revision")?;
-                let field = arg_str(args, "field")?;
-                let interaction = self.renderer.click(handle, expected_revision, field)?;
+                let ClickArgs { at, field } = parse_args(args)?;
+                let interaction = self.renderer.click(at.session, at.expected_revision, field)?;
                 let value = serde_json::to_value(&interaction).map_err(|e| {
                     RenderError::backend("xfa", format!("serialize interaction: {e}"))
                 })?;
@@ -317,9 +244,8 @@ impl XfaRenderServer {
             }
 
             "xfa_reset" => {
-                let handle = arg_str(args, "session")?;
-                let expected_revision = arg_u64(args, "expected_revision")?;
-                let interaction = self.renderer.reset(handle, expected_revision)?;
+                let ResetArgs { at } = parse_args(args)?;
+                let interaction = self.renderer.reset(at.session, at.expected_revision)?;
                 let value = serde_json::to_value(&interaction).map_err(|e| {
                     RenderError::backend("xfa", format!("serialize interaction: {e}"))
                 })?;
@@ -327,7 +253,7 @@ impl XfaRenderServer {
             }
 
             "xfa_info" => {
-                let target = Self::target_of(args)?;
+                let (target, InfoArgs {}) = self.read(args)?;
                 let info = self.renderer.info(&target)?;
                 let mut value = serde_json::to_value(&info)
                     .map_err(|e| RenderError::backend("xfa", format!("serialize info: {e}")))?;
@@ -341,13 +267,13 @@ impl XfaRenderServer {
             }
 
             "xfa_render_page" => {
-                let target = Self::target_of(args)?;
+                let (target, a): (_, RenderPageArgs) = self.read(args)?;
                 let (page, warning) = self.renderer.render_page(
                     &target,
-                    arg_u32(args, "page")?,
-                    arg_f32(args, "dpi"),
-                    arg_u32_opt(args, "max_edge_px"),
-                    ImageFormat::parse(args.get("format").and_then(Value::as_str))?,
+                    a.page,
+                    a.dpi,
+                    a.max_edge_px,
+                    a.format.unwrap_or_default(),
                 )?;
                 let (content, mut meta) = self.page_content(&page)?;
                 if let Some(w) = warning {
@@ -357,23 +283,15 @@ impl XfaRenderServer {
             }
 
             "xfa_render_pages" => {
-                let target = Self::target_of(args)?;
-                let pages = args.get("pages").and_then(Value::as_array).map(|a| {
-                    a.iter()
-                        .filter_map(|v| v.as_u64())
-                        .map(|v| v as u32)
-                        .collect::<Vec<_>>()
-                });
+                let (target, a): (_, RenderPagesArgs) = self.read(args)?;
                 let batch = self.renderer.render_pages(
                     &target,
-                    pages,
-                    arg_u32_opt(args, "from"),
-                    args.get("limit")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                    arg_f32(args, "dpi"),
-                    arg_u32_opt(args, "max_edge_px"),
-                    ImageFormat::parse(args.get("format").and_then(Value::as_str))?,
+                    a.pages,
+                    a.from,
+                    a.limit,
+                    a.dpi,
+                    a.max_edge_px,
+                    a.format.unwrap_or_default(),
                 )?;
 
                 let mut blocks = Vec::new();
@@ -396,87 +314,57 @@ impl XfaRenderServer {
             }
 
             "xfa_render_region" => {
-                let target = Self::target_of(args)?;
-                let rect_arg = args.get("rect_pt").ok_or_else(|| {
-                    RenderError::backend("xfa", "missing required argument rect_pt")
-                })?;
-                let rect = RectPt {
-                    x: arg_f32(rect_arg, "x").unwrap_or(0.0),
-                    y: arg_f32(rect_arg, "y").unwrap_or(0.0),
-                    width: arg_f32(rect_arg, "width")
-                        .ok_or_else(|| RenderError::backend("xfa", "rect_pt.width is required"))?,
-                    height: arg_f32(rect_arg, "height")
-                        .ok_or_else(|| RenderError::backend("xfa", "rect_pt.height is required"))?,
-                };
+                let (target, a): (_, RenderRegionArgs) = self.read(args)?;
                 let page = self.renderer.render_region(
                     &target,
-                    arg_u32(args, "page")?,
-                    rect,
-                    arg_f32(args, "dpi"),
-                    ImageFormat::parse(args.get("format").and_then(Value::as_str))?,
+                    a.page,
+                    a.rect_pt,
+                    a.dpi,
+                    a.format.unwrap_or_default(),
                 )?;
                 let (content, meta) = self.page_content(&page)?;
                 Ok(with_structured(CallToolResult::success(content), meta))
             }
 
             "xfa_page_text" => {
-                let target = Self::target_of(args)?;
-                let text = self.renderer.page_text(
-                    &target,
-                    arg_u32(args, "page")?,
-                    args.get("offset")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                    args.get("limit")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                )?;
+                let (target, a): (_, PageTextArgs) = self.read(args)?;
+                let text = self.renderer.page_text(&target, a.page, a.offset, a.limit)?;
                 let value = serde_json::to_value(&text)
                     .map_err(|e| RenderError::backend("xfa", format!("serialize text: {e}")))?;
                 Ok(CallToolResult::structured(value))
             }
 
             "xfa_search_text" => {
-                let target = Self::target_of(args)?;
-                let search = self.renderer.search_text(
-                    &target,
-                    arg_u32_opt(args, "from"),
-                    pattern_of(args)?,
-                    args.get("limit")
-                        .and_then(Value::as_u64)
-                        .map(|v| v as usize),
-                )?;
+                let (target, a): (_, SearchTextArgs) = self.read(args)?;
+                let search = self.renderer.search_text(&target, a.from, a.pattern()?, a.limit)?;
                 let value = serde_json::to_value(&search)
                     .map_err(|e| RenderError::backend("xfa", format!("serialize search: {e}")))?;
                 Ok(CallToolResult::structured(value))
             }
 
             "xfa_controls" => {
-                let target = Self::target_of(args)?;
-                let kinds = Self::kinds_of(args)?;
-                let offset = args.get("offset").and_then(Value::as_u64).unwrap_or(0) as usize;
-                let limit = match args.get("limit").and_then(Value::as_u64) {
+                let (target, a): (_, ControlsArgs) = self.read(args)?;
+                // The schema states both bounds; a caller that skips it
+                // (a standalone client) still gets the same answer.
+                let limit = match a.limit {
                     None => CONTROLS_DEFAULT_LIMIT,
                     Some(0) => {
-                        return Err(RenderError::invalid_argument(
-                            "limit",
-                            "must be at least 1",
-                        ));
+                        return Err(RenderError::invalid_argument("limit", "must be at least 1"));
                     }
-                    Some(n) => (n as usize).min(CONTROLS_MAX_LIMIT),
+                    Some(n) => n.min(CONTROLS_MAX_LIMIT),
                 };
-                let c = self
-                    .renderer
-                    .controls(&target)?
-                    .window(kinds.as_deref(), offset, limit);
+                let c = self.renderer.controls(&target)?.window(
+                    a.kinds.as_deref(),
+                    a.offset.unwrap_or(0),
+                    limit,
+                );
                 let value = serde_json::to_value(&c)
                     .map_err(|e| RenderError::backend("xfa", format!("serialize controls: {e}")))?;
                 Ok(CallToolResult::structured(value))
             }
 
             "xfa_field" => {
-                let target = Self::target_of(args)?;
-                let field = arg_str(args, "field")?;
+                let (target, FieldArgs { field }) = self.read(args)?;
                 let control = self.renderer.field(&target, field.as_str())?.ok_or_else(|| {
                     RenderError::invalid_argument(
                         "field",
@@ -499,43 +387,6 @@ impl XfaRenderServer {
 fn with_structured(mut result: CallToolResult, value: Value) -> CallToolResult {
     result.structured_content = Some(value);
     result
-}
-
-/// Compile the caller's query once, here at the edge, so nothing downstream
-/// can hold an invalid pattern. A bad regex is the caller's fault, so it is
-/// reported as a bad argument rather than as an engine failure.
-fn pattern_of(args: &Value) -> Result<Pattern, RenderError> {
-    let query = arg_str(args, "query")?;
-    let regex = args.get("regex").and_then(Value::as_bool).unwrap_or(false);
-    Pattern::parse(&query, regex).map_err(|detail| RenderError::invalid_argument("query", detail))
-}
-
-fn arg_str(args: &Value, key: &str) -> Result<String, RenderError> {
-    args.get(key)
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .ok_or_else(|| RenderError::backend("xfa", format!("missing required argument {key}")))
-}
-
-fn arg_u32(args: &Value, key: &str) -> Result<u32, RenderError> {
-    args.get(key)
-        .and_then(Value::as_u64)
-        .map(|v| v as u32)
-        .ok_or_else(|| RenderError::backend("xfa", format!("missing required argument {key}")))
-}
-
-fn arg_u32_opt(args: &Value, key: &str) -> Option<u32> {
-    args.get(key).and_then(Value::as_u64).map(|v| v as u32)
-}
-
-fn arg_u64(args: &Value, key: &str) -> Result<u64, RenderError> {
-    args.get(key)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| RenderError::backend("xfa", format!("missing required argument {key}")))
-}
-
-fn arg_f32(args: &Value, key: &str) -> Option<f32> {
-    args.get(key).and_then(Value::as_f64).map(|v| v as f32)
 }
 
 fn to_mcp_tool(spec: &Value) -> Option<Tool> {

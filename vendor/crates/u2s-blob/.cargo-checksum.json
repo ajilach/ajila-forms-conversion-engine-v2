@@ -1,1 +1,1 @@
-{"files":{"Cargo.toml":"c60d998e4cae5667b4b6b079d29241dc753e3f2ffad58a6af86b0b9f030f7197","src/lib.rs":"c772e97468470bd2510546b8c58279a6e78fa9fad1e3771d7c287cbf777cf844"},"package":null}
+{"files":{"Cargo.toml":"a77456d66d4ca8801859ab770e5fc0d6331aa8449115a94e0d7d938435d89a51","src/lib.rs":"ca1f3a6037b3a29a474481e13deada74d948f64740c21ef505b41f9698ea213e","src/postgres.rs":"89fa212c997b9b68626b81aaa0865e1fe469bf9e14af185cf8fa8e772d2ca3f1","src/source.rs":"d517e0b75fd90313c6fc3f8fca2069c55611a13190eb7acfbd150a0907ee122d"},"package":null}

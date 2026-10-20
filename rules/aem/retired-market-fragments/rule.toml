@@ -1,17 +1,19 @@
 id = "ubs-aem-retired-market-fragments"
-title = "No retired Germany or Italy person and signature fragments"
+title = "No retired Germany or Italy fragments"
 output_formats = ["aem-ubs"]
 description = """
-UBS retired the market-specific person and signature fragments of `afforms_germany_fragmentlib`
-and `afforms_italy_fragmentlib` in favour of the UBS generics (directive "AF Fragments and Common
-Fields with XSD List", 2026-08-20). A person block uses `affrg_ContractualPartnerGeneric1`,
-`affrg_PartnertoPartnerGeneric1`, `affrg_BeneficialOwnerGeneric1` or
-`affrg_PowerofAttorneyGeneric1` from `afforms_ubs_fragmentlib`; a signature block uses
-`affrg_SignatureGeneric1`.
+UBS retired the market fragments of `afforms_germany_fragmentlib` and `afforms_italy_fragmentlib`
+in favour of the UBS generics of `afforms_ubs_fragmentlib` (directive "AF Fragments and Common
+Fields with XSD List", 2026-08-20; backlog "Fragments"). A party uses
+`affrg_ContractualPartnerGeneric1`, `affrg_PartnertoPartnerGeneric1`,
+`affrg_BeneficialOwnerGeneric1` or `affrg_PowerofAttorneyGeneric1`
+(ubs-aem-account-holder-wiring); an address `affrg_AddressGeneric1` (ubs-aem-addresses); a
+signature `affrg_SignatureGeneric1` (ubs-aem-signatures); an account number its kind's fragment
+(ubs-aem-account-numbers).
 
-The market families that stay are internal bank use, footnote, infobox, banking relationship and
-the form configurator. Never reference a germany or italy person or signature fragment: every
-violation is an authorable defect, so name the panel and the UBS generic that replaces it. A
-partner generic in a form with no configurator is a defect too, and a name pair that merely
-identifies the form's subject stays plain `TXT_` text boxes (see ubs-aem-account-holder-cluster).
+The market families that stay are internal bank use (which ubs-aem-global-internal-bank-use moves
+to the global fragment), footnote, infobox, banking relationship and the form configurator.
+
+Reported: every other `frag_ref` into the Germany or Italy library. Each is an authorable defect:
+reference the UBS generic that replaces it under the same name.
 """

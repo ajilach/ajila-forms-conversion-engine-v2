@@ -1,23 +1,27 @@
-# Mirrors `find_signature_family.py` (PROBLEM-signature-hardcoded-family) of the feedback repo.
-# `SIGNATURE_FRAGMENTS` in check.js is the set of signature fragments its catalogue
+# The signature part mirrors `find_signature_family.py` (PROBLEM-signature-hardcoded-family) of the
+# feedback repo. `SIGNATURE_FRAGMENTS` in check.js is the set of signature fragments its catalogue
 # (`fragment_migration.FRAGMENTS`) knows a signer-name field for.
 id = "ubs-aem-signature-family"
-title = "Signature slots are one repeatable, not numbered copies"
+title = "Numbered copies of a block are one repeatable"
 output_formats = ["aem-ubs"]
 description = """
-Two signature blocks that differ only by a number (`PN_Signature1` beside `PN_Signature2`,
-`RCP_Sign_1` and `RCP_Sign_2`) are a hand-made copy of the source's two signature slots. AEM numbers
-repeated instances itself (it draws "1." and "2." from two instances, and nothing from one), so the
-structure UBS wants is ONE signature block that repeats.
+Copies of one block that the source numbers by hand ("Signature 1", "Signature 2", "Erbe 1",
+"Erbe 2" as separate blocks) are one Repeatable with `min_occur` and `max_occur` both N, the number
+of copies, when they are identical apart from the number; copies that differ (other captions,
+inputs or required states) stay separate (UBS-REP-3). AEM numbers the rows itself ("1." and "2." from
+two rows, nothing for one), so signature slots in particular are never numbered copies.
 
-A signature block is a node wrapping one of the signature fragments (`affrg_SignatureGeneric1`
-and the market signature fragments), or a `Panel` / `Repeatable` whose name contains `sign`,
-`signat`, `firma` or `unterschrift` and which holds a node named likewise. Blocks are grouped by
-name with a trailing one- or two-digit number (optionally after `_`, `-` or a space) removed; a
-group of two or more numbered exactly 1 to N is reported.
+Reported, for blocks whose names differ only by a trailing one- or two-digit number (after `_`, `-`
+or a space, or none), numbered exactly 1 to N, N at least 2:
 
-Replace the numbered blocks with one `Repeatable` named after the party, wrapping
-`affrg_SignatureGeneric1` (named `PN_SGN_<party>`), with `min_occur` and `max_occur` both set to N.
-Title the repeatable with the blocks' own wording, number removed ("UBS Europe 1" and "UBS Europe 2"
-give "UBS Europe"), and rename anything that named a removed block.
+- signature blocks anywhere in the form: a node wrapping one of the signature fragments
+  (`affrg_SignatureGeneric1` and the market signature fragments), or a Panel or Repeatable whose name
+  contains `sign`, `signat`, `firma` or `unterschrift` and which holds a node named likewise;
+- sibling Panels holding no signature that are the same block once their digits are dropped (node
+  types, names, texts, options, required states).
+
+Replace the copies with one Repeatable titled with their wording, number removed ("UBS Europe 1" and
+"UBS Europe 2" give "UBS Europe"; ubs-aem-repeatable-title), and rename anything that named a
+removed block. Signature slots are a Repeatable `RCP_SGN_<stem>` wrapping `affrg_SignatureGeneric1`
+named `PN_SGN_<stem>` (backlog "Signatures (V2)").
 """

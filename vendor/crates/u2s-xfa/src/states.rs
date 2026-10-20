@@ -14,6 +14,11 @@
 //! A live interaction session (see `u2s-render-xfa`'s `session` module) is
 //! built on the same [`XfaForm::interact`] primitive `materialize` uses, one
 //! control at a time, so an agent never has to enumerate anything either.
+//!
+//! Two fields of a [`Control`] come from reading script text rather than
+//! running it: `affects_layout` and a button's `click`. They are discovery
+//! heuristics (see [`crate::exhaustive`]) that tell an agent where to look
+//! first; rendering and interaction never depend on them.
 
 use std::collections::HashMap;
 
@@ -98,7 +103,10 @@ pub struct Control {
     /// Whether the field takes several lines (`<textEdit multiLine="1">`).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub multiline: bool,
-    /// The field's tooltip (`<assist><toolTip>`): often its only label.
+    /// The field's caption (`<caption>`), the label drawn beside it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
+    /// The field's tooltip (`<assist><toolTip>`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tooltip: Option<String>,
     /// Whether the form requires a value (`<validate nullTest="error">`).
@@ -242,15 +250,18 @@ impl ControlOption {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// A variant's `///` would become a description in a tool's input schema and
+// turn the kind's plain `enum` there into a `oneOf`, so the notes below are
+// plain comments.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlKind {
     Radio,
     Checkbox,
     Dropdown,
-    /// Pressed, not set: no options, no value. See [`Control::click`].
+    // Pressed, not set: no options, no value. See `Control::click`.
     Button,
-    /// Free-value fields, set to any text the widget accepts: no `options`.
+    // Free-value fields, set to any text the widget accepts: no `options`.
     Text,
     TextArea,
     Date,
@@ -495,13 +506,6 @@ fn to_f32(d: crate::xfa::Num) -> f32 {
     d.to_f32().unwrap_or(0.0)
 }
 
-/// Every laid-out field, indexed two ways: by its full SOM path (the exact
-/// match `positions_for` prefers) and by leaf name (the fallback, used only
-/// when a leaf name is unambiguous — see `positions_for`).
-///
-/// `Vec<ControlPosition>` rather than one, because the layout can draw one
-/// path more than once (a field split across a page break); `Vec<String>`
-/// because a leaf name is shared by every instance of a repeated section.
 /// Every laid-out field, as its SOM path and where it is drawn (`None`
 /// when it has no page position).
 pub fn drawn_fields(
@@ -532,26 +536,16 @@ pub fn drawn_field_set(flat: &Flattened) -> std::collections::BTreeSet<String> {
         .collect()
 }
 
-fn position_index(
-    flat: &Flattened,
-) -> (
-    HashMap<String, Vec<ControlPosition>>,
-    HashMap<String, Vec<String>>,
-) {
+/// Where every laid-out field is drawn, by its full SOM path: more than
+/// one box when the layout draws one path twice (a field split across a
+/// page break), in page then reading order.
+fn position_index(flat: &Flattened) -> HashMap<String, Vec<ControlPosition>> {
     let mut by_path: HashMap<String, Vec<ControlPosition>> = HashMap::new();
-    let mut by_leaf: HashMap<String, Vec<String>> = HashMap::new();
-
     for (som, position) in drawn_fields(flat) {
-        let full = som.as_str().to_string();
-        let leaf = by_leaf.entry(som.name().to_string()).or_default();
-        if !leaf.contains(&full) {
-            leaf.push(full.clone());
-        }
         if let Some(position) = position {
-            by_path.entry(full).or_default().push(position);
+            by_path.entry(som.as_str().to_string()).or_default().push(position);
         }
     }
-
     for positions in by_path.values_mut() {
         positions.sort_by(|a, b| {
             a.page
@@ -560,26 +554,7 @@ fn position_index(
                 .then_with(|| a.x.total_cmp(&b.x))
         });
     }
-    (by_path, by_leaf)
-}
-
-/// Resolve one control's positions: exact SOM path match first; otherwise the
-/// leaf name, but only when exactly one field in the whole document carries
-/// it — a wrong rectangle is worse than a missing one, so an ambiguous leaf
-/// yields nothing rather than a guess.
-fn positions_for(
-    by_path: &HashMap<String, Vec<ControlPosition>>,
-    by_leaf: &HashMap<String, Vec<String>>,
-    field: &str,
-) -> Vec<ControlPosition> {
-    if let Some(hit) = by_path.get(field) {
-        return hit.clone();
-    }
-    let leaf = field.rsplit('.').next().unwrap_or(field);
-    match by_leaf.get(leaf).map(Vec::as_slice) {
-        Some([only]) => by_path.get(only).cloned().unwrap_or_default(),
-        _ => Vec::new(),
-    }
+    by_path
 }
 
 /// List a form's interactive controls without exploring anything.
@@ -595,21 +570,36 @@ pub fn controls(nodes: &[XfaNode]) -> Result<Controls, XfaError> {
 struct ControlContext {
     defaults: HashMap<SomPath, String>,
     by_path: HashMap<String, Vec<ControlPosition>>,
-    by_leaf: HashMap<String, Vec<String>>,
     script_objects: Vec<(String, String)>,
+    /// SOM paths of the pageAreas no page of the layout is an instance of:
+    /// a field under one is on no page (XFA 3.3 §7 "Page Selection").
+    unused_page_areas: Vec<String>,
 }
 
 impl ControlContext {
     fn of(form: &mut XfaForm) -> Self {
         let defaults = form.current_field_values();
-        let (by_path, by_leaf) = position_index(form.flattened());
+        let by_path = position_index(form.flattened());
         let script_objects = crate::xfa::collect_variable_scripts(form.xfa_nodes());
+        let unused_page_areas = form
+            .flattened()
+            .unused_page_areas()
+            .into_iter()
+            .map(String::from)
+            .collect();
         ControlContext {
             defaults,
             by_path,
-            by_leaf,
             script_objects,
+            unused_page_areas,
         }
+    }
+
+    /// Whether `path` lies under a pageArea that is on no page.
+    fn on_unused_page_area(&self, path: &str) -> bool {
+        self.unused_page_areas
+            .iter()
+            .any(|p| path == p || path.strip_prefix(p.as_str()).is_some_and(|rest| rest.starts_with('.')))
     }
 }
 
@@ -622,21 +612,17 @@ fn control_of(
     context: &ControlContext,
 ) -> Result<Control, XfaError> {
     let resolved = form.resolve(f.path.as_str());
-    let (on, off) = resolved
-        .as_ref()
-        .map(|n| n.xfa_node().extract_item_values())
-        .unwrap_or((None, None));
+    let check_values = resolved.as_ref().map(|n| n.xfa_node().check_button_values());
 
     let options: Vec<ControlOption> = match f.kind {
-        InteractiveFieldKind::Checkbox => vec![
-            ControlOption::same(on.clone().unwrap_or_else(|| "1".into())),
-            ControlOption::same(off.clone().unwrap_or_else(|| "0".into())),
-        ],
-        InteractiveFieldKind::Radio => {
-            vec![ControlOption::same(
-                on.clone().unwrap_or_else(|| f.path.name().to_string()),
-            )]
-        }
+        InteractiveFieldKind::Checkbox => check_values
+            .iter()
+            .flat_map(|v| [ControlOption::same(v.on.clone()), ControlOption::same(v.off.clone())])
+            .collect(),
+        InteractiveFieldKind::Radio => check_values
+            .iter()
+            .map(|v| ControlOption::same(v.on.clone()))
+            .collect(),
         // A dropdown's options can come from merged data or scripts, so
         // they are read from the live form rather than the template.
         // `dropdown_options` pairs every <items> entry rather than
@@ -693,9 +679,10 @@ fn control_of(
     } else {
         None
     };
-    let visible = resolved.as_ref().map(|n| n.is_visible()).unwrap_or(false);
+    let visible = resolved.as_ref().map(|n| n.is_visible()).unwrap_or(false)
+        && !context.on_unused_page_area(f.path.as_str());
     let affects_layout = field_affects_layout(form, f);
-    let positions = positions_for(&context.by_path, &context.by_leaf, f.path.as_str());
+    let positions = context.by_path.get(f.path.as_str()).cloned().unwrap_or_default();
     // Every listed field was just found in this form's tree, so failing to
     // walk back to it is an engine bug; it is reported, not guessed around.
     let access = form.effective_access(f.path.as_str()).ok_or_else(|| {
@@ -730,6 +717,11 @@ fn control_of(
         shown,
         max_chars: meta.as_ref().and_then(|m| m.max_chars),
         multiline: meta.as_ref().is_some_and(|m| m.multiline),
+        caption: resolved
+            .as_ref()
+            .and_then(|n| crate::xfa::caption::Caption::of(n.xfa_node()))
+            .map(|c| c.text)
+            .filter(|t| !t.is_empty()),
         tooltip: meta.as_ref().and_then(|m| m.tooltip.clone()),
         mandatory: meta.as_ref().is_some_and(|m| m.mandatory()),
         value,
@@ -916,8 +908,17 @@ pub fn field_in_state(
 /// [`StateSpec::canonical`]); a field a press created can be set by a later
 /// step under its instance path (`Row[1].Amount`).
 pub fn materialize(nodes: &[XfaNode], spec: &StateSpec) -> Result<MaterializedState, XfaError> {
+    materialize_with_fonts(nodes, spec, Vec::new())
+}
+
+/// As [`materialize`], with the faces `embedded` in the document's PDF.
+pub fn materialize_with_fonts(
+    nodes: &[XfaNode],
+    spec: &StateSpec,
+    embedded: Vec<crate::xfa::font_manager::EmbeddedFont>,
+) -> Result<MaterializedState, XfaError> {
     let (mut form, mut layout) =
-        XfaForm::new_with_layout(nodes.to_vec()).map_err(Error::FormCreation)?;
+        XfaForm::new_with_layout_and_fonts(nodes.to_vec(), embedded).map_err(Error::FormCreation)?;
     let limit_hit = apply_steps(&mut form, spec)?;
 
     // Re-flatten through the master-page engine from this same document-wide
@@ -976,6 +977,7 @@ mod tests {
             shown: None,
             max_chars: None,
             multiline: false,
+            caption: None,
             tooltip: None,
             mandatory: false,
         }

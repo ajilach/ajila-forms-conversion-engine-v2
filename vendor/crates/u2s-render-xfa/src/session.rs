@@ -28,7 +28,7 @@ use u2s_xfa::xfa::script_executor::LayoutScripts;
 use u2s_xfa::xfa::scripting::{
     EventResult, HostMessage, ScriptReport, SomPath, XfaForm, join_warnings,
 };
-use u2s_xfa::{Fidelity, XfaNode, extract_xfa_packets};
+use u2s_xfa::{EmbeddedFont, Fidelity, XfaNode, extract_embedded_fonts, extract_xfa_packets};
 
 use crate::renderer::Prepared;
 
@@ -48,8 +48,8 @@ pub struct FieldChange {
 
 /// One field's effective access before and after an interaction: a field the
 /// form's own scripts locked or unlocked (XFA 3.3 §17 lets a script assign
-/// `access`), the way AAGS locks its sheet number once a radio button
-/// prefills it.
+/// `access`), for example a change script that sets another field's `access`
+/// to `protected` once it has filled it in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct AccessChange {
     pub field: String,
@@ -114,6 +114,8 @@ struct LiveSession {
     /// The document's own nodes, as parsed, kept so `reset` can rebuild the
     /// form without re-reading the file or re-extracting its XFA packets.
     original_nodes: Vec<XfaNode>,
+    /// The faces embedded in the document's PDF, for a reset's fresh form.
+    embedded_fonts: Vec<EmbeddedFont>,
     form: XfaForm,
     /// The master-page engine from the same document-wide pass that seeded
     /// `form`, kept alive so every refresh can re-evaluate page-dependent
@@ -131,7 +133,15 @@ struct LiveSession {
     last_used: Instant,
 }
 
-fn packets_of(path: &Path) -> Result<(Vec<u8>, Vec<String>), RenderError> {
+/// What a PDF on disk holds for a session: its XFA packets joined, their
+/// names and the fonts embedded in it.
+struct PdfPackets {
+    xfa: Vec<u8>,
+    names: Vec<String>,
+    fonts: Vec<EmbeddedFont>,
+}
+
+fn packets_of(path: &Path) -> Result<PdfPackets, RenderError> {
     let bytes = std::fs::read(path).map_err(|source| RenderError::Io {
         path: path.display().to_string(),
         source,
@@ -147,10 +157,23 @@ fn packets_of(path: &Path) -> Result<(Vec<u8>, Vec<String>), RenderError> {
         })?;
     let names: Vec<String> = packets.iter().map(|p| p.name.clone()).collect();
     let xfa: Vec<u8> = packets.into_iter().flat_map(|p| p.content).collect();
-    Ok((xfa, names))
+    let fonts = extract_embedded_fonts(&bytes).map_err(|e| RenderError::backend(ENGINE, e.to_string()))?;
+    Ok(PdfPackets { xfa, names, fonts })
 }
 
 /// The form as an interaction finds or leaves it: every field's value, every
+/// The instances the drawn fields belong to: every indexed container
+/// prefix of their paths (`form1.Body.Row[1]` for `form1.Body.Row[1].Amount`).
+fn instances_of(drawn: &BTreeSet<String>) -> BTreeSet<String> {
+    let mut instances = BTreeSet::new();
+    for path in drawn {
+        for (end, _) in path.match_indices(']') {
+            instances.insert(path[..=end].to_string());
+        }
+    }
+    instances
+}
+
 /// drawn field, and every field's effective access.
 struct Snapshot {
     values: HashMap<SomPath, String>,
@@ -216,11 +239,12 @@ fn diff(
 
 impl LiveSession {
     fn open(path: &Path) -> Result<Self, RenderError> {
-        let (xfa, packet_names) = packets_of(path)?;
+        let PdfPackets { xfa, names: packet_names, fonts: embedded_fonts } = packets_of(path)?;
         let original_nodes = XfaNode::parse(&xfa).map_err(|e| RenderError::backend(ENGINE, e))?;
 
-        let (mut form, mut layout) = XfaForm::new_with_layout(original_nodes.clone())
-            .map_err(|e| RenderError::backend(ENGINE, e))?;
+        let (mut form, mut layout) =
+            XfaForm::new_with_layout_and_fonts(original_nodes.clone(), embedded_fonts.clone())
+                .map_err(|e| RenderError::backend(ENGINE, e))?;
 
         // One view-producing path: even the opening view goes through the
         // paged refresh, so it never disagrees with what an interaction
@@ -236,6 +260,7 @@ impl LiveSession {
 
         Ok(LiveSession {
             original_nodes,
+            embedded_fonts,
             form,
             layout,
             revision: 0,
@@ -246,7 +271,9 @@ impl LiveSession {
     }
 
     /// Refuse to address a field the wrong way: a button is pressed, not
-    /// set, and anything else is set, not pressed.
+    /// set. Any open field can be pressed: a press runs its mouse and click
+    /// events (XFA 3.3 §10), which a form's scripts may use on a radio (to
+    /// deselect it on a second press) as well as on a text field.
     fn check_field(&self, field: &str, kind: InteractionKind) -> Result<(), RenderError> {
         let Some(node) = self.form.resolve(field) else {
             return Err(RenderError::invalid_argument(
@@ -255,10 +282,6 @@ impl LiveSession {
             ));
         };
         let is_button = node.is_button();
-        // A radio button or checkbox can be pressed as well as set: a press
-        // runs its mouse events, which a form may use (a second press on a
-        // UBS radio deselects it).
-        let is_pressable = is_button || node.is_radio_button() || node.is_checkbox();
         // Refused before anything runs, as an argument error naming why: the
         // form would refuse the same thing (`XfaForm::interact` and `click`
         // check it too), but a caller addressing a locked field made a
@@ -270,13 +293,6 @@ impl LiveSession {
             (InteractionKind::Set, true) => Err(RenderError::invalid_argument(
                 "field",
                 format!("{field} is a button; it has no value to set. Press it with xfa_click"),
-            )),
-            (InteractionKind::Click, _) if !is_pressable => Err(RenderError::invalid_argument(
-                "field",
-                format!(
-                    "{field} is not a button, radio button or checkbox; set it to a value with \
-                     xfa_set"
-                ),
             )),
             _ => Ok(()),
         }
@@ -312,9 +328,11 @@ impl LiveSession {
 
     fn reset(&mut self) -> Result<Interaction, RenderError> {
         let before = Snapshot::of(&mut self.form);
+        let instances_before = instances_of(&before.drawn);
 
-        let (mut form, mut layout) = XfaForm::new_with_layout(self.original_nodes.clone())
-            .map_err(|e| RenderError::backend(ENGINE, e))?;
+        let (mut form, mut layout) =
+            XfaForm::new_with_layout_and_fonts(self.original_nodes.clone(), self.embedded_fonts.clone())
+                .map_err(|e| RenderError::backend(ENGINE, e))?;
         let (fidelity, warning) = refresh(&mut form, &mut layout)?;
         let report = form.take_script_report();
         self.load_warning = report.warning();
@@ -336,12 +354,10 @@ impl LiveSession {
             warning,
         );
         // A reset rebuilds the form from the template, so any instance added
-        // or removed since opening is undone.
-        interaction.instances_changed = interaction
-            .appeared
-            .iter()
-            .chain(&interaction.disappeared)
-            .any(|p| p.contains('['));
+        // or removed since opening is undone: the instances drawn before and
+        // after differ.
+        let after = drawn_field_set(self.form.flattened());
+        interaction.instances_changed = instances_before != instances_of(&after);
         Ok(interaction)
     }
 
@@ -445,7 +461,7 @@ fn view_of(
     packet_names: &[String],
 ) -> Prepared {
     let flattened = form.flattened().clone();
-    let language = flattened.language.clone();
+    let language = flattened.language_code();
     Prepared::fresh(
         flattened,
         *fidelity,

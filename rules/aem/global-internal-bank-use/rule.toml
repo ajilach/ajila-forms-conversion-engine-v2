@@ -1,12 +1,42 @@
 id = "ubs-aem-global-internal-bank-use"
-title = "The internal-bank-use block is the global fragment"
+title = "Internal-bank-use blocks: where the source has them, PDF only"
 output_formats = ["aem-ubs"]
 description = """
-The internal-bank-use block references
-`/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature`,
-in every market. The deployed corpus migrated to it (57 of the 78 Italian packages issued
-2026-09-01, and the German reference AABF_019); a market internal-bank-use fragment is the old
-shape. The internal-bank-use block is the exception to the choice of a market library: it is the
-global fragment in every market. The writer makes the block PDF-only (hidden, summary-excluded,
-`always_in_pdf`), so do not author those flags yourself.
+The section the bank fills in ("Nur für bankinterne Zwecke", "For internal bank use only",
+"Spazio riservato alla Banca"; often master-page content of the last page, path hints `STP_UP`,
+`UP_Section`, `Internal_useonly`) is an internal-bank-use block. Each block of the source is one
+block where the source shows it; a form may have several, also one right after another, and only a
+form whose source has the block gets one (UBS-IBU-1). Its heading is the block's own and is never
+repeated as a draw next to it or inside it (UBS-IBU-2).
+
+- Standard content (OU reference, "signature(s) verified / signed in my presence", visa) is the
+  global fragment
+  `/content/dam/formsanddocuments/afforms_global_fragmentlib/affrg_global_InternalBankUse_Text_OURef_Signature`
+  in every market; a market internal-bank-use fragment is the old shape. The fragment prints its
+  heading itself. The writer makes it PDF-only (hidden, `summary_exclude`, `always_in_pdf`): do not
+  author those flags on it (UBS-IBU-4, backlog "Internal bank use").
+- Any other content ("Issued by", "Formal correctness verified by", "Recorded by", each with OU
+  reference and date; verified expiry or extension dates; acceptance radio buttons; checkboxes for
+  copies sent; a combination of the standard fields other than the one above) is a content `Panel`
+  named `PN_InternalBankUseOnly` (a further one `PN_InternalBankUseOnly2`, and so on, since names
+  are unique) with the same channel settings, which you author: `visible: false`,
+  `summary_exclude: true`, `always_in_pdf: true`, never `dor_exclude`. Its children keep every field
+  of the source: first a `TitleDraw` with the source heading, then the text that follows it
+  (routing instructions such as "Routing: Client Advisor > ..."), then the inputs, grouped in panels
+  under their common heading (UBS-INP-3), and the bank's signatures as signature Repeatables titled
+  from their captions (ubs-aem-signatures).
+- An intermediary part the source shows only when the configurator's financial-intermediary
+  checkbox is ticked (it is in the `appeared` of xfa_set ticking it in a session; path hints `CB_FIM`,
+  `FIM_On`, `STP_UP1_FIM`) is the global
+  `affrg_global_spazio_riservato_al_soggetto_collocatore` fragment (PDF-only like the block) right
+  after the block, in a conditional `Panel` that the checkbox's `conditions` show (UBS-IBU-3).
+
+Reported: a market internal-bank-use fragment; a `PN_InternalBankUseOnly...` panel that is not
+hidden, summary-excluded and always in the PDF, or that is DoR-excluded; a draw right before or
+after a block, or inside the panel after its heading, that repeats the heading. Whether each source
+block is there, in its place, and whether its content is the standard combination is judged by
+ubs-aem-standard-sections-are-fragments and ubs-aem-source-coverage.
+
+Fix: reference the global fragment, or build the content panel; set the panel's flags; delete the
+repeated heading.
 """

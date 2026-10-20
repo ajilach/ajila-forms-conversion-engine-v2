@@ -13,22 +13,21 @@ use crate::error::RenderError;
 pub struct BlobStore(u2s_blob::BlobStore);
 
 impl BlobStore {
-    pub fn new(dir: impl AsRef<std::path::Path>) -> Self {
-        Self(u2s_blob::BlobStore::new(dir))
+    /// A store keeping one file per blob in `dir`.
+    pub fn in_folder(dir: impl AsRef<std::path::Path>) -> Self {
+        Self(u2s_blob::BlobStore::in_folder(dir))
     }
 
-    /// `U2S_BLOB_DIR`, or the system temp dir when unset so standalone use
-    /// still works.
-    pub fn from_env() -> Self {
-        Self(u2s_blob::BlobStore::from_env())
+    /// The store `DATABASE_URL` or `U2S_BLOB_DIR` selects; see
+    /// [`u2s_blob::backend_choice`]. A server refuses to start on an error.
+    pub fn from_env() -> Result<Self, RenderError> {
+        u2s_blob::BlobStore::from_env()
+            .map(Self)
+            .map_err(|e| RenderError::Blob(e.to_string()))
     }
 
-    pub fn dir(&self) -> &std::path::Path {
-        self.0.dir()
-    }
-
-    /// Content-addressed: the same bytes written twice yield one file and one
-    /// handle.
+    /// Content-addressed: the same bytes written twice yield one blob and
+    /// one handle.
     pub fn put(
         &self,
         data: &[u8],
@@ -43,6 +42,13 @@ impl BlobStore {
     pub fn get(&self, handle: &str) -> Result<Vec<u8>, RenderError> {
         self.0
             .get(handle)
+            .map_err(|e| RenderError::Blob(e.to_string()))
+    }
+
+    /// A file holding the blob's bytes, for a renderer that opens a path.
+    pub fn materialize(&self, handle: &str) -> Result<std::path::PathBuf, RenderError> {
+        self.0
+            .materialize(handle)
             .map_err(|e| RenderError::Blob(e.to_string()))
     }
 }

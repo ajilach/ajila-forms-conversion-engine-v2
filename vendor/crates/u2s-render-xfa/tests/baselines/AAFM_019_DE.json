@@ -1,0 +1,1312 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Bankbeziehung\n0319 00\nUBS Europe SE\nCheckliste Kundengeschichte\nInformation\nDer nachfolgende Fragebogen ist von UBS Europe SE entwickelt worden, um den selbst auferlegten Sorgfaltspflichten sowie den gesetzlichen und aufsichtsrechtlichen Pflichten in Deutschland nachzukommen.\nUBS AG ist Mitglied der Wolfsberg Gruppe, einer Gruppe internationaler Großbanken, die sich dazu verpflichtet hat, bestimmte Sorgfaltspflichten bei der Geldwäschebekämpfung einzuhalten. Dazu gehört, Informationen von den Kunden einzuholen, die eine detaillierte Dokumentation der Vermögensquelle (Beschreibung des Umstandes/der Tätigkeit, der/die zur Bildung des Vermögens geführt hat) ermöglicht.\nA. Kunden Daten\nAnsprache (Frau/Herr)\nNachname\nVorname(n)\nB. Hintergrundinformationen\n1. Welchen beruflichen Status besitzen Sie aktuell?\nselbständig\nName der Firma / Funktion:\nangestellt\nName der Firma / Funktion:\nPrivatier\nFrühere Tätigkeit\nName der Firma / Funktion:\nRentner / Pensionär\nFrühere Tätigkeit\nName der Firma / Funktion:\nSonstige\nz.B. Student, Minderjährig\n2. Üben Sie eine prominente / bedeutende / höhere, öffentliche Position aus oder sind Sie ein Familienmitglied einer solchen Person bzw. auf sonstige Weise einer solchen Person nahestehend? (z.B. Politik, Militär, Religion, Adel).\nnein\nja, welche?:\n3. Unterhalten Sie eine wesentliche Beziehung zu einer der folgenden Industrien / Aktivitäten?\n0\nCasinos, Wetten, Glückspiel o.ä.\n0\nWaffen, Abwehr- oder Kriegsmaterial\n0\nDiamantenhändler (inklusive Edelsteine)\n0\nGeldtransferunternehmen\n0\nWechselstuben (außerhalb des Bankensektors)\n0\nreligiöse Personen / Organisationen\n0\nkeine der genannten Aktivitäten / Industrien\n4. Haben Sie einen Aufenthaltsort bzw. Wohnsitz oder eine andere wesentliche Beziehung zu einem weiteren Land, außer Deutschland?\nnein\nja und zwar zu folgenden Ländern:\nC. Herkunft der zu UBS zu übertragenden Vermögenswerte\n0\nEURO\nBerufliche Tätigkeit\nGenaue Angaben zum ausgeübten Beruf:\n0101663170101001501202601027\n66317\nDE\nV0\n019\nAAFM\n31.10.2019\nN1\n15.01.2026\nSeite 1/2",
+    "Bankbeziehung\n0319 00\n0\nEURO\nImmobilien (Verkauf/Einkünfte)\nArt und Standort der Immobilie:\nWie wurden die Mittel für den Erwerb der Immobilie erwirtschaftet:\n0\nEURO\nErbschaft\nName(n) des/der Erblasser(s):\nWie hat/haben der/die Erblasser das Vermögen erwirtschaftet:\n0\nEURO\nSchenkung\nName(n) des/der Schenkenden:\nWie hat/Haben der/die Schenkende(n) das Vermögen erwirtschaftet:\n0\nEURO\nSonstige Herkunft\nGenaue Angaben zu Art, Umfang und Herkunft Vermögen:\nStammen die Vermögenswerte, die bei UBS Europe SE erwartet werden, von einer Bank aus dem Ausland oder Inland?\n0\nAusland und zwar aus folgendem Land:\n0\nInland\n0\nBarvermögen\n0101663170101001501202602024\n66317\nDE\nV0\n019\nAAFM\n31.10.2019\nN1\n15.01.2026\nSeite 2/2"
+  ],
+  "raster": [
+    "a394f66d6b7b2a59",
+    "2fb35d14e735b45d"
+  ],
+  "controls": {
+    "UBSForms_66317.MPs.MP.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ],
+        [
+          2.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MP.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ],
+        [
+          2.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ],
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ],
+        [
+          2.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ],
+        [
+          2.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          2.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ],
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ],
+        [
+          2.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ],
+        [
+          2.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ],
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MP.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ],
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerELA": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.MPs.MPs_66317_2.MP_66317_2.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Berufliche_Tatigkeit.Berufliche_Tatigkeit": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          51.0,
+          735.8,
+          493.2,
+          23.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Berufliche_Tatigkeit.CB_Berufliche_Tatigkeit": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          708.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Berufliche_Tatigkeit.EUR": {
+      "value": "EURO",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          194.2,
+          708.8,
+          27.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Berufliche_Tatigkeit.EUR_Berufliche_Tatigkeit": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          221.5,
+          708.8,
+          120.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Erbschaft.CB_Erbschaft": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          166.2,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Erbschaft.EUR": {
+      "value": "EURO",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          194.2,
+          166.2,
+          27.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Erbschaft.EUR_Erbschaft": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          221.5,
+          166.2,
+          120.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Erbschaft.Erbschaft": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          51.0,
+          213.3,
+          493.2,
+          23.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Erbschaft.Erbschaft_Name": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          194.2,
+          183.1,
+          351.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Immobilien.CB_Immobilien": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          85.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Immobilien.EUR": {
+      "value": "EURO",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          194.2,
+          85.0,
+          27.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Immobilien.EUR_Immobilien": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          221.5,
+          85.0,
+          120.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Immobilien.Immobilien": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          51.0,
+          132.2,
+          493.2,
+          23.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Immobilien.Immobilien_Art": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          194.2,
+          102.0,
+          351.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Schenkung.CB_Schenkung": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          247.3,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Schenkung.EUR": {
+      "value": "EURO",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          194.2,
+          247.3,
+          27.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Schenkung.EUR_Schenkung": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          221.5,
+          247.3,
+          120.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Schenkung.Schenkung": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          51.0,
+          294.4,
+          493.2,
+          23.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.STP_Schenkung.Schenkung_Name": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          194.2,
+          264.30002,
+          351.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Sonstige.CB_Sonstige": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          328.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Sonstige.EUR": {
+      "value": "EURO",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          194.2,
+          328.5,
+          27.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Sonstige.EUR_Sonstige": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          221.5,
+          328.5,
+          120.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Sonstige.Sonstige": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          51.0,
+          355.5,
+          493.2,
+          23.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Stammen.Ausland": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          202.2,
+          399.7,
+          343.0,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Stammen.CB_Ausland": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          399.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Stammen.CB_Barvermogen": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          430.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Herkunft.Stammen.CB_Inland": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          415.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.Haben_Sie.STP_Haben_Sie.Haben_Sie": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          655.8,
+          316.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.Haben_Sie.STP_Haben_Sie.RB_Haben_Sie.RB_No": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          655.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.Haben_Sie.STP_Haben_Sie.RB_Haben_Sie.RB_Yes": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          93.4,
+          655.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Residennce_abroad.CB_Casinos": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          523.10004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Residennce_abroad.CB_Diamantenhandler": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          553.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Residennce_abroad.CB_Geldtransferunternehmen": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          569.10004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Residennce_abroad.CB_Keine_Der": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          615.10004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Residennce_abroad.CB_Religiose_Personen": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          599.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Residennce_abroad.CB_Waffen": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          538.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Residennce_abroad.CB_Wechselstuben": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          584.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.Privatier.STP_Privatier.Privatier": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          236.7,
+          403.6,
+          309.0,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.Privatier": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          394.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_Rentner": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          423.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_Sonstige": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          452.30002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_angestellt": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          374.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_selbstandig": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          354.80002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.Rentner.STP_Rentner.Countries_Name_residence": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          236.6,
+          432.5,
+          309.0,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.STP_Rentner.STP_Rentner.angestellt": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          236.7,
+          374.6,
+          309.0,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.Sonstige.Sonstige.Sonstige": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          236.7,
+          452.30002,
+          309.0,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.STP_Welchen_Beruflichen.selbstandig.selbstandig.selbstandig": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          236.7,
+          354.80002,
+          309.0,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.Uben_Sie.STP_Uben_Sie.RB_Group_Uben_Sie.RB_No": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          493.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.Uben_Sie.STP_Uben_Sie.RB_Group_Uben_Sie.RB_Yes": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          93.4,
+          493.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Hintergrundinformationen.Uben_Sie.STP_Uben_Sie.Uben_Sie": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          150.90001,
+          493.0,
+          394.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Konto_Depotinhaber.CI_Address_MS_MR.CI_Address_MS_MR": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          244.8,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Konto_Depotinhaber.CI_Address_MS_MR.ffSalutation": {
+      "value": "Ansprache (Frau/Herr)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_1.Konto_Depotinhaber.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          274.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Konto_Depotinhaber.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          274.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66317.Page_66317_1.Konto_Depotinhaber.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_1.Konto_Depotinhaber.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Berufliche_Tatigkeit.Berufliche_Tatigkeit": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Berufliche_Tatigkeit.CB_Berufliche_Tatigkeit": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Berufliche_Tatigkeit.EUR": {
+      "value": "EURO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Berufliche_Tatigkeit.EUR_Berufliche_Tatigkeit": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Erbschaft.CB_Erbschaft": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Erbschaft.EUR": {
+      "value": "EURO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Erbschaft.EUR_Erbschaft": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Erbschaft.Erbschaft": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Erbschaft.Erbschaft_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Immobilien.CB_Immobilien": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Immobilien.EUR": {
+      "value": "EURO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Immobilien.EUR_Immobilien": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Immobilien.Immobilien": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Immobilien.Immobilien_Art": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Schenkung.CB_Schenkung": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Schenkung.EUR": {
+      "value": "EURO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Schenkung.EUR_Schenkung": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Schenkung.Schenkung": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.STP_Schenkung.Schenkung_Name": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Sonstige.CB_Sonstige": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Sonstige.EUR": {
+      "value": "EURO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Sonstige.EUR_Sonstige": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Sonstige.Sonstige": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Stammen.Ausland": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Stammen.CB_Ausland": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Stammen.CB_Barvermogen": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Herkunft.Stammen.CB_Inland": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.Haben_Sie.STP_Haben_Sie.Haben_Sie": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.Haben_Sie.STP_Haben_Sie.RB_Haben_Sie.RB_No": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.Haben_Sie.STP_Haben_Sie.RB_Haben_Sie.RB_Yes": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Residennce_abroad.CB_Casinos": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Residennce_abroad.CB_Diamantenhandler": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Residennce_abroad.CB_Geldtransferunternehmen": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Residennce_abroad.CB_Keine_Der": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Residennce_abroad.CB_Religiose_Personen": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Residennce_abroad.CB_Waffen": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Residennce_abroad.CB_Wechselstuben": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.Privatier.STP_Privatier.Privatier": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.Privatier": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_Rentner": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_Sonstige": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_angestellt": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.RB_Group_Welchen_Beruflichen.RB_selbstandig": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.Rentner.STP_Rentner.Countries_Name_residence": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.STP_Rentner.STP_Rentner.angestellt": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.Sonstige.Sonstige.Sonstige": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.STP_Welchen_Beruflichen.selbstandig.selbstandig.selbstandig": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.Uben_Sie.STP_Uben_Sie.RB_Group_Uben_Sie.RB_No": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.Uben_Sie.STP_Uben_Sie.RB_Group_Uben_Sie.RB_Yes": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Hintergrundinformationen.Uben_Sie.STP_Uben_Sie.Uben_Sie": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Konto_Depotinhaber.CI_Address_MS_MR.CI_Address_MS_MR": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Konto_Depotinhaber.CI_Address_MS_MR.ffSalutation": {
+      "value": "Ansprache (Frau/Herr)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Konto_Depotinhaber.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Konto_Depotinhaber.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Konto_Depotinhaber.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66317.Page_66317_2.Konto_Depotinhaber.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

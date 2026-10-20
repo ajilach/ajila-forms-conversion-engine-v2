@@ -828,7 +828,7 @@ async fn a_click_adds_a_row_and_the_new_row_is_addressable_and_drawn() {
 }
 
 #[tokio::test]
-async fn set_on_a_button_and_click_on_a_text_field_are_refused() {
+async fn set_on_a_button_is_refused_and_a_text_field_can_be_clicked() {
     let s = require_server!();
     let c = s.connect().await;
     let opened = call(
@@ -855,18 +855,15 @@ async fn set_on_a_button_and_click_on_a_text_field_are_refused() {
         error_text(&set)
     );
 
+    // Any open field can be pressed: its mouse and click events run (XFA
+    // 3.3 §10), and a plain text field changes nothing.
     let click = call(
         &c,
         "xfa_click",
         json!({ "session": session, "expected_revision": 0, "field": "form1.Body.Row.Amount" }),
     )
     .await;
-    assert_eq!(click.is_error, Some(true));
-    assert!(
-        error_text(&click).contains("xfa_set"),
-        "{}",
-        error_text(&click)
-    );
+    assert_ne!(click.is_error, Some(true), "{}", error_text(&click));
 
     call(&c, "xfa_close", json!({ "session": session })).await;
     c.cancel().await.ok();

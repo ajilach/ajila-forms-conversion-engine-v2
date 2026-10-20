@@ -5,28 +5,40 @@
 # detectors apply (`find_dor_config.py` maps `afforms_germany_all`, `afforms_italy_all` and
 # `afforms_ch_all` to 019, 033 and 001).
 id = "ubs-aem-variables"
-title = "The form code and entity are well formed"
+title = "Form code, entity and language codes are valid"
 output_formats = ["aem-ubs"]
 description = """
-The document's `variables` carry the source form's code and entity, and the profile derives from
-them where the form lives and what it is called: the `AF_<code>` directory, the page title, the
-schema path, the Document of Record template. A malformed value does not fail the build; it makes
-several of the feedback guard's detectors skip the form silently, which reads as a pass.
+The document's `variables` are the form's metadata (UBS-MET-1), and the profile derives from them
+where the form lives and what it is called: the `AF_<code>` directory, the page title (the bare
+form code), the schema path, the Document of Record template, the metadata control. They are
+filled in from the source before the conversion starts, so leave them as they are: never shorten,
+lower-case, pad or replace them. Their source is the footer line (xfa_controls lists its fields
+under paths containing `Footer_Line`: `footerFormCode`, `footerMandator`, `footerJVersion`,
+`footerCDOK`, `footerELA`, `footerModDate`); the footer line is metadata, never content.
 
-- `formrange_code` must be 3 to 6 upper-case letters and digits (`AAEV`, `BAGE`).
-- `formrange_entity` must be a three-digit entity code: `019` (Germany), `033` (Italy), `001`
-  (Switzerland) or another entity's own code (a form of another entity lives in the global
-  directory).
+- `formrange_code` is 3 to 6 upper-case letters and digits (`AAEV`, `BAGE`).
+- `formrange_entity` is a three-digit entity code, the source file name's (`BADM_019_EN.pdf`
+  gives `019`), and agrees with the issuer the page header prints: `019` UBS Europe SE, `033` its
+  Italian branch, `001` UBS Switzerland AG; another entity's own code lives in the global
+  directory. Where the source prints no issuer, the mandator code of the footer line decides it.
+- A CDOK (`formrange_cdokinfo`, `Footer_Line_txtformid`) is a number. Each distinct CDOK the footer
+  line shows across the pages is one document, in page order, with the version and release date
+  printed next to it: the first is the form itself, the others its annexes (UBS-SEC-6).
 
-They come from the source form's template variables; keep them as the source has them and do not
-shorten, lower-case or pad them. `variables` name the form, its repository path and its metadata,
-and are already filled in from the source, so leave them as they are. A form with several language
-sources takes them from its English source (otherwise its first), all of them together: the
-release date, version and footer language included, even where another language's source carries
-a newer release date or the Document of Record prints in another language. Never replace them with
-another source's values; a different date between the language sources is not a defect. The hidden metadata control's
-`formrange_language` and `formrange_afmasterlanguage` are template output: the first lists the
-source languages under the codes the platform files them by (Spanish as `sp`), and the second is
-the language the form was ISSUED in for its market (Germany `DE`, Italy `IT`, elsewhere `EN`),
-deliberately not the authoring master. No tool changes them and they are not defects.
+When the language sources disagree (a different release date or version), the English source's
+values apply, otherwise the first source's (UBS-MET-2), even where another source is newer or the
+Document of Record prints in another language; that difference is not a defect. The hidden metadata
+control's `formrange_language` and `formrange_afmasterlanguage` are template output (the source
+languages under the platform's codes, and the language the form was issued in for its market) and
+are not defects either.
+
+`languages` lists the form's languages as ISO 639-1 codes (UBS-GEN-1): UBS writes Spanish `SP` in
+its file names and footer line, and the language is `es`. A regional variant (`de-ch`) is the
+packager's synonym, never a language of the form.
+
+Reported: a malformed code or entity, an entity the issuer contradicts, a CDOK that is not a
+number, and in `languages` an `sp`, a code that is not two lower-case letters, or a duplicate.
+
+Fix: restore an edited variable to the source's value, or correct the header's issuer line where
+it is the one that is wrong. Write `es` for `sp` and delete a regional variant.
 """

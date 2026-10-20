@@ -28,7 +28,7 @@ use uuid::Uuid;
 
 use super::xml_writer::{
     RenderIndex, alignment_str, collect_repeatable_names, condition_value_str, holds_input,
-    repeat_panel_name, repeat_row_name,
+    name_fill_anchor, repeat_panel_name, repeat_row_name, strip_markup,
 };
 use super::{AemAttrs, AemConfig, AemI18nText, AemNode, AemOption, Passthrough};
 
@@ -444,7 +444,7 @@ impl Lower<'_> {
         let tag = node.element_name();
         let el = match node {
             AemNode::TextField {
-                name, label, mandatory, visible, max_chars, colspan, dor_colspan, bind_ref, kind, attrs, ..
+                name, label, mandatory, visible, max_chars, colspan, dor_colspan, bind_ref, kind, attrs, input, ..
             } => {
                 use super::TextFieldKind as K;
                 let (resource, owned): (&str, &[&str]) = match kind {
@@ -457,7 +457,8 @@ impl Lower<'_> {
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
                     .attr("sling:resourceType", self.controls(resource))
-                    .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true");
+                    .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
+                    .attr_opt("_value", input.default_value.clone());
                 el = match kind {
                     K::Plain => el
                         .attr("assistPriority", "label")
@@ -477,6 +478,7 @@ impl Lower<'_> {
                 let class = if *kind == K::Telephone { "guideTelephone" } else { "guideTextBox" };
                 el = self
                     .field_presence(el, attrs, *dor_colspan)
+                    .attr_if(input.read_only, "enabled", "{Boolean}false")
                     .attr("guideNodeClass", class)
                     .attr("mandatory", mandatory.to_string());
                 if *kind == K::Multiline {
@@ -500,40 +502,45 @@ impl Lower<'_> {
                         .attr("validationPatternType", "custom"),
                     _ => el,
                 };
-                let el = self.subject_trigger(hidden(el, *visible).after(responsive(*colspan)), node)?;
-                self.carry(el, node, owned)?
+                self.carry_rules(hidden(el, *visible).after(responsive(*colspan)), node, owned)?
             }
             AemNode::NumberField {
-                name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
+                name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, lead_digits,
+                frac_digits, input, ..
             } => {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
                     .attr("sling:resourceType", self.controls("numericbox"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
+                    .attr_opt("_value", input.default_value.clone())
                     .attr("assistPriority", "label")
                     .attr("css", self.css(attrs, "css_numericbox"));
                 let el = self
                     .field_presence(el, attrs, *dor_colspan)
+                    .attr_if(input.read_only, "enabled", "{Boolean}false")
+                    .attr_opt("fracDigits", frac_digits.map(|n| n.to_string()))
                     .attr("guideNodeClass", "guideNumericBox")
+                    .attr_opt("leadDigits", lead_digits.map(|n| n.to_string()))
                     .attr("mandatory", mandatory.to_string())
                     .attr("name", name.as_str())
                     .attr_opt("bindRef", nonempty(bind_ref));
                 let el = tail(el, attrs).attr("textIsRich", "[true,true,true]");
-                let el = self.subject_trigger(hidden(el, *visible).after(responsive(*colspan)), node)?;
-                self.carry(el, node, owned::NUMERICBOX)?
+                self.carry_rules(hidden(el, *visible).after(responsive(*colspan)), node, owned::NUMERICBOX)?
             }
             AemNode::DatePicker {
-                name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
+                name, label, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, input, ..
             } => {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
                     .attr("sling:resourceType", self.controls("datepicker"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
+                    .attr_opt("_value", input.default_value.clone())
                     .attr("css", self.css(attrs, "css_datepicker"));
                 let el = self
                     .field_presence(el, attrs, *dor_colspan)
+                    .attr_if(input.read_only, "enabled", "{Boolean}false")
                     .attr("guideNodeClass", "guideDatePicker")
                     .attr("mandatory", mandatory.to_string())
                     .attr("name", name.as_str())
@@ -546,72 +553,84 @@ impl Lower<'_> {
                     .attr("validationPatternType", "custom")
                     .attr("yearRangeFrom", "100")
                     .attr("yearRangeTo", "10");
-                self.carry(hidden(el, *visible).after(responsive(*colspan)), node, owned::DATEPICKER)?
+                self.carry_rules(hidden(el, *visible).after(responsive(*colspan)), node, owned::DATEPICKER)?
             }
             AemNode::Dropdown {
-                name, label, options, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
+                name, label, options, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, input, ..
             } => {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
                     .attr("sling:resourceType", self.controls("dropdownlist"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
+                    .attr_opt("_value", input.default_value.clone())
                     .attr("css", self.css(attrs, "css_dropdownlist"));
                 let el = self
                     .field_presence(el, attrs, *dor_colspan)
+                    .attr_if(input.read_only, "enabled", "{Boolean}false")
                     .attr("guideNodeClass", "guideDropDownList")
                     .attr("mandatory", mandatory.to_string())
                     .attr("name", name.as_str())
                     .attr_opt("bindRef", nonempty(bind_ref))
                     .attr("options", options_attr(options));
                 let el = tail(el, attrs).attr("textIsRich", "[true,true]");
-                let el = self.reset(hidden(el, *visible).after(responsive(*colspan)), name);
-                self.carry(el, node, owned::DROPDOWNLIST)?
+                self.carry_rules(hidden(el, *visible).after(responsive(*colspan)), node, owned::DROPDOWNLIST)?
             }
             AemNode::Checkbox {
-                name, options, alignment, visible, colspan, dor_colspan, bind_ref, attrs, ..
+                name, label, options, alignment, visible, colspan, dor_colspan, bind_ref, attrs, mandatory,
+                hide_title, input, ..
             } => {
+                // The title is shown unless the list hides it, or there is nothing to show
+                // beyond the checkbox itself: no label, or one option that is the label.
+                let title_hidden = *hide_title
+                    || label.trim().is_empty()
+                    || (options.len() == 1 && strip_markup(&options[0].label) == strip_markup(label));
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
+                    .attr_if(!label.trim().is_empty(), "jcr:title", label.as_str())
                     .attr("sling:resourceType", self.controls("checkbox"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
+                    .attr_opt("_value", input.default_value.clone())
                     .attr("alignment", alignment_str(*alignment))
                     .attr("assistPriority", "caption")
                     .attr("css", self.css(attrs, "css_checkbox"));
                 let el = self
                     .field_presence(el, attrs, *dor_colspan)
+                    .attr_if(input.read_only, "enabled", "{Boolean}false")
                     .attr("guideNodeClass", "guideCheckBox")
-                    .attr("hideTitle", "true")
+                    .attr_if(title_hidden, "hideTitle", "true")
+                    .attr_if(*mandatory, "mandatory", "true")
                     .attr("name", name.as_str())
                     .attr_opt("bindRef", nonempty(bind_ref))
                     .attr("options", options_attr(options))
                     .attr("richTextOptions", "true");
                 let el = tail(el, attrs).attr("textIsRich", text_is_rich(options));
-                self.carry(hidden(el, *visible).after(responsive(*colspan)), node, owned::CHECKBOX)?
+                self.carry_rules(hidden(el, *visible).after(responsive(*colspan)), node, owned::CHECKBOX)?
             }
             AemNode::RadioButton {
-                name, label, options, alignment, mandatory, visible, colspan, dor_colspan, bind_ref, attrs, ..
+                name, label, options, alignment, mandatory, visible, colspan, dor_colspan, bind_ref, attrs,
+                hide_title, input, ..
             } => {
-                let preselect = self.index.preselect.get(name).filter(|v| !v.is_empty());
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
                     .attr("sling:resourceType", self.controls("radiobutton"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
-                    .attr_opt("_value", preselect.cloned())
+                    .attr_opt("_value", input.default_value.clone())
                     .attr("alignment", alignment_str(*alignment))
                     .attr("css", self.css(attrs, "css_radiobutton"));
                 let el = self
                     .field_presence(el, attrs, *dor_colspan)
+                    .attr_if(input.read_only, "enabled", "{Boolean}false")
                     .attr("guideNodeClass", "guideRadioButton")
+                    .attr_if(*hide_title, "hideTitle", "true")
                     .attr("mandatory", mandatory.to_string())
                     .attr("name", name.as_str())
                     .attr_opt("bindRef", nonempty(bind_ref))
                     .attr("options", options_attr(options))
                     .attr("richTextOptions", "true");
                 let el = tail(el, attrs).attr("textIsRich", text_is_rich(options));
-                let el = self.reset(hidden(el, *visible).after(responsive(*colspan)), name);
-                self.carry(el, node, owned::RADIOBUTTON)?
+                self.carry_rules(hidden(el, *visible).after(responsive(*colspan)), node, owned::RADIOBUTTON)?
             }
             AemNode::TextDraw { name, content, attrs, visible, colspan, dor_colspan, .. } => {
                 let el = self
@@ -628,7 +647,7 @@ impl Lower<'_> {
                     .attr("name", name.as_str());
                 let el = hidden(tail(el, attrs).attr("textIsRich", "true"), *visible);
                 let el = if self.carries_rules(node) { el } else { el.after(empty_rules()) };
-                self.carry(el.after(responsive(*colspan)), node, owned::TEXTDRAW)?
+                self.carry_rules(el.after(responsive(*colspan)), node, owned::TEXTDRAW)?
             }
             AemNode::TitleDraw { name, content, heading_level, colspan, dor_colspan, attrs, visible, .. } => {
                 let el = self
@@ -644,7 +663,7 @@ impl Lower<'_> {
                     .attr("headingLevel", heading_level.to_string())
                     .attr("name", name.as_str());
                 let el = hidden(tail(el, attrs).attr("textIsRich", "true"), *visible);
-                self.carry(el.after(responsive(*colspan)), node, owned::TITLEDRAW)?
+                self.carry_rules(el.after(responsive(*colspan)), node, owned::TITLEDRAW)?
             }
             AemNode::HtmlDisplayer { name, content, attrs, visible, colspan, dor_colspan, .. } => {
                 let el = self
@@ -661,7 +680,7 @@ impl Lower<'_> {
                     .attr("name", name.as_str());
                 let el = hidden(tail(el, attrs).attr("textIsRich", "[true,true,true,true]"), *visible);
                 let el = el.after(self.locale_content(content)).after(responsive(*colspan));
-                self.carry(el, node, owned::HTMLDISPLAYER)?
+                self.carry_rules(el, node, owned::HTMLDISPLAYER)?
             }
             AemNode::MessageBox { name, content, attrs, visible, colspan, .. } => {
                 let el = self
@@ -680,7 +699,7 @@ impl Lower<'_> {
                     .attr("textIsRich", "true");
                 let el = hidden(el, *visible);
                 let el = if self.carries_rules(node) { el } else { el.after(empty_rules()) };
-                self.carry(el.after(responsive(*colspan)), node, owned::MESSAGEBOX)?
+                self.carry_rules(el.after(responsive(*colspan)), node, owned::MESSAGEBOX)?
             }
             AemNode::FootnotePlaceholder { name, colspan, .. } => {
                 let el = self
@@ -713,41 +732,125 @@ impl Lower<'_> {
             .attr_opt("dorHeaderSlot", attrs.dor_header_slot.clone())
     }
 
-    /// A field a letter's subject names (`{NAME}` in its text): it writes the
-    /// subject again when its value commits, and on Initialize for a form
-    /// that opens with its value in it.
-    fn subject_trigger(&self, el: El, node: &AemNode) -> Result<El, LowerError> {
-        let Some((rule, fields)) = &self.subject else {
-            return Ok(el);
+    /// The rules the writer generates for `node`, one per event: the letter
+    /// subject's on a field the subject names (`{NAME}` in its text), which
+    /// writes it again on the field's value commit and Initialize; a
+    /// configurator choice's reset; the copy into the inputs that copy this
+    /// one; this input's calculation; and the language gate of content only
+    /// some languages have. Two on one event are one rule, their statements in
+    /// that order.
+    fn generated_rules(&self, node: &AemNode) -> Result<Vec<EventScript>, LowerError> {
+        use super::scripts;
+        let Some(name) = node.name() else {
+            return Ok(Vec::new());
         };
-        let Some(name) = node.name().filter(|n| fields.iter().any(|f| f == n)) else {
-            return Ok(el);
-        };
-        if node
-            .uuid()
-            .and_then(|u| self.pass.get(&u))
-            .is_some_and(|pt| pt.raw_children.iter().any(|c| c.contains("<fd:scripts")))
+        let mut rules: Vec<EventScript> = Vec::new();
+        if let Some((rule, fields)) = &self.subject
+            && fields.iter().any(|f| f == name)
         {
-            return Err(format!(
-                "`{name}` carries rules of its own, so the letter's subject cannot add its own to it"
-            ));
+            for event in [ScriptEvent::ValueCommit, ScriptEvent::Initialize] {
+                rules.push(EventScript {
+                    archetype: Some(scripts::LETTER_SUBJECT.into()),
+                    ..EventScript::event(name, event, rule.clone())
+                });
+            }
         }
-        let event = |e| EventScript::event(name, e, rule.clone());
-        Ok(el.after(scripts(&[
-            (ScriptEvent::ValueCommit, vec![event(ScriptEvent::ValueCommit)]),
-            (ScriptEvent::Initialize, vec![event(ScriptEvent::Initialize)]),
-        ])))
+        if matches!(node, AemNode::RadioButton { .. } | AemNode::Dropdown { .. } | AemNode::Checkbox { .. })
+            && let Some(targets) = self.index.resets.get(name).filter(|t| !t.is_empty())
+        {
+            rules.push(scripts::configurator_reset(name, targets));
+        }
+        if let Some(targets) = self.index.copies.get(name) {
+            rules.push(scripts::copied_value(name, targets));
+        }
+        if let Some(template) = node.input().and_then(|input| input.calculate.as_deref()) {
+            let references = super::letterhead::subject_references(template)
+                .map_err(|e| format!("`{name}` calculates its value from {e}"))?;
+            rules.push(scripts::calculated_value(name, template, &references));
+        }
+        if let Some(attrs) = node.attrs()
+            && !attrs.only_languages.is_empty()
+        {
+            rules.push(scripts::language_gate(name, &attrs.only_languages));
+        }
+        // One rule per event: the editor takes one per field and event.
+        let mut merged: Vec<EventScript> = Vec::new();
+        for rule in rules {
+            match merged.iter_mut().find(|r| r.event == rule.event) {
+                Some(first) => {
+                    first.content.push('\n');
+                    first.content.push_str(&rule.content);
+                }
+                None => merged.push(rule),
+            }
+        }
+        Ok(merged)
     }
 
-    /// A configurator choice's reset-on-change rule, when it is one.
-    fn reset(&self, el: El, name: &str) -> El {
-        match self.index.resets.get(name).filter(|t| !t.is_empty()) {
-            Some(targets) => el.after(scripts(&[(
-                ScriptEvent::ValueCommit,
-                vec![super::scripts::configurator_reset(name, targets)],
-            )])),
-            None => el,
+    /// `el` with `node`'s carried passthrough, as [`Self::carry`] writes it,
+    /// and the rules the writer generates for it ([`Self::generated_rules`]).
+    /// A loaded node's own rules stay, except those the writer generates for it
+    /// again (the same archetype), which give way to the new ones. A field
+    /// takes one rule per event, so a generated rule on an event its own rules
+    /// already use is refused rather than written twice.
+    fn carry_rules(&self, el: El, node: &AemNode, owned: &[&str]) -> Result<El, LowerError> {
+        use u2s_mapper_aem::script::{decode_script_list, encode_script_list};
+        let generated = self.generated_rules(node)?;
+        let mut el = el;
+        // A read-only input writes `enabled` itself; any other keeps a loaded one.
+        let read_only = node.input().is_some_and(|input| input.read_only);
+        let owned: Vec<&str> = owned.iter().copied().chain(read_only.then_some("enabled")).collect();
+        if generated.is_empty() {
+            return self.carry(el, node, &owned);
         }
+        let name = node.name().unwrap_or("the node");
+        let archetypes: Vec<&str> = generated.iter().filter_map(|r| r.archetype.as_deref()).collect();
+        let regenerated = |json: &str| {
+            EventScript::from_json(json).is_some_and(|rule| {
+                rule.archetype.as_deref().is_some_and(|a| archetypes.contains(&a))
+                    || archetypes.iter().any(|a| rule.content.starts_with(&format!("// [{a}] Generated")))
+            })
+        };
+        el.carried = self.carried_attributes(node, &owned);
+        let mut own: BTreeMap<String, String> = BTreeMap::new();
+        if let Some(pt) = node.uuid().and_then(|u| self.pass.get(&u)) {
+            for child in &pt.raw_children {
+                let raw = raw_from_xml(child)?;
+                if raw.tag_name != "fd:scripts" {
+                    el.after.push(raw);
+                    continue;
+                }
+                for (attr, value) in raw.attributes {
+                    if ScriptEvent::from_attribute(&attr).is_none() {
+                        own.insert(attr, value);
+                        continue;
+                    }
+                    let kept: Vec<String> = match decode_script_list(&value) {
+                        Ok(items) => items.into_iter().filter(|item| !regenerated(item)).collect(),
+                        Err(_) => vec![value],
+                    };
+                    if !kept.is_empty() {
+                        own.insert(attr, encode_script_list(kept.iter()));
+                    }
+                }
+            }
+        }
+        let mut element = raw("fd:scripts", &[("jcr:primaryType", "nt:unstructured")], Vec::new());
+        element.attributes.extend(own.clone());
+        for rule in &generated {
+            let attr = rule.event.attribute();
+            if own.contains_key(attr) {
+                return Err(format!(
+                    "`{name}` carries rules of its own on {attr}, so the rule the writer generates for it \
+                     ({}) cannot be added: one field takes one rule per event",
+                    rule.archetype.as_deref().unwrap_or("generated")
+                ));
+            }
+            element
+                .attributes
+                .insert(attr.to_owned(), super::scripts::attribute_value(std::slice::from_ref(rule)));
+        }
+        Ok(el.after(element))
     }
 
     /// An HTML displayer's markup, one item per locale it ships.
@@ -866,7 +969,7 @@ impl Lower<'_> {
             .items(self.grid_items(), typed)
             .after(self.layout(dor_cols.as_deref()))
             .after(responsive(*colspan));
-        self.carry(el, node, owned::PANEL)
+        self.carry_rules(el, node, owned::PANEL)
     }
 
     /// A step's title panel: its heading, which on the first page is the
@@ -1031,6 +1134,30 @@ impl Lower<'_> {
             .items(self.grid_items(), inner_items);
 
         let mut outer_items = vec![inner.node()?];
+        // A party's signature takes each signer's name from the party's row
+        // (UBS-SIG-4): a rule needs a field to hang on, and both ends sit in
+        // fragments, so it runs on a hidden field of its own beside the rows.
+        if let Some(fill) = self.index.name_fills.get(name) {
+            let anchor = name_fill_anchor(name);
+            let [calculate, initialize] = super::scripts::signature_name_fill(&anchor, fill);
+            let el = self
+                .stamped(El::new("textbox_namefill", &anchor), CREATED)
+                .attr("sling:resourceType", self.controls("textbox"))
+                .attr("dorExclusion", "true")
+                .attr("guideNodeClass", "guideTextBox")
+                .attr("name", anchor.as_str())
+                .attr("summaryExclusion", "true")
+                .attr("textIsRich", "[true,true,true]");
+            outer_items.push(
+                hidden(el, false)
+                    .after(empty_rules())
+                    .after(scripts(&[
+                        (ScriptEvent::Calculate, vec![calculate]),
+                        (ScriptEvent::Initialize, vec![initialize]),
+                    ]))
+                    .node()?,
+            );
+        }
         if !is_twin {
             let [click, shown, init] = buttons.add();
             outer_items.push(
@@ -1073,7 +1200,7 @@ impl Lower<'_> {
     /// A fragment reference, with the Initialize rule its kind needs.
     fn fragment(&self, node: &AemNode) -> Result<El, LowerError> {
         let AemNode::Fragment {
-            name, frag_ref, bind_ref, attrs, visible, init_hide, init_show, ..
+            name, frag_ref, bind_ref, attrs, visible, init, ..
         } = node
         else {
             return Err("not a fragment".into());
@@ -1098,8 +1225,7 @@ impl Lower<'_> {
             .attr("validateOnStepCompletion", "{Boolean}false");
         let el = hidden(el, *visible).before(self.layout(Some("1"))).items(self.grid_items(), Vec::new());
         let el = if self.carries_rules(node) { el } else { el.after(empty_rules()) };
-        let sub_panels = super::partner::sub_panels(&self.config.fragments, frag_ref).unwrap_or(&[]);
-        let calls = super::partner::init_calls(sub_panels, init_hide, init_show);
+        let calls = super::fragment_init::statements(&self.config.fragments, frag_ref, init);
         let guide_path = node
             .uuid()
             .and_then(|u| self.index.guide_paths.get(&u))
@@ -2010,72 +2136,74 @@ pub(super) fn owned_attribute_names() -> impl Iterator<Item = &'static str> {
 /// component's own value, or its absence.
 mod owned {
     pub const TEXTBOX: &[&str] = &[
-        "alwaysInPdf", "assistPriority", "bindRef", "css", "dorColspan",
-        "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
-        "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
-        "jcr:title", "mandatory", "maxChars", "name", "showIfHidden",
-        "sling:resourceType", "summaryExclusion", "textIsRich", "visible",
+        "_value", "alwaysInPdf", "assistPriority", "bindRef", "css",
+        "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
+        "guideNodeClass", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy",
+        "jcr:primaryType", "jcr:title", "mandatory", "maxChars", "name",
+        "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich", "visible",
     ];
     pub const TEXTBOX_MULTILINE: &[&str] = &[
-        "alwaysInPdf", "bindRef", "css", "dorColspan", "dorExcludeTitle",
-        "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass", "jcr:created",
-        "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title",
-        "mandatory", "multiLine", "name", "showIfHidden", "sling:resourceType",
-        "summaryExclusion", "visible",
+        "_value", "alwaysInPdf", "bindRef", "css", "dorColspan",
+        "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
+        "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
+        "jcr:title", "mandatory", "multiLine", "name", "showIfHidden",
+        "sling:resourceType", "summaryExclusion", "visible",
     ];
     pub const EMAIL: &[&str] = &[
-        "alwaysInPdf", "assistPriority", "autofillFieldKeyword", "bindRef", "dorColspan",
+        "_value", "alwaysInPdf", "assistPriority", "autofillFieldKeyword", "bindRef",
+        "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
+        "guideNodeClass", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy",
+        "jcr:primaryType", "jcr:title", "mandatory", "maxChars", "name",
+        "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich", "validatePictureClause",
+        "validatePictureClauseMessage", "validationPatternType", "visible",
+    ];
+    pub const TELEPHONE: &[&str] = &[
+        "_value", "alwaysInPdf", "assistPriority", "autofillFieldKeyword", "bindRef",
+        "css", "displayIsSameAsValidate", "displayPatternType", "displayPictureClause", "dorColspan",
         "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
         "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
         "jcr:title", "mandatory", "maxChars", "name", "showIfHidden",
         "sling:resourceType", "summaryExclusion", "textIsRich", "validatePictureClause", "validatePictureClauseMessage",
         "validationPatternType", "visible",
     ];
-    pub const TELEPHONE: &[&str] = &[
-        "alwaysInPdf", "assistPriority", "autofillFieldKeyword", "bindRef", "css",
-        "displayIsSameAsValidate", "displayPatternType", "displayPictureClause", "dorColspan", "dorExcludeTitle",
-        "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass", "jcr:created",
-        "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title",
-        "mandatory", "maxChars", "name", "showIfHidden", "sling:resourceType",
-        "summaryExclusion", "textIsRich", "validatePictureClause", "validatePictureClauseMessage", "validationPatternType",
+    pub const NUMERICBOX: &[&str] = &[
+        "_value", "alwaysInPdf", "assistPriority", "bindRef", "css",
+        "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
+        "fracDigits", "guideNodeClass", "jcr:created", "jcr:createdBy", "jcr:lastModified",
+        "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title", "leadDigits", "mandatory",
+        "name", "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich",
         "visible",
     ];
-    pub const NUMERICBOX: &[&str] = &[
-        "alwaysInPdf", "assistPriority", "bindRef", "css", "dorColspan",
+    pub const DATEPICKER: &[&str] = &[
+        "_value", "alwaysInPdf", "bindRef", "css", "dorColspan",
         "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
         "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
-        "jcr:title", "mandatory", "name", "showIfHidden", "sling:resourceType",
-        "summaryExclusion", "textIsRich", "visible",
-    ];
-    pub const DATEPICKER: &[&str] = &[
-        "alwaysInPdf", "bindRef", "css", "dorColspan", "dorExcludeTitle",
-        "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass", "jcr:created",
-        "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title",
-        "mandatory", "name", "placeholderText", "showIfHidden", "sling:resourceType",
-        "summaryExclusion", "textIsRich", "validatePictureClause", "validatePictureClauseMessage", "validationPatternType",
-        "visible", "yearRangeFrom", "yearRangeTo",
+        "jcr:title", "mandatory", "name", "placeholderText", "showIfHidden",
+        "sling:resourceType", "summaryExclusion", "textIsRich", "validatePictureClause", "validatePictureClauseMessage",
+        "validationPatternType", "visible", "yearRangeFrom", "yearRangeTo",
     ];
     pub const DROPDOWNLIST: &[&str] = &[
-        "alwaysInPdf", "bindRef", "css", "dorColspan", "dorExcludeTitle",
-        "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass", "jcr:created",
-        "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title",
-        "mandatory", "name", "options", "showIfHidden", "sling:resourceType",
-        "summaryExclusion", "textIsRich", "visible",
+        "_value", "alwaysInPdf", "bindRef", "css", "dorColspan",
+        "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
+        "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
+        "jcr:title", "mandatory", "name", "options", "showIfHidden",
+        "sling:resourceType", "summaryExclusion", "textIsRich", "visible",
     ];
     pub const CHECKBOX: &[&str] = &[
-        "alignment", "alwaysInPdf", "assistPriority", "bindRef", "css",
-        "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
-        "guideNodeClass", "hideTitle", "jcr:created", "jcr:createdBy", "jcr:lastModified",
-        "jcr:lastModifiedBy", "jcr:primaryType", "name", "options", "richTextOptions",
-        "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich", "visible",
+        "_value", "alignment", "alwaysInPdf", "assistPriority", "bindRef",
+        "css", "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling",
+        "dorHeaderSlot", "guideNodeClass", "hideTitle", "jcr:created", "jcr:createdBy",
+        "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title", "mandatory",
+        "name", "options", "richTextOptions", "showIfHidden", "sling:resourceType",
+        "summaryExclusion", "textIsRich", "visible",
     ];
     pub const RADIOBUTTON: &[&str] = &[
         "_value", "alignment", "alwaysInPdf", "bindRef", "css",
         "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
-        "guideNodeClass", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy",
-        "jcr:primaryType", "jcr:title", "mandatory", "name", "options",
-        "richTextOptions", "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich",
-        "visible",
+        "guideNodeClass", "hideTitle", "jcr:created", "jcr:createdBy", "jcr:lastModified",
+        "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title", "mandatory", "name",
+        "options", "richTextOptions", "showIfHidden", "sling:resourceType", "summaryExclusion",
+        "textIsRich", "visible",
     ];
     pub const TEXTDRAW: &[&str] = &[
         "_value", "alwaysInPdf", "css", "dorColspan", "dorExclusion",

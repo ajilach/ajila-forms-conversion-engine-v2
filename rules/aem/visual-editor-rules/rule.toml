@@ -1,12 +1,19 @@
 id = "ubs-aem-visual-editor-rules"
-title = "Rules are code-editor scripts, not visual-editor rules"
+title = "No visual-editor rules on a loaded node"
 output_formats = ["aem-ubs"]
 description = """
-UBS writes every rule in AEM's code editor, as a script on `fd:scripts`; `fd:rules` stays empty.
-A node loaded from a package can carry a visual-editor rule (`fd:visible`, `fd:enabled`,
-`fd:click`, `fd:valueCommit`, `fd:init`, `fd:calc`, `fd:validate` or `fd:navigationChange` on
-`fd:rules`) in its `passthrough`. Express it as the node's own condition or script instead, and drop it from the
-passthrough. Rules are code-editor JavaScript; the visual rule editor's own storage (a rule tree on
-`fd:rules`) is not used. When fixing a deployed package, edit the document's fields rather than
-re-authoring the form.
+UBS writes every rule in AEM's code editor, as a script on `fd:scripts`, and the writer generates
+them from the document's typed fields (`conditions`, `calculate`, `copy_from`, the configurator
+reset, the repeatable archetype), in AEM's multi-value rule encoding; `fd:rules` stays empty
+(backlog "Rules"). A node loaded from a deployed package can carry a visual-editor rule
+(`fd:visible`, `fd:enabled`, `fd:click`, `fd:valueCommit`, `fd:init`, `fd:calc`, `fd:validate` or
+`fd:navigationChange` on `fd:rules`) in its `passthrough.raw_children`.
+
+Reported: such an `fd:rules` element.
+
+Express what the rule does with the node's typed fields (a visibility rule as a condition on its
+trigger and `is_conditional` on the panel, a computed value as `calculate`, a copied one as
+`copy_from`, a fixed one as `default_value` with `read_only`), then delete the element from the
+passthrough. Never write a rule into `passthrough` yourself. When fixing a deployed package, edit the
+document's fields rather than re-authoring the form.
 """

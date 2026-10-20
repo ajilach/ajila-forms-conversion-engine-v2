@@ -11,8 +11,8 @@
 //! assumed. Leaving a sub-panel hidden whose fields the source asks for loses
 //! data: the form renders and prints, without them.
 
-use super::ComponentName;
 use super::fragment_parser::{FragmentSubPanel, ParsedFragment};
+use super::{ComponentPath, FragmentInit};
 
 /// The fragment stems of the partner generics. Their `Basic` variants count
 /// too.
@@ -39,180 +39,95 @@ pub fn sub_panels<'a>(library: &'a [ParsedFragment], frag_ref: &str) -> Option<&
         .map(|fragment| fragment.sub_panels.as_slice())
 }
 
-/// What is wrong with a partner generic's `init_hide` and `init_show`, given
-/// its sub-panels: each name must be one of them, appear once, and not be
-/// both hidden and shown; a shown one must be one the fragment ships hidden,
-/// since showing a shown one does nothing. Hiding one the fragment already
-/// hides is allowed: the reviewed forms state it.
-pub fn init_problems(
-    name: &str,
-    sub_panels: &[FragmentSubPanel],
-    init_hide: &[ComponentName],
-    init_show: &[ComponentName],
-) -> Vec<String> {
-    let mut problems = Vec::new();
-    let find = |sub: &ComponentName| sub_panels.iter().find(|p| p.name == sub.as_str());
-    let have = sub_panels
+/// The sub-panels a partner generic shows once its Initialize rule ran: those
+/// it ships shown and does not hide, and those it ships hidden and shows.
+pub fn shown_sub_panels<'a>(sub_panels: &'a [FragmentSubPanel], init: &FragmentInit) -> Vec<&'a str> {
+    let listed = |list: &[ComponentPath], name: &str| list.iter().any(|p| p.as_str() == name);
+    sub_panels
         .iter()
-        .map(|p| p.name.as_str())
-        .collect::<Vec<_>>()
-        .join(", ");
-    for (list, subs) in [("init_hide", init_hide), ("init_show", init_show)] {
-        for (i, sub) in subs.iter().enumerate() {
-            if subs[..i].contains(sub) {
-                problems.push(format!("`{name}` lists `{}` twice in `{list}`", sub.as_str()));
-            }
-            match find(sub) {
-                None => problems.push(format!(
-                    "`{name}` {} `{}`, which it does not have; its sub-panels are {have}",
-                    if list == "init_hide" { "hides" } else { "shows" },
-                    sub.as_str()
-                )),
-                Some(panel) if list == "init_show" && panel.ships_shown => problems.push(format!(
-                    "`{name}` shows `{}`, which it already shows: `init_show` takes only the sub-panels it ships hidden",
-                    sub.as_str()
-                )),
-                Some(_) => {}
-            }
-        }
+        .filter(|panel| {
+            listed(&init.init_show, &panel.name) || (panel.ships_shown && !listed(&init.init_hide, &panel.name))
+        })
+        .map(|panel| panel.name.as_str())
+        .collect()
+}
+
+/// One copy of a partner generic in a party row.
+pub struct PartyPart<'a> {
+    pub name: &'a str,
+    pub frag_ref: &'a str,
+    pub init: &'a FragmentInit,
+}
+
+/// What is wrong with a party row holding more than one partner generic: a
+/// party the source splits around fields of its own (UBS-PTY-5), say its
+/// name, then a field, then its address. Each part is a copy of the same
+/// fragment, the one party's role, cut down by its Initialize rule to the
+/// sub-panels it shows, and no two parts show the same sub-panel. The copies
+/// bind to the one schema element, so AEM keeps their fields in one party.
+pub fn split_problems(row: &str, parts: &[PartyPart<'_>], library: &[ParsedFragment]) -> Vec<String> {
+    let mut problems = Vec::new();
+    let Some(first) = parts.first() else {
+        return problems;
+    };
+    if let Some(other) = parts.iter().find(|p| p.frag_ref != first.frag_ref) {
+        problems.push(format!(
+            "`{row}` holds partner generics of two roles ({} and {}): a row is one party, and \
+             the parts of a split party are copies of its one fragment",
+            first.frag_ref, other.frag_ref
+        ));
+        return problems;
     }
-    for sub in init_show {
-        if init_hide.contains(sub) {
-            problems.push(format!("`{name}` both hides and shows `{}`", sub.as_str()));
+    let Some(sub_panels) = sub_panels(library, first.frag_ref) else {
+        problems.push(format!(
+            "`{row}` references {}, which the fragment library does not hold",
+            first.frag_ref
+        ));
+        return problems;
+    };
+    let mut owner: Vec<(&str, &str)> = Vec::new();
+    for part in parts {
+        for panel in shown_sub_panels(sub_panels, part.init) {
+            match owner.iter().find(|(p, _)| *p == panel) {
+                Some((_, by)) => problems.push(format!(
+                    "`{row}`: `{by}` and `{}` both show `{panel}`: each part of a split party \
+                     shows its own sub-panels, hiding the others with `init_hide`",
+                    part.name
+                )),
+                None => owner.push((panel, part.name)),
+            }
         }
     }
     problems
-}
-
-/// The statements of a partner generic's Initialize rule: one `hideAFHideDor`
-/// per hidden and one `showAFShowDor` per shown sub-panel, in the order the
-/// fragment holds them (`sub_panels`; the feedback repository's fixer writes
-/// the same order, so a fixed form and a written one agree). `this.` scopes
-/// each call to the fragment instance, so every row of a repeating party runs
-/// it on its own sub-panels.
-pub fn init_calls(
-    sub_panels: &[FragmentSubPanel],
-    hide: &[ComponentName],
-    show: &[ComponentName],
-) -> Vec<String> {
-    let rank = |name: &ComponentName| {
-        sub_panels
-            .iter()
-            .position(|sub| sub.name == name.as_str())
-            .unwrap_or(sub_panels.len())
-    };
-    let mut calls: Vec<(usize, usize, String)> = hide
-        .iter()
-        .map(|n| (n, "window.forms.ubs.hideAFHideDor"))
-        .chain(show.iter().map(|n| (n, "window.forms.ubs.showAFShowDor")))
-        .enumerate()
-        .map(|(given, (name, call))| (rank(name), given, format!("{call}(this.{});", name.as_str())))
-        .collect();
-    calls.sort();
-    calls.into_iter().map(|(_, _, call)| call).collect()
-}
-
-/// Which sub-panels of a partner generic its Initialize rule hides and shows.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SubPanelVisibility {
-    pub hide: Vec<ComponentName>,
-    pub show: Vec<ComponentName>,
-}
-
-/// The sub-panels an Initialize rule's JavaScript hides and shows, each
-/// `hideAFHideDor(this.X)` / `showAFShowDor(this.X)` in the order written.
-/// A call on anything but a direct sub-panel (`this.X.Y`, no `this.`) is not
-/// one of these and is left out.
-pub fn parse_init_calls(content: &str) -> SubPanelVisibility {
-    use regex_lite::Regex;
-    let call =
-        Regex::new(r"(hideAFHideDor|showAFShowDor)\(this\.([A-Za-z_][A-Za-z0-9_]*)\)").unwrap();
-    let (mut hide, mut show) = (Vec::new(), Vec::new());
-    for c in call.captures_iter(content) {
-        let Ok(name) = ComponentName::try_from(c[2].to_string()) else {
-            continue;
-        };
-        if &c[1] == "hideAFHideDor" { &mut hide } else { &mut show }.push(name);
-    }
-    SubPanelVisibility { hide, show }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn names(names: &[&str]) -> Vec<ComponentName> {
-        names
-            .iter()
-            .map(|n| ComponentName::try_from(n.to_string()).unwrap())
-            .collect()
-    }
-
-    fn panels(spec: &[(&str, bool)]) -> Vec<FragmentSubPanel> {
-        spec.iter()
-            .map(|(name, ships_shown)| FragmentSubPanel {
-                name: name.to_string(),
-                ships_shown: *ships_shown,
-            })
-            .collect()
+    fn init(hide: &[&str], show: &[&str]) -> FragmentInit {
+        let paths = |p: &[&str]| p.iter().map(|n| ComponentPath::try_from(n.to_string()).unwrap()).collect();
+        FragmentInit { init_hide: paths(hide), init_show: paths(show), ..Default::default() }
     }
 
     fn generic() -> Vec<FragmentSubPanel> {
-        panels(&[
+        [
             ("PN_EntityBasic", false),
             ("PN_FormAddress", false),
             ("PN_IndividualBasic", true),
             ("PN_Address", true),
             ("PN_DOBNationality", false),
             ("PN_DateIncorporation", false),
-        ])
+        ]
+        .iter()
+        .map(|(name, ships_shown)| FragmentSubPanel { name: name.to_string(), ships_shown: *ships_shown })
+        .collect()
     }
 
     #[test]
-    fn the_calls_follow_the_fragment_order_whatever_order_they_were_authored_in() {
-        let calls = init_calls(
-            &generic(),
-            &names(&["PN_Address", "PN_EntityBasic", "PN_Extra"]),
-            &names(&["PN_DOBNationality"]),
-        );
-        assert_eq!(
-            calls,
-            [
-                "window.forms.ubs.hideAFHideDor(this.PN_EntityBasic);",
-                "window.forms.ubs.hideAFHideDor(this.PN_Address);",
-                "window.forms.ubs.showAFShowDor(this.PN_DOBNationality);",
-                "window.forms.ubs.hideAFHideDor(this.PN_Extra);",
-            ]
-        );
-    }
-
-    #[test]
-    fn parsing_the_calls_gives_back_what_was_written() {
-        let (hide, show) = (names(&["PN_EntityBasic", "PN_Address"]), names(&["PN_DOBNationality"]));
-        let content = init_calls(&generic(), &hide, &show).join("\n");
-        assert_eq!(parse_init_calls(&content), SubPanelVisibility { hide, show });
-    }
-
-    #[test]
-    fn a_call_on_a_field_inside_a_sub_panel_is_not_a_sub_panel() {
-        let parsed = parse_init_calls(
-            "window.forms.ubs.hideAFHideDor(this.PN_Address.TXT_District);\nwindow.forms.ubs.hideAFHideDor(PN_CPGRP.PN_Address);",
-        );
-        assert_eq!(parsed, SubPanelVisibility::default());
-    }
-
-    #[test]
-    fn what_a_fragment_ships_decides_what_it_can_show() {
-        // A `Basic` variant that ships its company name shown and has no address.
-        let basic = panels(&[("PN_EntityBasic", true), ("PN_IndividualBasic", true), ("PN_DOBNationality", false)]);
-        assert!(init_problems("P", &basic, &[], &names(&["PN_DOBNationality"])).is_empty());
-        let shown = init_problems("P", &basic, &[], &names(&["PN_EntityBasic"]));
-        assert!(shown[0].contains("already shows"), "{shown:?}");
-        let missing = init_problems("P", &basic, &names(&["PN_Address"]), &[]);
-        assert!(missing[0].contains("does not have"), "{missing:?}");
-        let twice = init_problems("P", &generic(), &names(&["PN_Address", "PN_Address"]), &[]);
-        assert!(twice[0].contains("twice"), "{twice:?}");
-        let both = init_problems("P", &generic(), &names(&["PN_EntityBasic"]), &names(&["PN_EntityBasic"]));
-        assert!(both.iter().any(|p| p.contains("both hides and shows")), "{both:?}");
+    fn what_shows_is_what_ships_shown_and_is_not_hidden_and_what_is_shown() {
+        let generic = generic();
+        let shown = shown_sub_panels(&generic, &init(&["PN_Address"], &["PN_DOBNationality"]));
+        assert_eq!(shown, ["PN_IndividualBasic", "PN_DOBNationality"]);
     }
 }

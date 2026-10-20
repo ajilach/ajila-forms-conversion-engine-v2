@@ -3,24 +3,23 @@
 # keeps the node out of the summary. `normalize.rs` repairs the flags of the internal-bank-use
 # fragments only; every other node keeps what the document says.
 id = "ubs-aem-placement-flags"
-title = "A node kept for the printed document does not also carry dor_exclude"
+title = "PDF-only nodes never carry dor_exclude"
 output_formats = ["aem-ubs"]
 description = """
-Where a node shows up is decided by separate switches. `dor_exclude` is Adobe's own and is not
-read on the UBS path at all; the UBS Document of Record is rendered by Redacto from the summary
-data, so `summary_exclude` is what actually keeps content out of it (the writer sets it whenever
-`dor_exclude` is set, so a node with `dor_exclude` is out of the summary as well). `always_in_pdf`
-puts a node that is hidden or summary-excluded back into the printed document, and that is how an
-infobox copy, an internal-bank-use block or the legal-entity line reaches the reader.
+Where a node shows up is decided by separate switches. The UBS Document of Record is rendered by
+Redacto from the summary data, so `summary_exclude` is what keeps content out of it; `dor_exclude`
+is Adobe's own and is not read on that path (the writer sets `summaryExclusion` for it as well).
+`always_in_pdf` puts a hidden or summary-excluded node back into the printed document, and
+`dor_exclude_title` leaves out a panel's heading only, not the panel.
 
-To keep something off the screen and out of the summary but IN the printed document, use
-`always_in_pdf` together with `summary_exclude` and leave `dor_exclude` off: `dor_exclude` drops
-the node from the printed document again, and nothing in the writer takes it back off (only the
-internal-bank-use fragments are repaired). `dor_exclude_title` excludes a panel's heading only, not
-the panel.
+A node shown in the printed document only (an internal-bank-use block, the DoR copy of an infobox, a
+header slot text) has the PDF-only shape (backlog "PDF-only shape (V2)"): `visible: false`,
+`always_in_pdf` and `summary_exclude`, never `dor_exclude`, which drops it from the printed document
+again, and nothing in the writer takes it back off (only the internal-bank-use fragments are
+repaired).
 
 Reported: a node with both `always_in_pdf` and `dor_exclude` (pointer `<node>/dor_exclude`).
 
-Delete `dor_exclude` from the node and keep `always_in_pdf` and `summary_exclude`; or, if the node
-should not print, delete `always_in_pdf`.
+The fix deletes `dor_exclude` and sets `summary_exclude`, which keeps the node out of the summary
+as before. If the node should not print at all, delete `always_in_pdf` instead.
 """

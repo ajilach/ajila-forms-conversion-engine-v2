@@ -1,0 +1,26 @@
+# CNV-STR-1 (empty panels are removed), UBS-SEC-5 (no body text directly under the root) and the
+# mechanical half of CNV-TXT-5 and CNV-SRC-5 (empty paragraphs, spacer breaks, filler-only texts).
+# A panel is reported, and removed, as a whole when nothing in its subtree renders, so the fix never
+# leaves an emptied parent behind: that parent was itself empty, and is the one reported.
+id = "ubs-aem-empty-panels"
+title = "Nothing empty, and nothing outside a page"
+output_formats = ["aem-ubs"]
+description = """
+Nothing in the form renders empty, and every node sits in a page:
+
+- A `Panel` or `Repeatable` whose subtree renders nothing (no children, or only empty panels and
+  blank draws) is removed (CNV-STR-1), together with any condition whose `target_panel_name` names
+  it. Only the outermost such panel is reported. A panel carrying a fragment's `frag_ref` is the
+  fragment's and is never empty.
+- A TextDraw, TitleDraw, MessageBox or HtmlDisplayer with no text in any language, or only a line
+  of filler (three or more of `. _ … -`), is removed (CNV-SRC-5). An image or chart is content.
+- An empty paragraph (`<p></p>`, `<p>&nbsp;</p>`, `<p><br></p>`) and a line break at the start or
+  end of a paragraph print as blank lines and are removed (CNV-TXT-5). A run of breaks inside a
+  paragraph standing for a paragraph break is ubs-aem-paragraphs'.
+- A node directly under `form` that is not a page `Panel` sits outside every step (UBS-SEC-5): it
+  belongs at the end of the page before it, or at the start of the first page (after its
+  `Preface`, `Letterhead` and header lines) when no page comes before it.
+
+The autofix does all of this. Where a panel was empty because content is missing, add the content
+the source shows instead of accepting the removal.
+"""

@@ -1,35 +1,42 @@
 id = "ubs-aem-dor-header-slots"
-title = "The master-page lines are hidden static texts in the Document of Record's header slots"
+title = "Header lines are hidden draws in the DoR slots"
 output_formats = ["aem-ubs"]
 description = """
-The lines the source's master page draws top of page reach the Document of Record's header, not
-the form's pages. The header has three slots, the same on every form:
+The lines the master page draws in the top right corner of page 1 reach the Document of Record's
+header, not the form's pages. Read them on page 1 of each language's own PDF (xfa_render_region of
+the top right corner) and in its template: the draws of the master page (`pageSet`, xfa_search
+for the text, xfa_node for the draw and its font). The header has three slots,
+the same on every form:
 
 - `slot1`: the banking relationship. The `Preface`'s fragment fills it; no master-page line takes
   it, and it stays empty in a form without one.
-- `slot2`: the legal entity, as the page draws it: the entity in bold, what qualifies it plain
-  (`<p><b>UBS Europe SE</b> (Succursale Italia)</p>`).
-- `slot3`: the validity line (`<p>Valid from 09.10.2025</p>`, `<p>Gültig ab 09.10.2025</p>`).
+- `slot2`: the issuer (UBS-PAGE-2), as the page draws it: the entity in bold, what qualifies it
+  plain (`<p><b>UBS Europe SE</b> (Succursale Italia)</p>`), one paragraph per source line. Other
+  master-page header text that describes the issuer (a unit, an address) is a further paragraph
+  of this draw (UBS-PAGE-4).
+- `slot3`: the validity line (`<p>Valid from 09.10.2025</p>`, `<p>Gültig ab 09.10.2025</p>`), with
+  its date as `dd.mm.yyyy`.
 
-Each line is a static `TextDraw` (named `ST_HeaderSlot2`, `ST_HeaderSlot3`) on the first page,
-right after the `Preface` where there is one (the writer puts it inside the banking relationship's
-wrapper) and first otherwise, with `dor_header_slot` set to its
-slot and `visible: false`, `always_in_pdf: true`, `show_if_hidden: true` and
-`summary_exclude: true`: hidden on screen and off the summary step, printed in the header. Its
-`content` is translated like any other text, each language read from that language's own PDF
-(xfa_page_text on the master page), so a German form says "Gültig ab" where an English one says
-"Valid from". A source with no such line has no draw for its slot.
+Each line is a static `TextDraw` (named `ST_HeaderSlot2`, `ST_HeaderSlot3`) in the page header,
+right after the `Preface` (ubs-aem-page-header), with `dor_header_slot` set to its slot and
+`visible: false`, `always_in_pdf: true`, `show_if_hidden: true` and `summary_exclude: true`: hidden
+on screen and off the summary step, printed in the header. Its `content` is translated like any
+other text, each language from that language's own master page, so a German form says "Gültig
+ab" where an English one says "Valid from". A source with no such line has no draw for its slot,
+and neither line is ever also a body text (ubs-aem-issuer-information).
 
 A letter is the exception for `slot2`: its `Letterhead` (ubs-aem-letter-detection) prints the
 sender there, the bank's address included, so the master page's sender block is the letterhead's
 `sender` and no `ST_HeaderSlot2` draw is authored beside a letterhead that has one. `slot3` holds
 for a letter as for any form.
 
-Reported: a static text in `slot2` beside a `Letterhead` with a sender; a node in a slot other than `slot1`, `slot2` or `slot3`; a static text in `slot1`, and
-any node there beside a `Preface`; a static node in a slot that is not a `TextDraw`; two static
-texts in one slot; and a slot draw that is not hidden, not in the PDF, not kept in the summary data
-or not off the summary step. Whether each master-page line has its draw, in its slot
-and in every language, is judged by ubs-aem-source-coverage.
+Reported: a static text in `slot2` beside a `Letterhead` with a sender; a node in a slot other
+than `slot1`, `slot2` or `slot3`; a static text in `slot1`, and any node there beside a
+`Preface`; a static node in a slot that is not a `TextDraw`; two static texts in one slot; a slot
+draw that is not hidden, not in the PDF, not kept in the summary data or not off the summary step;
+a `slot3` draw without a `dd.mm.yyyy` date in a language. Whether each master-page line has its
+draw, in its slot and in every language, is judged by ubs-aem-source-coverage.
 
-Fix: add the missing flag, move the draw to its slot, or delete the second draw of a slot.
+Fix: add the missing flag, move the draw to its slot, merge a second issuer line into the `slot2`
+draw, or delete the second draw of a slot.
 """

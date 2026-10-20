@@ -29,6 +29,13 @@ pub struct ParsedFragment {
     /// with whether the fragment ships it shown. A partner generic's
     /// Initialize rule hides and shows these (`init_hide`, `init_show`).
     pub sub_panels: Vec<FragmentSubPanel>,
+
+    /// Every named component under the fragment's root panel, at any depth,
+    /// in document order, by its path from the root panel
+    /// ([`ComponentPath`](super::ComponentPath)). A component that references
+    /// another fragment ends the path here: what is inside it is that
+    /// fragment's (see [`FragmentComponent::frag_ref`]).
+    pub components: Vec<FragmentComponent>,
 }
 
 /// A panel directly under a fragment's root panel.
@@ -38,6 +45,39 @@ pub struct FragmentSubPanel {
     /// Whether the fragment ships it shown (`visible` absent or not false).
     pub ships_shown: bool,
 }
+
+/// A named component inside a fragment.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FragmentComponent {
+    /// Its names from the root panel down, joined by `.`.
+    pub path: String,
+    /// Its `guideNodeClass` (`guidePanel`, `guideTextBox`, `guideTextDraw`, ...).
+    pub class: String,
+    /// Whether the fragment ships it shown (`visible` absent or not false).
+    pub ships_shown: bool,
+    /// The fragment it references, when it is a reference to another one.
+    pub frag_ref: Option<String>,
+}
+
+impl FragmentComponent {
+    /// Whether it takes a value someone fills in, and so can be mandatory.
+    pub fn is_input(&self) -> bool {
+        INPUT_CLASSES.contains(&self.class.as_str())
+    }
+}
+
+/// The `guideNodeClass`es of the components that take a value.
+const INPUT_CLASSES: &[&str] = &[
+    "guideTextBox",
+    "guideNumericBox",
+    "guideDatePicker",
+    "guideDropDownList",
+    "guideCheckBox",
+    "guideRadioButton",
+    "guideTelephone",
+    "guideEmail",
+    "guideScribble",
+];
 
 /// Parse fragment metadata from `.content.xml` text and a known relative
 /// fragment directory path.
@@ -76,6 +116,7 @@ pub fn parse_fragment_content(
     // Extract all bindRef values to collect bound element names
     let bound_elements = extract_bind_ref_elements(content, &xsd_type_name);
     let sub_panels = sub_panels(content)?;
+    let components = components(content)?;
 
     Some(ParsedFragment {
         dir_name,
@@ -84,7 +125,49 @@ pub fn parse_fragment_content(
         xsd_type_name,
         bound_elements,
         sub_panels,
+        components,
     })
+}
+
+/// Every named component under the fragment's `rootPanel`, as
+/// [`ParsedFragment::components`] records them, or `None` when the content is
+/// not readable JCR XML.
+fn components(content: &str) -> Option<Vec<FragmentComponent>> {
+    use u2s_mapper_aem::jcr::tree::{JcrNode, parse_jcr_xml};
+    fn find<'a>(node: &'a JcrNode, tag: &str) -> Option<&'a JcrNode> {
+        if node.tag_name == tag {
+            return Some(node);
+        }
+        node.children.iter().find_map(|c| find(c, tag))
+    }
+    fn walk(items: &JcrNode, prefix: &str, out: &mut Vec<FragmentComponent>) {
+        for child in &items.children {
+            let (Some(name), Some(class)) = (child.attr("name"), child.attr("guideNodeClass")) else {
+                continue;
+            };
+            let path = if prefix.is_empty() { name.to_owned() } else { format!("{prefix}.{name}") };
+            let frag_ref = child.attr("fragRef").map(str::to_owned);
+            out.push(FragmentComponent {
+                path: path.clone(),
+                class: class.to_owned(),
+                ships_shown: u2s_mapper_aem::jcr::value::parse_visible(child),
+                frag_ref: frag_ref.clone(),
+            });
+            if frag_ref.is_none()
+                && let Some(inner) = child.children.iter().find(|c| c.tag_name == "items")
+            {
+                walk(inner, &path, out);
+            }
+        }
+    }
+    let tree = parse_jcr_xml(content).ok()?;
+    let mut out = Vec::new();
+    if let Some(items) = find(&tree, "rootPanel")
+        .and_then(|root| root.children.iter().find(|c| c.tag_name == "items"))
+    {
+        walk(items, "", &mut out);
+    }
+    Some(out)
 }
 
 /// The panels directly under the fragment's `rootPanel`, or `None` when the

@@ -3,36 +3,6 @@
 //! This module contains JavaScript helper code that is injected into the
 //! scripting environment to provide XFA-specific functionality.
 
-/// Global SOM resolution helper function.
-///
-/// When a path like "Page.SectionTitle.STP_SectionTitle.ffrb1" is accessed,
-/// JavaScript property chain works for subforms but fails for floating fields.
-/// This helper provides fallback resolution.
-pub const XFA_RESOLVE_PATH_HELPER: &str = r#"
-function _xfa_resolve_path_(path) {
-    var parts = path.split('.');
-    var obj = this; // Start from global
-    
-    // Try to traverse the path
-    for (var i = 0; i < parts.length; i++) {
-        var part = parts[i];
-        // `in` first: reading a name a form node does not have throws
-        // (see `_xfa_node_proto_`).
-        if (obj && (part in Object(obj)) && typeof obj[part] !== 'undefined') {
-            obj = obj[part];
-        } else {
-            // Path traversal failed - try looking up the last part in the registry
-            var lastPart = parts[parts.length - 1];
-            if (typeof _xfa_fields_ !== 'undefined' && _xfa_fields_[lastPart]) {
-                return _xfa_fields_[lastPart];
-            }
-            return null;
-        }
-    }
-    return obj;
-}
-"#;
-
 /// The Form DOM's parent/child links and the XFA 3.3 §3 SOM walker.
 ///
 /// Every node object registered by the engine is linked into its parent with
@@ -74,11 +44,33 @@ function _xfa_kid_list_(parent, name) {
 // gets its instance manager (`parent._name`, XFA 3.3 §9), created with the
 // limits of a subform without `<occur>` (1/1) unless the engine installed
 // the declared ones first.
+// `parent.Name` is the first instance of the child `Name`. The property
+// takes another node (the engine relinking an instance, the instance
+// manager renumbering after a removal). Assigning anything else -- a string,
+// a number, null -- sets the child's value, the way Acrobat answers
+// `this.ffDesSignature = "Firma del client advisor"` (AAJB_033_IT's
+// signature block, whose caption Acrobat shows exactly so; see
+// xfa/acrobat_compat.rs). It never replaces the node itself: every later
+// `Section.Field.rawValue` must still reach the field.
+function _xfa_set_child_(parent, name, child) {
+    Object.defineProperty(parent, name, {
+        get: function() { return child; },
+        set: function(v) {
+            if (v !== null && typeof v === 'object') {
+                _xfa_set_child_(parent, name, v);
+            } else {
+                child.rawValue = v;
+            }
+        },
+        enumerable: true, configurable: true
+    });
+}
+
 function _xfa_link_child_(parent, name, index, child, isSubform) {
     var list = _xfa_kid_list_(parent, name);
     list[index] = child;
     if (index === 0) {
-        parent[name] = child;
+        _xfa_set_child_(parent, name, child);
     }
     _xfa_hidden_(child, 'parent', parent);
     child.index = index;
@@ -90,13 +82,52 @@ function _xfa_link_child_(parent, name, index, child, isSubform) {
 }
 
 
-// A node placed directly in a pageArea: the pageArea becomes its parent,
-// and whatever it was linked under (the root subform) the pageArea's.
-function _xfa_reparent_under_page_area_(pageArea, child) {
-    if (!Object.prototype.hasOwnProperty.call(pageArea, 'parent') && child.parent) {
-        _xfa_hidden_(pageArea, 'parent', child.parent);
+// Global data binding (XFA 3.3 §6 "Global data", `<bind match="global"/>`):
+// one global data value node binds to every field of its name, so a value
+// written to any of them is the value of all of them, the way a value
+// written to the Form DOM passes through to the Data DOM and back. Each
+// bound node is joined under its name; `_xfa_set_raw_` is the one write to
+// a node's own value, so every write reaches the peers.
+var _xfa_global_bound_ = {};
+
+function _xfa_join_global_binding_(node, name) {
+    var list = _xfa_global_bound_[name];
+    if (!list) {
+        list = [];
+        _xfa_global_bound_[name] = list;
     }
-    _xfa_hidden_(child, 'parent', pageArea);
+    if (list.indexOf(node) < 0) {
+        // The one data node already has a value when a later field binds
+        // to it (a new row of AALU_019_DE's table joining
+        // `Global_AccountNumber`): the field takes that value, as a field
+        // merged with a data node does.
+        for (var i = 0; i < list.length; i++) {
+            if (_xfa_content_value_(list[i]._rawValue) !== null) {
+                node._rawValue = list[i]._rawValue;
+                break;
+            }
+        }
+        list.push(node);
+    }
+    _xfa_hidden_(node, '_xfa_globalName_', name);
+}
+
+// A node's stored content as its `rawValue` reads: `null` when there is
+// none (XFA 3.3 §2 "Field Values": no content is a null value; §6 "Null
+// Data": empty content is null with `nullType="empty"`), the content
+// otherwise.
+function _xfa_content_value_(v) {
+    return (v === undefined || v === null || String(v) === '') ? null : v;
+}
+
+function _xfa_set_raw_(node, v) {
+    node._rawValue = v;
+    var name = node._xfa_globalName_;
+    if (name === undefined) return;
+    var peers = _xfa_global_bound_[name];
+    for (var i = 0; i < peers.length; i++) {
+        if (peers[i] !== node) peers[i]._rawValue = v;
+    }
 }
 
 // A plain array that also answers XFA's list protocol: `.length`, `.item(i)`.
@@ -124,13 +155,39 @@ function _xfa_kids_of_(obj, name) {
 // The XFA 3.3 §3 scope walk for an unqualified name: children of the
 // container, then the container and its siblings (the parent's children),
 // the parent and its siblings, and so on up to the root.
-function _xfa_scope_walk_(from, name) {
+//
+// At each level the container itself is checked before its siblings: when
+// scope-matching, an unqualified name without an index takes the index of
+// the container (§3 "Using relocatable calculations in a spreadsheet-like
+// organization"), so a script in `Row[1]` naming `Row` means `Row[1]`, not
+// `Row[0]`. A name with an index (`Row[0]`, `Row[*]`) asks for the sibling
+// set instead, so `indexed` skips that rule; the root alone still answers
+// to its own name.
+function _xfa_scope_walk_(from, name, indexed) {
     for (var anc = from; anc; anc = anc.parent) {
         var kids = _xfa_kids_of_(anc, name);
         if (kids.length > 0) return kids;
-        if (!anc.parent && anc.name === name) return [anc];
+        if (anc.name === name && (!indexed || !anc.parent)) return [anc];
     }
     return [];
+}
+
+// The `nodes` property (LiveCycle Designer Scripting Reference; XFA 3.3 §3
+// "The Form DOM" defers to it): the node's children as a list. The Form DOM
+// this engine keeps is sparse the way the spec says Adobe's is -- only
+// instantiated nodes are listed, which here means the registered containers,
+// fields and draws, not property nodes such as `<border>` or `<ui>`. Same-
+// named instances are listed together, in document order of the first one.
+function _xfa_nodes_of_(n) {
+    var out = [];
+    if (n !== null && typeof n === 'object'
+        && Object.prototype.hasOwnProperty.call(n, '_xfa_kids_')) {
+        for (var name in n._xfa_kids_) {
+            var kids = n._xfa_kids_[name];
+            for (var i = 0; i < kids.length; i++) if (kids[i]) out.push(kids[i]);
+        }
+    }
+    return _xfa_collection_(out);
 }
 
 // The properties of the container a script names without `this.`, as
@@ -146,7 +203,18 @@ var _xfa_own_scope_props_ = {
 // object, a value a script assigned without `var`) wins, as it always has:
 // form fields named `Date` must not hide the constructor.
 function _xfa_scope_value_(node, name) {
-    if (typeof name !== 'string' || name.charAt(0) === '_') return undefined;
+    if (typeof name !== 'string') return undefined;
+    if (name.charAt(0) === '_') {
+        // `_Name` is the instance manager of the subforms `Name` (XFA 3.3
+        // §9), held by their parent, so it is in scope wherever `Name` is.
+        for (var holder = node; holder; holder = holder.parent) {
+            if (Object.prototype.hasOwnProperty.call(holder, name)) {
+                var manager = holder[name];
+                if (manager && typeof manager.addInstance === 'function') return manager;
+            }
+        }
+        return undefined;
+    }
     // A named script object is registered with the subform declaring it
     // (XFA 3.3 §10): the nearest declaring ancestor's own object wins over
     // the global of that name.
@@ -173,16 +241,14 @@ function _xfa_scope_value_(node, name) {
     return found.length > 0 ? found[0] : undefined;
 }
 
-var _xfa_empty_scope_ = new Proxy({}, { has: function() { return false; } });
-
 // The scope a script owned by `node` runs in (`with` around its function,
 // see the engine's `execute_javascript`): unqualified names resolve by
 // `_xfa_scope_value_`; anything it does not resolve falls through to the
 // global object. A node without links (a path the engine made an object for
-// on the fly) uses the nearest registered node on the current path.
+// on the fly) uses the nearest registered node on the current path, and a
+// script with no container at all runs in the form root's scope.
 function _xfa_scope_(node) {
-    if (!node || (!node.parent && node !== xfa.form)) node = _xfa_context_node_() || node;
-    if (!node) return _xfa_empty_scope_;
+    if (!node || (!node.parent && node !== xfa.form)) node = _xfa_context_node_() || xfa.form;
     if (!Object.prototype.hasOwnProperty.call(node, '_xfa_scope_proxy_')) {
         _xfa_hidden_(node, '_xfa_scope_proxy_', new Proxy({}, {
             has: function(t, k) { return _xfa_scope_value_(node, k) !== undefined; },
@@ -201,89 +267,158 @@ function _xfa_select_(list, index) {
     return (index < list.length && list[index]) ? [list[index]] : [];
 }
 
-// `Name`, `Name[3]`, `Name[*]` -> {name, index}; null for anything else.
+// `Name`, `Name[3]`, `Name[*]` -> {name, index}; `#class` -> {cls}; null
+// for anything else.
 function _xfa_parse_segment_(seg) {
+    var c = /^#([A-Za-z]+)$/.exec(seg);
+    if (c) return { cls: c[1] };
     var m = /^([^\[\]#.]+)(?:\[\s*(\*|\d+)\s*\])?$/.exec(seg);
     if (!m) return null;
-    return { name: m[1], index: (m[2] === undefined) ? 0 : (m[2] === '*' ? '*' : parseInt(m[2], 10)) };
+    return {
+        name: m[1],
+        indexed: m[2] !== undefined,
+        index: (m[2] === undefined) ? 0 : (m[2] === '*' ? '*' : parseInt(m[2], 10))
+    };
 }
 
+// A class reference (XFA 3.3 §3, `#class`): the children of `obj` of class
+// `cls`. Only property subtrees carry a class here (a caption's `value`
+// holds a `text` whose `className` is "text"); a form node's children are
+// named, not classed, so `#field` and `#subform` are not resolved.
+function _xfa_kids_of_class_(obj, cls) {
+    if (obj === null || typeof obj !== 'object') return [];
+    var out = [];
+    var keys = Object.keys(obj);
+    for (var i = 0; i < keys.length; i++) {
+        var v = obj[keys[i]];
+        if (v !== null && typeof v === 'object' && v.className === cls) out.push(v);
+    }
+    return out;
+}
+
+// The first descendant of `root` named `name`, in document order (XFA 3.3
+// §3 "Selecting Descendants At Any Level"), or null.
+function _xfa_first_descendant_(root, name) {
+    // `xfa..X` searches the document: of the models, only the Form DOM
+    // holds nodes here.
+    if (root === xfa) return _xfa_first_descendant_(xfa.form, name);
+    if (root === null || typeof root !== 'object' || !root._xfa_kids_) return null;
+    var kids = root._xfa_kids_;
+    for (var key in kids) {
+        var list = kids[key];
+        for (var i = 0; i < list.length; i++) {
+            var kid = list[i];
+            if (!kid) continue;
+            if (key === name) return kid;
+            var below = _xfa_first_descendant_(kid, name);
+            if (below) return below;
+        }
+    }
+    return null;
+}
+
+// The object a SOM expression's first segment names when it is a model or
+// a model shortcut (XFA 3.3 §3 "Shortcuts"), undefined when it is not one.
+// Only the models this engine has are answered.
+function _xfa_model_(name) {
+    if (name === 'xfa' || name === '$xfa') return xfa;
+    if (name === 'form' || name === '$form') return xfa.form;
+    if (name === 'host' || name === '$host') return xfa.host;
+    if (name === 'layout' || name === '$layout') return xfa.layout;
+    if (name === 'event' || name === '$event') return xfa.event;
+    return undefined;
+}
+
+// Every node a SOM expression names, resolved from `start` (the script's
+// container; null for no context) by XFA 3.3 §3:
+// - `$` and `this` are the container itself (see acrobat_compat.rs for
+//   `this`); `$.X` is a child of the container, not a scope match;
+// - an unqualified first segment is scope-matched (`_xfa_scope_walk_`),
+//   or is a model (`xfa`, `form`); with no container it is a child of the
+//   form root;
+// - `A..B` is the first descendant of A named B in document order, and an
+//   index then counts among that node's same-named siblings;
+// - `#class` selects the children of that class;
+// - a model this engine does not have (`$data`, `$record`, `!`) is an
+//   error naming it, not a silent miss.
+// Returns null for an expression that is not well formed.
 function _xfa_resolve_nodes_(start, expr) {
     expr = String(expr).replace(/^\s+|\s+$/g, '');
-    if (expr === '' || expr.indexOf('..') >= 0) return null;
-    // `$` is the script's container (XFA 3.3 §3); Acrobat accepts `this`,
-    // the JavaScript name for it, the same way.
+    if (expr === '') return null;
     if (expr === '$' || expr === 'this') return start ? [start] : [];
 
-    var from = start;
-    var absolute = false;
-    if (expr.indexOf('$.') === 0) {
-        expr = expr.substring(2);
-    } else if (expr.indexOf('this.') === 0) {
-        expr = expr.substring(5);
-    } else if (expr.indexOf('$form.') === 0) {
-        expr = expr.substring(6);
-        absolute = true;
-    } else if (expr.indexOf('xfa.form.') === 0) {
-        expr = expr.substring(9);
-        absolute = true;
-    } else if (expr.charAt(0) === '$' || expr.charAt(0) === '!') {
-        return null;
-    }
-
-    var parts = expr.split('.');
+    var raw = expr.split('.');
     var segs = [];
-    for (var i = 0; i < parts.length; i++) {
-        var seg = _xfa_parse_segment_(parts[i]);
+    var descend = false;
+    for (var i = 0; i < raw.length; i++) {
+        if (raw[i] === '') { descend = true; continue; }
+        var seg = _xfa_parse_segment_(raw[i]);
         if (!seg) return null;
+        seg.descend = descend;
+        descend = false;
         segs.push(seg);
     }
+    if (segs.length === 0 || descend) return null;
 
-    var selected;
     var first = segs[0];
-    if (absolute || !from) {
-        var roots = _xfa_kids_of_(xfa.form, first.name);
-        if (roots.length === 0) roots = _xfa_kids_of_(_xfa_global_, first.name);
-        selected = _xfa_select_(roots, first.index);
+    var selected;
+    var from = 0;
+    if (first.cls !== undefined) return null;
+    if (!first.descend && (first.name === '$' || first.name === 'this')) {
+        selected = start ? [start] : [];
+        from = 1;
+    } else if (first.name.charAt(0) === '$' || first.name.charAt(0) === '!') {
+        var model = _xfa_model_(first.name);
+        if (model === undefined) {
+            throw new Error("SOM expression '" + expr + "' starts at " + first.name
+                + ", a model this engine does not have");
+        }
+        selected = [model];
+        from = 1;
     } else {
-        selected = _xfa_select_(_xfa_scope_walk_(from, first.name), first.index);
+        selected = start ? [start] : [xfa.form];
+        if (!first.descend) {
+            var found = start
+                ? _xfa_scope_walk_(start, first.name, first.indexed)
+                : _xfa_kids_of_(xfa.form, first.name);
+            if (found.length === 0) {
+                var m = _xfa_model_(first.name);
+                found = m === undefined ? [] : [m];
+                selected = _xfa_select_(found, 0);
+            } else {
+                selected = _xfa_select_(found, first.index);
+            }
+            from = 1;
+        }
     }
 
-    for (var s = 1; s < segs.length; s++) {
+    for (var s = from; s < segs.length; s++) {
+        var seg = segs[s];
         var next = [];
         for (var k = 0; k < selected.length; k++) {
-            next = next.concat(_xfa_select_(_xfa_kids_of_(selected[k], segs[s].name), segs[s].index));
+            if (seg.cls !== undefined) {
+                next = next.concat(_xfa_kids_of_class_(selected[k], seg.cls));
+            } else if (seg.descend) {
+                var hit = _xfa_first_descendant_(selected[k], seg.name);
+                if (hit) {
+                    next = next.concat(_xfa_select_(_xfa_kids_of_(hit.parent, seg.name), seg.index));
+                }
+            } else {
+                next = next.concat(_xfa_select_(_xfa_kids_of_(selected[k], seg.name), seg.index));
+            }
         }
         selected = next;
     }
     return selected;
 }
 
-// Run the name-based lookup with `node` as the resolution context, the way a
-// script owned by `node` would see it.
-function _xfa_legacy_from_(node, legacy, expr) {
-    var saved = _xfa_current_context_;
-    if (node && node.somExpression) _xfa_current_context_ = node.somExpression;
-    try {
-        return legacy.call(xfa, expr);
-    } finally {
-        _xfa_current_context_ = saved;
-    }
-}
-
 function _xfa_resolve_node_from_(node, expr) {
     var found = _xfa_resolve_nodes_(node, expr);
-    if (found && found.length > 0) return found[0];
-    return _xfa_legacy_from_(node, xfa._resolveNodeByName, expr);
+    return (found && found.length > 0) ? found[0] : null;
 }
 
 function _xfa_resolve_nodes_from_(node, expr) {
-    var found = _xfa_resolve_nodes_(node, expr);
-    if (found && found.length > 0) return _xfa_collection_(found);
-    var legacy = _xfa_legacy_from_(node, xfa._resolveNodesByName, expr);
-    var out = [];
-    for (var i = 0; legacy && i < legacy.length; i++) out.push(legacy[i]);
-    return _xfa_collection_(out);
+    return _xfa_collection_(_xfa_resolve_nodes_(node, expr) || []);
 }
 
 // The node `xfa.resolveNode` resolves relative to: the current script's own
@@ -371,27 +506,108 @@ var _xfa_node_property_names_ = {};
     _xfa_node_property_names_[n] = true;
 });
 
-// The prototype of every form node object. Acrobat throws when a script
-// reads a property an XFA object does not have, typically a child that is
-// not there, and forms rely on it: AALP_019_EN tries
-// `xfa.form.UBSForms.UBSForms_<id>` inside `try` to fall back to the root.
-// Names on `Object.prototype`, symbols, engine-internal `_` names and the
-// XFA names above are answered normally; everything else throws.
+// The prototype of every form node object.
+//
+// A name that is not a property of the object is a SOM reference resolved
+// from it. XFA 3.3 §3 calls a JavaScript `this.X` qualified, which would
+// confine `X` to the object's children; Acrobat resolves it with the same
+// scope walk as an unqualified name (children, then the container and its
+// siblings, then each ancestor's), and forms depend on that: ACYI_001_EN's
+// row-adding button does `this.GWM_Option_DYN` for the row it sits in, and
+// a field's own calculate does `this.Branch_Flag.rawValue` for itself.
+//
+// Acrobat throws when nothing in scope has the name, and forms rely on
+// that too: AALP_019_EN tries `xfa.form.UBSForms.UBSForms_<id>` inside
+// `try` to fall back to the root. This is a documented deviation from the
+// specification: see xfa/acrobat_compat.rs. Names on `Object.prototype`, symbols,
+// engine-internal `_` names and the XFA names above are answered normally.
 var _xfa_node_proto_ = new Proxy(Object.create(Object.prototype), {
     get: function(target, key, receiver) {
         if (typeof key !== 'string' || key in Object.prototype) {
             return Reflect.get(target, key, receiver);
         }
+        if (key === 'nodes') return _xfa_nodes_of_(receiver);
         if (key.charAt(0) === '_' || key.charAt(0) === '$'
             || _xfa_node_property_names_[key] === true) {
             return undefined;
         }
+        var found = _xfa_scope_walk_(receiver, key);
+        if (found.length > 0) return found[0];
         var where = Object.prototype.hasOwnProperty.call(receiver, 'somExpression')
             ? String(receiver.somExpression) : 'this object';
         throw new Error("Invalid property get operation; " + where
             + " doesn't have property '" + key + "'");
     }
 });
+
+// A field's caption as a property subtree a script can reach by SOM
+// expression (XFA 3.3 §3 class references, `#class`): `caption.value.#text` is the
+// `<text>` under the caption's `<value>`, and assigning its `value` relabels
+// the field, the way ACYI_001_EN's buttons take their language-specific
+// label. Only a caption whose template holds a `<text>` gets one -- a
+// rich-text (`exData`) caption has no `#text`, in Acrobat either.
+function _xfa_init_caption_(node, text) {
+    if (text === null || text === undefined) return;
+    var caption = node.caption;
+    if (caption === null || typeof caption !== 'object') return;
+    var value = caption.value;
+    if (value === null || typeof value !== 'object') {
+        value = {};
+        caption.value = value;
+    }
+    value.text = { className: 'text', value: String(text) };
+    _xfa_hidden_(caption, '_xfa_initialText_', String(text));
+}
+
+// The caption text of `node` if a script changed it since the last call,
+// else null; the baseline moves to the new text.
+function _xfa_take_caption_change_(node) {
+    var caption = node.caption;
+    if (caption === null || typeof caption !== 'object'
+        || !Object.prototype.hasOwnProperty.call(caption, '_xfa_initialText_')) return null;
+    var value = caption.value;
+    if (value === null || typeof value !== 'object') return null;
+    var text = value.text;
+    if (text === null || typeof text !== 'object') return null;
+    var now = _xfa_value_text_(text.value);
+    if (now === caption._xfa_initialText_) return null;
+    caption._xfa_initialText_ = now;
+    return now;
+}
+
+// A field's choice list as one string, for telling a script's
+// `addItem`/`clearItems` apart from the list the field was registered with.
+function _xfa_items_key_(node) {
+    var items = node._items || [];
+    var out = [];
+    for (var i = 0; i < items.length; i++) out.push([String(items[i].d), String(items[i].s)]);
+    return JSON.stringify(out);
+}
+
+// The field's items if a script changed them since the last call, as the
+// JSON `_xfa_items_key_` builds, else null; the baseline moves to them.
+function _xfa_take_items_change_(node) {
+    if (!Object.prototype.hasOwnProperty.call(node, '_xfa_initialItems_')) return null;
+    var now = _xfa_items_key_(node);
+    if (now === node._xfa_initialItems_) return null;
+    node._xfa_initialItems_ = now;
+    return now;
+}
+
+// Put `node`'s `access` and caption text back to their baselines (what
+// `take_access_changes` / `take_caption_changes` compare against): the
+// state a master-page node has outside any one page's evaluation.
+function _xfa_reset_to_baseline_(node) {
+    if (node._initialAccess !== undefined) node.access = node._initialAccess;
+    var caption = node.caption;
+    if (caption === null || typeof caption !== 'object'
+        || !Object.prototype.hasOwnProperty.call(caption, '_xfa_initialText_')) return;
+    var value = caption.value;
+    if (value === null || typeof value !== 'object') return;
+    var text = value.text;
+    if (text === null || typeof text !== 'object') return;
+    text.value = caption._xfa_initialText_;
+}
 
 function _xfa_install_node_methods_(obj) {
     Object.setPrototypeOf(obj, _xfa_node_proto_);
@@ -459,7 +675,7 @@ _XfaInstanceManager.prototype._renumber = function() {
         this._instances[i].instanceIndex = i;
     }
     if (this._instances.length > 0) {
-        parent[this._childName] = this._instances[0];
+        _xfa_set_child_(parent, this._childName, this._instances[0]);
     } else {
         delete parent[this._childName];
     }
@@ -655,7 +871,7 @@ function _xfa_placeholder_(manager, parent) {
 /// Combined JavaScript helpers for XFA environment setup.
 pub fn get_all_helpers() -> String {
     format!(
-        "{XFA_RESOLVE_PATH_HELPER}\n{XFA_SOM_WALKER}\n{XFA_INSTANCE_MANAGER}\n{XFA_HOST_EXTENSIONS}\n{XFA_VALUE_FORMAT}\n{XFA_SCRIPT_OBJECTS}\n{XFA_FORMCALC_RUNTIME}"
+        "{XFA_SOM_WALKER}\n{XFA_INSTANCE_MANAGER}\n{XFA_HOST_EXTENSIONS}\n{XFA_VALUE_FORMAT}\n{XFA_SCRIPT_OBJECTS}\n{XFA_FORMCALC_RUNTIME}"
     )
 }
 
@@ -828,15 +1044,16 @@ function _xfa_install_value_format_(obj, format, edit, localeName) {
 }
 "#;
 
-/// Named script objects (`<variables><script name>`), instantiated on first
-/// reference (XFA 3.3 §10 "Instantiation of Named Script Objects": "when the
-/// document variable is referenced the compiled script object is
-/// returned").
-///
-/// Instantiating in document order instead breaks the UBS idiom
-/// `try{ myDE; } catch(e){ soCommonLabelDefinition; }` at the top of an
-/// object declared before `soCommonLabelDefinition`: referencing the later
-/// object is what makes it exist.
+/// Named script objects (`<variables><script name>`). XFA 3.3 §10
+/// "Instantiation of Named Script Objects": the variables of a subform are
+/// instantiated with the subform, and "when the document variable is
+/// referenced the compiled script object is returned". So every object is
+/// declared first, then instantiated in document order
+/// (`_xfa_instantiate_script_objects_`), and a reference to one not yet
+/// built builds it on the spot: a body may use an object declared after it
+/// (`try { myDE; } catch (e) { soCommonLabelDefinition; }` at the top of an
+/// earlier object), and the globals a body assigns exist for every script
+/// that runs afterwards.
 ///
 /// Each declaration is an accessor on its owner subform ("registered with
 /// the subform"); the first declaration of a name is also the global of
@@ -865,6 +1082,20 @@ function _xfa_script_object_value_(entry) {
         entry.state = 'error';
         entry.error = e;
         throw e;
+    }
+}
+
+function _xfa_instantiate_script_objects_() {
+    for (var name in _xfa_script_objects_) {
+        var list = _xfa_script_objects_[name];
+        for (var i = 0; i < list.length; i++) {
+            if (list[i].state !== 'pending') continue;
+            try {
+                _xfa_script_object_value_(list[i]);
+            } catch (e) {
+                _xfa_host_errors.push("script object '" + name + "' failed to instantiate: " + e);
+            }
+        }
     }
 }
 
@@ -916,7 +1147,9 @@ function _fc_get_(base, name) {
         throw new Error("FormCalc: '." + name + "' of nothing");
     }
     var kids = _xfa_kids_of_(base, name);
-    return kids.length > 0 ? kids[0] : base[name];
+    if (kids.length > 0) return kids[0];
+    if (name in Object(base)) return base[name];
+    throw new Error("FormCalc: " + (base.somExpression || "the object") + " has no '" + name + "'");
 }
 
 function _fc_index_(base, name, i) {
@@ -926,9 +1159,37 @@ function _fc_index_(base, name, i) {
 }
 
 function _fc_first_(node, name, i) {
-    var found = _xfa_select_(_xfa_scope_walk_(node, name), i);
+    var found = _xfa_select_(_xfa_scope_walk_(node, name, true), i);
     if (found.length === 0) throw new Error("FormCalc: no " + name + "[" + i + "]");
     return found[0];
+}
+
+// A method call on an object (XFA 3.3 §25 "Method Calls"): names are
+// case-insensitive, so `$host.MessageBox` finds `messageBox`; an object
+// without the method is an error, as calling nothing is.
+function _fc_call_(base, name, args) {
+    if (base === null || base === undefined) {
+        throw new Error("FormCalc: '." + name + "()' of nothing");
+    }
+    var target = Object(base);
+    // Found by name along the prototype chain, never by a plain read: a
+    // form node throws for a name it does not have (as Acrobat does).
+    var lower = String(name).toLowerCase();
+    var method;
+    for (var obj = target; obj && typeof method !== 'function'; obj = Object.getPrototypeOf(obj)) {
+        var names = Object.getOwnPropertyNames(obj);
+        var found = names.indexOf(String(name));
+        if (found < 0) {
+            for (var i = 0; i < names.length; i++) {
+                if (names[i].toLowerCase() === lower) { found = i; break; }
+            }
+        }
+        if (found >= 0 && typeof target[names[found]] === 'function') method = target[names[found]];
+    }
+    if (typeof method !== 'function') {
+        throw new Error("FormCalc: " + (base.somExpression || "the object") + " has no method '" + name + "'");
+    }
+    return method.apply(target, args);
 }
 
 function _fc_set_node_(target, v) {
@@ -939,7 +1200,13 @@ function _fc_set_node_(target, v) {
 
 function _fc_set_(base, name, v) {
     var kids = _xfa_kids_of_(base, name);
-    if (kids.length > 0) kids[0].rawValue = v; else base[name] = v;
+    if (kids.length > 0) {
+        kids[0].rawValue = v;
+    } else if (name in Object(base)) {
+        base[name] = v;
+    } else {
+        throw new Error("FormCalc: " + (base.somExpression || "the object") + " has no '" + name + "'");
+    }
     return v;
 }
 

@@ -670,7 +670,7 @@ fn logged_in(docker_config: &str, registry: &str) -> bool {
 
 fn pdf_problem(problems: &mut Vec<String>) {
     let scratch = std::env::temp_dir().join("blueprint-u2s-pdf-check");
-    if let Err(e) = crate::pdfium::server(BlobStore::new(scratch)) {
+    if let Err(e) = crate::pdfium::server(BlobStore::in_folder(scratch)) {
         problems.push(e);
     }
 }
@@ -1016,7 +1016,7 @@ impl SharedVerifier {
                 .prefix("blueprint-aem-verify-")
                 .tempdir()
                 .map_err(|e| format!("could not create the verifier's working directory: {e}"))?;
-            let server = settings.server(u2s_blob::BlobStore::new(blobs.path()))?;
+            let server = settings.server(u2s_blob::BlobStore::in_folder(blobs.path()))?;
             Ok(Self {
                 settings: settings.clone(),
                 verifier: Verifier { server, profile: Arc::new(settings.profile()?) },
@@ -1328,11 +1328,12 @@ impl U2sTools {
             .prefix("blueprint-u2s-")
             .tempdir()
             .map_err(|e| format!("could not create the u2s working directory: {e}"))?;
-        let blobs = BlobStore::new(dir.path().join("blobs"));
-        let render = XfaRenderServer::with_parts(Limits::default(), blobs)
+        let blobs = dir.path().join("blobs");
+        let render = XfaRenderServer::with_parts(Limits::default(), BlobStore::in_folder(&blobs))
             .map_err(|e| format!("the XFA renderer cannot start: {e}"))?;
         Ok(Self {
-            data: XfaDataServer,
+            // The data server reads the same blob folder as the renderer.
+            data: XfaDataServer::with_parts(BlobStore::in_folder(&blobs)),
             render,
             pdf: None,
             verifier: None,
@@ -1595,7 +1596,7 @@ impl U2sTools {
         let server = match self.pdf.take() {
             Some(server) => server,
             None => {
-                let blobs = BlobStore::new(self.dir.path().join("blobs"));
+                let blobs = BlobStore::in_folder(self.dir.path().join("blobs"));
                 crate::pdfium::server(blobs)?
             }
         };

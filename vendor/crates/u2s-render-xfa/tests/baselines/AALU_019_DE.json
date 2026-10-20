@@ -1,0 +1,1170 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Bankbeziehung\n0319 00\nDepot-Nr.\n.\n0319-00\nUBS Europe SE\nDepot-Bogen\n1\nEröffnung\nÄnderung\nKundendaten\nNachname\nVorname(n)\nKundenberater\nNachname\nVorname(n)\nProdukt\nEUR\n0190\nBewertungswährung\nBereich\nObjektart (Produkt)\nWeiteres Produkt\n.\n0319-00\nZugehöriges Konto\nMinderjährigendepot/Nießbrauch/Treuhand\nJa\nNein\nWenn Ja, Depotsperrinstruktion \"200\" von DDM setzen lassen (weiche Sperre)\nPrice Type\nDepotgebühr\nBeratungsgebühr\nMandatsgebühr (Individualpreis)\nPauschalgebühr\nAbweichende Buchungsinstruktion \"300\"  (Optional)\nnur in / außer\nWährung\nKonto-Nr.\n0319-00\n.\nWeitere Angaben\nPortfolio-Zuordnung\nDepotrubrik\nVerpfändungserklärung vorhanden?\nJa\nNein\nWenn Ja, bitte Info an ( sh-wmde-cradmin-germany@ubs.com ) wg. Hinterlegung Sperre für das neue Depot.\nVereinbarung zu Vertriebsprovisionen eingeholt?\nJa\nNein\nWenn Nein, bitte Einholung der Vereinbarung zu Vertriebsprovisionen nachholen.\nUnterschrift(en)\nErstellt\nOrt\nDatum\nUnterschrift der verantwortlichen Person\nName der verantwortlichen Person\nGenehmigt\nOrt\nDatum\nUnterschrift der verantwortlichen Person\nName der verantwortlichen Person\n0101664920101001501202601014\n66492\nDE\nV0\n019\nAALU\n31.10.2019\nN1\n15.01.2026\nSeite 1/1"
+  ],
+  "raster": [
+    "8d85eb4021e24dc0"
+  ],
+  "controls": {
+    "UBSForms_66492.MPs.MP.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP.STP_Header.CustodyAccount.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          428.0,
+          57.8,
+          37.600002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Header.CustodyAccount.OBJ_Number": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          470.7,
+          57.8,
+          54.600002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP.STP_Header.CustodyAccount.ffCustodyAccount": {
+      "value": "Depot-Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.Barcode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerELA": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "Jede Partei erhält ein Exemplar",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Header.CustodyAccount.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Header.CustodyAccount.OBJ_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.STP_Header.CustodyAccount.ffCustodyAccount": {
+      "value": "Depot-Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.MPs.MP_66492.MP_Page_1.Watermark": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.ClientDetails.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          168.3,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.ClientDetails.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          168.3,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.ClientDetails.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.ClientDetails.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.ClientDetails.Kundenberater.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          212.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.ClientDetails.Kundenberater.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          212.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.ClientDetails.Kundenberater.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.ClientDetails.Kundenberater.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.ClientDetails.SectionTitle.ffClientDetails": {
+      "value": "Kundendaten",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.FormTittle.STP_PortfolioOptions.STP_Portfolio.RB_Group_Portfolio.RB_1": {
+      "value": "1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          117.200005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.FormTittle.STP_PortfolioOptions.STP_Portfolio.RB_Group_Portfolio.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          113.0,
+          117.200005,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Product.Product.Bereich.Bereich": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          271.1,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Fachbetreuer.Fachbetreuer": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Product.Product.Product.Product": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          299.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_Currency.CL_ShortCode": {
+      "value": "EUR",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          271.1,
+          42.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_Portfolio_No.Global_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          88.1,
+          326.9,
+          37.600002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_Portfolio_No.OBJ_Number_Depot": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          130.8,
+          326.9,
+          54.600002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_Minderjahrigendepot.RB_Group_Minderjahrigendepot.RB_No": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          248.5,
+          358.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_Minderjahrigendepot.RB_Group_Minderjahrigendepot.RB_Yes": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          212.0,
+          358.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          411.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          124.1,
+          411.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          212.0,
+          411.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_4": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          350.5,
+          411.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_Vereinbarung.RB_Group_Vereinbarung.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          230.6,
+          548.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_Vereinbarung.RB_Group_Vereinbarung.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          266.5,
+          548.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_Verpfandungserklarung.RB_Group_Verpfandungserklarung.RB_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          188.1,
+          511.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.STP_RB_Verpfandungserklarung.RB_Group_Verpfandungserklarung.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          223.90001,
+          511.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Table_Optional.Table_Row_DYN.Row.CustodyAccount.Global_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          448.1,
+          443.0,
+          37.600002,
+          10.2
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Table_Optional.Table_Row_DYN.Row.CustodyAccount.OBJ_Number_Depot": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          490.80002,
+          443.0,
+          54.600002,
+          10.2
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Table_Optional.Table_Row_DYN.Row.Nur_in_AuBer": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          307.6,
+          442.7,
+          53.9,
+          10.2
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Table_Optional.Table_Row_DYN.Row.Optional": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          442.7,
+          255.1,
+          10.2
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Table_Optional.Table_Row_DYN.Row.Wahrung": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          364.30002,
+          442.7,
+          42.5,
+          10.2
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Table_Optional.Table_Row_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          438.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Table_Optional.Table_Row_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          438.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Weitere_Angaben.Depotrubrik": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          481.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Weitere_Angaben.Portfolio_Zurodnung": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          481.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Product.Product.Weiteres_Produkt.Weiteres_Produkt": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          299.4,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Signature.SectionTitle.FF_Signature_s": {
+      "value": "Unterschrift(en)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          679.2,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          650.8,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          650.8,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.ffDesFullName": {
+      "value": "Name der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.ffDesSignature": {
+      "value": "Unterschrift der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Erstellt.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          771.60004,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          743.3,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          743.3,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.ffDesFullName": {
+      "value": "Name der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.ffDesSignature": {
+      "value": "Unterschrift der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page.Signature.Signature_Genehmigt.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.Kundenberater.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.Kundenberater.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.Kundenberater.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.Kundenberater.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.ClientDetails.SectionTitle.ffClientDetails": {
+      "value": "Kundendaten",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.FormTittle.STP_PortfolioOptions.STP_Portfolio.RB_Group_Portfolio.RB_1": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.FormTittle.STP_PortfolioOptions.STP_Portfolio.RB_Group_Portfolio.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Bereich.Bereich": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Fachbetreuer.Fachbetreuer": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Product.Product": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_Currency.CL_ShortCode": {
+      "value": "EUR",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_Portfolio_No.Global_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_Portfolio_No.OBJ_Number_Depot": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_Minderjahrigendepot.RB_Group_Minderjahrigendepot.RB_No": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_Minderjahrigendepot.RB_Group_Minderjahrigendepot.RB_Yes": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_PriceType.RB_Group_PriceType.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_Vereinbarung.RB_Group_Vereinbarung.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_Vereinbarung.RB_Group_Vereinbarung.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_Verpfandungserklarung.RB_Group_Verpfandungserklarung.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.STP_RB_Verpfandungserklarung.RB_Group_Verpfandungserklarung.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Table_Optional.Table_Row_DYN.Row.CustodyAccount.Global_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Table_Optional.Table_Row_DYN.Row.CustodyAccount.OBJ_Number_Depot": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Table_Optional.Table_Row_DYN.Row.Nur_in_AuBer": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Table_Optional.Table_Row_DYN.Row.Optional": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Table_Optional.Table_Row_DYN.Row.Wahrung": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Table_Optional.Table_Row_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Table_Optional.Table_Row_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Weitere_Angaben.Depotrubrik": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Weitere_Angaben.Portfolio_Zurodnung": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Product.Product.Weiteres_Produkt.Weiteres_Produkt": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.SectionTitle.FF_Signature_s": {
+      "value": "Unterschrift(en)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.FullName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.ffDesFullName": {
+      "value": "Name der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.ffDesSignature": {
+      "value": "Unterschrift der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Erstellt.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.FullName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.ffDesFullName": {
+      "value": "Name der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.ffDesSignature": {
+      "value": "Unterschrift der verantwortlichen Person",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_66492.Page_1.Signature.Signature_Genehmigt.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

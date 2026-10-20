@@ -1,0 +1,869 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Relazione bancaria\nUBS Europe SE (Succursale Italia)\nubs.com\nOrdine Storno della chiusura 1\nDati del cliente\n.\n.\nNumero CB/conto\nNome\n0\nStorno contabilizzazione interessi al\nData della chiusura\nImporto degli interessi da cancellare\n0\nStorno prezzo del servizio al\nData della chiusura\nImporto dei prezzi da cancellare\nMotivo\n0\nRettifica di contabilizzazioni\n0\nModifica condizioni\n0\nCambio di condizione d'interesse\nSì\nNo\n0\nDebito\n%\n0\nCredito\n%\nCommenti\n0\nNuova chiusura intermedia al\nData della chiusura\nLe modifiche/rettifiche vanno richieste dal committente\nUO-Rif.\ncommitente\nNome del Client Advisor / iniziatore dell'ordine\nData\nTelefono\n0101635540301001501202601023\n63554\nIT\nV0\n033\nAAXC\n01.01.2023\nN1\n15.01.2026\nPagina 1/2",
+    "Relazione bancaria\nSi prega di notare\n1\nLe chiusure possono essere stornate solo cronologicamente a ritroso (come da EB31).\nÈ possibile stornare solo una chiusura per conto al giorno.\nStorni per prezzi prestazioni\nSe durante lo storno di prezzi prestazioni, avvenuto durante il periodo nel quale proseguiamo con gli storni ordinatici,\nsi verifica una nuova chiusura per prezzi prestazioni, verrà anche'essa stornata senza ulteriore preavviso.\nDopo un rimborso degli interessi dovuto un interesse annullato, il tasso d'interesse sarà rinunciato a ZERO come standard per il periodo d'interesse annullato. Il tasso d'interesse\nè modificato solo per il periodo cancellato. Per cambiamenti periodi futuri, seguite la procedura SOKO.\nUBS Europe SE, Succursale Italia, con sede in Via del Vecchio Politecnico, 3 - 20121 Milano. Iscritta all'Albo delle Banche tenuto da Banca d'Italia, Codice ABI 3041.1. Aderente al Fondo Regolamentare Tedesco per la Protezione dei Depositi. UBS Europe SE, Succursale Italia è la succursale italiana di UBS Europe SE, con sede in Bockenheimer Landstraße 2-4, D-60306 Francoforte sul Meno, Germania.\nSolo per uso interno della banca\nControllo firma/e / Firmato in mia presenza\nRif. UO\nVisto\n0101635540301001501202602020\n63554\nIT\nV0\n033\nAAXC\n01.01.2023\nN1\n15.01.2026\nPagina 2/2"
+  ],
+  "raster": [
+    "e20b1627e97613c8",
+    "914de9dcad361a5e"
+  ],
+  "controls": {
+    "UBSForms_63554.MPs.MP.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          417.30002,
+          37.4,
+          128.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.BankingRelationship.BC_ClearingNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          389.80002,
+          37.4,
+          22.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.BankingRelationship.ffBankingRelation": {
+      "value": "Relazione bancaria",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.MPs.MP.Barcode": {
+      "value": "0101635540301001501202601016",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerEachParty": {
+      "value": "Ognuno dei contraenti riceve una copia",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerPagination": {
+      "value": "Pagina 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          417.30002,
+          37.4,
+          128.40001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.BankingRelationship.BC_ClearingNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          389.80002,
+          37.4,
+          22.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.BankingRelationship.ffBankingRelation": {
+      "value": "Relazione bancaria",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.MPs.MP_Last.Barcode": {
+      "value": "0101635540301001501202601016",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          197.0,
+          810.7,
+          22.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerCDOK": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerELA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          89.3,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerEachParty": {
+      "value": "Ognuno dei contraenti riceve una copia",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerFormCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          121.9,
+          810.7,
+          32.600002,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerJVersion": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerLanguage": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerMandator": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          106.3,
+          810.7,
+          15.6,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerModDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          154.5,
+          810.7,
+          42.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerPagination": {
+      "value": "Pagina 1/1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.Footer_Line.footerPrintDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.LastPageOnly.STP_UP1.ReferenceAdvisor": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          229.6,
+          795.4,
+          112.700005,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms_63554.MPs.MP_Last.LastPageOnly.STP_UP1.ffForInternalBankUse": {
+      "value": "Solo per uso interno della banca",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.MPs.MP_Last.LastPageOnly.STP_UP1.ffOuRef": {
+      "value": "Rif. UO",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.MPs.MP_Last.LastPageOnly.STP_UP1.ffSignatureVerified": {
+      "value": "Controllo firma/e / Firmato in mia presenza",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.MPs.MP_Last.LastPageOnly.STP_UP1.ffUpSignature": {
+      "value": "Visto",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms_63554.Page.Change_Of_Interest.Credit_Interest.CB_Credit_Interest": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          452.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Change_Of_Interest.Credit_Interest.TF_Credit_Interest": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          92.1,
+          453.0,
+          141.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Change_Of_Interest.Debit_Interest.CB_Debit_Interest": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          437.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Change_Of_Interest.Debit_Interest.TF_Debit_Interest": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          92.1,
+          437.6,
+          141.7,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Change_Of_Interest.RB_Change_Of_Interest.RB_Group_Change_Of_Interest.RB_No": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          77.9,
+          421.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Change_Of_Interest.RB_Change_Of_Interest.RB_Group_Change_Of_Interest.RB_Yes": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          421.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.BC_Accountno.STP_BC_Accountno.AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          75.6,
+          145.90001,
+          44.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.BC_Accountno.STP_BC_Accountno.ClearingNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          145.90001,
+          22.2,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.BC_Accountno.STP_BC_Accountno.LNO": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          151.1,
+          145.90001,
+          54.600002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.BC_Accountno.STP_BC_Accountno.OBJ_Number_Depot": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          122.6,
+          145.90001,
+          25.5,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Interest.CB_Cancel_Interest": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          204.90001,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Interest.Table.Table_Row_DYN.Row.CI_ClosingDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.8,
+          234.6,
+          238.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Interest.Table.Table_Row_DYN.Row.TF_InterestAmount": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          234.6,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Interest.Table.Table_Row_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          230.40001,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Interest.Table.Table_Row_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          230.40001,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Service.CB_Cancel_Service": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          259.30002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Service.Table.Table_Row_DYN.Row.ClosingDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.8,
+          289.0,
+          238.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Service.Table.Table_Row_DYN.Row.TF_CS_ClosingDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          289.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Service.Table.Table_Row_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          284.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.Cancel_Service.Table.Table_Row_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          284.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Client_Data.NameOrCompanyname.NameCompanyname": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          174.3,
+          496.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.Cancel_Service_Date.Generic_WesternTextInput.Container.DYN_Input.ClosingDate_CS": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          553.10004,
+          73.700005,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.Cancel_Service_Date.Generic_WesternTextInput.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          553.2,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.Cancel_Service_Date.Generic_WesternTextInput.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          553.2,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.Cancel_Service_Price.CB_Cancel_Service_Price": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          537.8,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.Multiline_Field.TF_Multiline2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          51.0,
+          503.2,
+          493.2,
+          24.1
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.OU.STP_OU.STP_CA.Date_CA": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          629.10004,
+          73.700005,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.OU.STP_OU.STP_CA.Name_ClientAdvisor": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          629.10004,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.OU.STP_OU.STP_OU_Ref.OU_Ref": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          600.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.OU.STP_OU.STP_OU_Ref.Shortname": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          600.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Interest_Condition.OU.STP_OU.STP_Phone.Phone": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          658.2,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Reason.STP_Change_Conditions.CB_Change_Conditions": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          342.0,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Reason.STP_Change_Service.CB_Change_Service": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          357.30002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Reason.STP_Reason_TextField.CB_Reason_TextField": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          372.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms_63554.Page.Reason.STP_Reason_TextField.TF_Reason_TextField": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.600002,
+          372.7,
+          240.90001,
+          11.3
+        ]
+      ]
+    }
+  },
+  "warning": null
+}

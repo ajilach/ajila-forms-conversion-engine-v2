@@ -1,357 +1,379 @@
-//! Font Manager Module - XFA Font Resolution and Loading
+//! Font resolution (XFA 3.3 §17 "The font element", chapter 28 "Font
+//! Mapping in LiveCycle Forms ES3").
 //!
-//! This module handles font resolution according to the XFA specification.
-//! Per XFA spec section 17 (Template Reference - font element):
-//! - typeface: The name of the typeface. Default is "Courier"
-//! - size: Font size as measurement. Default is 10pt
-//! - weight: "normal" or "bold". Default is "normal"
-//! - posture: "normal" or "italic". Default is "normal"
+//! A `<font>` names a typeface, a weight and a posture. The faces this
+//! process can draw with are registered once at boot (`crate::fonts`) from
+//! their files, each known by what its own name table says: family,
+//! typographic family, full name and PostScript name. A document adds its
+//! own ([`DocumentFonts`]): the faces embedded in its PDF, and the
+//! `equate`/`equateRange` substitutions of its configuration packet.
 //!
-//! Font Resolution Strategy (per XFA spec section 28, "Font Mapping"):
-//! 1. Try to find exact match for typeface + weight + posture
-//! 2. If not found, check embedded fonts from PDF
-//! 3. If not found, try common aliases (e.g., "Helvetica" -> "Arial")
-//! 4. If not found, use genericFamily fallback (serif, sansSerif, monospace, etc.)
-//! 5. If still not found, return error (configurable) or use system fallback
+//! Resolution, for one `<font>`:
 //!
-//! Per XFA spec section 28 (Font Mapping in LiveCycle Forms ES3):
-//! "When the XFA processor is unable to supply the requested font it substitutes
-//! whatever font is available that it considers the best match."
+//! 1. a face the document embeds whose name is the typeface;
+//! 2. the document's `equate` for the typeface (chapter 28, substitution
+//!    step 1), then the same lookup for the typeface it names;
+//! 3. a registered face whose name is the typeface -- among several, the
+//!    one whose weight is closest to the requested one, upright for an
+//!    upright request and italic for an italic one (step 2: a name match of
+//!    any weight and posture beats a different typeface);
+//! 4. the fallback face, and the substitution is reported once per
+//!    typeface.
 //!
-//! The genericFamily attribute values (from CSS2):
-//! - sansSerif: Absence of serifs (default)
-//! - serif: Presence of serifs on characters
-//! - cursive: Presence of joining strokes (handwritten look)
-//! - fantasy: Decorative fonts
-//! - monospace: Fixed-width fonts
+//! Names are compared exactly, case-insensitively; nothing is inferred
+//! from a typeface's spelling. A glyph the resolved face lacks is taken
+//! from another face ([`FontManager::font_for_glyph`]: the document's
+//! `equateRange` for that codepoint, then the symbol fallback, then any
+//! face), which is chapter 28's font fallback.
 
-use crate::xfa::{Font, FontPosture, FontWeight, GenericFamily};
+use std::cell::RefCell;
+use std::collections::HashSet;
+use std::sync::{Arc, OnceLock};
+
+use crate::xfa::{Font, FontPosture, FontWeight, XfaNode, XfaNodeKind};
 use ab_glyph::FontRef;
-use regex_lite::Regex;
-use std::collections::HashMap;
-use std::sync::OnceLock;
 use thiserror::Error;
 use ttf_parser::{Face, name_id};
+
+/// DejaVu Sans, the face a glyph is taken from when the text's own font
+/// lacks it (ballot boxes, arrows, symbols): a face with wide Unicode
+/// coverage that is part of the project, so the fallback does not depend on
+/// what the machine has installed.
+pub(crate) static SYMBOL_FALLBACK: &[u8] = include_bytes!("../../assets/DejaVuSans.ttf");
 
 /// Font-related errors
 #[derive(Debug, Error)]
 pub enum FontError {
-    /// The requested font was not found and no suitable fallback exists
-    #[error(
-        "Font not found: '{typeface}' (weight: {weight:?}, posture: {posture:?}). Tried aliases: {tried_aliases:?}. Consider embedding the font in the PDF or specifying a genericFamily fallback."
-    )]
+    /// The requested font was not found and strict mode allows no fallback.
+    #[error("font not found: {typeface:?} (weight {weight:?}, posture {posture:?})")]
     FontNotFound {
         typeface: String,
         weight: FontWeight,
         posture: FontPosture,
-        tried_aliases: Vec<String>,
     },
 
-    /// No fallback font available on the system
-    #[error("No fallback font available. Searched paths: {searched_paths:?}")]
-    NoFallbackAvailable { searched_paths: Vec<String> },
+    /// No fallback font is registered.
+    #[error("no fallback font is registered: register a font directory before rendering")]
+    NoFallbackAvailable,
 
-    /// Failed to parse font data
-    #[error("Failed to parse font data: {reason}")]
+    /// The face's bytes could not be parsed.
+    #[error("font data could not be parsed: {reason}")]
     FontParseError { reason: String },
 
     /// Lock error when accessing font manager
-    #[error("Font manager lock error: {0}")]
+    #[error("font manager lock error: {0}")]
     LockError(String),
-
-    /// Embedded font data is invalid
-    #[error("Invalid embedded font data for '{name}': {reason}")]
-    InvalidEmbeddedFont { name: String, reason: String },
 }
 
-/// Extension trait to add fallback_typefaces to GenericFamily
-pub trait GenericFamilyExt {
-    /// Get fallback font families for this generic family
-    /// Returns a list of common typeface names to try
-    fn fallback_typefaces(&self) -> Vec<&'static str>;
+/// A face as this crate knows it: its bytes, and what its name table says
+/// it is called.
+#[derive(Clone)]
+pub struct RegisteredFace {
+    pub data: &'static [u8],
+    /// Every name the face answers to, lowercase and distinct: the family
+    /// (name id 1), the typographic family (16), the full name (4) and the
+    /// PostScript name (6).
+    pub names: Vec<String>,
+    /// The `OS/2` weight class (100..900).
+    pub weight: u16,
+    pub italic: bool,
 }
 
-impl GenericFamilyExt for GenericFamily {
-    fn fallback_typefaces(&self) -> Vec<&'static str> {
-        match self {
-            // Prefer Arial first since it has explicit bold/italic files on most systems
-            GenericFamily::SansSerif => vec![
-                "arial",
-                "helvetica",
-                "helvetica neue",
-                "liberation sans",
-                "dejavu sans",
-                "verdana",
-            ],
-            GenericFamily::Serif => vec![
-                "times new roman",
-                "times",
-                "georgia",
-                "liberation serif",
-                "dejavu serif",
-            ],
-            GenericFamily::Monospace => vec![
-                "courier new",
-                "courier",
-                "consolas",
-                "liberation mono",
-                "dejavu sans mono",
-            ],
-            GenericFamily::Cursive => {
-                vec!["comic sans ms", "brush script mt", "lucida handwriting"]
-            }
-            GenericFamily::Fantasy => vec!["impact", "papyrus", "copperplate"],
-        }
+impl std::fmt::Debug for RegisteredFace {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RegisteredFace")
+            .field("names", &self.names)
+            .field("weight", &self.weight)
+            .field("italic", &self.italic)
+            .field("bytes", &self.data.len())
+            .finish()
     }
 }
 
-/// Embedded font data from a PDF file
-#[derive(Debug, Clone)]
-pub struct EmbeddedFont {
-    /// Font name as referenced in the PDF
-    pub name: String,
-    /// The raw font data (TTF/OTF)
-    pub data: Vec<u8>,
-    /// Font weight if known
-    pub weight: FontWeight,
-    /// Font posture if known  
-    pub posture: FontPosture,
-    /// Generic family hint
-    pub generic_family: Option<GenericFamily>,
-}
-
-/// Font equate mapping per XFA spec section 28
-/// Maps a font name to another font name for substitution
-/// Per XFA spec: "The equate element enables an XFA processor to map an unavailable
-/// font to an available one."
-#[derive(Debug, Clone)]
-pub struct FontEquate {
-    /// Source font name to match (case-insensitive)
-    pub from: String,
-    /// Target font name to substitute
-    pub to: String,
-    /// Optional: only apply when source has this weight
-    pub from_weight: Option<FontWeight>,
-    /// Optional: only apply when source has this posture
-    pub from_posture: Option<FontPosture>,
-    /// Optional: substitute with this weight (defaults to source weight)
-    pub to_weight: Option<FontWeight>,
-    /// Optional: substitute with this posture (defaults to source posture)
-    pub to_posture: Option<FontPosture>,
-}
-
-impl FontEquate {
-    /// Create a simple font name mapping
-    pub fn new(from: &str, to: &str) -> Self {
-        FontEquate {
-            from: from.to_lowercase(),
-            to: to.to_string(),
-            from_weight: None,
-            from_posture: None,
-            to_weight: None,
-            to_posture: None,
-        }
-    }
-
-    /// Create a mapping with specific weight/posture variants
-    pub fn with_variants(
-        from: &str,
-        to: &str,
-        from_weight: Option<FontWeight>,
-        from_posture: Option<FontPosture>,
-        to_weight: Option<FontWeight>,
-        to_posture: Option<FontPosture>,
-    ) -> Self {
-        FontEquate {
-            from: from.to_lowercase(),
-            to: to.to_string(),
-            from_weight,
-            from_posture,
-            to_weight,
-            to_posture,
-        }
-    }
-
-    /// Check if this equate applies to the given variant
-    pub fn matches(&self, variant: &FontVariant) -> bool {
-        if variant.family != self.from {
-            return false;
-        }
-        if let Some(w) = self.from_weight
-            && variant.weight != w
-        {
-            return false;
-        }
-        if let Some(p) = self.from_posture
-            && variant.posture != p
-        {
-            return false;
-        }
-        true
-    }
-
-    /// Get the target variant for a matching source variant
-    pub fn target_variant(&self, source: &FontVariant) -> FontVariant {
-        FontVariant::new(
-            &self.to,
-            self.to_weight.unwrap_or(source.weight),
-            self.to_posture.unwrap_or(source.posture),
-        )
-    }
-}
-
-/// Font equate range for Unicode-based font substitution per XFA spec
-/// Per XFA spec: "The equateRange element enables an XFA processor to map specific
-/// Unicode ranges in an unavailable font to an available font."
-#[derive(Debug, Clone)]
-pub struct FontEquateRange {
-    /// Source font name (case-insensitive)
-    pub from: String,
-    /// Target font name for specified Unicode ranges
-    pub to: String,
-    /// Unicode ranges as (start, end) pairs (inclusive)
-    /// Per XFA spec: ranges like "U+20-37E" or "U+20,U+30-3F"
-    pub unicode_ranges: Vec<(u32, u32)>,
-}
-
-impl FontEquateRange {
-    /// Create a new equate range
-    pub fn new(from: &str, to: &str, ranges: Vec<(u32, u32)>) -> Self {
-        FontEquateRange {
-            from: from.to_lowercase(),
-            to: to.to_string(),
-            unicode_ranges: ranges,
-        }
-    }
-
-    /// Parse Unicode range string per XFA spec format
-    /// Supports: "U+20-37E", "U+20,U+30-3F", "U+0041"
-    pub fn parse_unicode_range(range_str: &str) -> Vec<(u32, u32)> {
-        let mut ranges = Vec::new();
-        for part in range_str.split(',') {
-            let part = part.trim();
-            if let Some(range) = part.strip_prefix("U+").or_else(|| part.strip_prefix("u+")) {
-                if let Some((start_str, end_str)) = range.split_once('-') {
-                    if let (Ok(start), Ok(end)) = (
-                        u32::from_str_radix(start_str.trim(), 16),
-                        u32::from_str_radix(end_str.trim(), 16),
-                    ) {
-                        ranges.push((start, end));
+impl RegisteredFace {
+    /// Read the face's names and style from its tables.
+    pub fn parse(data: &'static [u8]) -> Result<Self, FontError> {
+        let face = Face::parse(data, 0).map_err(|e| FontError::FontParseError {
+            reason: e.to_string(),
+        })?;
+        let mut names: Vec<String> = Vec::new();
+        for id in [
+            name_id::FAMILY,
+            name_id::TYPOGRAPHIC_FAMILY,
+            name_id::FULL_NAME,
+            name_id::POST_SCRIPT_NAME,
+        ] {
+            for name in face.names().into_iter().filter(|n| n.name_id == id) {
+                if let Some(s) = name.to_string() {
+                    let s = s.trim().to_lowercase();
+                    if !s.is_empty() && !names.contains(&s) {
+                        names.push(s);
                     }
-                } else if let Ok(single) = u32::from_str_radix(range.trim(), 16) {
-                    ranges.push((single, single));
                 }
             }
         }
-        ranges
+        if names.is_empty() {
+            return Err(FontError::FontParseError {
+                reason: "the face has no family, full or PostScript name".to_string(),
+            });
+        }
+        Ok(RegisteredFace {
+            data,
+            names,
+            weight: face.weight().to_number(),
+            italic: matches!(face.style(), ttf_parser::Style::Italic | ttf_parser::Style::Oblique),
+        })
     }
 
-    /// Check if a codepoint falls within this equate range's Unicode ranges
-    pub fn contains_codepoint(&self, codepoint: u32) -> bool {
-        self.unicode_ranges
-            .iter()
-            .any(|(start, end)| codepoint >= *start && codepoint <= *end)
+    /// The name the face is best known by.
+    pub fn name(&self) -> &str {
+        &self.names[0]
     }
 
-    /// Check if this equate range applies to the given font
-    pub fn matches_font(&self, font_family: &str) -> bool {
-        font_family.to_lowercase() == self.from
+    /// Whether `typeface` (lowercase) is one of the face's names.
+    fn answers_to(&self, typeface: &str) -> bool {
+        self.names.iter().any(|n| n == typeface)
+    }
+
+    /// How far the face is from the requested style: the weight distance,
+    /// plus a posture mismatch, which outweighs any weight distance.
+    fn distance(&self, weight: u16, italic: bool) -> u32 {
+        self.weight.abs_diff(weight) as u32 + if self.italic != italic { 1000 } else { 0 }
+    }
+
+    /// Whether the face has a glyph for `c`.
+    fn has_glyph(&self, c: char) -> bool {
+        FontRef::try_from_slice(self.data)
+            .ok()
+            .is_some_and(|f| ab_glyph::Font::glyph_id(&f, c).0 != 0)
+    }
+
+    fn font_ref(&self) -> Result<FontRef<'static>, FontError> {
+        FontRef::try_from_slice(self.data).map_err(|e| FontError::FontParseError {
+            reason: e.to_string(),
+        })
     }
 }
 
-/// Normalize a typeface name to extract base family and weight hint
-/// Handles naming conventions like "Frutiger 45 Light", "Helvetica Neue Light", etc.
-fn normalize_typeface(typeface: &str) -> (String, Option<FontWeight>) {
-    let typeface_lower = typeface.to_lowercase();
+/// Font data embedded in a PDF (`FontFile2`, or `FontFile3` of subtype
+/// `OpenType`), under the name its font descriptor gives it.
+#[derive(Debug, Clone)]
+pub struct EmbeddedFont {
+    /// The `FontName`, without a subset prefix (`ABCDEF+`).
+    pub name: String,
+    /// The raw font data (TTF/OTF).
+    pub data: Vec<u8>,
+}
 
-    // Frutiger-style numeric weights: 45=Light, 46=LightItalic, 55=Roman, 56=Italic, 65=Bold, etc.
-    if let Ok(re) = Regex::new(r"^(.+?)\s*(\d{2})\s*(.*)$")
-        && let Some(caps) = re.captures(&typeface_lower)
-    {
-        let base = caps.get(1).map(|m| m.as_str().trim()).unwrap_or("");
-        let num: u32 = caps
-            .get(2)
-            .and_then(|m| m.as_str().parse().ok())
-            .unwrap_or(0);
+/// One side of an `equate`: a typeface, and the weight and posture it is
+/// restricted to or carries. Designer writes `Typeface_weight_posture`
+/// with `*` for "any"; a bare name is any weight and posture.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EquateName {
+    /// Lowercase.
+    pub typeface: String,
+    pub weight: Option<FontWeight>,
+    pub posture: Option<FontPosture>,
+}
 
-        // Map Frutiger-style numbers to weights
-        let weight_from_num = match num {
-            35 | 36 => Some(FontWeight::Thin),
-            45 | 46 => Some(FontWeight::Light),
-            55 | 56 => Some(FontWeight::Normal),
-            65 | 66 => Some(FontWeight::Bold),
-            75 | 76 => Some(FontWeight::ExtraBold),
-            85 | 86 => Some(FontWeight::Black),
-            95 | 96 => Some(FontWeight::Black),
+impl EquateName {
+    pub fn parse(spec: &str) -> Self {
+        let mut parts = spec.rsplitn(3, '_');
+        let (typeface, weight, posture) = match (parts.next(), parts.next(), parts.next()) {
+            (Some(posture), Some(weight), Some(typeface)) => (typeface, weight, posture),
+            _ => (spec, "*", "*"),
+        };
+        let weight = match weight {
+            "bold" => Some(FontWeight::Bold),
+            "normal" => Some(FontWeight::Normal),
             _ => None,
         };
-
-        if weight_from_num.is_some() && !base.is_empty() {
-            return (base.to_string(), weight_from_num);
+        let posture = match posture {
+            "italic" => Some(FontPosture::Italic),
+            "normal" => Some(FontPosture::Normal),
+            _ => None,
+        };
+        EquateName {
+            typeface: typeface.trim().to_lowercase(),
+            weight,
+            posture,
         }
     }
 
-    // Check for weight keywords in the name
-    let weight_keywords = [
-        ("ultra light", FontWeight::ExtraLight),
-        ("extra light", FontWeight::ExtraLight),
-        ("ultralight", FontWeight::ExtraLight),
-        ("extralight", FontWeight::ExtraLight),
-        ("thin", FontWeight::Thin),
-        ("hairline", FontWeight::Thin),
-        ("light", FontWeight::Light),
-        ("medium", FontWeight::Medium),
-        ("semi bold", FontWeight::SemiBold),
-        ("semibold", FontWeight::SemiBold),
-        ("demi bold", FontWeight::SemiBold),
-        ("demibold", FontWeight::SemiBold),
-        ("extra bold", FontWeight::ExtraBold),
-        ("extrabold", FontWeight::ExtraBold),
-        ("ultra bold", FontWeight::ExtraBold),
-        ("ultrabold", FontWeight::ExtraBold),
-        ("black", FontWeight::Black),
-        ("heavy", FontWeight::Black),
-        ("bold", FontWeight::Bold),
-        ("regular", FontWeight::Normal),
-        ("roman", FontWeight::Normal),
-        ("book", FontWeight::Normal),
-    ];
+    fn matches(&self, typeface: &str, weight: FontWeight, posture: FontPosture) -> bool {
+        self.typeface == typeface
+            && self.weight.is_none_or(|w| w == weight)
+            && self.posture.is_none_or(|p| p == posture)
+    }
+}
 
-    for (keyword, weight) in weight_keywords {
-        if typeface_lower.contains(keyword) {
-            // Extract family by removing the weight keyword
-            let family = typeface_lower
-                .replace(keyword, "")
-                .trim()
-                .replace("  ", " ")
-                .trim()
-                .to_string();
-            if !family.is_empty() {
-                return (family, Some(weight));
+/// A configuration packet's `<equate from to>`: one typeface stands in for
+/// another (XFA 3.3 chapter 28, font substitution).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontEquate {
+    pub from: EquateName,
+    pub to: EquateName,
+}
+
+/// A configuration packet's `<equateRange from to unicodeRange>`: one
+/// typeface stands in for another for the codepoints in the ranges (font
+/// fallback).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FontEquateRange {
+    /// Lowercase.
+    pub from: String,
+    pub to: String,
+    pub ranges: Vec<(u32, u32)>,
+}
+
+impl FontEquateRange {
+    /// `unicodeRange`: a comma-separated list of `U+XXXX` codepoints and
+    /// `U+XXXX-YYYY` ranges, whitespace allowed around the commas. Entries
+    /// that do not parse are reported and skipped.
+    pub fn parse_unicode_range(spec: &str) -> Vec<(u32, u32)> {
+        spec.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .filter_map(|entry| {
+                let hex = |s: &str| u32::from_str_radix(s.trim().trim_start_matches("U+").trim_start_matches("u+"), 16).ok();
+                let parsed = match entry.split_once('-') {
+                    Some((a, b)) => hex(a).zip(hex(b)),
+                    None => hex(entry).map(|c| (c, c)),
+                };
+                if parsed.is_none() {
+                    log::warn!("unicodeRange entry {entry:?} is not a codepoint or range; ignored");
+                }
+                parsed
+            })
+            .collect()
+    }
+
+    fn contains(&self, c: char) -> bool {
+        let cp = c as u32;
+        self.ranges.iter().any(|(lo, hi)| (*lo..=*hi).contains(&cp))
+    }
+}
+
+/// What one document brings to font resolution: the faces embedded in its
+/// PDF and the substitutions of its configuration packet.
+#[derive(Debug, Default)]
+pub struct DocumentFonts {
+    pub equates: Vec<FontEquate>,
+    pub equate_ranges: Vec<FontEquateRange>,
+    embedded: Vec<RegisteredFace>,
+}
+
+impl DocumentFonts {
+    /// The `equate` and `equateRange` elements of the document's
+    /// configuration packet (`fontInfo/map`), wherever it is in `nodes`.
+    pub fn from_nodes(nodes: &[XfaNode]) -> Self {
+        let mut fonts = DocumentFonts::default();
+        fn walk(nodes: &[XfaNode], fonts: &mut DocumentFonts) {
+            for node in nodes {
+                if let XfaNodeKind::Element { tag_name, .. } = &node.kind {
+                    let attr = |name: &str| node.attributes.get(name).map(String::as_str);
+                    match tag_name.as_str() {
+                        "equate" => {
+                            if let (Some(from), Some(to)) = (attr("from"), attr("to")) {
+                                fonts.equates.push(FontEquate {
+                                    from: EquateName::parse(from),
+                                    to: EquateName::parse(to),
+                                });
+                            }
+                        }
+                        "equateRange" => {
+                            if let (Some(from), Some(to), Some(range)) =
+                                (attr("from"), attr("to"), attr("unicodeRange"))
+                            {
+                                fonts.equate_ranges.push(FontEquateRange {
+                                    from: from.trim().to_lowercase(),
+                                    to: to.to_string(),
+                                    ranges: FontEquateRange::parse_unicode_range(range),
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                walk(&node.children, fonts);
             }
         }
+        walk(nodes, &mut fonts);
+        fonts
     }
 
-    (typeface_lower, None)
+    /// With the faces embedded in the document's PDF. A face that will not
+    /// parse is reported and left out. The bytes are leaked: a face lives
+    /// as long as the process, like a registered one.
+    pub fn with_embedded(mut self, fonts: Vec<EmbeddedFont>) -> Self {
+        for font in fonts {
+            let data: &'static [u8] = Box::leak(font.data.into_boxed_slice());
+            match RegisteredFace::parse(data) {
+                Ok(mut face) => {
+                    let name = font.name.trim().to_lowercase();
+                    if !name.is_empty() && !face.names.contains(&name) {
+                        face.names.insert(0, name);
+                    }
+                    self.embedded.push(face);
+                }
+                Err(e) => log::warn!("embedded font {:?} is not usable: {e}", font.name),
+            }
+        }
+        self
+    }
+
+    pub fn embedded(&self) -> &[RegisteredFace] {
+        &self.embedded
+    }
+
+    /// Make these the fonts of the document being laid out or drawn on this
+    /// thread, until the guard is dropped. Interior mutability, deliberately:
+    /// the engine resolves fonts from the many places that measure or draw
+    /// text, and the document those belong to is what the thread is
+    /// working on; the guard restores what was set before it.
+    pub fn enter(self: &Arc<Self>) -> DocumentFontsGuard {
+        let previous = CURRENT.with(|c| c.replace(Some(Arc::clone(self))));
+        DocumentFontsGuard { previous }
+    }
+
+    /// The fonts of the document this thread is working on, if any.
+    pub fn current() -> Option<Arc<DocumentFonts>> {
+        CURRENT.with(|c| c.borrow().clone())
+    }
 }
 
-/// Ordering key for "which face best represents a family when no style was
-/// asked for": upright normal-weight first, then by the variant's own total
-/// order so ties never depend on iteration order.
-///
-/// DEVIATION: exists because upstream resolved family lookups by taking an
-/// arbitrary HashMap entry.
-fn variant_neutrality(v: &FontVariant) -> (u8, u8, FontWeight, FontPosture) {
-    (
-        u8::from(v.weight != FontWeight::Normal),
-        u8::from(v.posture != FontPosture::Normal),
-        v.weight,
-        v.posture,
-    )
+thread_local! {
+    static CURRENT: RefCell<Option<Arc<DocumentFonts>>> = const { RefCell::new(None) };
 }
 
-/// Font variant key for caching
-// DEVIATION: `PartialOrd, Ord` added so this can key a BTreeMap.
+/// Restores the previously entered document fonts when dropped.
+pub struct DocumentFontsGuard {
+    previous: Option<Arc<DocumentFonts>>,
+}
+
+impl Drop for DocumentFontsGuard {
+    fn drop(&mut self) {
+        let previous = self.previous.take();
+        CURRENT.with(|c| *c.borrow_mut() = previous);
+    }
+}
+
+/// Where a font draws its underline and strikethrough, in pixels at one
+/// size: from the face's own tables (`post` and `OS/2`), as XFA 3.3's
+/// "Underline and Strikethrough" leaves them to the font.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LineGeometry {
+    /// Distance from the baseline down to the top of the underline.
+    pub underline_offset: f32,
+    pub underline_thickness: f32,
+    /// Distance from the baseline up to the strikethrough, when the face
+    /// states one.
+    pub strike_offset: Option<f32>,
+    pub strike_thickness: Option<f32>,
+}
+
+/// A font request, as the measurer caches faces by: the typeface
+/// (lowercase, as written), weight and posture.
 #[derive(Debug, Clone, Hash, PartialEq, Eq, PartialOrd, Ord)]
 pub struct FontVariant {
     pub family: String,
@@ -362,576 +384,213 @@ pub struct FontVariant {
 impl FontVariant {
     pub fn new(family: &str, weight: FontWeight, posture: FontPosture) -> Self {
         FontVariant {
-            family: family.to_lowercase(),
+            family: family.trim().to_lowercase(),
             weight,
             posture,
         }
     }
 
     pub fn from_xfa_font(font: &Font) -> Self {
-        // Normalize typeface to extract base family and weight hint
-        let (normalized_family, weight_hint) = normalize_typeface(&font.typeface);
-
-        // Use detected weight if XFA weight is Normal and we found a weight hint
-        let weight = if font.weight == FontWeight::Normal {
-            weight_hint.unwrap_or(font.weight)
-        } else {
-            font.weight
-        };
-
-        FontVariant {
-            family: normalized_family,
-            weight,
-            posture: font.posture,
-        }
+        Self::new(&font.typeface, font.weight, font.posture)
     }
 }
 
-/// Configuration for font resolution behavior
-#[derive(Debug, Clone)]
-pub struct FontConfig {
-    /// If true, return an error when a font is not found (instead of using fallback)
-    pub strict_mode: bool,
-    /// Generic family to use for fallback when typeface not found
-    pub default_generic_family: GenericFamily,
-}
-
-impl Default for FontConfig {
-    fn default() -> Self {
-        FontConfig {
-            strict_mode: false,
-            default_generic_family: GenericFamily::SansSerif,
-        }
-    }
-}
-
-/// Font manager that handles font resolution and loading
-///
-/// Per XFA spec, font resolution follows this priority:
-/// 1. Embedded fonts from PDF (registered via `register_embedded_font`)
-/// 2. Exact typeface match from system fonts
-/// 3. Aliases (e.g., "Helvetica" -> "Arial")
-/// 4. Generic family fallback (serif, sansSerif, monospace, etc.)
-/// 5. System default fallback
+/// The faces this process can draw with, and the resolution of a `<font>`
+/// to one of them.
 pub struct FontManager {
-    /// Loaded fonts (static lifetime for ab_glyph)
-    // DEVIATION: upstream uses a HashMap here, and `find_loaded_by_family` /
-    // `find_loaded_fuzzy` below resolve a family by taking the *first* matching
-    // entry of that map. With several variants of one family loaded — the UBS
-    // profile has three Frutiger faces — which one wins depends on the
-    // process's random hash seed. Different faces have different advances,
-    // which change wrap points, which change node heights, which change
-    // `page_breaks`: the rendered page *count* could differ between runs.
-    // A BTreeMap makes iteration order total and stable.
-    loaded_fonts: std::collections::BTreeMap<FontVariant, &'static [u8]>,
-    /// Font family aliases (e.g., "Helvetica" -> ["Arial", "Helvetica Neue"])
-    aliases: HashMap<String, Vec<String>>,
-    /// Default fallback font data
-    fallback_font_data: Option<&'static [u8]>,
-    /// Embedded fonts (compile-time + from PDF files per XFA spec)
-    embedded_fonts: HashMap<String, EmbeddedFont>,
-    /// Loaded embedded font data (static lifetime)
-    loaded_embedded: HashMap<String, &'static [u8]>,
-    /// Font equate mappings per XFA spec section 28
-    /// These are checked first in font resolution (step 1 of XFA algorithm)
-    equates: Vec<FontEquate>,
-    /// Font equate ranges for Unicode-based substitution per XFA spec
-    equate_ranges: Vec<FontEquateRange>,
-    /// Configuration
-    config: FontConfig,
+    faces: Vec<RegisteredFace>,
+    fallback: Option<RegisteredFace>,
+    /// Refuse a font that would need the fallback.
+    strict: bool,
+    /// Typefaces already reported as substituted.
+    reported: HashSet<String>,
 }
 
 impl FontManager {
-    /// Create a new font manager and scan for system fonts
     pub fn new() -> Self {
-        Self::with_config(FontConfig::default())
-    }
-
-    /// Create a new font manager with custom configuration
-    pub fn with_config(config: FontConfig) -> Self {
         FontManager {
-            loaded_fonts: std::collections::BTreeMap::new(),
-            aliases: Self::build_aliases(),
-            fallback_font_data: None,
-            embedded_fonts: HashMap::new(),
-            loaded_embedded: HashMap::new(),
-            equates: Vec::new(),
-            equate_ranges: Vec::new(),
-            config,
+            faces: Vec::new(),
+            fallback: None,
+            strict: false,
+            reported: HashSet::new(),
         }
     }
 
-    /// Register a font from raw data (e.g. loaded from a profile).
-    ///
-    /// Reads metadata via ttf-parser and inserts into `loaded_fonts` keyed
-    /// by the detected family/weight/posture variant.
+    /// Register a face from its bytes. A face that will not parse is
+    /// reported and not registered.
     pub fn register_font_data(&mut self, data: &'static [u8]) {
-        if let Some((family, weight, posture)) = Self::read_font_metadata(data, 0) {
-            self.loaded_fonts
-                .insert(FontVariant::new(&family, weight, posture), data);
+        match RegisteredFace::parse(data) {
+            Ok(face) => {
+                if !self.faces.iter().any(|f| std::ptr::eq(f.data, face.data)) {
+                    self.faces.push(face);
+                }
+            }
+            Err(e) => log::warn!("a font file was not registered: {e}"),
         }
     }
 
-    /// Set the fallback font data (used when no matching font is found).
+    /// The face every typeface no face answers to is drawn in.
     pub fn set_fallback(&mut self, data: &'static [u8]) {
-        self.fallback_font_data = Some(data);
+        match RegisteredFace::parse(data) {
+            Ok(face) => self.fallback = Some(face),
+            Err(e) => log::warn!("the fallback font was not set: {e}"),
+        }
     }
 
-    /// Whether a fallback font is set: without one, layout has nothing to
-    /// measure an unresolved typeface with (see `crate::fonts`).
     pub fn has_fallback(&self) -> bool {
-        self.fallback_font_data.is_some()
+        self.fallback.is_some()
     }
 
-    /// Enable or disable strict mode
-    /// In strict mode, returns an error when a font is not found instead of using fallback
+    /// In strict mode a typeface no face answers to is an error rather
+    /// than a reported substitution.
     pub fn set_strict_mode(&mut self, strict: bool) {
-        self.config.strict_mode = strict;
+        self.strict = strict;
     }
 
-    /// Register an embedded font from a PDF file
-    /// Per XFA spec section 28: "When an XFA form is packaged inside a PDF file
-    /// the PDF file may carry the required fonts along with the form."
-    pub fn register_embedded_font(&mut self, mut font: EmbeddedFont) -> Result<(), FontError> {
-        // Validate that we can parse the font data
-        FontRef::try_from_slice(&font.data).map_err(|e| FontError::InvalidEmbeddedFont {
-            name: font.name.clone(),
-            reason: e.to_string(),
-        })?;
+    /// The registered faces, in registration order.
+    pub fn faces(&self) -> &[RegisteredFace] {
+        &self.faces
+    }
 
-        // Try to read accurate metadata from font data
-        if let Some((family, weight, posture)) = Self::read_font_metadata(&font.data, 0) {
-            // Update with detected values (more accurate than provided)
-            font.weight = weight;
-            font.posture = posture;
-            // Register under both the provided name and the detected family name
-            let name_lower = font.name.to_lowercase();
-            self.embedded_fonts.insert(name_lower.clone(), font.clone());
-            if family != name_lower {
-                let mut family_font = font.clone();
-                family_font.name = family.clone();
-                self.embedded_fonts.insert(family, family_font);
-            }
-        } else {
-            let name_lower = font.name.to_lowercase();
-            self.embedded_fonts.insert(name_lower, font);
+    /// Every name the registered faces answer to, sorted.
+    pub fn available_families(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.faces.iter().flat_map(|f| f.names.iter().cloned()).collect();
+        names.sort();
+        names.dedup();
+        names
+    }
+
+    /// Among `faces`, the one answering to `typeface` closest to the
+    /// requested style.
+    fn best<'a>(
+        faces: impl Iterator<Item = &'a RegisteredFace>,
+        typeface: &str,
+        weight: u16,
+        italic: bool,
+    ) -> Option<&'a RegisteredFace> {
+        faces
+            .filter(|f| f.answers_to(typeface))
+            .min_by_key(|f| f.distance(weight, italic))
+    }
+
+    /// The face for `font`, by the resolution the module doc describes.
+    pub fn resolve(&mut self, font: &Font) -> Result<&'static [u8], FontError> {
+        let document = DocumentFonts::current();
+        let typeface = font.typeface.trim().to_lowercase();
+        let italic = font.posture == FontPosture::Italic;
+        let weight = font.weight.to_numeric();
+
+        // 1. The document's own faces.
+        if let Some(doc) = &document
+            && let Some(face) = Self::best(doc.embedded.iter(), &typeface, weight, italic)
+        {
+            return Ok(face.data);
         }
 
-        Ok(())
-    }
-
-    /// Register multiple embedded fonts from a PDF
-    pub fn register_embedded_fonts(&mut self, fonts: Vec<EmbeddedFont>) -> Result<(), FontError> {
-        for font in fonts {
-            self.register_embedded_font(font)?;
-        }
-        Ok(())
-    }
-
-    /// Check if an embedded font with this name exists
-    pub fn has_embedded_font(&self, name: &str) -> bool {
-        self.embedded_fonts.contains_key(&name.to_lowercase())
-    }
-
-    /// Get list of registered embedded fonts
-    pub fn embedded_font_names(&self) -> Vec<&str> {
-        self.embedded_fonts
-            .values()
-            .map(|f| f.name.as_str())
-            .collect()
-    }
-
-    /// Register a font equate mapping per XFA spec section 28
-    /// Per XFA spec: "The equate element enables an XFA processor to map an unavailable
-    /// font to an available one."
-    ///
-    /// Equates are checked first in font resolution (step 1 of XFA algorithm).
-    pub fn register_equate(&mut self, equate: FontEquate) {
-        self.equates.push(equate);
-    }
-
-    /// Register multiple font equate mappings
-    pub fn register_equates(&mut self, equates: Vec<FontEquate>) {
-        self.equates.extend(equates);
-    }
-
-    /// Register a font equate range for Unicode-based substitution per XFA spec
-    /// Per XFA spec: "The equateRange element enables an XFA processor to map specific
-    /// Unicode ranges in an unavailable font to an available font."
-    ///
-    /// This is used for per-codepoint font fallback (e.g., CJK characters).
-    pub fn register_equate_range(&mut self, equate_range: FontEquateRange) {
-        self.equate_ranges.push(equate_range);
-    }
-
-    /// Register multiple font equate ranges
-    pub fn register_equate_ranges(&mut self, equate_ranges: Vec<FontEquateRange>) {
-        self.equate_ranges.extend(equate_ranges);
-    }
-
-    /// Get fallback font for a specific codepoint based on equate ranges
-    /// Returns the target font family if an equate range matches, None otherwise
-    pub fn get_fallback_for_codepoint(&self, font_family: &str, codepoint: u32) -> Option<&str> {
-        for range in &self.equate_ranges {
-            if range.matches_font(font_family) && range.contains_codepoint(codepoint) {
-                return Some(&range.to);
-            }
-        }
-        None
-    }
-
-    /// Clear all registered equates and equate ranges
-    pub fn clear_equates(&mut self) {
-        self.equates.clear();
-        self.equate_ranges.clear();
-    }
-
-    /// Build font family aliases map
-    /// Per XFA spec: when requested font is unavailable, substitute best match
-    fn build_aliases() -> HashMap<String, Vec<String>> {
-        let mut aliases = HashMap::new();
-
-        // Sans-serif family aliases
-        aliases.insert(
-            "helvetica".to_string(),
-            vec![
-                "arial".to_string(),
-                "helvetica neue".to_string(),
-                "liberation sans".to_string(),
-                "dejavu sans".to_string(),
-            ],
-        );
-        aliases.insert(
-            "arial".to_string(),
-            vec![
-                "helvetica".to_string(),
-                "helvetica neue".to_string(),
-                "liberation sans".to_string(),
-                "dejavu sans".to_string(),
-            ],
-        );
-
-        // Serif family aliases
-        aliases.insert(
-            "times".to_string(),
-            vec![
-                "times new roman".to_string(),
-                "liberation serif".to_string(),
-                "dejavu serif".to_string(),
-            ],
-        );
-        aliases.insert(
-            "times new roman".to_string(),
-            vec![
-                "times".to_string(),
-                "liberation serif".to_string(),
-                "dejavu serif".to_string(),
-            ],
-        );
-
-        // Monospace family aliases (XFA default is Courier)
-        aliases.insert(
-            "courier".to_string(),
-            vec![
-                "courier new".to_string(),
-                "liberation mono".to_string(),
-                "dejavu sans mono".to_string(),
-            ],
-        );
-        aliases.insert(
-            "courier new".to_string(),
-            vec![
-                "courier".to_string(),
-                "liberation mono".to_string(),
-                "dejavu sans mono".to_string(),
-            ],
-        );
-
-        aliases
-    }
-
-    /// Read font metadata (family, weight, posture) from font file data using ttf-parser
-    fn read_font_metadata(
-        font_data: &[u8],
-        face_index: u32,
-    ) -> Option<(String, FontWeight, FontPosture)> {
-        let face = Face::parse(font_data, face_index).ok()?;
-
-        let typographic_family = face
-            .names()
-            .into_iter()
-            .filter(|name| name.name_id == name_id::TYPOGRAPHIC_FAMILY)
-            .filter_map(|name| name.to_string())
-            .next();
-
-        let font_family = face
-            .names()
-            .into_iter()
-            .filter(|name| name.name_id == name_id::FAMILY)
-            .filter_map(|name| name.to_string())
-            .next();
-
-        let raw_family = typographic_family.or(font_family)?;
-        let (family, _weight_hint) = normalize_typeface(&raw_family);
-        let family = if family.is_empty() {
-            raw_family.to_lowercase()
-        } else {
-            family
-        };
-
-        let weight = FontWeight::from_numeric(face.weight().to_number());
-
-        let posture = match face.style() {
-            ttf_parser::Style::Normal => FontPosture::Normal,
-            ttf_parser::Style::Italic | ttf_parser::Style::Oblique => FontPosture::Italic,
-        };
-
-        Some((family, weight, posture))
-    }
-
-    /// Get font data for a specific variant
-    /// Returns static font data that can be used with ab_glyph
-    ///
-    /// Resolution order:
-    /// 1. Check equate elements for direct mapping
-    /// 2. Embedded fonts (compile-time + PDF)
-    /// 3. Aliases
-    /// 4. Generic family fallback
-    /// 5. Fallback font (if not in strict mode)
-    pub fn get_font_data(&mut self, variant: &FontVariant) -> Result<&'static [u8], FontError> {
-        self.get_font_data_with_generic(variant, None)
-    }
-
-    /// Get font data with optional generic family fallback
-    pub fn get_font_data_with_generic(
-        &mut self,
-        variant: &FontVariant,
-        generic_family: Option<GenericFamily>,
-    ) -> Result<&'static [u8], FontError> {
-        let mut tried_aliases = Vec::new();
-
-        // Check if already loaded
-        if let Some(data) = self.loaded_fonts.get(variant) {
-            return Ok(*data);
-        }
-
-        // 1. Check equate elements first (per XFA spec step 1)
-        for equate in self.equates.clone() {
-            if equate.matches(variant) {
-                let target = equate.target_variant(variant);
-                tried_aliases.push(target.family.clone());
-
-                if let Ok(data) = self.get_font_data(&target) {
-                    self.loaded_fonts.insert(variant.clone(), data);
-                    return Ok(data);
-                }
+        // 2. The document's substitution for this typeface.
+        if let Some(doc) = &document
+            && let Some(equate) = doc
+                .equates
+                .iter()
+                .find(|e| e.from.matches(&typeface, font.weight, font.posture))
+        {
+            let weight = equate.to.weight.unwrap_or(font.weight).to_numeric();
+            let italic = equate.to.posture.map(|p| p == FontPosture::Italic).unwrap_or(italic);
+            let target = &equate.to.typeface;
+            let face = Self::best(doc.embedded.iter(), target, weight, italic)
+                .or_else(|| Self::best(self.faces.iter(), target, weight, italic));
+            if let Some(face) = face {
+                return Ok(face.data);
             }
         }
 
-        // 2. Try embedded fonts from PDF (keyed by family name)
-        let family_lower = variant.family.to_lowercase();
-        if let Some(embedded) = self.embedded_fonts.get(&family_lower) {
-            if let Some(data) = self.loaded_embedded.get(&family_lower) {
-                return Ok(*data);
-            }
-            let static_data: &'static [u8] = Box::leak(embedded.data.clone().into_boxed_slice());
-            self.loaded_embedded
-                .insert(family_lower.clone(), static_data);
-            self.loaded_fonts.insert(variant.clone(), static_data);
-            return Ok(static_data);
+        // 3. A registered face of that name.
+        if let Some(face) = Self::best(self.faces.iter(), &typeface, weight, italic) {
+            return Ok(face.data);
         }
 
-        // 3. Try loaded fonts with relaxed weight/posture (same family)
-        // Better to use the right typeface with wrong weight than a different typeface
-        let normal_variant =
-            FontVariant::new(&variant.family, FontWeight::Normal, FontPosture::Normal);
-        if *variant != normal_variant {
-            if let Some(&data) = self.loaded_fonts.get(&normal_variant) {
-                self.loaded_fonts.insert(variant.clone(), data);
-                return Ok(data);
-            }
-        }
-        // Try any available weight/posture of the same family
-        if let Some(data) = self.find_loaded_by_family(&variant.family) {
-            self.loaded_fonts.insert(variant.clone(), data);
-            return Ok(data);
-        }
-
-        // 3b. Fuzzy matching — e.g. "frutiger" matches "frutiger lt std"
-        if let Some(data) = self.find_loaded_fuzzy(&variant.family) {
-            self.loaded_fonts.insert(variant.clone(), data);
-            return Ok(data);
-        }
-
-        // 4. Try aliases
-        if let Some(aliases) = self.aliases.get(&variant.family).cloned() {
-            for alias in &aliases {
-                tried_aliases.push(alias.clone());
-
-                // Check PDF-embedded fonts for alias
-                if let Some(embedded) = self.embedded_fonts.get(alias) {
-                    if let Some(data) = self.loaded_embedded.get(alias) {
-                        return Ok(*data);
-                    }
-                    let static_data: &'static [u8] =
-                        Box::leak(embedded.data.clone().into_boxed_slice());
-                    self.loaded_embedded.insert(alias.clone(), static_data);
-                    self.loaded_fonts.insert(variant.clone(), static_data);
-                    return Ok(static_data);
-                }
-
-                // Check loaded fonts for alias with same weight/posture
-                let alias_variant = FontVariant::new(alias, variant.weight, variant.posture);
-                if let Some(&data) = self.loaded_fonts.get(&alias_variant) {
-                    self.loaded_fonts.insert(variant.clone(), data);
-                    return Ok(data);
-                }
-
-                // Check loaded fonts for alias with normal weight/posture
-                let alias_normal = FontVariant::new(alias, FontWeight::Normal, FontPosture::Normal);
-                if let Some(&data) = self.loaded_fonts.get(&alias_normal) {
-                    self.loaded_fonts.insert(variant.clone(), data);
-                    return Ok(data);
-                }
-
-                // Any variant of alias family
-                if let Some(data) = self.find_loaded_by_family(alias) {
-                    self.loaded_fonts.insert(variant.clone(), data);
-                    return Ok(data);
-                }
-            }
-        }
-
-        // 5. Try generic family fallback
-        let generic = generic_family.unwrap_or(self.config.default_generic_family);
-        for fallback_typeface in generic.fallback_typefaces() {
-            let ft_lower = fallback_typeface.to_lowercase();
-            if ft_lower == variant.family {
-                continue;
-            }
-            if !tried_aliases.contains(&ft_lower) {
-                tried_aliases.push(ft_lower.clone());
-            }
-
-            // Check PDF-embedded fonts
-            if let Some(embedded) = self.embedded_fonts.get(&ft_lower) {
-                if let Some(data) = self.loaded_embedded.get(&ft_lower) {
-                    return Ok(*data);
-                }
-                let static_data: &'static [u8] =
-                    Box::leak(embedded.data.clone().into_boxed_slice());
-                self.loaded_embedded.insert(ft_lower, static_data);
-                self.loaded_fonts.insert(variant.clone(), static_data);
-                return Ok(static_data);
-            }
-
-            // Check loaded fonts with same weight/posture
-            let fb_variant = FontVariant::new(fallback_typeface, variant.weight, variant.posture);
-            if let Some(&data) = self.loaded_fonts.get(&fb_variant) {
-                self.loaded_fonts.insert(variant.clone(), data);
-                return Ok(data);
-            }
-
-            // Check loaded fonts with normal weight/posture
-            let fb_normal =
-                FontVariant::new(fallback_typeface, FontWeight::Normal, FontPosture::Normal);
-            if let Some(&data) = self.loaded_fonts.get(&fb_normal) {
-                self.loaded_fonts.insert(variant.clone(), data);
-                return Ok(data);
-            }
-        }
-
-        // 6. In strict mode, return error. Otherwise use fallback.
-        if self.config.strict_mode {
+        // 4. The fallback, reported.
+        if self.strict {
             return Err(FontError::FontNotFound {
-                typeface: variant.family.clone(),
-                weight: variant.weight,
-                posture: variant.posture,
-                tried_aliases,
+                typeface: font.typeface.clone(),
+                weight: font.weight,
+                posture: font.posture,
             });
         }
-
-        self.get_fallback_font()
-    }
-
-    /// The registered variants, in the map's total order.
-    ///
-    /// ADDITION (not upstream): lets a test assert *which* face an ambiguous
-    /// family lookup resolves to, which is the whole point of the ordering fix.
-    pub fn loaded_variants(&self) -> Vec<FontVariant> {
-        self.loaded_fonts.keys().cloned().collect()
-    }
-
-    /// Find any loaded font with the given family name.
-    ///
-    /// DEVIATION: upstream returns the first match from a HashMap, i.e. an
-    /// arbitrary variant. This walks the ordered map and prefers the most
-    /// neutral face — normal weight and upright — so a family lookup that does
-    /// not specify a style resolves to the same face on every run and in every
-    /// process.
-    fn find_loaded_by_family(&self, family: &str) -> Option<&'static [u8]> {
-        self.loaded_fonts
-            .iter()
-            .filter(|(v, _)| v.family == family)
-            .min_by_key(|(v, _)| variant_neutrality(v))
-            .map(|(_, &data)| data)
-    }
-
-    /// Find a loaded font via fuzzy matching on the family name.
-    ///
-    /// DEVIATION: deterministic for the same reason as `find_loaded_by_family`.
-    fn find_loaded_fuzzy(&self, family: &str) -> Option<&'static [u8]> {
-        self.loaded_fonts
-            .iter()
-            .filter(|(v, _)| {
-                v.family.starts_with(family) || v.family.contains(&format!("{} ", family))
-            })
-            .min_by_key(|(v, _)| variant_neutrality(v))
-            .map(|(_, &data)| data)
-    }
-
-    /// Get fallback font data.
-    fn get_fallback_font(&mut self) -> Result<&'static [u8], FontError> {
-        if let Some(data) = self.fallback_font_data {
-            return Ok(data);
+        let fallback = self.fallback.as_ref().ok_or(FontError::NoFallbackAvailable)?;
+        if self.reported.insert(typeface.clone()) {
+            log::warn!(
+                "typeface {:?} is not available; {:?} is drawn in its place",
+                font.typeface,
+                fallback.name()
+            );
         }
-
-        Err(FontError::NoFallbackAvailable {
-            searched_paths: vec!["(no embedded fonts available)".to_string()],
-        })
+        Ok(fallback.data)
     }
 
     /// Get a FontRef for a specific XFA font style
     pub fn get_font(&mut self, xfa_font: &Font) -> Result<FontRef<'static>, FontError> {
-        let variant = FontVariant::from_xfa_font(xfa_font);
-        let data = self.get_font_data_with_generic(&variant, xfa_font.generic_family)?;
-
+        let data = self.resolve(xfa_font)?;
         FontRef::try_from_slice(data).map_err(|e| FontError::FontParseError {
             reason: e.to_string(),
         })
     }
 
-    /// Get a FontRef using default XFA font settings
+    /// The face for the XFA default font (Courier 10pt), or the fallback.
     pub fn get_default_font(&mut self) -> Result<FontRef<'static>, FontError> {
-        let default_font = Font::default();
-        self.get_font(&default_font)
+        self.get_font(&Font::default())
     }
 
-    /// Check if a specific font variant is available
-    pub fn has_font(&self, family: &str, _weight: FontWeight, _posture: FontPosture) -> bool {
-        self.embedded_fonts.contains_key(&family.to_lowercase())
+    /// A face that has a glyph for `c`, when the text's own font has none
+    /// (XFA 3.3 chapter 28, font fallback): the face the document's
+    /// `equateRange` maps `family`'s codepoint to, else the symbol fallback
+    /// (DejaVu Sans), else any face with the glyph. `None` when no face has
+    /// it.
+    pub fn font_for_glyph(&mut self, c: char, family: Option<&str>) -> Option<FontRef<'static>> {
+        let document = DocumentFonts::current();
+        if let (Some(doc), Some(family)) = (&document, family) {
+            let family = family.trim().to_lowercase();
+            for range in doc.equate_ranges.iter().filter(|r| r.from == family && r.contains(c)) {
+                let target = range.to.trim().to_lowercase();
+                let face = doc
+                    .embedded
+                    .iter()
+                    .chain(self.faces.iter())
+                    .find(|f| f.answers_to(&target) && f.has_glyph(c));
+                if let Some(face) = face {
+                    return face.font_ref().ok();
+                }
+            }
+        }
+        if let Ok(symbol) = FontRef::try_from_slice(SYMBOL_FALLBACK)
+            && ab_glyph::Font::glyph_id(&symbol, c).0 != 0
+        {
+            return Some(symbol);
+        }
+        document
+            .iter()
+            .flat_map(|d| d.embedded.iter())
+            .chain(self.faces.iter())
+            .chain(self.fallback.iter())
+            .find(|f| f.has_glyph(c))
+            .and_then(|f| f.font_ref().ok())
     }
 
-    /// Get list of available font families
-    pub fn available_families(&self) -> Vec<String> {
-        let mut families: Vec<String> = self
-            .embedded_fonts
-            .values()
-            .map(|f| f.name.clone())
-            .collect();
-        families.sort();
-        families.dedup();
-        families
+    /// Where `font`'s face draws its underline and strikethrough at
+    /// `font_px` pixels, from the face's own tables. `None` for a face
+    /// without an underline position.
+    pub fn line_geometry(&mut self, font: &Font, font_px: f32) -> Option<LineGeometry> {
+        let data = self.resolve(font).ok()?;
+        let face = Face::parse(data, 0).ok()?;
+        let per_unit = font_px / face.units_per_em() as f32;
+        let underline = face.underline_metrics()?;
+        let strike = face.strikeout_metrics();
+        Some(LineGeometry {
+            underline_offset: -(underline.position as f32) * per_unit,
+            underline_thickness: (underline.thickness as f32 * per_unit).max(1.0),
+            strike_offset: strike.map(|s| s.position as f32 * per_unit),
+            strike_thickness: strike.map(|s| (s.thickness as f32 * per_unit).max(1.0)),
+        })
     }
 }
 
@@ -941,113 +600,15 @@ impl Default for FontManager {
     }
 }
 
-/// Global font manager instance (lazy initialized)
 static GLOBAL_FONT_MANAGER: OnceLock<std::sync::Mutex<FontManager>> = OnceLock::new();
 
-/// Get the global font manager
+/// The process's font manager: the registered faces are shared by every
+/// document.
 pub fn get_font_manager() -> &'static std::sync::Mutex<FontManager> {
-    // DEVIATION: upstream seeds this with the compiled-in UBS profile under
-    // #[cfg(test)], so its tests never had to bootstrap fonts. That profile is
-    // gone (licensing), and an implicit font environment is exactly what makes
-    // the silent-degradation trap easy to fall into — tests register
-    // explicitly, like production does.
     GLOBAL_FONT_MANAGER.get_or_init(|| std::sync::Mutex::new(FontManager::new()))
 }
 
-/// Convenience function to get a font for an XFA font style
-pub fn get_font_for_style(xfa_font: &Font) -> Result<FontRef<'static>, FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.get_font(xfa_font)
-}
-
-/// Convenience function to get the default fallback font
-pub fn get_fallback_font() -> Result<FontRef<'static>, FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.get_default_font()
-}
-
-/// Register an embedded font globally (for use with PDFs that contain embedded fonts)
-pub fn register_embedded_font_global(font: EmbeddedFont) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_embedded_font(font)
-}
-
-/// Enable strict mode globally (returns errors instead of fallback)
-pub fn set_strict_mode_global(strict: bool) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.set_strict_mode(strict);
-    Ok(())
-}
-
-/// Register a font equate mapping globally per XFA spec section 28
-pub fn register_equate_global(equate: FontEquate) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equate(equate);
-    Ok(())
-}
-
-/// Register multiple font equate mappings globally
-pub fn register_equates_global(equates: Vec<FontEquate>) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equates(equates);
-    Ok(())
-}
-
-/// Register a font equate range globally for Unicode-based substitution
-pub fn register_equate_range_global(equate_range: FontEquateRange) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equate_range(equate_range);
-    Ok(())
-}
-
-/// Register multiple font equate ranges globally
-pub fn register_equate_ranges_global(equate_ranges: Vec<FontEquateRange>) -> Result<(), FontError> {
-    let manager = get_font_manager();
-    let mut manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    manager.register_equate_ranges(equate_ranges);
-    Ok(())
-}
-
-/// Get fallback font for a specific codepoint globally
-pub fn get_fallback_for_codepoint_global(
-    font_family: &str,
-    codepoint: u32,
-) -> Result<Option<String>, FontError> {
-    let manager = get_font_manager();
-    let manager = manager
-        .lock()
-        .map_err(|e| FontError::LockError(e.to_string()))?;
-    Ok(manager
-        .get_fallback_for_codepoint(font_family, codepoint)
-        .map(|s| s.to_string()))
-}
-
-/// Register font data with an already-locked FontManager.
-///
-/// Called from `profiles::load_profile_fonts` which holds the lock itself.
+/// Register a face's bytes with `manager` (see `crate::fonts`).
 pub fn register_profile_font_data(manager: &mut FontManager, data: &'static [u8]) {
     manager.register_font_data(data);
 }
@@ -1056,184 +617,120 @@ pub fn register_profile_font_data(manager: &mut FontManager, data: &'static [u8]
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_font_variant_creation() {
-        let variant = FontVariant::new("Arial", FontWeight::Bold, FontPosture::Italic);
-        assert_eq!(variant.family, "arial");
-        assert_eq!(variant.weight, FontWeight::Bold);
-        assert_eq!(variant.posture, FontPosture::Italic);
-    }
-
-    #[test]
-    fn test_font_manager_creation() {
-        let manager = FontManager::new();
-        // Manager starts empty — fonts come from profiles
-        let families = manager.available_families();
-        assert!(families.is_empty(), "New manager should have no fonts");
-    }
-
-    /// The determinism fix, tested against the case that motivated it.
-    ///
-    /// The UBS font directory registers three faces under one family
-    /// (`frutiger`: normal, italic, bold). Upstream resolved a bare-family
-    /// lookup by taking the first match out of a `HashMap`, so which face won
-    /// depended on the process's hash seed. Different faces have different
-    /// advances, which change wrap points, which change node heights, which
-    /// change `page_breaks` — so the rendered *page count* could differ between
-    /// runs of the same input.
-    #[test]
-    fn an_ambiguous_family_lookup_resolves_to_the_neutral_face() {
-        crate::fonts::register_test_fonts();
-        let manager = get_font_manager();
-        let mut manager = manager.lock().unwrap();
-
-        let variants = manager.loaded_variants();
-        let frutiger: Vec<_> = variants.iter().filter(|v| v.family == "frutiger").collect();
-        if frutiger.len() < 2 {
-            return; // this machine's font dir has nothing ambiguous to resolve
-        }
-
-        // Ask for the family with no distinguishing style, repeatedly.
-        let ask = FontVariant::new("frutiger", FontWeight::Normal, FontPosture::Normal);
-        let first = manager.get_font_data(&ask).expect("resolve").as_ptr();
-        for _ in 0..8 {
-            assert_eq!(
-                manager.get_font_data(&ask).expect("resolve").as_ptr(),
-                first,
-                "the same lookup must resolve to the same face every time"
-            );
-        }
-
-        // And it must be the neutral face, not merely *a* stable one — an
-        // arbitrary-but-consistent pick would still differ across processes.
-        let neutral = FontVariant::new("frutiger", FontWeight::Normal, FontPosture::Normal);
-        let expected = manager.get_font_data(&neutral).expect("neutral").as_ptr();
-        assert_eq!(
-            first, expected,
-            "an unstyled request must resolve to the upright normal-weight face"
-        );
-    }
-
-    #[test]
-    fn test_fallback_font() {
-        crate::fonts::register_test_fonts();
-        let manager = get_font_manager();
-        let mut manager = manager.lock().unwrap();
-        let result = manager.get_fallback_font();
-        assert!(result.is_ok(), "Should be able to load fallback font");
-    }
-
-    #[test]
-    fn test_default_xfa_font() {
-        crate::fonts::register_test_fonts();
-        let manager = get_font_manager();
-        let mut manager = manager.lock().unwrap();
-        let font = Font::default();
-        // Courier is the XFA default, should fallback to a loaded font
-        let result = manager.get_font(&font);
-        if result.is_err() {
-            let fallback = manager.get_fallback_font();
-            assert!(fallback.is_ok(), "Fallback font should work");
+    fn font(typeface: &str, weight: FontWeight, posture: FontPosture) -> Font {
+        Font {
+            typeface: typeface.to_string(),
+            weight,
+            posture,
+            ..Font::default()
         }
     }
 
+    /// The vendored Frutiger files answer to "Frutiger 45 Light" (family)
+    /// and "Frutiger" (typographic family); the bold and italic requests go
+    /// to the bold and italic faces, everything else to the light one.
     #[test]
-    fn test_generic_family_parsing() {
-        assert_eq!(
-            "serif".parse::<GenericFamily>().unwrap(),
-            GenericFamily::Serif
-        );
-        assert_eq!(
-            "sansSerif".parse::<GenericFamily>().unwrap(),
-            GenericFamily::SansSerif
-        );
-        assert_eq!(
-            "sans-serif".parse::<GenericFamily>().unwrap(),
-            GenericFamily::SansSerif
-        );
-        assert_eq!(
-            "monospace".parse::<GenericFamily>().unwrap(),
-            GenericFamily::Monospace
-        );
-        assert_eq!(
-            "cursive".parse::<GenericFamily>().unwrap(),
-            GenericFamily::Cursive
-        );
-        assert_eq!(
-            "fantasy".parse::<GenericFamily>().unwrap(),
-            GenericFamily::Fantasy
-        );
-        // Unknown defaults to SansSerif
-        assert_eq!(
-            "unknown".parse::<GenericFamily>().unwrap(),
-            GenericFamily::SansSerif
-        );
-    }
-
-    #[test]
-    fn test_generic_family_fallbacks() {
-        let sans = GenericFamily::SansSerif;
-        let fallbacks = sans.fallback_typefaces();
-        assert!(fallbacks.contains(&"arial"));
-        assert!(fallbacks.contains(&"helvetica"));
-
-        let mono = GenericFamily::Monospace;
-        let fallbacks = mono.fallback_typefaces();
-        assert!(fallbacks.contains(&"courier"));
-    }
-
-    #[test]
-    fn test_strict_mode_error() {
-        // Create a manager with strict mode and no fonts registered
-        let mut manager = FontManager {
-            loaded_fonts: std::collections::BTreeMap::new(),
-            aliases: HashMap::new(),
-            fallback_font_data: None,
-            embedded_fonts: HashMap::new(),
-            loaded_embedded: HashMap::new(),
-            equates: Vec::new(),
-            equate_ranges: Vec::new(),
-            config: FontConfig {
-                strict_mode: true,
-                default_generic_family: GenericFamily::SansSerif,
-            },
+    fn a_typeface_resolves_by_its_name_table_and_closest_style() {
+        crate::fonts::register_test_fonts();
+        let mut manager = get_font_manager().lock().unwrap_or_else(|e| e.into_inner());
+        let weight_of = |m: &mut FontManager, f: &Font| {
+            RegisteredFace::parse(m.resolve(f).unwrap()).unwrap()
         };
-
-        // Try to get a font that definitely doesn't exist
-        let variant = FontVariant::new(
-            "NonExistentFontXYZ123",
-            FontWeight::Normal,
-            FontPosture::Normal,
-        );
-        let result = manager.get_font_data(&variant);
-
-        assert!(
-            result.is_err(),
-            "Should return error in strict mode when font not found"
-        );
-        if let Err(FontError::FontNotFound { typeface, .. }) = result {
-            assert_eq!(typeface, "nonexistentfontxyz123");
-        } else {
-            panic!("Expected FontNotFound error, got {:?}", result);
-        }
+        let light = weight_of(&mut manager, &font("Frutiger 45 Light", FontWeight::Normal, FontPosture::Normal));
+        assert!(light.weight <= 400 && !light.italic && light.names.contains(&"frutiger45light".to_string()), "{light:?}");
+        // The PostScript name is a name too: the corpus writes it as a typeface.
+        let by_ps = weight_of(&mut manager, &font("Frutiger45LightBold", FontWeight::Normal, FontPosture::Normal));
+        assert!(by_ps.weight >= 600, "{by_ps:?}");
+        let bold = weight_of(&mut manager, &font("frutiger 45 light", FontWeight::Bold, FontPosture::Normal));
+        assert!(bold.weight >= 600 && !bold.italic, "{bold:?}");
+        let italic = weight_of(&mut manager, &font("Frutiger", FontWeight::Normal, FontPosture::Italic));
+        assert!(italic.italic, "{italic:?}");
     }
 
     #[test]
-    fn test_embedded_font_registration() {
-        let mut manager = FontManager::new();
+    fn an_unknown_typeface_is_the_fallback_and_strict_mode_refuses_it() {
+        crate::fonts::register_test_fonts();
+        let mut manager = get_font_manager().lock().unwrap_or_else(|e| e.into_inner());
+        let unknown = font("No Such Face", FontWeight::Normal, FontPosture::Normal);
+        let data = manager.resolve(&unknown).expect("the fallback stands in");
+        assert!(std::ptr::eq(data, manager.fallback.as_ref().unwrap().data));
+        manager.set_strict_mode(true);
+        let refused = manager.resolve(&unknown);
+        manager.set_strict_mode(false);
+        assert!(matches!(refused, Err(FontError::FontNotFound { .. })));
+    }
 
-        // Create a minimal valid TTF (this is a placeholder - in practice you'd use real font data)
-        // For testing, we just verify the API works
-        let font = EmbeddedFont {
-            name: "TestFont".to_string(),
-            data: vec![], // Empty data will fail validation
-            weight: FontWeight::Normal,
-            posture: FontPosture::Normal,
-            generic_family: Some(GenericFamily::SansSerif),
-        };
+    #[test]
+    fn equate_names_carry_designer_weight_and_posture_wildcards() {
+        let any = EquateName::parse("MyriadPro_*_*");
+        assert_eq!(any, EquateName { typeface: "myriadpro".into(), weight: None, posture: None });
+        let italic = EquateName::parse("Myriad Pro_*_italic");
+        assert_eq!(italic.typeface, "myriad pro");
+        assert_eq!(italic.posture, Some(FontPosture::Italic));
+        let bold_from = EquateName::parse("DTLDocumentaSansT_bold_*");
+        assert_eq!(bold_from.weight, Some(FontWeight::Bold));
+        assert!(bold_from.matches("dtldocumentasanst", FontWeight::Bold, FontPosture::Italic));
+        assert!(!bold_from.matches("dtldocumentasanst", FontWeight::Normal, FontPosture::Normal));
+        let bare = EquateName::parse("HelvOut Blk");
+        assert_eq!(bare, EquateName { typeface: "helvout blk".into(), weight: None, posture: None });
+    }
 
-        // Should fail due to invalid font data
-        let result = manager.register_embedded_font(font);
-        assert!(result.is_err());
+    #[test]
+    fn unicode_ranges_parse_points_and_ranges() {
+        assert_eq!(
+            FontEquateRange::parse_unicode_range("U+20-37E, U+0400-43F ,U+2610"),
+            vec![(0x20, 0x37e), (0x400, 0x43f), (0x2610, 0x2610)]
+        );
+        assert_eq!(FontEquateRange::parse_unicode_range("U+zz"), vec![]);
+    }
+
+    /// A document's `equate` sends a typeface to another name, which then
+    /// resolves like any request; its `equateRange` sends a codepoint to
+    /// another face.
+    #[test]
+    fn a_documents_equates_apply_while_entered() {
+        crate::fonts::register_test_fonts();
+        let xml = r#"<xdp><config><present><common><fontInfo><map>
+<equate from="Helvetica_*_*" to="Frutiger 45 Light_bold_*" force="0"/>
+<equateRange from="Frutiger 45 Light" to="DejaVu Sans" unicodeRange="U+2610-2612"/>
+</map></fontInfo></common></present></config></xdp>"#;
+        let nodes = XfaNode::parse(xml.as_bytes()).expect("xml");
+        let fonts = Arc::new(DocumentFonts::from_nodes(&nodes));
+        assert_eq!(fonts.equates.len(), 1);
+        assert_eq!(fonts.equate_ranges.len(), 1);
+        let helvetica = font("Helvetica", FontWeight::Normal, FontPosture::Normal);
+        let mut manager = get_font_manager().lock().unwrap_or_else(|e| e.into_inner());
+        {
+            let _guard = fonts.enter();
+            let face = RegisteredFace::parse(manager.resolve(&helvetica).unwrap()).unwrap();
+            assert!(face.weight >= 600, "the equate asks for the bold face, got {face:?}");
+            // The range names DejaVu, which is not registered here: the
+            // symbol fallback (DejaVu itself) has the ballot box anyway.
+            assert!(manager.font_for_glyph('☐', Some("Frutiger 45 Light")).is_some());
+        }
+        assert!(DocumentFonts::current().is_none(), "the guard restores the previous fonts");
+    }
+
+    #[test]
+    fn an_embedded_face_wins_over_a_registered_one() {
+        crate::fonts::register_test_fonts();
+        let fonts = Arc::new(DocumentFonts::default().with_embedded(vec![EmbeddedFont {
+            name: "ABCDEF+Frutiger 45 Light".trim_start_matches("ABCDEF+").to_string(),
+            data: SYMBOL_FALLBACK.to_vec(),
+        }]));
+        let _guard = fonts.enter();
+        let mut manager = get_font_manager().lock().unwrap_or_else(|e| e.into_inner());
+        let data = manager.resolve(&font("Frutiger 45 Light", FontWeight::Normal, FontPosture::Normal)).unwrap();
+        assert_eq!(data.len(), SYMBOL_FALLBACK.len(), "the document's own face is used");
+    }
+
+    #[test]
+    fn line_geometry_comes_from_the_face() {
+        crate::fonts::register_test_fonts();
+        let mut manager = get_font_manager().lock().unwrap_or_else(|e| e.into_inner());
+        let g = manager
+            .line_geometry(&font("Frutiger 45 Light", FontWeight::Normal, FontPosture::Normal), 20.0)
+            .expect("the face has underline metrics");
+        assert!(g.underline_offset > 0.0 && g.underline_thickness >= 1.0, "{g:?}");
     }
 }

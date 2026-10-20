@@ -2,6 +2,8 @@ const SLOTS = ["slot1", "slot2", "slot3"];
 // The static node types: a master-page line among them is a `TextDraw`.
 const STATIC = ["TextDraw", "TitleDraw", "MessageBox", "HtmlDisplayer"];
 // What keeps a header line off the page and the summary step but in the printed header.
+// The validity line's date (UBS-PAGE-2: `dd.mm.yyyy`).
+const DATE = /(^|[^0-9])[0-9]{2}\.[0-9]{2}\.[0-9]{4}([^0-9]|$)/;
 const FLAGS = [
   ["visible", false],
   ["always_in_pdf", true],
@@ -81,6 +83,20 @@ function check(output, ctx) {
           message: "the header line `" + node.name + "` needs `" + flag + ": " + value + "`, so it is " +
             "hidden on the page and off the summary step but printed in the Document of Record's header",
         });
+      }
+    }
+    if (slot === "slot3") {
+      const content = node.content || {};
+      for (const lang of Object.keys(content)) {
+        const text = String(content[lang]).replace(/<[^>]+>/g, " ");
+        if (!DATE.test(text)) {
+          violations.push({
+            pointer: at.replace(/dor_header_slot$/, "content/" + lang),
+            message: "the validity line `" + node.name + "` carries no date as dd.mm.yyyy in `" + lang + "`: write " +
+              "the line as the master page prints it (\"Gültig ab 02.01.2018\"), or move a line that is no " +
+              "validity line to its own slot",
+          });
+        }
       }
     }
     if (node.dor_exclude === true) {

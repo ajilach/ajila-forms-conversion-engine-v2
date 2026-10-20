@@ -24,6 +24,8 @@ const PAGE_H: f64 = 841.8897637795276;
 const PAGE_W: f64 = 595.2755905511812;
 /// The contentArea of the templates below: y=30mm, h=255mm.
 const CONTENT_TOP: f64 = 85.03937007874016;
+/// The contentArea's left edge: x=17.5mm.
+const CONTENT_LEFT: f64 = 49.60629921259843;
 const CONTENT_BOTTOM: f64 = CONTENT_TOP + 722.8346456692913;
 
 fn draw(name: &str, text: &str, h: u32) -> String {
@@ -49,7 +51,7 @@ fn template_with_masters(body: &str, mp_extra: &str, mp_last_extra: &str) -> Str
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
-<subform name="form1" layout="tb"><pageSet name="MPs">
+<subform name="form1" layout="tb"><pageSet name="MPs" relation="duplexPaginated">
 <pageArea name="MP">
   <medium long="297mm" short="210mm" stock="a4"/>
   <contentArea x="17.5mm" y="30mm" w="192mm" h="255mm"/>
@@ -554,7 +556,7 @@ fn a_rectangle_is_drawn_with_square_corners() {
     assert!(dark_pixels(&flat, 90.0, 74.0, 20.0, 4.0) > 0, "bottom edge");
     assert!(dark_pixels(&flat, 48.0, 62.0, 4.0, 8.0) > 0, "left edge");
     assert!(dark_pixels(&flat, 148.0, 62.0, 4.0, 8.0) > 0, "right edge");
-    assert!(dark_pixels(&flat, 48.0, 55.0, 3.0, 3.0) > 0, "square top-left corner");
+    assert!(dark_pixels(&flat, 48.0, 55.0, 4.0, 4.0) > 0, "square top-left corner");
     assert_eq!(dark_pixels(&flat, 60.0, 61.0, 80.0, 11.0), 0, "an empty inside");
 }
 
@@ -589,23 +591,34 @@ fn a_filled_circular_arc_is_a_disc() {
 
 // ── text decoration (XFA 3.3 "Underline and Strikethrough") ──────────────────
 
-/// Ink in the band just below a draw's text that an underline would fill,
-/// for a 12pt draw at 17.5mm, 20mm (49.6pt, 56.7pt): its glyphs end at about
-/// 66pt (with a stray antialiased pixel below), so the band from 68pt to
-/// 70pt is empty without an underline.
-fn underline_band_ink(value: &str, font_attrs: &str) -> usize {
-    let master = format!(
-        r#"<draw name="Deco" x="17.5mm" y="20mm" w="200pt" h="20pt"><font typeface="Helvetica" size="12pt"{font_attrs}/><value>{value}</value></draw>"#
-    );
-    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
-    dark_pixels(&flat, 50.0, 68.0, 60.0, 2.0)
+/// Ink in the four pixel rows right below the lowest inked row of the
+/// undecorated text, for a 12pt draw holding `value`: nothing for the
+/// text itself, a line for an underline. `decorated` is the same draw with
+/// the decoration; both are measured in the band the plain one leaves
+/// empty.
+fn ink_under_text(plain: (&str, &str), decorated: (&str, &str)) -> (usize, usize) {
+    let render = |value: &str, font_attrs: &str| {
+        let master = format!(
+            r#"<draw name="Deco" x="17.5mm" y="20mm" w="200pt" h="20pt"><font typeface="Helvetica" size="12pt"{font_attrs}/><value>{value}</value></draw>"#
+        );
+        flatten(&template(&draw("Only", "One row", 24), &master))
+            .render_to_image_buffer_plain(1.0)
+            .expect("render")
+    };
+    let plain_img = render(plain.0, plain.1);
+    let lowest = (57..80)
+        .rev()
+        .find(|&row| support::dark_pixels_in(&plain_img, 50.0, row as f64, 60.0, 1.0) > 0)
+        .expect("the text is inked") as f64;
+    let band = |img: &image::RgbaImage| support::dark_pixels_in(img, 50.0, lowest + 1.0, 60.0, 4.0);
+    (band(&plain_img), band(&render(decorated.0, decorated.1)))
 }
 
 #[test]
 fn a_font_underline_draws_a_line_under_the_text() {
     require_fonts!();
-    let plain = underline_band_ink("<text>Hello world</text>", "");
-    let underlined = underline_band_ink("<text>Hello world</text>", r#" underline="1""#);
+    let (plain, underlined) =
+        ink_under_text(("<text>Hello world</text>", ""), ("<text>Hello world</text>", r#" underline="1""#));
     assert_eq!(plain, 0, "no ink under undecorated text");
     assert!(underlined >= 50, "the underline has only {underlined} dark pixels");
 }
@@ -618,8 +631,8 @@ fn a_css_underline_on_a_span_draws_a_line_under_it() {
             r#"<exData contentType="text/html"><body xmlns="http://www.w3.org/1999/xhtml"><p><span style="{style}">Hello world</span></p></body></exData>"#
         )
     };
-    assert_eq!(underline_band_ink(&html("letter-spacing:0in"), ""), 0);
-    let ink = underline_band_ink(&html("text-decoration:underline"), "");
+    let (plain, ink) = ink_under_text((&html("letter-spacing:0in"), ""), (&html("text-decoration:underline"), ""));
+    assert_eq!(plain, 0);
     assert!(ink >= 50, "the underline has only {ink} dark pixels");
 }
 
@@ -663,6 +676,126 @@ fn a_round_corner_rounds_the_fill_and_the_edges() {
         dark_pixels(&outline, 50.0, 57.0, 8.0, 8.0) > 0,
         "the quarter circle bends through the corner region"
     );
+}
+
+/// A `<radial>` fill runs from the fill's color at the centre to its own
+/// color at the edges (XFA 3.3 "The radial element").
+#[test]
+fn a_radial_fill_runs_from_the_centre_to_the_edges() {
+    require_fonts!();
+    let flat = bordered_draw(
+        r#"<edge presence="hidden"/><fill><color value="255,255,255"/><radial type="toEdge"><color value="0,0,0"/></radial></fill>"#,
+    );
+    // The box spans about 49.6..149.6 x 56.7..80.7; its centre is light, its
+    // left end dark.
+    assert_eq!(dark_pixels(&flat, 97.0, 67.0, 5.0, 3.0), 0, "light at the centre");
+    assert!(dark_pixels(&flat, 51.0, 67.0, 3.0, 3.0) >= 6, "dark at the edge");
+}
+
+/// A `<pattern>` fill hatches its color over the background at an
+/// application-defined interval (XFA 3.3 "The pattern element").
+#[test]
+fn a_pattern_fill_hatches_the_background() {
+    require_fonts!();
+    let flat = bordered_draw(
+        r#"<edge presence="hidden"/><fill><color value="255,255,255"/><pattern type="horizontal"><color value="0,0,0"/></pattern></fill>"#,
+    );
+    // Horizontal strokes one pixel wide every six: two in twelve rows, each
+    // 60 pixels long.
+    let dark = dark_pixels(&flat, 60.0, 60.0, 60.0, 12.0);
+    assert!((100..=140).contains(&dark), "{dark} dark pixels in a 60x12 region");
+}
+
+/// A `<stipple>` fill scatters its color over `rate` percent of the area
+/// (XFA 3.3 "The stipple element").
+#[test]
+fn a_stipple_fill_covers_its_rate_of_the_area() {
+    require_fonts!();
+    let flat = bordered_draw(
+        r#"<edge presence="hidden"/><fill><color value="255,255,255"/><stipple rate="50"><color value="0,0,0"/></stipple></fill>"#,
+    );
+    let dark = dark_pixels(&flat, 60.0, 60.0, 60.0, 10.0);
+    assert!((200..=400).contains(&dark), "{dark} of 600 pixels are dark at a 50% rate");
+}
+
+/// A dashed edge leaves gaps; a solid one does not (XFA 3.3 "The edge
+/// element").
+#[test]
+fn a_dashed_edge_leaves_gaps() {
+    require_fonts!();
+    let solid = bordered_draw(r#"<edge thickness="2pt"/>"#);
+    let dashed = bordered_draw(r#"<edge thickness="2pt" stroke="dashed"/>"#);
+    let along_top = |flat: &Flattened| dark_pixels(flat, 60.0, 56.0, 60.0, 3.0);
+    let (s, d) = (along_top(&solid), along_top(&dashed));
+    assert!(s >= 110, "the solid edge inks its whole length, {s}");
+    assert!(d >= 50 && d <= s - 30, "the dashed edge inks about two thirds of it, {d} of {s}");
+}
+
+/// An inverted round corner bows into the box: the vertex region stays
+/// blank and the arc passes a radius away from it (XFA 3.3 "The corner
+/// element", `inverted`).
+#[test]
+fn an_inverted_corner_is_concave() {
+    require_fonts!();
+    let flat = bordered_draw(
+        r#"<corner join="round" radius="8pt" thickness="1pt" inverted="1"/><edge thickness="1pt"/>"#,
+    );
+    assert_eq!(dark_pixels(&flat, 50.0, 57.0, 3.0, 3.0), 0, "the vertex region is blank");
+    assert!(dark_pixels(&flat, 53.5, 60.5, 5.0, 5.0) > 0, "the arc bows through the box's inside");
+    assert!(dark_pixels(&flat, 95.0, 56.0, 10.0, 2.0) > 0, "the top edge");
+}
+
+/// An image with `aspect="width"` is scaled so its width is the box's,
+/// whatever that does to its height (XFA 3.3 "The aspect property").
+#[test]
+fn an_image_with_aspect_width_fills_the_box_width() {
+    require_fonts!();
+    let master = format!(
+        r#"<draw name="Logo" x="17.5mm" y="20mm" w="40pt" h="10pt"><ui><imageEdit/></ui><value><image contentType="image/png" aspect="width">{}</image></value></draw>"#,
+        black_png_base64()
+    );
+    let flat = flatten(&template(&draw("Only", "One row", 24), &master));
+    // A 2x2 image scaled to 40pt wide is 40pt tall: inked across the whole
+    // box width, and below the 10pt box.
+    assert!(dark_pixels(&flat, 85.0, 58.0, 4.0, 4.0) > 0, "the box's right end");
+    assert!(dark_pixels(&flat, 60.0, 75.0, 4.0, 4.0) > 0, "past the box's height");
+    let fit = format!(
+        r#"<draw name="Logo" x="17.5mm" y="20mm" w="40pt" h="10pt"><ui><imageEdit/></ui><value><image contentType="image/png">{}</image></value></draw>"#,
+        black_png_base64()
+    );
+    let flat = flatten(&template(&draw("Only", "One row", 24), &fit));
+    assert_eq!(dark_pixels(&flat, 85.0, 58.0, 4.0, 4.0), 0, "fit keeps a 10pt square");
+}
+
+/// A glyph the text's font lacks is taken from a face that has it (XFA 3.3
+/// §28): the corpus fonts have no ballot box, DejaVu Sans does, so the
+/// symbol is drawn as a hollow square rather than skipped or boxed.
+#[test]
+fn a_missing_glyph_is_drawn_from_the_symbol_fallback() {
+    require_fonts!();
+    let master = r#"<draw name="Box" x="17.5mm" y="20mm" w="60pt" h="24pt"><font typeface="Frutiger 45 Light" size="20pt"/><value><text>☐</text></value></draw>"#;
+    let flat = flatten(&template(&draw("Only", "One row", 24), master));
+    // The glyph's box: about 14pt wide from x=49.6, within the 20pt line.
+    let outline = dark_pixels(&flat, 49.0, 57.0, 18.0, 22.0);
+    assert!(outline > 30, "the ballot box is drawn, {outline} dark pixels");
+    let centre = dark_pixels(&flat, 55.0, 64.0, 4.0, 4.0);
+    assert_eq!(centre, 0, "and it is hollow");
+}
+
+/// `underline="2"` draws a double underline where the face puts it (XFA
+/// 3.3 "The underline property").
+#[test]
+fn a_double_underline_is_two_lines() {
+    require_fonts!();
+    let single = r#"<draw name="U" x="17.5mm" y="20mm" w="100pt" h="24pt"><font typeface="Frutiger 45 Light" size="12pt" underline="1"/><value><text>Underlined words</text></value></draw>"#;
+    let double = single.replace(r#"underline="1""#, r#"underline="2""#);
+    let one = flatten(&template(&draw("Only", "One row", 24), single));
+    let two = flatten(&template(&draw("Only", "One row", 24), &double));
+    // Below the baseline, the double underline inks more rows.
+    let band = |flat: &Flattened| dark_pixels(flat, 50.0, 66.0, 80.0, 8.0);
+    let (a, b) = (band(&one), band(&two));
+    assert!(a > 0, "a single underline, {a}");
+    assert!(b > a + 40, "a double underline inks a second line, {b} against {a}");
 }
 
 // ── captions (XFA 3.3 "The caption element") ─────────────────────────────────
@@ -721,7 +854,7 @@ fn a_formcalc_page_number_on_the_master_page_counts_the_pages() {
 fn a_barcode_field_is_drawn_as_bars() {
     require_fonts!();
     // At y=20mm the box clears the master's own header draw.
-    let master = r#"<field name="BC" x="17.5mm" y="20mm" w="200pt" h="24pt"><font typeface="Helvetica" size="6pt"/><ui><barcode type="code2Of5Interleaved"/></ui><value><text>0101665</text></value></field>"#;
+    let master = r#"<field name="BC" x="17.5mm" y="20mm" w="200pt" h="24pt"><font typeface="Helvetica" size="6pt"/><ui><barcode type="code2Of5Interleaved" textLocation="none"/></ui><value><text>0101665</text></value></field>"#;
     let flat = flatten(&template(&draw("Only", "One row", 24), master));
 
     let dark = dark_pixels(&flat, 49.0, 57.0, 202.0, 23.0);
@@ -735,6 +868,30 @@ fn a_barcode_field_is_drawn_as_bars() {
         top > 0 && bottom > 0 && (top as f64 - bottom as f64).abs() / top as f64 <= 0.1,
         "bars should run the height of the box, got {top} at the top and {bottom} at the foot"
     );
+}
+
+/// `textLocation` defaults to `below` (XFA 3.3 "The barcode element"): the
+/// value is printed under the bars in the field's font, so the foot of the
+/// box carries sparse glyph ink where the bars do not reach.
+#[test]
+fn a_barcode_prints_its_value_below_the_bars_by_default() {
+    require_fonts!();
+    let master = r#"<field name="BC" x="17.5mm" y="20mm" w="200pt" h="24pt"><font typeface="Helvetica" size="6pt"/><ui><barcode type="code2Of5Interleaved"/></ui><value><text>0101665</text></value></field>"#;
+    let flat = flatten(&template(&draw("Only", "One row", 24), master));
+
+    let top = dark_pixels(&flat, 49.0, 58.0, 202.0, 6.0);
+    let foot = dark_pixels(&flat, 49.0, 74.0, 202.0, 6.0);
+    assert!(top > 0 && foot > 0, "bars at the top ({top}) and a legend at the foot ({foot})");
+    assert!(
+        (foot as f64) < top as f64 * 0.6,
+        "the legend ({foot}) is sparser than the bars ({top})"
+    );
+
+    // With `checksum="auto"` the bars carry a check digit the legend does
+    // not show unless `printCheckDigit="1"`; either way the bars still fit.
+    let checked = master.replace(r#"type="code2Of5Interleaved""#, r#"type="code2Of5Interleaved" checksum="auto" dataLength="30""#);
+    let flat = flatten(&template(&draw("Only", "One row", 24), &checked));
+    assert!(dark_pixels(&flat, 49.0, 58.0, 202.0, 6.0) > 0);
 }
 
 /// An unsupported symbology is reported and marked, not silently skipped: a
@@ -753,7 +910,9 @@ fn an_unsupported_barcode_draws_a_placeholder() {
 }
 
 /// `<checkButton shape="round">` is a radio, and a radio is a circle. A square
-/// in its place reads as a different control.
+/// in its place reads as a different control. The button is its `size`
+/// (10pt by default, XFA 3.3 "The checkButton element"), centered in the
+/// field's 20pt box.
 #[test]
 fn a_round_check_button_is_drawn_as_a_circle() {
     require_fonts!();
@@ -762,12 +921,29 @@ fn a_round_check_button_is_drawn_as_a_circle() {
 
     // The widget sits at the top left of the content area.
     let (bx, by) = (49.6, CONTENT_TOP);
-    // A circle leaves its bounding box's corners white; a square outline does not.
-    let corner = dark_pixels(&flat, bx, by, 4.0, 4.0);
-    assert_eq!(corner, 0, "the corner of a round radio should be blank");
-    // But there is a ring: the middle of the top edge is inked.
-    let top_edge = dark_pixels(&flat, bx + 7.0, by + 1.0, 6.0, 3.0);
+    // A 10pt circle centered in 20pt leaves a 5pt frame blank all round.
+    let frame = dark_pixels(&flat, bx, by, 20.0, 4.0) + dark_pixels(&flat, bx, by, 4.0, 20.0);
+    assert_eq!(frame, 0, "outside the 10pt button nothing is drawn");
+    // But there is a ring: the middle of its top edge is inked.
+    let top_edge = dark_pixels(&flat, bx + 8.0, by + 4.5, 4.0, 2.0);
     assert!(top_edge > 0, "the radio has no ring");
+}
+
+/// `<checkButton size="16pt" mark="check">` draws a 16pt square outline
+/// and, once on, a check mark inside it (XFA 3.3 "The mark property").
+#[test]
+fn a_check_button_takes_its_size_and_mark_from_the_template() {
+    require_fonts!();
+    let body = r#"<field name="CB" x="0pt" y="0pt" w="20pt" h="20pt"><ui><checkButton size="16pt" mark="check"/></ui><value><integer>1</integer></value><items><integer>1</integer><integer>0</integer></items></field>"#;
+    let flat = flatten(&template(body, ""));
+    let (bx, by) = (49.6, CONTENT_TOP);
+    // A 16pt box centered in 20pt: its top edge is 2pt down, inked across.
+    assert!(dark_pixels(&flat, bx + 4.0, by + 1.5, 12.0, 2.0) > 0, "the outline's top edge");
+    assert_eq!(dark_pixels(&flat, bx, by, 20.0, 1.0), 0, "nothing above the 16pt box");
+    // The check mark's long stroke rises through the box's right half.
+    assert!(dark_pixels(&flat, bx + 12.0, by + 6.0, 4.0, 4.0) > 0, "the check mark");
+    // A cross would ink the top left quarter; a check leaves it blank.
+    assert_eq!(dark_pixels(&flat, bx + 5.0, by + 5.0, 3.0, 3.0), 0, "no stroke in the top left");
 }
 
 /// A `<draw>` with no width is sized to its text -- but its margin insets are
@@ -837,9 +1013,10 @@ fn a_growable_rich_text_draw_is_as_tall_as_its_paragraphs() {
     );
     // Narrowed by the 5mm right inset (55mm of content width), the sentence
     // must wrap onto at least three lines of 9pt -- Acrobat wraps this exact
-    // sentence onto four.
+    // sentence onto four. The block's last line carries no line gap (AXTE,
+    // XFA 3.3 "Special Lines"): 20% of the 8pt font, 1.6pt, comes off.
     assert!(
-        wrapped_h >= 3.0 * 9.0 - 1.0,
+        wrapped_h >= 3.0 * 9.0 - 1.6 - 0.1,
         "the body paragraph should wrap onto at least three 9pt lines, got {wrapped_h}pt tall"
     );
 
@@ -948,8 +1125,8 @@ fn a_content_subform_can_target_a_different_page_set_than_the_one_before_it() {
     let xdp = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
-<subform name="form1" layout="tb"><pageSet name="MPs">
-<pageSet name="Set1">
+<subform name="form1" layout="tb"><pageSet name="MPs" relation="duplexPaginated">
+<pageSet name="Set1" relation="duplexPaginated">
 <pageArea name="A1">
   <medium long="297mm" short="210mm" stock="a4"/>
   <contentArea x="17.5mm" y="30mm" w="192mm" h="255mm"/>
@@ -961,7 +1138,7 @@ fn a_content_subform_can_target_a_different_page_set_than_the_one_before_it() {
   <draw name="H1L" x="17.5mm" y="10mm" w="400pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>SET1_LAST</text></value></draw>
 </pageArea>
 </pageSet>
-<pageSet name="Set2">
+<pageSet name="Set2" relation="duplexPaginated">
 <pageArea name="A2">
   <medium long="297mm" short="210mm" stock="a4"/>
   <contentArea x="17.5mm" y="30mm" w="192mm" h="255mm"/>
@@ -1010,19 +1187,60 @@ fn a_content_subform_can_target_a_different_page_set_than_the_one_before_it() {
     );
 }
 
-/// Two content subforms that neither name a pageArea target still share one
-/// implicit run spanning every pageArea in the document -- the historical
-/// behaviour for a document with a single pageSet (or, like AAGS, several
-/// untargeted content subforms each meant to be exactly one page): the
-/// first page is "first"/"any", the very last page is "last", regardless of
-/// how many subforms contributed pages in between.
+/// The root subform's children flow in its own layout (XFA 3.3 §8): a
+/// second content subform starts a new page only when it asks for one with
+/// a `breakBefore` to a page, not merely by being a separate subform. Both
+/// land on one page here, which is then the only page, so the designated
+/// last page is used for it (§8 "Termination processing").
 #[test]
-fn untargeted_content_subforms_still_share_one_document_wide_run() {
+fn a_second_content_subform_without_a_page_break_shares_the_page() {
     require_fonts!();
-    let xdp = format!(
+    let flat = flatten(&two_content_subforms(""));
+    assert_eq!(flat.page.page_count, 1, "two short subforms fit one page");
+
+    let pages = texts_by_page(&flat);
+    assert!(
+        pages[0].iter().any(|t| t == "Page A content") && pages[0].iter().any(|t| t == "Page B content"),
+        "both subforms' content is on page 1, got {:?}",
+        pages[0]
+    );
+    assert!(
+        pages[0].iter().any(|t| t == "LAST"),
+        "the only page is the last page and uses the pagePosition=\"last\" area, got {:?}",
+        pages[0]
+    );
+}
+
+/// With `<breakBefore targetType="pageArea"/>` the second content subform
+/// starts a page of its own (XFA 3.3 §7 "Break Conditions"), and the page
+/// set's designated last page is the last page overall, whichever subform
+/// put content on it.
+#[test]
+fn a_content_subform_with_a_page_break_starts_a_new_page() {
+    require_fonts!();
+    let flat = flatten(&two_content_subforms(r#"<breakBefore targetType="pageArea"/>"#));
+    assert_eq!(flat.page.page_count, 2, "the break makes the second subform a page");
+
+    let pages = texts_by_page(&flat);
+    assert!(
+        pages[0].iter().any(|t| t == "ORDINARY") && pages[0].iter().any(|t| t == "Page A content"),
+        "page 1 should use the ordinary area, got {:?}",
+        pages[0]
+    );
+    assert!(
+        pages[1].iter().any(|t| t == "LAST") && pages[1].iter().any(|t| t == "Page B content"),
+        "page 2, the last page overall, should use the pagePosition=\"last\" area, got {:?}",
+        pages[1]
+    );
+}
+
+/// Two content subforms under one page set; `second_break` goes into the
+/// second one.
+fn two_content_subforms(second_break: &str) -> String {
+    format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
-<subform name="form1" layout="tb"><pageSet name="MPs">
+<subform name="form1" layout="tb"><pageSet name="MPs" relation="duplexPaginated">
 <pageArea name="MP">
   <medium long="297mm" short="210mm" stock="a4"/>
   <contentArea x="17.5mm" y="30mm" w="192mm" h="255mm"/>
@@ -1035,38 +1253,20 @@ fn untargeted_content_subforms_still_share_one_document_wide_run() {
 </pageArea>
 </pageSet>
 <subform name="Page" layout="tb" w="540pt">{}</subform>
-<subform name="Page_66439" layout="tb" w="540pt">{}</subform>
+<subform name="Page_66439" layout="tb" w="540pt">{second_break}{}</subform>
 </subform></template></xdp:xdp>"#,
         draw("A", "Page A content", 20),
         draw("B", "Page B content", 20)
-    );
-
-    let flat = flatten(&xdp);
-    assert_eq!(flat.page.page_count, 2, "each untargeted subform is one page");
-
-    let pages = texts_by_page(&flat);
-    assert!(
-        pages[0].iter().any(|t| t == "ORDINARY"),
-        "page 1 should use the ordinary area, got {:?}",
-        pages[0]
-    );
-    assert!(
-        pages[1].iter().any(|t| t == "LAST"),
-        "page 2, the last page overall, should use the pagePosition=\"last\" area \
-         even though it came from a different content subform than page 1, got {:?}",
-        pages[1]
-    );
+    )
 }
 
-/// A growable subform (no explicit `h`, common for a body wrapper like AAOV's
-/// `BankingRelationship`) is given height 0 by the layout engine *before* its
-/// children are laid out -- "containers grow to fit their children". A
-/// `<border>`'s edges used to be propagated onto the subform's enclosed
-/// leaves using that still-zero height, so a bottom-only edge (a plain
-/// underline under a header field) was drawn at the subform's *top* instead
-/// of its true bottom.
+/// A subform's `<border>` is drawn as a node of its own, under its
+/// children, at the subform's true (grown) bounds: a growable subform (no
+/// explicit `h`, common for a body wrapper like AAOV's `BankingRelationship`)
+/// has height 0 before its children are laid out, and its bottom edge must
+/// still land under its last child, not at its top.
 #[test]
-fn a_growable_subforms_border_is_propagated_at_its_true_bottom() {
+fn a_growable_subforms_border_is_drawn_at_its_true_bottom() {
     require_fonts!();
     let inner = format!("{}{}", draw("L1", "Line1", 20), draw("L2", "Line2", 20));
     let body = format!(
@@ -1077,37 +1277,39 @@ fn a_growable_subforms_border_is_propagated_at_its_true_bottom() {
     );
     let flat = flatten(&template(&body, ""));
 
-    let l1 = flat
+    let (border, bounds) = flat
         .iter_nodes()
-        .find(|n| {
-            matches!(&n.kind, FlattenedNodeKind::Text { source_name, .. } if source_name.as_deref() == Some("L1"))
+        .find_map(|n| match &n.kind {
+            FlattenedNodeKind::Shape(u2s_xfa::xfa::shapes::Shape::Rectangle(r)) => Some((r.clone(), n.bounds())),
+            _ => None,
         })
-        .expect("L1 draw not found");
-
-    let border = l1
-        .style
-        .border
-        .as_ref()
-        .expect("BorderTest's bottom edge should have propagated onto its first leaf");
-    let bottom = border.get_edge(2).expect("bottom edge");
-    assert_eq!(bottom.presence, "visible");
-    let (_, _, _, h) = border
-        .render_bounds
-        .expect("a propagated edge must carry render_bounds so it draws at the subform's position");
-    let h: f64 = h.to_string().parse().unwrap();
+        .expect("the subform's border is a rectangle node");
+    assert_eq!(border.edges.len(), 4);
+    assert_eq!(border.edges[2].presence, "visible");
+    let h: f64 = bounds.height.to_string().parse().unwrap();
     assert!(
-        h > 30.0,
-        "the propagated border's height must be the subform's true (grown) height, ~40pt \
-         for two 20pt rows, not the 0 it reads before its children are laid out; got {h}pt"
+        (h - 40.0).abs() < 0.5,
+        "the border is the subform's true (grown) height, 40pt for two 20pt rows; got {h}pt"
     );
+    // Drawn under the children: the rectangle precedes L1 in the output.
+    let order: Vec<&str> = flat
+        .iter_nodes()
+        .filter_map(|n| match &n.kind {
+            FlattenedNodeKind::Shape(_) => Some("border"),
+            FlattenedNodeKind::Text { source_name, .. } if source_name.as_deref() == Some("L1") => Some("L1"),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(order, vec!["border", "L1"]);
+    // And it is inked along the subform's bottom edge.
+    assert!(dark_pixels(&flat, CONTENT_LEFT + 100.0, CONTENT_TOP + 38.0, 100.0, 5.0) > 50);
 }
 
 /// A subform's `<border><fill>` is its background colour (AAOV's "Form
-/// configurator" pink panel: every edge hidden, but a visible fill) --
-/// propagated the same way a visible edge is, onto the first enclosed leaf,
-/// at the subform's true (grown) bounds.
+/// configurator" pink panel: every edge hidden, but a visible fill), drawn
+/// as the subform's own node over its true (grown) bounds.
 #[test]
-fn a_growable_subforms_fill_is_propagated_onto_its_first_leaf() {
+fn a_growable_subforms_fill_is_drawn_over_its_true_bounds() {
     require_fonts!();
     let inner = format!("{}{}", draw("L1", "Line1", 20), draw("L2", "Line2", 20));
     let body = format!(
@@ -1118,28 +1320,16 @@ fn a_growable_subforms_fill_is_propagated_onto_its_first_leaf() {
     );
     let flat = flatten(&template(&body, ""));
 
-    let l1 = flat
+    let (fill, bounds) = flat
         .iter_nodes()
-        .find(|n| {
-            matches!(&n.kind, FlattenedNodeKind::Text { source_name, .. } if source_name.as_deref() == Some("L1"))
+        .find_map(|n| match &n.kind {
+            FlattenedNodeKind::Shape(u2s_xfa::xfa::shapes::Shape::Rectangle(r)) => Some((r.fill.clone(), n.bounds())),
+            _ => None,
         })
-        .expect("L1 draw not found");
-
-    let border = l1
-        .style
-        .border
-        .as_ref()
-        .expect("FillTest's fill should have propagated onto its first leaf");
-    let fill = border.fill.as_ref().expect("fill propagated");
-    assert_eq!(fill.color, Some((255, 244, 244)));
-    let (_, _, _, h) = border
-        .render_bounds
-        .expect("a propagated fill must carry render_bounds so it paints the subform's box");
-    let h: f64 = h.to_string().parse().unwrap();
-    assert!(
-        h > 30.0,
-        "the propagated fill's height must be the subform's true (grown) height, not 0; got {h}pt"
-    );
+        .expect("the subform's fill is a rectangle node");
+    assert_eq!(fill.and_then(|f| f.color), Some((255, 244, 244)));
+    let h: f64 = bounds.height.to_string().parse().unwrap();
+    assert!((h - 40.0).abs() < 0.5, "the fill covers the subform's true height; got {h}pt");
 }
 
 /// A draw's own `<border>` draws around its outer (margin-inclusive) box,
@@ -1183,12 +1373,10 @@ fn a_draws_own_border_is_drawn_at_its_outer_box() {
     );
 }
 
-/// A subform whose own `layout` is unspecified (positioned, XFA's default)
-/// must move whole to the next page rather than have its own children
-/// scattered across a page break -- no viewer we've observed ever tears a
-/// positioned subform's contents apart from each other, even though the
-/// XFA 3.3 spec's split-consensus algorithm (ch. 8 "Content Splitting")
-/// would in principle allow it.
+/// A positioned subform in a flowed container moves whole to the next page
+/// rather than splitting between its children (Acrobat's reading of XFA
+/// 3.3 §8, `acrobat_compat` item 6): 29 rows of 24pt leave 26.83pt of page
+/// 1, enough for P1 alone, but the block goes to page 2 entire.
 #[test]
 fn a_positioned_subform_is_never_split_across_pages() {
     require_fonts!();
@@ -1215,23 +1403,78 @@ fn a_positioned_subform_is_never_split_across_pages() {
         pages[0]
     );
     assert!(
-        pages.len() > 1
-            && pages[1].iter().any(|t| t == "P1")
-            && pages[1].iter().any(|t| t == "P2")
-            && pages[1].iter().any(|t| t == "P3"),
+        pages.len() > 1 && ["P1", "P2", "P3"].iter().all(|p| pages[1].iter().any(|t| t == p)),
         "P1, P2 and P3 should all land together on page 2, pages have {:?}",
         pages.iter().map(|p| p.len()).collect::<Vec<_>>()
     );
 }
 
+/// A flowed (`layout="tb"`) subform with `<keep intact="none"/>` splits
+/// between its children (XFA 3.3 §8 "Splitting a Container Having Child
+/// Containers"): P1 fits the 26.83pt left on page 1, P2 and P3 follow on
+/// page 2.
+#[test]
+fn a_flowed_subform_splits_between_its_children() {
+    require_fonts!();
+    let rows: String = (1..=29)
+        .map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24))
+        .collect();
+    let flowed = r#"<subform name="Flowed" layout="tb" w="300pt"><keep intact="none"/>
+<draw name="P1" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P1</text></value></draw>
+<draw name="P2" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P2</text></value></draw>
+<draw name="P3" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P3</text></value></draw>
+</subform>"#;
+    let body = format!("{rows}{flowed}");
+    let pages = texts_by_page(&flatten(&template(&body, "")));
+
+    assert!(
+        pages[0].iter().any(|t| t == "Row 29") && pages[0].iter().any(|t| t == "P1"),
+        "P1 fits the 26.83pt left on page 1, has {:?}",
+        pages[0]
+    );
+    assert!(
+        pages.len() > 1
+            && pages[1].iter().any(|t| t == "P2")
+            && pages[1].iter().any(|t| t == "P3")
+            && !pages[1].iter().any(|t| t == "P1"),
+        "P2 and P3 land on page 2, pages have {:?}",
+        pages.iter().map(|p| p.len()).collect::<Vec<_>>()
+    );
+}
+
+/// With `<keep intact="contentArea"/>` the same block is unsplittable and
+/// moves whole to page 2, whatever the distance.
+#[test]
+fn a_keep_intact_subform_moves_whole_to_the_next_page() {
+    require_fonts!();
+    let rows: String = (1..=29)
+        .map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24))
+        .collect();
+    let boxed = r#"<subform name="Boxed" w="300pt"><keep intact="contentArea"/>
+<draw name="P1" y="0pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P1</text></value></draw>
+<draw name="P2" y="40pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P2</text></value></draw>
+<draw name="P3" y="80pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P3</text></value></draw>
+</subform>"#;
+    let body = format!("{rows}{boxed}");
+    let pages = texts_by_page(&flatten(&template(&body, "")));
+
+    assert!(
+        !pages[0].iter().any(|t| t == "P1" || t == "P2" || t == "P3"),
+        "the block moves whole to the next page, page 1 has {:?}",
+        pages[0]
+    );
+    assert!(
+        pages.len() > 1 && ["P1", "P2", "P3"].iter().all(|p| pages[1].iter().any(|t| t == p)),
+        "P1, P2 and P3 land together on page 2, pages have {:?}",
+        pages.iter().map(|p| p.len()).collect::<Vec<_>>()
+    );
+}
+
 /// A subform with `<keep next="contentArea"/>` immediately followed by an
-/// unsplittable positioned subform: snapping the page break out of the
-/// positioned subform's own range can land inside the *preceding* subform's
-/// keep-next range (it and the positioned subform's first child must stay
-/// together), which must itself be honoured -- not just the first range the
-/// break happens to hit. Without re-checking after each snap, the keep-next
-/// subform would be orphaned on the earlier page while the positioned
-/// subform moved whole to the next one.
+/// unsplittable (`keep intact`) subform: moving the break out of the
+/// unsplittable subform lands it between the two, which the keep-next
+/// forbids in turn (XFA 3.3 §8 "Adhesion"), so the keep-next subform moves
+/// with it rather than being orphaned on the earlier page.
 #[test]
 fn keep_next_follows_into_an_unsplittable_successor() {
     require_fonts!();
@@ -1242,7 +1485,7 @@ fn keep_next_follows_into_an_unsplittable_successor() {
 <keep next="contentArea"/>
 <draw name="KeepDraw" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>KEEP</text></value></draw>
 </subform>"#;
-    let boxed = r#"<subform name="Boxed" w="300pt">
+    let boxed = r#"<subform name="Boxed" w="300pt"><keep intact="contentArea"/>
 <draw name="P1" y="0pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P1</text></value></draw>
 <draw name="P2" y="40pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P2</text></value></draw>
 <draw name="P3" y="80pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P3</text></value></draw>
@@ -1285,7 +1528,7 @@ fn keep_next_on_a_draw_follows_into_an_unsplittable_successor() {
         .map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24))
         .collect();
     let keep_draw = r#"<draw name="KeepDraw" w="300pt" h="20pt"><keep next="contentArea"/><font typeface="Helvetica" size="11pt"/><value><text>KEEP</text></value></draw>"#;
-    let boxed = r#"<subform name="Boxed" w="300pt">
+    let boxed = r#"<subform name="Boxed" w="300pt"><keep intact="contentArea"/>
 <draw name="P1" y="0pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P1</text></value></draw>
 <draw name="P2" y="40pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P2</text></value></draw>
 <draw name="P3" y="80pt" w="300pt" h="20pt"><font typeface="Helvetica" size="11pt"/><value><text>P3</text></value></draw>
@@ -1313,4 +1556,288 @@ fn keep_next_on_a_draw_follows_into_an_unsplittable_successor() {
         "KEEP, P1, P2 and P3 should all land together on page 2, pages have {:?}",
         pages.iter().map(|p| p.len()).collect::<Vec<_>>()
     );
+}
+
+/// A check box field has a natural width of its own: its button's `size`
+/// plus its left and right margins (XFA 3.3 §2 "Natural size of widgets").
+/// ACYI_001_EN's confirm box declares `minW="5mm"` and `leftInset="5mm"`,
+/// which left it no content width at all, and so no box, before this.
+#[test]
+fn a_check_box_is_as_wide_as_its_button_and_margins() {
+    require_fonts!();
+    let flat = flatten(&template(
+        r#"<field name="CB" minH="4mm" minW="5mm" x="0mm"><ui><checkButton size="3.8806mm"/></ui><margin leftInset="5mm" rightInset="0mm"/><value><integer>0</integer></value><items><integer>1</integer><integer>0</integer></items></field>"#,
+        "",
+    ));
+    let cb = flat
+        .iter_nodes()
+        .find(|n| matches!(&n.kind, FlattenedNodeKind::Field { name, .. } if name == "CB"))
+        .expect("the check box is laid out");
+    // Its state comes from its own value against its "on" item (the first),
+    // with no exclusion group to derive it from: 0 is off here.
+    assert!(
+        matches!(&cb.kind, FlattenedNodeKind::Field { is_checked: Some(false), .. }),
+        "an unchecked box on its own knows it is off: {:?}",
+        cb.kind
+    );
+    let width: f64 = cb.width.to_string().parse().unwrap();
+    let x: f64 = cb.x.to_string().parse().unwrap();
+    let mm = 72.0 / 25.4;
+    assert!((width - 3.8806 * mm).abs() < 0.05, "the box is the button's size, got {width}");
+    assert!(
+        (x - (CONTENT_LEFT + 5.0 * mm)).abs() < 0.05,
+        "the box sits past the left margin, got {x}"
+    );
+}
+
+/// The same box with its "on" value draws checked.
+#[test]
+fn a_check_box_holding_its_on_value_is_checked() {
+    require_fonts!();
+    let flat = flatten(&template(
+        r#"<field name="CB" w="5mm" h="5mm"><ui><checkButton/></ui><value><integer>1</integer></value><items><integer>1</integer><integer>0</integer></items></field>"#,
+        "",
+    ));
+    let cb = flat
+        .iter_nodes()
+        .find(|n| matches!(&n.kind, FlattenedNodeKind::Field { name, .. } if name == "CB"))
+        .expect("the check box is laid out");
+    assert!(
+        matches!(&cb.kind, FlattenedNodeKind::Field { is_checked: Some(true), .. }),
+        "{:?}",
+        cb.kind
+    );
+}
+
+/// The contents of an `invisible` container take their space but are not
+/// drawn (XFA 3.3 "The presence property"): ACYI_001_EN keeps a hidden
+/// option group `invisible`, and its radio buttons must not show as a box.
+#[test]
+fn the_contents_of_an_invisible_container_take_space_but_are_not_drawn() {
+    require_fonts!();
+    let flat = flatten(&template(
+        &format!(
+            r#"<exclGroup name="Opt" presence="invisible" w="100pt" h="30pt"><field name="RB" w="20pt" h="20pt"><ui><checkButton shape="round"/></ui><items><integer>1</integer></items></field></exclGroup>{}"#,
+            draw("After", "AFTER", 24)
+        ),
+        "",
+    ));
+    assert!(
+        !flat
+            .iter_nodes()
+            .any(|n| matches!(&n.kind, FlattenedNodeKind::Field { name, .. } if name == "RB")),
+        "the invisible group's button is not drawn"
+    );
+    let after = flat
+        .iter_nodes()
+        .find(|n| matches!(&n.kind, FlattenedNodeKind::Text { content, .. } if content.trim() == "AFTER"))
+        .expect("the draw after the group");
+    let y: f64 = after.y.to_string().parse().unwrap();
+    assert!(
+        (y - (CONTENT_TOP + 30.0)).abs() < 0.05,
+        "the group still takes its 30pt, got {y}"
+    );
+}
+
+/// A cover-page form (ACYI_001_EN): two content subforms side by side under
+/// the root, of which the scripts show one at a time. The hidden one takes
+/// no page (XFA 3.3 "The presence property": hidden means no layout).
+fn cover_template(cover_presence: &str, main_presence: &str) -> String {
+    let main: String = (1..=75)
+        .map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24))
+        .collect();
+    template(&main, "").replace(
+        r#"<subform name="Body" layout="tb" w="540pt">"#,
+        &format!(
+            r#"<subform name="Cover" layout="tb" w="540pt" presence="{cover_presence}">{}</subform><subform name="Body" layout="tb" w="540pt" presence="{main_presence}">"#,
+            draw("Title", "COVER PAGE", 24)
+        ),
+    )
+}
+
+#[test]
+fn a_hidden_content_subform_takes_no_page() {
+    require_fonts!();
+
+    let cover_only = flatten(&cover_template("visible", "hidden"));
+    assert_eq!(
+        cover_only.page.page_count, 1,
+        "the hidden form proper takes no page"
+    );
+    let pages = texts_by_page(&cover_only);
+    assert!(pages[0].iter().any(|t| t == "COVER PAGE"));
+    assert!(!pages[0].iter().any(|t| t.starts_with("Row ")));
+
+    let main_only = flatten(&cover_template("hidden", "visible"));
+    assert_eq!(
+        main_only.page.page_count, 3,
+        "the hidden cover takes no page either"
+    );
+    let pages = texts_by_page(&main_only);
+    assert!(!pages.iter().flatten().any(|t| t == "COVER PAGE"));
+    assert!(pages[0].iter().any(|t| t == "Row 1"));
+}
+
+// ── pagination strategies (XFA 3.3 §7 "Break Conditions", §8 "Pagination
+// Strategies") ────────────────────────────────────────────────────────────
+
+/// Where a leaf with this text landed: its page (1-based) and page-local box.
+fn locate_text(flat: &Flattened, text: &str) -> (u32, u2s_xfa::flattened::Bounds) {
+    let node = flat
+        .iter_nodes()
+        .find(|n| matches!(&n.kind, FlattenedNodeKind::Text { content, .. } if content.trim() == text))
+        .unwrap_or_else(|| panic!("no leaf with text {text:?}"));
+    flat.locate(node).unwrap_or_else(|| panic!("{text:?} is on no page"))
+}
+
+/// XFA 3.3 §9 Example 9.22: `startNew="1"` asks for a new page even when
+/// the current one is still empty, so a subform at the very start of the
+/// form leaves the first page blank (page background only).
+#[test]
+fn a_start_new_break_at_the_very_start_leaves_the_first_page_blank() {
+    require_fonts!();
+    let body = format!(
+        r#"<subform name="X" layout="tb" w="400pt"><breakBefore targetType="pageArea" startNew="1"/>{}</subform>"#,
+        draw("A", "FIRST RECORD", 20)
+    );
+    let flat = flatten(&template(&body, ""));
+    assert_eq!(flat.page.page_count, 2, "a blank first page, then the content");
+    let pages = texts_by_page(&flat);
+    assert_eq!(
+        pages[0],
+        vec!["HEADER EVERY PAGE", "FOOTER DEFAULT"],
+        "page 1 carries page background only"
+    );
+    assert!(pages[1].iter().any(|t| t == "FIRST RECORD"));
+    assert!(
+        pages[1].iter().any(|t| t == "LAST PAGE ONLY"),
+        "page 2 is the last page and uses the designated last page, got {:?}",
+        pages[1]
+    );
+}
+
+/// XFA 3.3 §8 Example 8.27: in a duplex page set, a break to an odd page
+/// from an odd page inserts a blank filler page for the back of the sheet.
+#[test]
+fn a_break_to_an_odd_page_from_an_odd_page_inserts_a_blank_page() {
+    require_fonts!();
+    let body = format!(
+        r#"<subform name="X" layout="tb" w="400pt">{}<breakAfter targetType="pageOdd"/></subform>{}"#,
+        draw("A", "ON PAGE ONE", 20),
+        draw("Z", "ON PAGE THREE", 20)
+    );
+    let flat = flatten(&template(&body, ""));
+    assert_eq!(flat.page.page_count, 3, "page 1, a blank page 2, page 3");
+    assert!(flat.page.pages[1].blank, "page 2 is the filler");
+    let pages = texts_by_page(&flat);
+    assert!(pages[0].iter().any(|t| t == "ON PAGE ONE"));
+    assert_eq!(pages[1], vec!["HEADER EVERY PAGE", "FOOTER DEFAULT"], "the filler holds page background only");
+    assert!(pages[2].iter().any(|t| t == "ON PAGE THREE"));
+}
+
+/// A `breakBefore targetType="contentArea"` moves to the next content area
+/// of the current page before starting a new page (XFA 3.3 §7 "Break
+/// Conditions"): the second column of a two-column page.
+#[test]
+fn a_content_area_break_moves_to_the_next_content_area_of_the_page() {
+    require_fonts!();
+    let xdp = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+<subform name="form1" layout="tb"><pageSet name="MPs" relation="simplexPaginated">
+<pageArea name="MP">
+  <medium long="297mm" short="210mm" stock="a4"/>
+  <contentArea name="Left" x="17.5mm" y="30mm" w="90mm" h="255mm"/>
+  <contentArea name="Right" x="110mm" y="30mm" w="90mm" h="255mm"/>
+</pageArea>
+</pageSet>
+<subform name="Body" layout="tb" w="250pt">{}<subform name="Second" layout="tb" w="250pt"><breakBefore targetType="contentArea"/>{}</subform></subform>
+</subform></template></xdp:xdp>"#,
+        draw("A", "LEFT COLUMN", 20),
+        draw("B", "RIGHT COLUMN", 20)
+    );
+    let flat = flatten(&xdp);
+    assert_eq!(flat.page.page_count, 1, "both columns are on one page");
+    let (page_a, a) = locate_text(&flat, "LEFT COLUMN");
+    let (page_b, b) = locate_text(&flat, "RIGHT COLUMN");
+    assert_eq!((page_a, page_b), (1, 1));
+    let mm = |v: f64| v * 72.0 / 25.4;
+    let f = |n: u2s_xfa::Num| n.to_string().parse::<f64>().unwrap();
+    assert!((f(a.x) - mm(17.5)).abs() < 0.1, "A is in the left column at {}", a.x);
+    assert!((f(b.x) - mm(110.0)).abs() < 0.1, "B is in the right column at {}", b.x);
+    assert!((f(a.y) - f(b.y)).abs() < 0.1, "both columns start at the content area's top");
+}
+
+/// XFA 3.3 §8 "Termination processing": when the last page's content does
+/// not fit the designated last page, that page is kept and a blank
+/// instance of the designated last page follows it.
+#[test]
+fn a_last_page_whose_content_does_not_fit_the_designated_last_page_gets_a_blank_one() {
+    require_fonts!();
+    let masters = |body: &str| {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+<subform name="form1" layout="tb"><pageSet name="MPs" relation="simplexPaginated">
+<pageArea name="MP">
+  <medium long="297mm" short="210mm" stock="a4"/>
+  <contentArea x="17.5mm" y="30mm" w="192mm" h="255mm"/>
+</pageArea>
+<pageArea name="MP_Last" pagePosition="last">
+  <medium long="297mm" short="210mm" stock="a4"/>
+  <contentArea x="17.5mm" y="30mm" w="192mm" h="100mm"/>
+  <draw name="LastNote" x="17.5mm" y="274mm" w="400pt" h="12pt"><font typeface="Helvetica" size="8pt"/><value><text>LAST PAGE ONLY</text></value></draw>
+</pageArea>
+</pageSet>
+<subform name="Body" layout="tb" w="540pt">{body}</subform></subform></template></xdp:xdp>"#
+        )
+    };
+    let short: String = (1..=5).map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24)).collect();
+    let flat = flatten(&masters(&short));
+    assert_eq!(flat.page.page_count, 1, "120pt of rows fit the 100mm last page");
+    assert!(texts_by_page(&flat)[0].iter().any(|t| t == "LAST PAGE ONLY"));
+
+    let long: String = (1..=20).map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24)).collect();
+    let flat = flatten(&masters(&long));
+    assert_eq!(flat.page.page_count, 2, "480pt of rows do not fit the 100mm last page");
+    assert!(flat.page.pages[1].blank);
+    let pages = texts_by_page(&flat);
+    assert!(pages[0].iter().any(|t| t == "Row 20"), "page 1 keeps all its rows");
+    assert_eq!(pages[1], vec!["LAST PAGE ONLY"], "page 2 is a blank designated last page");
+}
+
+/// Every page has its own size: a designated last page on A5 after A4
+/// pages stacks at its own height, and nodes locate on it accordingly.
+#[test]
+fn pages_of_different_sizes_stack_at_their_own_heights() {
+    require_fonts!();
+    let rows: String = (1..=35).map(|i| draw(&format!("R{i}"), &format!("Row {i}"), 24)).collect();
+    let xdp = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<xdp:xdp xmlns:xdp="http://ns.adobe.com/xdp/"><template xmlns="http://www.xfa.org/schema/xfa-template/3.3/">
+<subform name="form1" layout="tb"><pageSet name="MPs" relation="simplexPaginated">
+<pageArea name="MP">
+  <medium long="297mm" short="210mm" stock="a4"/>
+  <contentArea x="17.5mm" y="30mm" w="192mm" h="255mm"/>
+</pageArea>
+<pageArea name="MP_Last" pagePosition="last">
+  <medium long="210mm" short="148mm" stock="a5"/>
+  <contentArea x="10mm" y="20mm" w="128mm" h="150mm"/>
+</pageArea>
+</pageSet>
+<subform name="Body" layout="tb" w="540pt">{rows}</subform></subform></template></xdp:xdp>"#
+    );
+    let flat = flatten(&xdp);
+    assert_eq!(flat.page.page_count, 2);
+    let a4 = 297.0 * 72.0 / 25.4;
+    let a5 = 210.0 * 72.0 / 25.4;
+    let f = |n: u2s_xfa::Num| n.to_string().parse::<f64>().unwrap();
+    assert!((f(flat.page.pages[0].height) - a4).abs() < 0.01);
+    assert!((f(flat.page.pages[1].height) - a5).abs() < 0.01, "page 2 is A5 tall");
+    assert!((f(flat.page.pages[1].top) - a4).abs() < 0.01, "page 2 starts where page 1 ends");
+    assert!((f(flat.page.column_height()) - (a4 + a5)).abs() < 0.01);
+    let (page, bounds) = locate_text(&flat, "Row 31");
+    assert_eq!(page, 2);
+    assert!((f(bounds.y) - 20.0 * 72.0 / 25.4).abs() < 0.01, "Row 31 starts at the A5 content area's top");
+    assert!((f(bounds.x) - 10.0 * 72.0 / 25.4).abs() < 0.01, "and at its left edge");
 }

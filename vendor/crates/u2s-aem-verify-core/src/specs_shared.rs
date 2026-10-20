@@ -8,46 +8,20 @@
 //! description is prompt surface, worth reading and reviewing on its own.
 
 use serde_json::{Value, json};
+use u2s_schema::tool_input_schema;
 
-use crate::interactive::{ControlKind, ControlsQuery, MAX_SESSIONS_PER_INSTANCE};
+use crate::args::{
+    ClickArgs, CloseArgs, ControlsArgs, FieldArgs, GotoArgs, OpenArgs, ScreenshotArgs, SetArgs,
+    StepArgs,
+};
+use crate::interactive::MAX_SESSIONS_PER_INSTANCE;
 
-fn instance_id_prop() -> Value {
-    json!({
-        "type": "string",
-        "description":
-            "Any stable string identifying the calling agent/run -- the same value passed to \
-             verify_run/verify_status. Each value gets its own AEM+Chromium instance, which \
-             holds that caller's sessions. Usually injected by the server; omit to use one \
-             shared default instance."
-    })
-}
-
-fn session_prop() -> Value {
-    json!({
-        "type": "string",
-        "description": "The session handle verify_open returned: one open form, in its own browser tab."
-    })
-}
-
-fn revision_prop(description: &str) -> Value {
-    json!({ "type": "integer", "minimum": 0, "description": description })
-}
-
-/// Builds one tool spec. `schema` is the whole `{"type": "object", "properties": {...}}`
-/// object; `additionalProperties: false` is added here so every spec gets
-/// it without repeating it. No `required` array: like every other tool
-/// this crate declares (`verify_run`, `verify_status`), a missing argument
-/// is enforced by `crate::server`'s own parsing (`require_str`/`require_u64`),
-/// not advertised at the JSON Schema level.
-fn tool(name: &str, description: &str, mut schema: Value) -> Value {
-    schema
-        .as_object_mut()
-        .expect("schema is always built as a JSON object")
-        .insert("additionalProperties".to_owned(), json!(false));
+/// Builds one tool spec from its description and generated input schema.
+fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({
         "name": name,
         "description": description,
-        "input_schema": schema,
+        "input_schema": input_schema,
     })
 }
 
@@ -71,20 +45,7 @@ pub fn tool_specs() -> Vec<Value> {
                  Call verify_controls next to see what can be set. Side-effecting: it installs \
                  the package on the instance."
             ),
-            json!({
-                "type": "object",
-                "properties": {
-                    "package": {
-                        "type": "string",
-                        "description": "A u2s blob handle naming the FileVault package to open."
-                    },
-                    "package_path": {
-                        "type": "string",
-                        "description": "A filesystem path to the package, for conformance test vectors."
-                    },
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<OpenArgs>(),
         ),
         tool(
             "verify_controls",
@@ -110,24 +71,7 @@ pub fn tool_specs() -> Vec<Value> {
              `kinds` asked for; `total` counts every match and `next_offset` is where the next \
              page starts (absent on the last page). A read: `revision` must match exactly, \
              but this call never advances it.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "revision": revision_prop("The form's current revision, from verify_open or the last interactive call."),
-                    "offset": { "type": "integer", "minimum": 0, "description": "Where the page starts; default 0." },
-                    "limit": {
-                        "type": "integer", "minimum": 1, "maximum": ControlsQuery::MAX_LIMIT,
-                        "description": "How many controls at most; default 100."
-                    },
-                    "kinds": {
-                        "type": "array",
-                        "items": { "type": "string", "enum": ControlKind::ALL },
-                        "description": "Only controls of these kinds; omit for every kind."
-                    },
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<ControlsArgs>(),
         ),
         tool(
             "verify_field",
@@ -135,18 +79,7 @@ pub fn tool_specs() -> Vec<Value> {
              in the same shape verify_controls lists it -- the cheap way to re-read a control \
              after an interaction. A read: `revision` must match exactly, but this call never \
              advances it.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "revision": revision_prop("The form's current revision."),
-                    "field": {
-                        "type": "string",
-                        "description": "A control's `field` (its SOM expression), from verify_controls."
-                    },
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<FieldArgs>(),
         ),
         tool(
             "verify_set",
@@ -170,42 +103,7 @@ pub fn tool_specs() -> Vec<Value> {
              at the first refused set: the first one refused fails the call as a single set \
              would, a later one is reported under `failed` while the sets before it stay applied \
              and `revision` is the revision after the last of them. Side-effecting.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "expected_revision": revision_prop("The revision this call is based on."),
-                    "field": {
-                        "type": "string",
-                        "description": "A control's `field` (its SOM expression), from verify_controls."
-                    },
-                    "value": {
-                        "description":
-                            "What to set it to -- one of the control's own option values (an \
-                             array for a multi-select checkbox), or free text/a number."
-                    },
-                    "fields": {
-                        "type": "array",
-                        "minItems": 1,
-                        "maxItems": 25,
-                        "description": "Several controls to set in order, instead of `field`/`value`.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "field": {
-                                    "type": "string",
-                                    "description": "A control's `field` (its SOM expression), from verify_controls."
-                                },
-                                "value": {
-                                    "description": "What to set it to, as `value` above."
-                                }
-                            },
-                            "required": ["field", "value"]
-                        }
-                    },
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<SetArgs>(),
         ),
         tool(
             "verify_click",
@@ -221,18 +119,7 @@ pub fn tool_specs() -> Vec<Value> {
              right now, and for a submit button (use verify_submit). For wizard steps prefer \
              verify_next/verify_prev, which confirm the panel actually moved. Returns the same \
              shape verify_set does. Side-effecting.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "expected_revision": revision_prop("The revision this call is based on."),
-                    "field": {
-                        "type": "string",
-                        "description": "The button's `field` (its SOM expression), from verify_controls."
-                    },
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<ClickArgs>(),
         ),
         tool(
             "verify_next",
@@ -242,28 +129,14 @@ pub fn tool_specs() -> Vec<Value> {
              refusal then lists the fields the form's validation reports on this panel (usually \
              required fields still empty), so fill those and call verify_next again. Returns the \
              same shape verify_set does, with `field`/`value` both null. Side-effecting.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "expected_revision": revision_prop("The revision this call is based on."),
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<StepArgs>(),
         ),
         tool(
             "verify_prev",
             "Goes back to the previous wizard panel, confirming the visible panel actually \
              changed, and reports the same shape verify_next does. Refused on the first panel, \
              where there is nothing to go back to. Side-effecting.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "expected_revision": revision_prop("The revision this call is based on."),
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<StepArgs>(),
         ),
         tool(
             "verify_goto",
@@ -278,18 +151,7 @@ pub fn tool_specs() -> Vec<Value> {
              walk a wizard as a visitor would and verify_goto to inspect or revisit a panel; \
              verify_submit still validates the whole form. Returns the same shape verify_next \
              does. Side-effecting.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "expected_revision": revision_prop("The revision this call is based on."),
-                    "panel": {
-                        "type": "string",
-                        "description": "A panel's `som` from `panels`."
-                    },
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<GotoArgs>(),
         ),
         tool(
             "verify_reset",
@@ -297,14 +159,7 @@ pub fn tool_specs() -> Vec<Value> {
              than closing and opening again, since the package stays installed and only the \
              page itself is reloaded. Returns the same shape verify_next does, describing what \
              changed relative to how the form stood just before the reset. Side-effecting.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "expected_revision": revision_prop("The revision this call is based on."),
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<StepArgs>(),
         ),
         tool(
             "verify_screenshot",
@@ -314,23 +169,7 @@ pub fn tool_specs() -> Vec<Value> {
              Returns the image inline when it is small enough, otherwise a blob handle the \
              caller dereferences out of band. A read: `revision` must match exactly, but this \
              call never advances it.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "revision": revision_prop("The form's current revision."),
-                    "format": {
-                        "type": "string",
-                        "enum": ["png", "jpeg"],
-                        "description": "Image format; default png."
-                    },
-                    "field": {
-                        "type": "string",
-                        "description": "A control's `field` (its SOM expression), to crop the screenshot to just that control; omit for the whole page."
-                    },
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<ScreenshotArgs>(),
         ),
         tool(
             "verify_submit",
@@ -342,14 +181,7 @@ pub fn tool_specs() -> Vec<Value> {
              profile's submit artefact strategy produces (a browser download, a Document of \
              Record fetch, or nothing), the same way verify_run's own submit step does. Does not \
              close the form -- call verify_close afterward. Side-effecting.",
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "expected_revision": revision_prop("The revision this call is based on."),
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<StepArgs>(),
         ),
         tool(
             "verify_close",
@@ -360,13 +192,7 @@ pub fn tool_specs() -> Vec<Value> {
                  sessions, and a different build of the form cannot be opened or run while a \
                  session still shows this one. Side-effecting."
             ),
-            json!({
-                "type": "object",
-                "properties": {
-                    "session": session_prop(),
-                    "instance_id": instance_id_prop(),
-                }
-            }),
+            tool_input_schema::<CloseArgs>(),
         ),
     ]
 }

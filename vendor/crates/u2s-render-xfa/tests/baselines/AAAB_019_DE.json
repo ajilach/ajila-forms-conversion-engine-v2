@@ -1,0 +1,1135 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Bankbeziehung\n0319 00\nUBS Europe SE\nRetro-Erfassung für EAM FIM Endkunden – B2C\nNeuanlage\nÄnderung\nLöschung\n1\nEndkunde\nNachname\nVorname(n)\nFIM Company\nName\nS\nIntermed Code\nNeuanlage (möglich ab dem 01. des aktuellen Monats)\nBankverbindung\n.\n0319 00\nEUR\nInterne Konto-Nr. und dreistellige interne Konto-Nr.\nWährung\n01.\n.\nRetro Rückzahlungssatz für Fonds:\nAb 1 :\n%\nSonderkondition\nFondsprovider\nSatz in %\nAb\n01.\n.\nHinweis: Angabe Fondsprovider gemäß der Fondsproviderliste für B2C erforderlich\nISIN\nSatz in %\nAb\n01.\n.\nDirektvereinbarung 2\nFondsprovider\nSatz in %\nAb\n01.\n.\nHinweis: Angabe Fondsprovider gemäß der Fondsproviderliste für B2C erforderlich\nISIN\nSatz in %\nAb\n01.\n.\nUnterschrift(en)\nBitte senden Sie das Formular bis zum drittletzten Werktag des Monats an Client Onboarding. Nach dieser Frist kann die Rückvergütung erst für die Bestände ab dem Folgemonat erfolgen.\nCA/BD\nOrt\nDatum\nUnterschrift des Antragsstellers\nName des Antragsstellers\n0101665220101001501202601025\n66522\nDE\nV0\n019\nAAAB\n25.11.2020\nN1\n15.01.2026\nSeite 1/2",
+    "Bankbeziehung\n0319 00\nArbeitsanweisung für Client Onboarding\n1 Erfassung Legal Doc 76114, Zuordnung des Endkunden zu RAS Kundengruppe 888 (ohne Service Agreement für FIM) Erfassung Agreement in B2C\n2 Zusätzlich neben der Erfassung der Direktvereinbarung in B2C:\nErfassung Instruktion C038 /C039 (Retro Exclusion hinsichtlich Ex-Post Kostentransparenz im Vermögensausweis bei UBS Fonds / Dritt       fonds) für Endkunden auf Ebene Fondprovider\n–\nErfassung in RLA Retro-Tool\n–\nNur für bankinterne Zwecke\nUnterschrift(en) geprüft / in meiner Gegenwart unterzeichnet\nOE-Ref.\nVisum\n0101665220101001501202602022\n66522\nDE\nV0\n019\nAAAB\n25.11.2020\nN1\n15.01.2026\nSeite 2/2"
+  ],
+  "raster": [
+    "cd2e41c1106abf9b",
+    "3364ae3e28d4af5d"
+  ],
+  "controls": {
+    "UBSForms.MPs.MP.Barcode": {
+      "value": "0101665220101001501202601018",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66522",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AAAB",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "DE",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "25.11.2020",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.Barcode": {
+      "value": "0101665220101001501202601018",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66522",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AAAB",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "DE",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerModDate": {
+      "value": "25.11.2020",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.OU_Ref": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          229.6,
+          795.4,
+          112.700005,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffForInternalBankUse": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffOuRef": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffSignatureVerified": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.STP_UP1.ffUpSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Month": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          468.9,
+          502.0,
+          11.3,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Year": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          483.0,
+          502.0,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Fonds_Provider_Direkt": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          502.0,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Satz_Percent_Direkt": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          252.3,
+          502.0,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          497.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          497.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section_Fonds.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Month": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          468.9,
+          397.0,
+          11.3,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section_Fonds.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Year": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          483.0,
+          397.0,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section_Fonds.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Fonds_Provider": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          397.0,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section_Fonds.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Satz_Percent": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          252.3,
+          397.0,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section_Fonds.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          392.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Consolidation_Table_Section_Fonds.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          392.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Direkt_ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Month": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          468.9,
+          552.8,
+          11.3,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Direkt_ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Year": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          483.0,
+          552.8,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Direkt_ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.ISIN": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          552.8,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Direkt_ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Satz": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          252.3,
+          552.8,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Direkt_ISIN.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          548.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.Direkt_ISIN.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          548.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Month": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          468.9,
+          447.80002,
+          11.3,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.DateNumeric.Year": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          483.0,
+          447.80002,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.ISIN": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          447.80002,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.ISIN.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Satz_Percent": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          252.3,
+          447.80002,
+          199.8,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.ISIN.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          443.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.ISIN.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          443.5,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_1.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          88.1,
+          313.9,
+          37.600002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_1.DateNumeric.Month": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          253.3,
+          347.0,
+          11.3,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_1.DateNumeric.Year": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          267.4,
+          347.0,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_1.Fur_Fonds": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          169.7,
+          347.0,
+          28.300001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_1.OBJ_Number_Depot": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          130.8,
+          313.9,
+          54.600002,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_1.T_Text": {
+      "value": "EUR",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          313.9,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_2.BC_AccountNumber": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_2.Fur_Fonds": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_2.OBJ_Number_Depot": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Bankverbindung.STP_Bank_2.T_Text": {
+      "value": "EUR",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Client_Details.FamilyName_FirstName.TF_FamilyName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          169.1,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Client_Details.FamilyName_FirstName.TF_FirstName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          169.1,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Client_Details.FamilyName_FirstName.ffFamilyName": {
+      "value": "Nachname",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Client_Details.FamilyName_FirstName.ffFirstName_s": {
+      "value": "Vorname(n)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Client_Details.Intermed.Intermed": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          240.0,
+          240.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Client_Details.STP_Name.Name_Company": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          212.8,
+          496.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Client_Details.SectionTitle.ffClientDetails": {
+      "value": "Endkunde",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.FormTitle.STP_RB_Horizontal.RB_Group_Neuanlage.RB_1": {
+      "value": "1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          116.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormTitle.STP_RB_Horizontal.RB_Group_Neuanlage.RB_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          115.3,
+          116.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormTitle.STP_RB_Horizontal.RB_Group_Neuanlage.RB_3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          178.8,
+          116.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.ISIN": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Satz_Percent": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section_Sonder.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Date_AB": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section_Sonder.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.FondsProvider": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section_Sonder.STP_LastName_FirstName_Section_DYN.STP_LastName_FirstName.Satz": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section_Sonder.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Consolidation_Table_Section_Sonder.STP_LastName_FirstName_Section_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.CB_Daily_Statement": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.Date": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.Date1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.Date_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.Date_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.RB_Group_Retro.RB_1": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.RB_Group_Retro.RB_2": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.RB_Group_Retro.RB_3": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Löschung.Retro_Second.STP_Retro_RB.RB_Group_Retro.RB_4": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.SectionTitle.STP_SectionTitle.ffrb1": {
+      "value": "Neuanlage (möglich ab dem 01. des aktuellen Monats)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.SectionTitle.FF_Signature_s": {
+      "value": "Unterschrift(en)",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.SectionTitle.ffInformation": {
+      "value": "Bitte senden Sie das Formular bis zum drittletzten Werktag des Monats an Client Onboarding. Nach dieser Frist kann die Rückvergütung erst für die Bestände ab dem Folgemonat erfolgen.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.SectionTitle[1].ffInformation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.FullName": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          304.7,
+          695.3,
+          240.90001,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.Global_SignatureDate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          219.7,
+          666.9,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.Global_SignaturePlace": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          666.9,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Signature.Signature.ffDesDate": {
+      "value": "Datum",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesFullName": {
+      "value": "Name des Antragsstellers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesPlace": {
+      "value": "Ort",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffDesSignature": {
+      "value": "Unterschrift des Antragsstellers",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffIndexName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.Signature.Signature.ffIndexSignature": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    }
+  },
+  "warning": null
+}

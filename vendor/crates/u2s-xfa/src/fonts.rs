@@ -27,7 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 use crate::XfaError;
-use crate::xfa::font_manager::{get_font_manager, register_profile_font_data};
+use crate::xfa::font_manager::{RegisteredFace, get_font_manager, register_profile_font_data};
 
 /// Register every `.ttf`/`.otf` in `dir`, and set the fallback.
 ///
@@ -66,32 +66,40 @@ pub fn register_dir(
         )));
     }
 
-    let fallback = choose_fallback(&files, fallback_stem);
-
     let manager = get_font_manager();
     let mut manager = manager
         .lock()
         .map_err(|e| XfaError::Font(format!("font manager lock: {e}")))?;
 
     let mut registered = Vec::new();
-    let mut fallback_data: Option<&'static [u8]> = None;
+    let mut faces: Vec<(PathBuf, &'static [u8], u16, bool)> = Vec::new();
 
     for path in &files {
         let bytes = std::fs::read(path)
             .map_err(|e| XfaError::Font(format!("cannot read {}: {e}", path.display())))?;
-        // The manager's API takes `&'static [u8]`, and it leaks internally
-        // anyway when resolving embedded fonts. Leaking here is bounded: fonts
-        // are registered once at boot, not per document.
+        // The manager's API takes `&'static [u8]`. Leaking here is bounded:
+        // fonts are registered once at boot, not per document.
         let data: &'static [u8] = Box::leak(bytes.into_boxed_slice());
-        register_profile_font_data(&mut manager, data);
-        if Some(path) == fallback.as_ref() {
-            fallback_data = Some(data);
+        match RegisteredFace::parse(data) {
+            Ok(face) => faces.push((path.clone(), data, face.weight, face.italic)),
+            Err(e) => {
+                log::warn!("{} is not a usable font file: {e}", path.display());
+                continue;
+            }
         }
+        register_profile_font_data(&mut manager, data);
         registered.push(path.clone());
     }
 
-    let fallback = fallback.ok_or_else(|| XfaError::Font("no fallback font chosen".into()))?;
-    let data = fallback_data.ok_or_else(|| XfaError::Font("fallback font not loaded".into()))?;
+    let candidates: Vec<(PathBuf, u16, bool)> =
+        faces.iter().map(|(p, _, w, i)| (p.clone(), *w, *i)).collect();
+    let fallback = choose_fallback(&candidates, fallback_stem)
+        .ok_or_else(|| XfaError::Font("no fallback font chosen".into()))?;
+    let data = faces
+        .iter()
+        .find(|(p, ..)| *p == fallback)
+        .map(|(_, data, ..)| *data)
+        .ok_or_else(|| XfaError::Font("fallback font not loaded".into()))?;
     manager.set_fallback(data);
 
     Ok(RegisteredFonts {
@@ -100,8 +108,13 @@ pub fn register_dir(
     })
 }
 
-/// Pick the fallback deterministically. Never directory order.
-fn choose_fallback(files: &[PathBuf], preferred_stem: Option<&str>) -> Option<PathBuf> {
+/// Pick the fallback deterministically, from what the faces themselves
+/// say: the preferred file stem when one is named, else the upright face
+/// whose weight is closest to regular (400), by `OS/2` weight and style.
+/// Never directory order: every unresolvable typeface in the document ends
+/// up wearing the fallback, and a bold or italic one would make that
+/// obvious everywhere.
+fn choose_fallback(faces: &[(PathBuf, u16, bool)], preferred_stem: Option<&str>) -> Option<PathBuf> {
     let stem_of = |p: &PathBuf| {
         p.file_stem()
             .and_then(|s| s.to_str())
@@ -111,22 +124,15 @@ fn choose_fallback(files: &[PathBuf], preferred_stem: Option<&str>) -> Option<Pa
 
     if let Some(want) = preferred_stem {
         let want = want.to_ascii_lowercase();
-        if let Some(hit) = files.iter().find(|p| stem_of(p) == want) {
+        if let Some((hit, ..)) = faces.iter().find(|(p, ..)| stem_of(p) == want) {
             return Some(hit.clone());
         }
     }
 
-    // A regular face makes a far better fallback than a bold or italic one:
-    // every unresolvable typeface in the document ends up wearing it.
-    const STYLED: [&str; 6] = ["bold", "italic", "oblique", "light", "thin", "black"];
-    if let Some(regular) = files
+    faces
         .iter()
-        .find(|p| !STYLED.iter().any(|s| stem_of(p).contains(s)))
-    {
-        return Some(regular.clone());
-    }
-
-    files.first().cloned()
+        .min_by_key(|(p, weight, italic)| (u8::from(*italic), weight.abs_diff(400), stem_of(p)))
+        .map(|(p, ..)| p.clone())
 }
 
 /// What `register_dir` actually did — returned rather than logged so a test can
@@ -226,42 +232,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_regular_face_is_preferred_over_a_styled_one() {
-        let files: Vec<PathBuf> = [
-            "frutiger-bold.ttf",
-            "frutiger-italic.ttf",
-            "frutiger-light.ttf",
-        ]
-        .iter()
-        .map(PathBuf::from)
-        .collect();
-        // Upstream would take the alphabetically first — bold. All three of
-        // these are styled, so we fall back to the first, but the *rule* is
-        // what matters and the next case proves it.
+    fn the_upright_face_closest_to_regular_is_the_fallback() {
+        let faces: Vec<(PathBuf, u16, bool)> = vec![
+            (PathBuf::from("frutiger-bold.ttf"), 700, false),
+            (PathBuf::from("frutiger-italic.ttf"), 300, true),
+            (PathBuf::from("frutiger-light.ttf"), 300, false),
+        ];
+        // Alphabetically first is bold; the light upright face is closer to
+        // regular, and upright beats italic at any weight.
         assert_eq!(
-            choose_fallback(&files, None),
-            Some(PathBuf::from("frutiger-bold.ttf"))
+            choose_fallback(&faces, None),
+            Some(PathBuf::from("frutiger-light.ttf"))
         );
-
-        let with_regular: Vec<PathBuf> = ["a-bold.ttf", "z-regular.ttf"]
-            .iter()
-            .map(PathBuf::from)
-            .collect();
+        let with_regular: Vec<(PathBuf, u16, bool)> =
+            vec![(PathBuf::from("a-bold.ttf"), 700, false), (PathBuf::from("z-regular.ttf"), 400, false)];
         assert_eq!(
             choose_fallback(&with_regular, None),
             Some(PathBuf::from("z-regular.ttf")),
             "a regular face must win over an alphabetically earlier bold one"
         );
     }
-
     #[test]
     fn an_explicit_preference_wins() {
-        let files: Vec<PathBuf> = ["a-regular.ttf", "dejavu-sans.ttf"]
-            .iter()
-            .map(PathBuf::from)
-            .collect();
+        let faces: Vec<(PathBuf, u16, bool)> =
+            vec![(PathBuf::from("a-regular.ttf"), 400, false), (PathBuf::from("dejavu-sans.ttf"), 400, false)];
         assert_eq!(
-            choose_fallback(&files, Some("dejavu-sans")),
+            choose_fallback(&faces, Some("dejavu-sans")),
             Some(PathBuf::from("dejavu-sans.ttf"))
         );
     }

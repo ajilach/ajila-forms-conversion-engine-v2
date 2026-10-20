@@ -34,9 +34,11 @@ pub mod states;
 mod util;
 
 pub use extract::{
-    XfaPacket, extract_xfa_from_pdf, extract_xfa_from_pdf_bytes, extract_xfa_packets,
+    XfaPacket, extract_embedded_fonts, extract_xfa_from_pdf, extract_xfa_from_pdf_bytes,
+    extract_xfa_packets,
 };
-pub use fidelity::{Fidelity, Prepared, prepare_default, prepare_template_only};
+pub use fidelity::{Fidelity, Prepared, prepare_default, prepare_default_with_fonts, prepare_template_only};
+pub use xfa::font_manager::{DocumentFonts, EmbeddedFont};
 pub use flattened::{Flattened, FlattenedNode, FlattenedNodeKind, Page, PageOverrides};
 pub use xfa::{Num, XfaNode, XfaNodeKind, num};
 

@@ -1,40 +1,73 @@
 //! Tool specifications and the `u2s.manifest` resource.
 //!
-//! Schemas are plain `serde_json::Value` rather than `schemars` derives, for
-//! the same reason as the render servers: it decouples the schema from the
-//! rmcp/schemars versions, and keeps the tool descriptions — which are prompt
-//! surface — visible in one file.
+//! Each tool's input schema is generated from its argument type, which is
+//! also what its arguments parse into. Tool descriptions stay here; argument
+//! descriptions are the doc comments on those fields. Both are prompt surface.
 
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde_json::{Value, json};
+use u2s_render_core::args::{DocumentRef, InfoArgs, ServerArgs};
+use u2s_schema::tool_input_schema;
 
 pub const CONTRACT_VERSION: &str = "1.0.0";
 
-fn tool(name: &str, description: &str, properties: Value, required: Value) -> Value {
-    json!({
-        "name": name,
-        "description": description,
-        "input_schema": {
-            "type": "object",
-            "properties": properties,
-            "required": required,
-        }
-    })
+fn tool(name: &str, description: &str, input_schema: Value) -> Value {
+    json!({ "name": name, "description": description, "input_schema": input_schema })
 }
 
-fn doc_path_prop() -> Value {
-    json!({
-        "type": "string",
-        "description": "Absolute path to the PDF on the machine running this server, \
-                        normally inside U2S_BLOB_DIR."
-    })
+/// An xfa data tool's arguments: the PDF it reads next to the tool's own.
+pub type XfaDataArgs<T> = ServerArgs<DocumentRef, T>;
+
+fn schema_of<T: JsonSchema>() -> Value {
+    tool_input_schema::<XfaDataArgs<T>>()
 }
 
-fn packet_prop() -> Value {
-    json!({
-        "type": "string",
-        "description": "A packet name from `xfa_packets` (e.g. \"template\", \"datasets\", \
-                        \"xdp\" for a single-stream /XFA). Omit to use the first packet."
-    })
+/// `xfa_read`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct ReadArgs {
+    /// A packet name from `xfa_packets` (e.g. "template", "datasets", "xdp" for a single-stream /XFA). Leave out to use the first packet.
+    #[schemars(length(min = 1))]
+    pub packet: Option<String>,
+    /// Character offset; default 0.
+    pub offset: Option<usize>,
+    /// Characters to return; default 4000.
+    #[schemars(range(min = 1))]
+    pub limit: Option<usize>,
+}
+
+/// `xfa_search`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct SearchArgs {
+    /// A packet name from `xfa_packets` (e.g. "template", "datasets", "xdp" for a single-stream /XFA). Leave out to use the first packet.
+    #[schemars(length(min = 1))]
+    pub packet: Option<String>,
+    /// Substring or regex pattern.
+    pub query: String,
+    /// Treat query as a regex; default false.
+    #[serde(default)]
+    pub regex: bool,
+    /// Max matches returned; default 50.
+    #[schemars(range(min = 1))]
+    pub limit: Option<usize>,
+}
+
+/// `xfa_outline`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct OutlineArgs {
+    /// Depth from each packet root; default 10. A leaf value is itself nested 2-3 levels under its field (value/text/character-data), so shallower defaults cut off real content.
+    #[schemars(range(min = 1))]
+    pub max_depth: Option<usize>,
+    /// Max entries returned; default 200.
+    #[schemars(range(min = 1))]
+    pub limit: Option<usize>,
+}
+
+/// `xfa_node`.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+pub struct NodeArgs {
+    /// A path from xfa_outline.
+    pub path: String,
 }
 
 pub fn tool_specs() -> Vec<Value> {
@@ -45,8 +78,7 @@ pub fn tool_specs() -> Vec<Value> {
              lengths, in declaration order. Call this FIRST: it costs nothing (no parse, \
              no layout) and names what `xfa_read` and `xfa_search` can address. A PDF with \
              no XFA form returns an empty list — use pdf_info to confirm form_type.",
-            json!({ "doc_path": doc_path_prop() }),
-            json!(["doc_path"]),
+            schema_of::<InfoArgs>(),
         ),
         tool(
             "xfa_read",
@@ -54,13 +86,7 @@ pub fn tool_specs() -> Vec<Value> {
              literal XML, not its structure (use `xfa_outline`/`xfa_node` for that). Always \
              reports total_chars and truncated, so a caller can tell a partial read from a \
              whole one. limit defaults to 4000 characters.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "packet": packet_prop(),
-                "offset": { "type": "integer", "minimum": 0, "description": "Character offset; default 0." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Characters to return; default 4000." }
-            }),
-            json!(["doc_path"]),
+            schema_of::<ReadArgs>(),
         ),
         tool(
             "xfa_search",
@@ -74,14 +100,7 @@ pub fn tool_specs() -> Vec<Value> {
              rather than silently capping — narrow with `packet` or a more specific query \
              rather than raising limit. A query that could match the empty string is refused, \
              since it would report one hit per character.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "packet": packet_prop(),
-                "query": { "type": "string", "description": "Substring or regex pattern." },
-                "regex": { "type": "boolean", "description": "Treat query as a regex; default false." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Max matches returned; default 50." }
-            }),
-            json!(["doc_path", "query"]),
+            schema_of::<SearchArgs>(),
         ),
         tool(
             "xfa_outline",
@@ -90,23 +109,14 @@ pub fn tool_specs() -> Vec<Value> {
              showing the children. Each packet parses to its own root, addressed as \
              template[0], datasets[0], etc. Walk into a path with `xfa_node` rather than \
              raising max_depth or limit.",
-            json!({
-                "doc_path": doc_path_prop(),
-                "max_depth": { "type": "integer", "minimum": 0, "description": "Depth from each packet root; default 10. A leaf value is itself nested 2-3 levels under its field (value/text/character-data), so shallower defaults cut off real content." },
-                "limit": { "type": "integer", "minimum": 1, "description": "Max entries returned; default 200." }
-            }),
-            json!(["doc_path"]),
+            schema_of::<OutlineArgs>(),
         ),
         tool(
             "xfa_node",
             "One node's own info — kind, attributes, a content excerpt — plus the list of \
              its immediate children (never a subtree). `path` is a dot-joined address as \
              returned by `xfa_outline`, e.g. \"template[0].subform2.Field1\".",
-            json!({
-                "doc_path": doc_path_prop(),
-                "path": { "type": "string", "description": "A path from xfa_outline." }
-            }),
-            json!(["doc_path", "path"]),
+            schema_of::<NodeArgs>(),
         ),
     ]
 }

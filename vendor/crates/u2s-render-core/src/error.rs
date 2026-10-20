@@ -33,6 +33,12 @@ pub enum RenderError {
     #[error("invalid argument {field}: {detail}")]
     InvalidArgument { field: &'static str, detail: String },
 
+    /// The call's arguments do not have the tool's shape: a missing
+    /// argument, a wrong type, an unknown image format. The text is the
+    /// parser's, which names the argument.
+    #[error("invalid arguments: {0}")]
+    Arguments(String),
+
     #[error("region [{x}, {y}, {w}, {h}] pt is outside page {page} ({width_pt} x {height_pt} pt)")]
     RegionOutOfBounds {
         page: u32,

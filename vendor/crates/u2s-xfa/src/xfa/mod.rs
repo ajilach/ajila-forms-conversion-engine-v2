@@ -1,9 +1,11 @@
+pub mod acrobat_compat;
 pub mod font_manager;
 pub mod hyphenation;
 pub mod caption;
 pub mod field_meta;
 pub mod instances;
 pub mod locale;
+pub mod pagination;
 pub mod picture;
 pub mod script_executor;
 pub mod scripting;
@@ -92,7 +94,13 @@ pub struct Corner {
     pub thickness: Option<Num>,
     pub join: JoinStyle,
     pub presence: String,
-    pub radius: Option<Num>, // for inverted corners
+    /// How far each adjoining edge is trimmed back from the vertex.
+    pub radius: Option<Num>,
+    /// `inverted="1"`: the corner is concave, joining the edges inward.
+    pub inverted: bool,
+    pub stroke: StrokeStyle,
+    /// The corner's own `<color>`; the adjoining edge's when absent.
+    pub color: Option<(u8, u8, u8)>,
 }
 
 /// Border properties
@@ -179,12 +187,40 @@ impl Border {
 /// Fill properties for backgrounds
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Fill {
+    /// The start (or background) color; white when the fill has none.
     pub color: Option<(u8, u8, u8)>,
     pub presence: String,
-    /// A `<linear>` gradient from `color` to its own end color. `None` for a
-    /// solid fill. (`<radial>`, `<pattern>` and `<stipple>` are not drawn:
-    /// the fill is its solid start color.)
-    pub linear: Option<LinearGradient>,
+    /// The fill type element (XFA 3.3 "The fill element"); solid when the
+    /// fill has none.
+    pub kind: FillKind,
+}
+
+/// A fill's type element: how the region is painted from the fill's own
+/// color (XFA 3.3 "The fill element").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FillKind {
+    #[default]
+    Solid,
+    Linear(LinearGradient),
+    /// `<radial>`: the start color at the center, `end` at the edges, or
+    /// the reverse for `type="toCenter"`.
+    Radial { end: (u8, u8, u8), to_center: bool },
+    /// `<pattern>`: `color` strokes hatched over the background.
+    Pattern { color: (u8, u8, u8), kind: PatternKind },
+    /// `<stipple>`: `rate` percent of the area stippled in `color`.
+    Stipple { color: (u8, u8, u8), rate: u8 },
+}
+
+/// The hatching of a `<pattern>` fill (XFA 3.3 "The pattern element").
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PatternKind {
+    #[default]
+    CrossHatch,
+    CrossDiagonal,
+    DiagonalLeft,
+    DiagonalRight,
+    Horizontal,
+    Vertical,
 }
 
 /// The direction a `<linear>` fill runs in, from its start color to its end
@@ -262,6 +298,12 @@ pub struct Font {
     pub posture: FontPosture,
     pub underline: bool,
     pub line_through: bool,
+    /// `underline="2"`: a double underline.
+    pub underline_double: bool,
+    /// `lineThrough="2"`: a double line through.
+    pub line_through_double: bool,
+    /// `underlinePeriod="word"`: the underline breaks at word breaks.
+    pub underline_period_word: bool,
     pub color: Option<(u8, u8, u8)>,
     pub baseline_shift: Option<Num>,
     /// Letter spacing adjustment (relative measurement, can be negative)
@@ -325,6 +367,9 @@ impl Default for Font {
             posture: FontPosture::Normal,
             underline: false,
             line_through: false,
+            underline_double: false,
+            line_through_double: false,
+            underline_period_word: false,
             color: None,
             baseline_shift: None,
             letter_spacing: None, // 0 default (no adjustment)
@@ -336,8 +381,7 @@ impl Default for Font {
     }
 }
 
-// DEVIATION: `PartialOrd, Ord` added so FontVariant can key a BTreeMap — see
-// font_manager::find_loaded_by_family for why the map must be ordered.
+// `PartialOrd, Ord` so a `FontVariant` can key an ordered map.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 /// Font weight per XFA spec (normal/bold) with extended internal weights for font matching
 /// XFA only specifies "normal" or "bold", but we support finer weights internally
@@ -438,6 +482,173 @@ impl FromStr for FontPosture {
     }
 }
 
+/// A `<barcode>` (XFA 3.3 "The barcode element"): the options of a 1-d
+/// barcode this renderer honours. The 2-d options (`dataRowCount`,
+/// `dataColumnCount`, `rowColumnRatio`, `errorCorrectionLevel`, `upsMode`),
+/// `dataPrep`, `charEncoding`, `moduleWidth`, `moduleHeight` and `truncate`
+/// are not read; a symbology that needs them is refused as unsupported when
+/// the barcode is encoded (see [`crate::barcode::encode`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Barcode {
+    /// `type`.
+    pub symbology: String,
+    /// `wideNarrowRatio`: the width of a wide bar in narrow bars. The spec
+    /// gives no default; 3.0 is the ratio the 1-d standards this renderer
+    /// encodes specify, and what Designer writes.
+    pub wide_narrow_ratio: f32,
+    pub checksum: BarcodeChecksum,
+    /// `dataLength`: the expected most characters, which with the field
+    /// width sets the width of a narrow bar; the value is not validated
+    /// against it.
+    pub data_length: Option<usize>,
+    pub text_location: BarcodeTextLocation,
+    /// `startChar` and `endChar`: control characters for the symbologies
+    /// that allow them; ignored for the others.
+    pub start_char: Option<String>,
+    pub end_char: Option<String>,
+    /// `printCheckDigit`: whether a generated check digit is also in the
+    /// human-readable text.
+    pub print_check_digit: bool,
+}
+
+/// `checksum` of a `<barcode>`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarcodeChecksum {
+    #[default]
+    None,
+    Auto,
+    OneMod10,
+    TwoMod10,
+    OneMod10OneMod11,
+}
+
+impl std::str::FromStr for BarcodeChecksum {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Ok(match s.trim() {
+            "none" => Self::None,
+            "auto" => Self::Auto,
+            "1mod10" => Self::OneMod10,
+            "2mod10" => Self::TwoMod10,
+            "1mod10_1mod11" => Self::OneMod10OneMod11,
+            other => return Err(format!("{other:?} is not a barcode checksum")),
+        })
+    }
+}
+
+/// `textLocation` of a `<barcode>`: where its human-readable text goes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BarcodeTextLocation {
+    #[default]
+    Below,
+    Above,
+    BelowEmbedded,
+    AboveEmbedded,
+    None,
+}
+
+impl std::str::FromStr for BarcodeTextLocation {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, String> {
+        Ok(match s.trim() {
+            "below" => Self::Below,
+            "above" => Self::Above,
+            "belowEmbedded" => Self::BelowEmbedded,
+            "aboveEmbedded" => Self::AboveEmbedded,
+            "none" => Self::None,
+            other => return Err(format!("{other:?} is not a barcode text location")),
+        })
+    }
+}
+
+impl Barcode {
+    /// The options of a `<barcode>` element. A value the spec does not
+    /// list is reported and replaced by the property's default.
+    pub fn of(node: &XfaNode) -> Barcode {
+        let attr = |name: &str| node.attributes.get(name).map(|v| v.trim()).filter(|v| !v.is_empty());
+        let symbology = attr("type").unwrap_or("unspecified").to_string();
+        let wide_narrow_ratio = match attr("wideNarrowRatio").map(str::parse::<f32>) {
+            Some(Ok(ratio)) if ratio >= 1.0 => ratio,
+            Some(_) => {
+                log::warn!("barcode {symbology}: wideNarrowRatio {:?} is not a ratio of at least 1; using 3.0", attr("wideNarrowRatio").unwrap_or(""));
+                3.0
+            }
+            None => 3.0,
+        };
+        let checksum = match attr("checksum").map(str::parse) {
+            Some(Ok(checksum)) => checksum,
+            Some(Err(e)) => {
+                log::warn!("barcode {symbology}: {e}; no checksum is inserted");
+                BarcodeChecksum::None
+            }
+            None => BarcodeChecksum::None,
+        };
+        let data_length = match attr("dataLength").map(str::parse::<usize>) {
+            Some(Ok(n)) => Some(n),
+            Some(Err(_)) => {
+                log::warn!("barcode {symbology}: dataLength {:?} is not a count; the value's own length is used", attr("dataLength").unwrap_or(""));
+                None
+            }
+            None => None,
+        };
+        let text_location = match attr("textLocation").map(str::parse) {
+            Some(Ok(location)) => location,
+            Some(Err(e)) => {
+                log::warn!("barcode {symbology}: {e}; the text is placed below");
+                BarcodeTextLocation::Below
+            }
+            None => BarcodeTextLocation::Below,
+        };
+        Barcode {
+            symbology,
+            wide_narrow_ratio,
+            checksum,
+            data_length,
+            text_location,
+            start_char: attr("startChar").map(str::to_string),
+            end_char: attr("endChar").map(str::to_string),
+            print_check_digit: attr("printCheckDigit") == Some("1"),
+        }
+    }
+}
+
+/// A measurement as written (XFA 3.3 §2 "Measurements"): absolute, in
+/// points, or relative to the current font.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Measurement {
+    Absolute(Num),
+    /// `em`: em widths of the current font (its size).
+    Em(Num),
+    /// `%`: a percentage of the width of a space in the current font.
+    PercentOfSpace(Num),
+}
+
+/// A field's `<checkButton>` appearance (XFA 3.3 "The checkButton element").
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CheckButton {
+    /// The button's side, in points.
+    pub size: Num,
+    /// Its appearance when asserted.
+    pub mark: CheckMark,
+    /// `shape="round"`: a circular outline, a radio button's.
+    pub round: bool,
+}
+
+/// How a check button looks when asserted (XFA 3.3 "The mark property").
+/// `Default` is a corner-to-corner X in a square button and a filled circle
+/// in a round one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CheckMark {
+    #[default]
+    Default,
+    Check,
+    Circle,
+    Cross,
+    Diamond,
+    Square,
+    Star,
+}
+
 /// Paragraph properties for text alignment and spacing
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Para {
@@ -449,6 +660,10 @@ pub struct Para {
     pub text_indent: Option<Num>,
     pub margin_left: Option<Num>,
     pub margin_right: Option<Num>,
+    /// `radixOffset`: with `hAlign="radix"`, how far from the region's right
+    /// edge the radix character's left edge is placed (XFA 3.3 §2
+    /// "Horizontal alignment").
+    pub radix_offset: Option<Num>,
     /// Auto-hyphenation settings from child `<hyphenation>` element.
     pub hyphenation: Option<hyphenation::XfaHyphenation>,
 }
@@ -663,7 +878,41 @@ pub enum XfaNodeKind {
     },
 }
 
+/// The prototypes a template offers (see `XfaNode::resolve_use_prototypes`).
+#[derive(Default)]
+struct Prototypes {
+    by_id: HashMap<String, XfaNode>,
+    by_path: HashMap<String, XfaNode>,
+}
+
+impl Prototypes {
+    fn lookup(&self, reference: &str) -> Option<&XfaNode> {
+        match reference.strip_prefix('#') {
+            Some(id) => self.by_id.get(id),
+            None => self.by_path.get(reference),
+        }
+    }
+}
+
 impl XfaNodeKind {
+    /// The element's tag: what a prototype reference must match.
+    pub fn tag_name(&self) -> &str {
+        match self {
+            XfaNodeKind::Element { tag_name, .. } => tag_name.as_str(),
+            XfaNodeKind::Field => "field",
+            XfaNodeKind::Subform => "subform",
+            XfaNodeKind::Draw => "draw",
+            XfaNodeKind::ExclGroup => "exclGroup",
+            XfaNodeKind::Value => "value",
+            XfaNodeKind::Template => "template",
+            XfaNodeKind::PageSet => "pageSet",
+            XfaNodeKind::PageArea => "pageArea",
+            XfaNodeKind::ContentArea => "contentArea",
+            XfaNodeKind::Bind => "bind",
+            XfaNodeKind::Text { .. } => "#text",
+        }
+    }
+
     /// Returns `true` if this kind represents a subform (dedicated or generic element).
     pub fn is_subform(&self) -> bool {
         matches!(self, XfaNodeKind::Subform)
@@ -686,6 +935,19 @@ impl XfaNodeKind {
     pub fn is_draw(&self) -> bool {
         matches!(self, XfaNodeKind::Draw)
             || matches!(self, XfaNodeKind::Element { tag_name, .. } if tag_name == "draw")
+    }
+
+    /// Whether a named node of this kind is a container that the SOM paths
+    /// of its descendants pass through (XFA 3.3 §3 "Scripting Object
+    /// Model"): a subform, an exclusion group, a page set or a page area --
+    /// `form1.pageSet.Page1.Footer` names a footer on master page `Page1`.
+    /// An unnamed node of any kind is transparent: its children are
+    /// addressed as children of its parent. The one rule every walker that
+    /// builds SOM paths shares.
+    pub fn extends_som_path(&self) -> bool {
+        self.is_subform()
+            || self.is_exclgroup()
+            || matches!(self, XfaNodeKind::PageSet | XfaNodeKind::PageArea)
     }
 
     /// Map an XML tag name to the corresponding `XfaNodeKind`.
@@ -745,7 +1007,17 @@ impl XfaNode {
             .get("rotate")
             .and_then(|v| v.parse::<i32>().ok())
             .unwrap_or(0);
-        let name = attributes.get("name").cloned();
+        // XFA 3.3 §3 "Area Objects Are Always Transparent": an area "has no
+        // consequences at run time" and "areas are always transparent to
+        // SOM expressions even if the areas have names" (and to data
+        // binding, §6). Its name is dropped here, so every path built or
+        // walked in this crate sees through it: the engine, the flattener
+        // and the control listing then agree on
+        // `MP.LastPageOnly.STP_UP.Date` for a field inside the area `UP1`.
+        let name = match &kind {
+            XfaNodeKind::Element { tag_name, .. } if tag_name == "area" => None,
+            _ => attributes.get("name").cloned(),
+        };
         let presence = attributes
             .get("presence")
             .and_then(|s| s.parse().ok())
@@ -938,23 +1210,71 @@ impl XfaNode {
                 .attributes
                 .get("radius")
                 .and_then(|v| Self::parse_dimension(v).ok()),
+            inverted: node.attributes.get("inverted").map(String::as_str) == Some("1"),
+            stroke: node
+                .attributes
+                .get("stroke")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_default(),
+            color: Self::parse_color_from_children(&node.children),
         }
     }
 
     /// Parse a <fill> element
     pub(crate) fn parse_fill(node: &XfaNode) -> Fill {
-        let linear = node.children.iter().find_map(|child| match &child.kind {
-            XfaNodeKind::Element { tag_name, .. } if tag_name == "linear" => Some(LinearGradient {
-                direction: match child.attributes.get("type").map(String::as_str) {
-                    Some("toBottom") => GradientDirection::ToBottom,
-                    Some("toLeft") => GradientDirection::ToLeft,
-                    Some("toTop") => GradientDirection::ToTop,
-                    _ => GradientDirection::ToRight,
-                },
-                end: Self::parse_color_from_children(&child.children).unwrap_or((0, 0, 0)),
-            }),
-            _ => None,
-        });
+        // The type element's own `<color>` is its end, stroke or stipple
+        // color; black when it has none (the spec leaves that default to the
+        // context, and Designer always writes one).
+        let own_color = |child: &XfaNode| Self::parse_color_from_children(&child.children).unwrap_or((0, 0, 0));
+        let kind = node
+            .children
+            .iter()
+            .find_map(|child| {
+                let XfaNodeKind::Element { tag_name, .. } = &child.kind else {
+                    return None;
+                };
+                let attr = |name: &str| child.attributes.get(name).map(String::as_str);
+                Some(match tag_name.as_str() {
+                    "solid" => FillKind::Solid,
+                    "linear" => FillKind::Linear(LinearGradient {
+                        direction: match attr("type") {
+                            Some("toBottom") => GradientDirection::ToBottom,
+                            Some("toLeft") => GradientDirection::ToLeft,
+                            Some("toTop") => GradientDirection::ToTop,
+                            _ => GradientDirection::ToRight,
+                        },
+                        end: own_color(child),
+                    }),
+                    "radial" => FillKind::Radial {
+                        end: own_color(child),
+                        to_center: attr("type") == Some("toCenter"),
+                    },
+                    "pattern" => FillKind::Pattern {
+                        color: own_color(child),
+                        kind: match attr("type") {
+                            None | Some("crossHatch") => PatternKind::CrossHatch,
+                            Some("crossDiagonal") => PatternKind::CrossDiagonal,
+                            Some("diagonalLeft") => PatternKind::DiagonalLeft,
+                            Some("diagonalRight") => PatternKind::DiagonalRight,
+                            Some("horizontal") => PatternKind::Horizontal,
+                            Some("vertical") => PatternKind::Vertical,
+                            Some(other) => {
+                                log::warn!("unknown pattern type {other:?}; taken as crossHatch");
+                                PatternKind::CrossHatch
+                            }
+                        },
+                    },
+                    "stipple" => FillKind::Stipple {
+                        color: own_color(child),
+                        rate: attr("rate")
+                            .and_then(|r| r.trim().parse::<i64>().ok())
+                            .map(|r| r.clamp(0, 100) as u8)
+                            .unwrap_or(50),
+                    },
+                    _ => return None,
+                })
+            })
+            .unwrap_or_default();
         Fill {
             presence: node
                 .attributes
@@ -962,7 +1282,7 @@ impl XfaNode {
                 .cloned()
                 .unwrap_or_else(|| "visible".to_string()),
             color: Self::parse_color_from_children(&node.children),
-            linear,
+            kind,
         }
     }
 
@@ -976,46 +1296,23 @@ impl XfaNode {
             .cloned()
             .unwrap_or_else(|| "Courier".to_string());
 
-        // Determine generic family: from attribute, or infer from typeface
+        // `genericFamily` as written; nothing is inferred from the typeface's
+        // spelling (XFA 3.3 chapter 28 leaves the family to the font's own
+        // description).
         let generic_family = node
             .attributes
             .get("genericFamily")
-            .and_then(|s| s.parse().ok())
-            .or_else(|| {
-                // Infer generic family from common typeface names
-                let tf_lower = typeface.to_lowercase();
-                if tf_lower.contains("courier")
-                    || tf_lower.contains("mono")
-                    || tf_lower.contains("consolas")
-                {
-                    Some(GenericFamily::Monospace)
-                } else if tf_lower.contains("times")
-                    || tf_lower.contains("georgia")
-                    || tf_lower.contains("serif")
-                {
-                    Some(GenericFamily::Serif)
-                } else if tf_lower.contains("helvetica")
-                    || tf_lower.contains("arial")
-                    || tf_lower.contains("verdana")
-                {
-                    Some(GenericFamily::SansSerif)
-                } else if tf_lower.contains("comic")
-                    || tf_lower.contains("script")
-                    || tf_lower.contains("cursive")
-                {
-                    Some(GenericFamily::Cursive)
-                } else {
-                    None // Will use default
-                }
-            });
+            .and_then(|s| s.parse().ok());
+
+        let size = node
+            .attributes
+            .get("size")
+            .and_then(|v| Self::parse_dimension(v).ok())
+            .unwrap_or_else(|| num(10.0));
 
         Font {
             typeface,
-            size: node
-                .attributes
-                .get("size")
-                .and_then(|v| Self::parse_dimension(v).ok())
-                .unwrap_or_else(|| num(10.0)),
+            size,
             weight: node
                 .attributes
                 .get("weight")
@@ -1036,17 +1333,38 @@ impl XfaNode {
                 .get("lineThrough")
                 .map(|s| s != "0")
                 .unwrap_or(false),
+            underline_double: node.attributes.get("underline").map(String::as_str) == Some("2"),
+            line_through_double: node.attributes.get("lineThrough").map(String::as_str) == Some("2"),
+            underline_period_word: node.attributes.get("underlinePeriod").map(String::as_str) == Some("word"),
             color: Self::parse_color_from_children(&node.children),
             baseline_shift: node
                 .attributes
                 .get("baselineShift")
                 .and_then(|v| Self::parse_dimension(v).ok()),
-            // Per XFA spec: letterSpacing is a relative measurement (e.g., "0.5pt", "-0.1em")
-            // that adjusts spacing between grapheme clusters. Default is 0.
-            letter_spacing: node
-                .attributes
-                .get("letterSpacing")
-                .and_then(|v| Self::parse_dimension(v).ok()),
+            // `letterSpacing` is a relative measurement (XFA 3.3 §2). An
+            // absolute value applies; an `em` value is not applied, as
+            // Acrobat does not apply it (see [`crate::xfa::acrobat_compat`],
+            // item 7); `%` (of a space) needs the face's metrics, which this
+            // parser does not have, and is reported and left at 0.
+            letter_spacing: node.attributes.get("letterSpacing").and_then(|v| {
+                match Self::parse_measurement(v) {
+                    Ok(Measurement::Absolute(points)) => Some(points),
+                    Ok(Measurement::Em(_)) => {
+                        log::debug!("letterSpacing {v:?} is relative; not applied (acrobat_compat item 7)");
+                        None
+                    }
+                    Ok(Measurement::PercentOfSpace(_)) => {
+                        log::warn!(
+                            "letterSpacing {v:?} is a percentage of a space, which is not supported; no letter spacing is applied"
+                        );
+                        None
+                    }
+                    Err(e) => {
+                        log::warn!("{e}; no letter spacing is applied");
+                        None
+                    }
+                }
+            }),
             generic_family,
             // Per XFA spec: kerningMode controls pair kerning ("none" or "pair")
             kerning_mode: node
@@ -1116,6 +1434,10 @@ impl XfaNode {
                 .attributes
                 .get("marginRight")
                 .and_then(|v| Self::parse_dimension(v).ok()),
+            radix_offset: node
+                .attributes
+                .get("radixOffset")
+                .and_then(|v| Self::parse_dimension(v).ok()),
             hyphenation: hyph,
         }
     }
@@ -1159,32 +1481,46 @@ impl XfaNode {
     /// (`h="=0mm"` on table rules, 185 times in the UBS corpus), and Acrobat
     /// reads the value after it. Rejecting it would leave those draws with no
     /// height and their rules undrawn.
+    /// The leading `=` is a documented Acrobat deviation; see
+    /// [`crate::xfa::acrobat_compat`].
     pub fn parse_dimension(s: &str) -> Result<Num, String> {
+        match Self::parse_measurement(s)? {
+            Measurement::Absolute(points) => Ok(points),
+            relative => Err(format!(
+                "{s:?} is a relative measurement ({relative:?}), not allowed here"
+            )),
+        }
+    }
+
+    /// An XFA measurement (XFA 3.3 §2 "Measurements"): a number with a unit
+    /// of `in`, `cm`, `mm` or `pt`, or no unit, which is inches ("The
+    /// default unit is assumed to be inches"); for a relative measurement
+    /// also `em` and `%`. A leading `=` is accepted (see
+    /// [`crate::xfa::acrobat_compat`], item 3).
+    pub fn parse_measurement(s: &str) -> Result<Measurement, String> {
         let s = s.trim();
         let s = s.strip_prefix('=').map(str::trim_start).unwrap_or(s);
-
-        // Conversion constants with full precision
-        let pts_per_inch = Decimal::from_str("72").unwrap();
-        let pts_per_mm = Decimal::from_str("2.834645669291339").unwrap(); // 72 / 25.4 with high precision
-        let pts_per_cm = Decimal::from_str("28.34645669291339").unwrap(); // 72 / 2.54 with high precision
-
-        if let Some(val) = s.strip_suffix("pt") {
-            Decimal::from_str(val.trim()).map_err(|e| format!("Failed to parse dimension: {}", e))
-        } else if let Some(val) = s.strip_suffix("in") {
-            Decimal::from_str(val.trim())
-                .map(|v| v * pts_per_inch)
-                .map_err(|e| format!("Failed to parse dimension: {}", e))
-        } else if let Some(val) = s.strip_suffix("mm") {
-            Decimal::from_str(val.trim())
-                .map(|v| v * pts_per_mm)
-                .map_err(|e| format!("Failed to parse dimension: {}", e))
-        } else if let Some(val) = s.strip_suffix("cm") {
-            Decimal::from_str(val.trim())
-                .map(|v| v * pts_per_cm)
-                .map_err(|e| format!("Failed to parse dimension: {}", e))
+        let number = |value: &str| {
+            Decimal::from_str(value.trim())
+                .map_err(|e| format!("{s:?} is not a measurement: {e}"))
+        };
+        let pts_per_inch = Decimal::from(72);
+        let pts_per_mm = Decimal::from_str("2.834645669291339").unwrap(); // 72 / 25.4
+        let pts_per_cm = Decimal::from_str("28.34645669291339").unwrap(); // 72 / 2.54
+        if let Some(v) = s.strip_suffix("pt") {
+            Ok(Measurement::Absolute(number(v)?))
+        } else if let Some(v) = s.strip_suffix("in") {
+            Ok(Measurement::Absolute(number(v)? * pts_per_inch))
+        } else if let Some(v) = s.strip_suffix("mm") {
+            Ok(Measurement::Absolute(number(v)? * pts_per_mm))
+        } else if let Some(v) = s.strip_suffix("cm") {
+            Ok(Measurement::Absolute(number(v)? * pts_per_cm))
+        } else if let Some(v) = s.strip_suffix("em") {
+            Ok(Measurement::Em(number(v)?))
+        } else if let Some(v) = s.strip_suffix('%') {
+            Ok(Measurement::PercentOfSpace(number(v)?))
         } else {
-            // No unit, assume points or just a number
-            Decimal::from_str(s).map_err(|e| format!("Failed to parse dimension: {}", e))
+            Ok(Measurement::Absolute(number(s)? * pts_per_inch))
         }
     }
 
@@ -1198,7 +1534,15 @@ impl XfaNode {
 
         let mut root_nodes = Vec::new();
 
+        crate::util::reset_repairs();
         Self::parse_nodes(&mut reader, &mut root_nodes, None)?;
+        let (repaired, example) = crate::util::take_repairs();
+        if repaired > 0 {
+            log::warn!(
+                "{repaired} text(s) were double-encoded (UTF-8 read as Windows-1252) and were re-read as UTF-8, for example {:?}; the source should be fixed",
+                example.unwrap_or_default()
+            );
+        }
 
         // Resolve `use` prototype references per XFA spec.
         // Elements with a `use` attribute reference a prototype in a `<proto>`
@@ -1226,117 +1570,214 @@ impl XfaNode {
         }
     }
 
-    /// Resolve `use` attribute prototype references across the tree.
-    ///
-    /// Per XFA 3.3: "At template load time, invokes another object in the same
-    /// document as a prototype for this object." The `use` value is a SOM
-    /// expression (e.g. `"designer__defaultHyphenation.para.hyphenation"`).
-    ///
-    /// Implementation:
-    /// 1. Collect all prototype definitions from `<proto>` sections.
-    /// 2. Walk the tree and resolve `use` references by merging prototype
-    ///    attributes into the referencing element.
+    /// Resolve `use`/`usehref` prototype references across the tree (XFA 3.3
+    /// §6 "Prototypes"): each referencing element inherits the prototype's
+    /// attributes (except `id`, `name` and `use`), its data content and its
+    /// child elements, overriding what it states itself; children are
+    /// matched by type and ordinal, and the prototype's child is in turn the
+    /// prototype of the referencing child. A prototype may reference
+    /// prototypes itself; those are resolved first. A reference that names
+    /// nothing, or an element of another type, is reported and left as it
+    /// is.
     fn resolve_use_prototypes(nodes: &mut [XfaNode]) {
-        // Step 1: Collect prototypes indexed by SOM path
-        let mut proto_map: HashMap<String, HashMap<String, String>> = HashMap::new();
+        let mut prototypes = Prototypes::default();
         for node in nodes.iter() {
-            Self::collect_proto_definitions(node, &mut proto_map);
+            Self::index_prototypes(node, "", &mut prototypes);
         }
-
-        if proto_map.is_empty() {
+        if prototypes.by_id.is_empty() && prototypes.by_path.is_empty() {
             return;
         }
-
-        // Step 2: Walk tree and resolve use references
         for node in nodes.iter_mut() {
-            Self::resolve_use_in_subtree(node, &proto_map);
+            Self::resolve_uses_in(node, &prototypes, 0);
         }
     }
 
-    /// Recursively collect attribute maps from `<proto>` children.
-    ///
-    /// Builds a map from SOM path (e.g. `"designer__defaultHyphenation.para.hyphenation"`)
-    /// to the attributes of the prototype element at that path.
-    fn collect_proto_definitions(
-        node: &XfaNode,
-        proto_map: &mut HashMap<String, HashMap<String, String>>,
-    ) {
-        if let XfaNodeKind::Element { tag_name, .. } = &node.kind {
-            if tag_name == "proto" {
-                // Index all descendants of this proto section
-                for child in &node.children {
-                    Self::index_proto_element(child, "", proto_map);
-                }
-                return;
+    /// The prototypes a template offers: any element with an `id`
+    /// (reachable as `#id`), and the elements under a `<proto>` by their
+    /// name-or-tag path from it (Designer's
+    /// `designer__defaultHyphenation.para.hyphenation`).
+    fn index_prototypes(node: &XfaNode, proto_path: &str, prototypes: &mut Prototypes) {
+        if let Some(id) = node.attributes.get("id")
+            && !id.is_empty()
+        {
+            prototypes
+                .by_id
+                .entry(id.clone())
+                .or_insert_with(|| node.clone());
+        }
+        let under_proto = !proto_path.is_empty()
+            || matches!(&node.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "proto");
+        for child in &node.children {
+            if matches!(child.kind, XfaNodeKind::Text { .. } | XfaNodeKind::Bind) {
+                continue;
             }
-        }
-        for child in &node.children {
-            Self::collect_proto_definitions(child, proto_map);
-        }
-    }
-
-    /// Index a proto element and its descendants by SOM path.
-    fn index_proto_element(
-        node: &XfaNode,
-        parent_path: &str,
-        proto_map: &mut HashMap<String, HashMap<String, String>>,
-    ) {
-        let name = node.name.as_deref().unwrap_or("");
-        let tag = match &node.kind {
-            XfaNodeKind::Element { tag_name, .. } => tag_name.as_str(),
-            XfaNodeKind::Field => "field",
-            XfaNodeKind::Subform => "subform",
-            XfaNodeKind::Draw => "draw",
-            XfaNodeKind::ExclGroup => "exclGroup",
-            XfaNodeKind::Value => "value",
-            XfaNodeKind::Template => "template",
-            XfaNodeKind::PageSet => "pageSet",
-            XfaNodeKind::PageArea => "pageArea",
-            XfaNodeKind::ContentArea => "contentArea",
-            XfaNodeKind::Bind => return,
-            XfaNodeKind::Text { .. } => return,
-        };
-
-        // Build SOM path segment: use name if present, else tag
-        let segment = if !name.is_empty() { name } else { tag };
-        let path = if parent_path.is_empty() {
-            segment.to_string()
-        } else {
-            format!("{}.{}", parent_path, segment)
-        };
-
-        // Store this element's attributes under its path
-        proto_map.insert(path.clone(), node.attributes.clone());
-
-        // Recurse into children
-        for child in &node.children {
-            Self::index_proto_element(child, &path, proto_map);
+            let child_path = if under_proto {
+                let segment = child
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| child.kind.tag_name().to_string());
+                let path = if proto_path.is_empty() {
+                    segment
+                } else {
+                    format!("{proto_path}.{segment}")
+                };
+                prototypes
+                    .by_path
+                    .entry(path.clone())
+                    .or_insert_with(|| child.clone());
+                path
+            } else {
+                String::new()
+            };
+            Self::index_prototypes(child, &child_path, prototypes);
         }
     }
 
-    /// Walk the subtree and resolve `use` references by merging prototype attributes.
-    fn resolve_use_in_subtree(
-        node: &mut XfaNode,
-        proto_map: &HashMap<String, HashMap<String, String>>,
-    ) {
-        // Check children for use attributes — any element type can have prototypes
-        for child in &mut node.children {
-            if !matches!(&child.kind, XfaNodeKind::Text { .. }) {
-                if let Some(use_ref) = child.attributes.get("use").cloned() {
-                    // Look up the prototype
-                    if let Some(proto_attrs) = proto_map.get(&use_ref) {
-                        // Merge: prototype attributes are defaults; element's
-                        // own attributes take precedence
-                        for (key, value) in proto_attrs {
-                            if key != "use" {
-                                child.attributes.entry(key.clone()).or_insert(value.clone());
-                            }
+    /// Resolve the `use`/`usehref` of `node` and, recursively, of its
+    /// children. `depth` bounds nested prototype references (a prototype
+    /// that invokes itself, XFA 3.3 §6 Example 6.8, is reported).
+    fn resolve_uses_in(node: &mut XfaNode, prototypes: &Prototypes, depth: usize) {
+        if let Some(reference) = Self::prototype_reference(node) {
+            if depth > 16 {
+                log::warn!(
+                    "prototype reference {reference:?} nests too deep; a prototype loop is likely. The reference is ignored"
+                );
+            } else {
+                match prototypes.lookup(&reference) {
+                    Some(prototype) => {
+                        let mut prototype = prototype.clone();
+                        // The prototype's own references first (nested prototypes).
+                        Self::resolve_uses_in(&mut prototype, prototypes, depth + 1);
+                        if prototype.kind.tag_name() == node.kind.tag_name() {
+                            Self::inherit_prototype(node, &prototype);
+                        } else {
+                            log::warn!(
+                                "{} references prototype {reference:?}, a {}; a prototype must be of the same type. The reference is ignored",
+                                node.kind.tag_name(),
+                                prototype.kind.tag_name()
+                            );
                         }
                     }
+                    None => log::warn!(
+                        "{} references prototype {reference:?}, which is not in the template; the reference is ignored",
+                        node.kind.tag_name()
+                    ),
                 }
             }
-            Self::resolve_use_in_subtree(child, proto_map);
         }
+        for child in &mut node.children {
+            Self::resolve_uses_in(child, prototypes, depth);
+        }
+    }
+
+    /// The prototype reference an element makes: `usehref` when non-empty
+    /// (only its same-document `#id` and `#som()` forms are supported; a
+    /// URI to another document is reported), else `use`.
+    fn prototype_reference(node: &XfaNode) -> Option<String> {
+        if let Some(href) = node
+            .attributes
+            .get("usehref")
+            .filter(|h| !h.trim().is_empty())
+        {
+            let href = href.trim();
+            if let Some(fragment) = href.strip_prefix('#') {
+                return Some(
+                    match fragment
+                        .strip_prefix("som(")
+                        .and_then(|s| s.strip_suffix(')'))
+                    {
+                        Some(expr) => expr.to_string(),
+                        None => format!("#{fragment}"),
+                    },
+                );
+            }
+            log::warn!(
+                "usehref {href:?} refers to another document, which is not supported; the reference is ignored"
+            );
+            return None;
+        }
+        node.attributes
+            .get("use")
+            .map(|u| u.trim().to_string())
+            .filter(|u| !u.is_empty())
+    }
+
+    /// `node` inherits `prototype` (XFA 3.3 §6 "Overriding Prototype
+    /// Properties"), then re-reads its layout attributes.
+    fn inherit_prototype(node: &mut XfaNode, prototype: &XfaNode) {
+        for (key, value) in &prototype.attributes {
+            if matches!(key.as_str(), "id" | "name" | "use" | "usehref") {
+                continue;
+            }
+            node.attributes
+                .entry(key.clone())
+                .or_insert_with(|| value.clone());
+        }
+        node.attributes.remove("use");
+        node.attributes.remove("usehref");
+        // Data content, unless the referencing element has its own.
+        if let (
+            XfaNodeKind::Element {
+                text_content: own, ..
+            },
+            XfaNodeKind::Element {
+                text_content: Some(text),
+                ..
+            },
+        ) = (&mut node.kind, &prototype.kind)
+            && own.as_ref().is_none_or(|t| t.trim().is_empty())
+        {
+            *own = Some(text.clone());
+        }
+        if !node
+            .children
+            .iter()
+            .any(|c| matches!(c.kind, XfaNodeKind::Text { .. }))
+        {
+            node.children.extend(
+                prototype
+                    .children
+                    .iter()
+                    .filter(|c| matches!(c.kind, XfaNodeKind::Text { .. }))
+                    .cloned(),
+            );
+        }
+        // Child elements, matched by type and ordinal within type.
+        for (index, proto_child) in prototype
+            .children
+            .iter()
+            .enumerate()
+            .filter(|(_, c)| !matches!(c.kind, XfaNodeKind::Text { .. }))
+        {
+            let tag = proto_child.kind.tag_name();
+            let ordinal = prototype.children[..index]
+                .iter()
+                .filter(|c| c.kind.tag_name() == tag)
+                .count();
+            let own = node
+                .children
+                .iter_mut()
+                .filter(|c| c.kind.tag_name() == tag)
+                .nth(ordinal);
+            match own {
+                Some(child) => Self::inherit_prototype(child, proto_child),
+                None => node.children.push(proto_child.clone()),
+            }
+        }
+        // The layout attributes the inherited ones add.
+        let rebuilt = XfaNode::new(node.kind.clone(), node.attributes.clone());
+        node.x = rebuilt.x;
+        node.y = rebuilt.y;
+        node.w = rebuilt.w;
+        node.h = rebuilt.h;
+        node.min_w = rebuilt.min_w;
+        node.min_h = rebuilt.min_h;
+        node.max_w = rebuilt.max_w;
+        node.max_h = rebuilt.max_h;
+        node.layout = rebuilt.layout;
+        node.rotate = rebuilt.rotate;
+        node.name = rebuilt.name;
+        node.presence = rebuilt.presence;
     }
 
     fn parse_nodes(
@@ -1706,6 +2147,178 @@ impl XfaNode {
             .insert("access".to_string(), access.as_str().to_string());
     }
 
+    /// The `size` of this field's check button (XFA 3.3 "The size property"
+    /// of `checkButton`): the side of its box, or the diameter of its circle,
+    /// 10pt when the button declares none. `None` for a field without a
+    /// check button.
+    pub fn check_button_size(&self) -> Option<Num> {
+        self.check_button().map(|b| b.size)
+    }
+
+    /// The field's `<checkButton>` (XFA 3.3 "The checkButton element"):
+    /// its `size` (10pt by default), its asserted `mark` and whether its
+    /// `shape` is round. `None` for a field without one.
+    pub fn check_button(&self) -> Option<CheckButton> {
+        let ui = self.children.iter().find(
+            |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "ui"),
+        )?;
+        let button = ui.children.iter().find(
+            |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "checkButton"),
+        )?;
+        let attr = |name: &str| button.attributes.get(name).map(String::as_str);
+        let mark = match attr("mark") {
+            None | Some("default") => CheckMark::Default,
+            Some("check") => CheckMark::Check,
+            Some("circle") => CheckMark::Circle,
+            Some("cross") => CheckMark::Cross,
+            Some("diamond") => CheckMark::Diamond,
+            Some("square") => CheckMark::Square,
+            Some("star") => CheckMark::Star,
+            Some(other) => {
+                log::warn!("unknown checkButton mark {other:?} on {:?}; taken as default", self.name);
+                CheckMark::Default
+            }
+        };
+        let round = match attr("shape") {
+            None | Some("square") => false,
+            Some("round") => true,
+            Some(other) => {
+                log::warn!("unknown checkButton shape {other:?} on {:?}; taken as square", self.name);
+                false
+            }
+        };
+        Some(CheckButton {
+            size: attr("size")
+                .and_then(|s| Self::parse_dimension(s).ok())
+                .unwrap_or_else(|| Decimal::from(10)),
+            mark,
+            round,
+        })
+    }
+
+    /// The `match` of this node's `<bind>` (XFA 3.3 §6): `global` for a
+    /// field bound to global data, `none` for one bound to nothing, and so
+    /// on; `None` when the node declares no bind, which binds it by name.
+    pub fn bind_match(&self) -> Option<&str> {
+        self.children
+            .iter()
+            .find(|c| matches!(c.kind, XfaNodeKind::Bind))
+            .and_then(|bind| bind.attributes.get("match"))
+            .map(String::as_str)
+    }
+
+    /// Whether this node shares its value with every other node of its name
+    /// through global data (XFA 3.3 §6 "Global data"). The spec allows
+    /// `match="global"` on a field only; Acrobat honours it on an exclusion
+    /// group too, and ACYI_001_EN's cover page depends on that: the option
+    /// group a person picks from and the hidden group its scripts read are
+    /// both `RB_Select_Option`, joined by nothing but this.
+    /// A documented Acrobat deviation; see [`crate::xfa::acrobat_compat`].
+    pub fn is_globally_bound(&self) -> bool {
+        (self.kind.is_field() || self.kind.is_exclgroup()) && self.bind_match() == Some("global")
+    }
+
+    /// The `<text>` under this node's `<caption><value>`: the node a script
+    /// reaches as `caption.value.#text` (XFA 3.3 §3). `None` when the
+    /// caption has no plain text, a rich-text caption included.
+    fn caption_text_node_mut(&mut self) -> Option<&mut XfaNode> {
+        let caption = self.children.iter_mut().find(
+            |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "caption"),
+        )?;
+        let value = caption
+            .children
+            .iter_mut()
+            .find(|c| matches!(c.kind, XfaNodeKind::Value))?;
+        value.children.iter_mut().find(|c| {
+            matches!(
+                &c.kind,
+                XfaNodeKind::Text { .. }
+                    | XfaNodeKind::Element {
+                        text_content: Some(_),
+                        ..
+                    }
+            )
+        })
+    }
+
+    /// The plain text of this node's caption, `Some` even when empty, as
+    /// long as the caption holds a `<text>`; `None` otherwise. What a script
+    /// reads as `caption.value.#text.value`.
+    pub fn caption_text(&self) -> Option<String> {
+        let caption = self.children.iter().find(
+            |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "caption"),
+        )?;
+        let value = caption
+            .children
+            .iter()
+            .find(|c| matches!(c.kind, XfaNodeKind::Value))?;
+        value.children.iter().find_map(|c| match &c.kind {
+            XfaNodeKind::Text { content } => Some(content.clone()),
+            XfaNodeKind::Element {
+                text_content: Some(content),
+                ..
+            } => Some(content.clone()),
+            _ => None,
+        })
+    }
+
+    /// Relabel this node: set its caption's `<text>`, as a script assigning
+    /// `caption.value.#text.value` does. False when the caption has no
+    /// `<text>` to set, in which case nothing changes.
+    pub fn set_caption_text(&mut self, text: &str) -> bool {
+        let Some(node) = self.caption_text_node_mut() else {
+            return false;
+        };
+        match &mut node.kind {
+            XfaNodeKind::Text { content } => *content = text.to_string(),
+            XfaNodeKind::Element { text_content, .. } => *text_content = Some(text.to_string()),
+            _ => return false,
+        }
+        true
+    }
+
+    /// Replace this field's `<items>` with `items` as (display, save) pairs
+    /// (XFA 3.3 §17 `items`): one `<items>` of display texts and one with
+    /// `save="1"`, the shape [`Self::extract_choice_list_items`] reads back.
+    /// What a script's `addItem`/`clearItems` (§6 "Scripting Methods") left
+    /// in the Form DOM, written onto the node the renderer and the control
+    /// listing read.
+    pub fn set_choice_list_items(&mut self, items: &[(String, String)]) {
+        self.children.retain(
+            |c| !matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "items"),
+        );
+        let list = |values: Vec<&String>, save: bool| {
+            let mut attributes = HashMap::new();
+            if save {
+                attributes.insert("save".to_string(), "1".to_string());
+            }
+            let mut node = XfaNode::new(
+                XfaNodeKind::Element {
+                    tag_name: "items".to_string(),
+                    text_content: None,
+                },
+                attributes,
+            );
+            node.children = values
+                .into_iter()
+                .map(|value| {
+                    XfaNode::new(
+                        XfaNodeKind::Element {
+                            tag_name: "text".to_string(),
+                            text_content: Some(value.clone()),
+                        },
+                        HashMap::new(),
+                    )
+                })
+                .collect();
+            node
+        };
+        self.children
+            .push(list(items.iter().map(|(d, _)| d).collect(), false));
+        self.children
+            .push(list(items.iter().map(|(_, s)| s).collect(), true));
+    }
+
     /// Find a mutable reference to a descendant node by name
     pub fn find_node_by_name_mut(&mut self, name: &str) -> Option<&mut XfaNode> {
         if self.name.as_deref() == Some(name) {
@@ -1732,40 +2345,35 @@ impl XfaNode {
         None
     }
 
-    /// Extract the item values from `<items><text>...</text></items>` children.
+    /// The values this check button field takes (XFA 3.3 §17, "The items
+    /// property" of a field with a checkButton widget): the first of its
+    /// `<items>` values is the "on" value, the second the "off" value, the
+    /// third the "neutral" value, and a second or third value that is not
+    /// provided is the null string. Any content element counts as a value
+    /// (`<text>`, `<integer>`, `<decimal>`, ...).
     ///
-    /// Per XFA 3.3 §17 pp.758-759, the items list can have up to three values:
-    ///   - First value: the "on" value (item key)
-    ///   - Second value: the "off" value (defaults to empty string if absent)
-    ///   - Third value: the "neutral" value (defaults to empty string if absent)
-    ///
-    /// Used for exclGroup parent→child propagation per §4 pp.195-197.
-    pub fn extract_item_values(&self) -> (Option<String>, Option<String>) {
-        for child in &self.children {
-            if let XfaNodeKind::Element { tag_name, .. } = &child.kind
-                && tag_name == "items"
-            {
-                let mut values = Vec::new();
-                for item_child in &child.children {
-                    if let XfaNodeKind::Element {
-                        tag_name: t2,
-                        text_content,
-                        ..
-                    } = &item_child.kind
-                        && (t2 == "text" || t2 == "integer" || t2 == "float")
-                    {
-                        values.push(text_content.clone().unwrap_or_default());
-                    }
-                    if let XfaNodeKind::Text { content } = &item_child.kind {
-                        values.push(content.clone());
-                    }
-                }
-                let on_value = values.first().cloned();
-                let off_value = values.get(1).cloned();
-                return (on_value, off_value);
-            }
+    /// The spec does not say what a check button without `<items>` takes;
+    /// [`CheckButtonValues::declared`] is then false and the on value is
+    /// `"1"`, the value Designer writes by default.
+    pub fn check_button_values(&self) -> CheckButtonValues {
+        let items = self.children.iter().find(|c| {
+            matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "items")
+        });
+        let Some(items) = items else {
+            return CheckButtonValues {
+                on: "1".to_string(),
+                off: String::new(),
+                neutral: String::new(),
+                declared: false,
+            };
+        };
+        let mut values = extract_items_values(items).into_iter();
+        CheckButtonValues {
+            on: values.next().unwrap_or_default(),
+            off: values.next().unwrap_or_default(),
+            neutral: values.next().unwrap_or_default(),
+            declared: true,
         }
-        (None, None)
     }
 
     /// This field's `<items>` as (display, save) pairs (XFA 3.3 §17
@@ -1811,6 +2419,18 @@ impl XfaNode {
 
         display_items.into_iter().zip(save_items).collect()
     }
+}
+
+/// What a check button field stores in each of its states; see
+/// [`XfaNode::check_button_values`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CheckButtonValues {
+    pub on: String,
+    pub off: String,
+    pub neutral: String,
+    /// Whether the field declares them in `<items>`; when it does not, the
+    /// values are a documented default rather than the form's own.
+    pub declared: bool,
 }
 
 /// Extract values from an `<items>` element's children.
@@ -2031,8 +2651,7 @@ fn collect_variable_script_owners_recursive(
         }
 
         let name = node.name.clone().unwrap_or_default();
-        let next_path = if !name.is_empty() && (node.kind.is_subform() || node.kind.is_exclgroup())
-        {
+        let next_path = if !name.is_empty() && node.kind.extends_som_path() {
             crate::xfa::scripting::som::child_som_path(owner_path, &name, index)
         } else {
             owner_path.to_string()
@@ -2041,146 +2660,30 @@ fn collect_variable_script_owners_recursive(
     }
 }
 
-/// Extract the document language from the root subform's `locale` attribute,
-/// cross-checked against actual text content using `whatlang`.
-///
-/// Per XFA 3.3 §17: the `locale` attribute on a `<subform>` specifies the
-/// prevailing locale using `language[_country]` format (e.g. `"de_DE"`, `"en_US"`).
-/// If no locale is found, falls back to `"en"` (ambient default per spec is `en_US`).
-///
-/// After extracting the locale-based language, we verify it against the actual
-/// text content. If `whatlang` detects a different language with high confidence,
-/// the detected language is used instead. This fixes cases where the locale
-/// attribute is incorrect (e.g. an English document with `locale="de_DE"`).
+/// The document's locale: the root subform's `locale` as written (XFA 3.3
+/// §17: `language[_country]`), `en_US` when it names none (the ambient
+/// locale). Nothing is inferred from the text: a `locale` the template
+/// states is what its author meant.
+pub fn document_locale(nodes: &[XfaNode]) -> String {
+    find_root_subform(nodes)
+        .and_then(|root| root.attributes.get("locale"))
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .unwrap_or_else(|| "en_US".to_string())
+}
+
+/// The language part of the document's locale (`de` for `de_CH`).
 pub fn extract_language_from_nodes(nodes: &[XfaNode]) -> String {
-    let locale_lang = if let Some(root) = find_root_subform(nodes) {
-        if let Some(locale) = root.attributes.get("locale") {
-            let lang = locale.split('_').next().unwrap_or("en");
-            lang.to_lowercase()
-        } else {
-            "en".to_string()
-        }
-    } else {
-        return "en".to_string();
-    };
-
-    // Cross-check locale with actual text content
-    let text = collect_visible_text(nodes);
-    if text.len() >= 50 {
-        if let Some(info) = whatlang::detect(&text) {
-            let detected = whatlang_to_iso(info.lang());
-            if detected != locale_lang && info.confidence() > 0.8 {
-                log::info!(
-                    "Language override: locale says '{}' but text detection says '{}' (confidence: {:.0}%)",
-                    locale_lang,
-                    detected,
-                    info.confidence() * 100.0
-                );
-                return detected;
-            }
-        }
-    }
-
-    locale_lang
+    language_of_locale(Some(&document_locale(nodes)))
 }
 
-/// Collect visible text content from XFA nodes for language detection.
-///
-/// Walks the tree collecting text from `Draw` and `Field` caption nodes,
-/// skipping metadata subtrees (`variables`, `script`, `proto`, `pageSet`).
-/// Stops after collecting ~500 characters (enough for reliable detection).
-fn collect_visible_text(nodes: &[XfaNode]) -> String {
-    let mut buf = String::with_capacity(512);
-    collect_visible_text_recursive(nodes, &mut buf, false);
-    buf
-}
-
-fn collect_visible_text_recursive(nodes: &[XfaNode], buf: &mut String, inside_draw: bool) {
-    const MAX_LEN: usize = 5000;
-
-    for node in nodes {
-        if buf.len() >= MAX_LEN {
-            return;
-        }
-
-        // Skip metadata and non-content subtrees
-        match &node.kind {
-            XfaNodeKind::Element { tag_name, .. } => {
-                if matches!(
-                    tag_name.as_str(),
-                    "variables"
-                        | "script"
-                        | "proto"
-                        | "pageSet"
-                        | "event"
-                        | "calculate"
-                        | "items"
-                        | "validate"
-                        | "bind"
-                ) {
-                    continue;
-                }
-                // Enter caption subtrees (field labels contain prose)
-                if tag_name == "caption" {
-                    collect_visible_text_recursive(&node.children, buf, true);
-                    continue;
-                }
-            }
-            XfaNodeKind::PageSet => continue,
-            _ => {}
-        }
-
-        // Only collect text if we're inside a Draw node or caption
-        let in_content = inside_draw || matches!(node.kind, XfaNodeKind::Draw);
-
-        if in_content {
-            match &node.kind {
-                XfaNodeKind::Text { content } => {
-                    let trimmed = content.trim();
-                    if !trimmed.is_empty() && trimmed.len() > 3 {
-                        buf.push_str(trimmed);
-                        buf.push(' ');
-                    }
-                }
-                XfaNodeKind::Element {
-                    text_content: Some(text),
-                    ..
-                } => {
-                    let trimmed = text.trim();
-                    if !trimmed.is_empty() && trimmed.len() > 3 {
-                        buf.push_str(trimmed);
-                        buf.push(' ');
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Recurse into children, marking that we're inside a Draw subtree
-        collect_visible_text_recursive(&node.children, buf, in_content);
-    }
-}
-
-/// Map `whatlang::Lang` to ISO 639-1 two-letter code.
-fn whatlang_to_iso(lang: whatlang::Lang) -> String {
-    use whatlang::Lang;
-    match lang {
-        Lang::Deu => "de".to_string(),
-        Lang::Eng => "en".to_string(),
-        Lang::Fra => "fr".to_string(),
-        Lang::Ita => "it".to_string(),
-        Lang::Spa => "es".to_string(),
-        Lang::Por => "pt".to_string(),
-        Lang::Nld => "nl".to_string(),
-        Lang::Pol => "pl".to_string(),
-        Lang::Tur => "tr".to_string(),
-        Lang::Rus => "ru".to_string(),
-        Lang::Jpn => "ja".to_string(),
-        Lang::Cmn => "zh".to_string(),
-        Lang::Kor => "ko".to_string(),
-        Lang::Ara => "ar".to_string(),
-        other => format!("{:?}", other).to_lowercase(),
-    }
+/// The language part of a locale tag (`de_CH` is `de`), `en` for none.
+pub fn language_of_locale(locale: Option<&str>) -> String {
+    locale
+        .and_then(|l| l.split(['_', '-']).next())
+        .filter(|l| !l.is_empty())
+        .map(|l| l.to_lowercase())
+        .unwrap_or_else(|| "en".to_string())
 }
 
 /// Extract both the document language and all `<variables><text>` values from
@@ -2353,6 +2856,35 @@ mod parse_edge_case_tests {
         assert!(XfaNode::parse_dimension("=").is_err());
     }
 
+    /// XFA 3.3 §2 "Measurements": "The default unit is assumed to be
+    /// inches"; `em` and `%` are relative and only allowed where the
+    /// property says so.
+    #[test]
+    fn a_unitless_measurement_is_inches_and_relative_units_are_typed() {
+        assert_eq!(XfaNode::parse_dimension("2"), Ok(num(144.0)));
+        assert_eq!(XfaNode::parse_dimension("0.5in"), Ok(num(36.0)));
+        assert_eq!(XfaNode::parse_measurement("-0.01em"), Ok(Measurement::Em(num(-0.01))));
+        assert_eq!(XfaNode::parse_measurement("50%"), Ok(Measurement::PercentOfSpace(num(50.0))));
+        assert!(XfaNode::parse_dimension("1em").is_err());
+        assert!(XfaNode::parse_dimension("abc").is_err());
+    }
+
+    /// An absolute `letterSpacing` applies; an `em` one does not (Acrobat
+    /// deviation 7, see `acrobat_compat`).
+    #[test]
+    fn absolute_letter_spacing_applies_and_em_letter_spacing_does_not() {
+        let parse = |spacing: &str| {
+            let xml = format!(
+                r#"<template><subform name="S"><draw name="D"><font typeface="Courier" size="10pt" letterSpacing="{spacing}"/><value><text>x</text></value></draw></subform></template>"#
+            );
+            let nodes = XfaNode::parse(xml.as_bytes()).expect("parse");
+            nodes[0].children[0].children[0].font.as_ref().expect("font").letter_spacing
+        };
+        assert_eq!(parse("0.5pt"), Some(num(0.5)));
+        assert_eq!(parse("-0.05em"), None);
+        assert_eq!(parse("3%"), None);
+    }
+
     #[test]
     fn self_closing_children_survive_under_a_bare_template_root() {
         let nodes = XfaNode::parse(
@@ -2374,6 +2906,62 @@ mod parse_edge_case_tests {
             &value.children[0].kind,
             XfaNodeKind::Element { tag_name, .. } if tag_name == "line"
         ));
+    }
+}
+
+#[cfg(test)]
+mod prototype_tests {
+    use super::*;
+
+    fn tag(node: &XfaNode) -> &str {
+        node.kind.tag_name()
+    }
+
+    /// XFA 3.3 §6: the referencing element inherits the prototype's
+    /// attributes and children, its own winning; children match by type
+    /// and ordinal, and a prototype's child is the prototype of the
+    /// referencing child.
+    #[test]
+    fn a_use_reference_inherits_attributes_and_children_it_lacks() {
+        let nodes = XfaNode::parse(
+            br##"<template><subform name="S"><proto><field id="base" name="Base" w="50mm" h="8mm"><ui><textEdit/></ui><font typeface="Courier" size="12pt"/><border><edge thickness="2pt"/></border></field></proto><field name="F" use="#base" h="10mm"><font size="9pt"/></field><draw name="D" use="#base"/><field name="G" use="#missing"/></subform></template>"##,
+        )
+        .expect("parse");
+        let subform = &nodes[0].children[0];
+        let f = &subform.children[1];
+        assert_eq!(f.name.as_deref(), Some("F"), "name is never inherited");
+        assert_eq!(f.w, XfaNode::parse_dimension("50mm").ok(), "w comes from the prototype");
+        assert_eq!(f.h, XfaNode::parse_dimension("10mm").ok(), "the element's own h wins");
+        assert!(!f.attributes.contains_key("use"));
+        assert!(!f.attributes.contains_key("id"), "id is never inherited");
+        let font = f.font.as_ref().expect("font merged by ordinal");
+        assert_eq!(font.typeface, "Courier", "the prototype's typeface fills the gap");
+        assert_eq!(font.size, num(9.0), "the element's own size wins");
+        let child_tags: Vec<&str> = f.children.iter().map(tag).collect();
+        assert!(child_tags.contains(&"ui") && child_tags.contains(&"border"));
+        assert_eq!(f.children.iter().filter(|c| tag(c) == "font").count(), 1);
+        let d = &subform.children[2];
+        assert!(d.w.is_none(), "a draw cannot use a field prototype");
+        let g = &subform.children[3];
+        assert!(g.w.is_none(), "an unresolved reference changes nothing");
+    }
+
+    /// A prototype may reference a prototype (XFA 3.3 §6 "Nested
+    /// Prototypes"); the chain is resolved before it is inherited.
+    #[test]
+    fn nested_prototypes_resolve_through_the_chain_and_by_proto_path() {
+        let nodes = XfaNode::parse(
+            br##"<template><subform name="S"><proto><font id="f1" typeface="Courier" size="7pt"/><para id="p1" hAlign="right"/><draw name="styled"><font use="#f1" size="8pt"/><para use="#p1"/></draw></proto><draw name="A" use="styled"/><draw name="B" use="#f1"/></subform></template>"##,
+        )
+        .expect("parse");
+        let subform = &nodes[0].children[0];
+        let a = &subform.children[1];
+        let font = a.font.as_ref().expect("font via nested prototype");
+        assert_eq!(font.typeface, "Courier");
+        assert_eq!(font.size, num(8.0));
+        assert_eq!(a.para.as_ref().map(|p| p.h_align), Some(HAlign::Right));
+        let b = &subform.children[2];
+        assert!(b.font.is_none(), "a draw is not a font; the reference is ignored");
     }
 }
 
@@ -2462,5 +3050,49 @@ mod font_and_encoding_tests {
             text, "capacit\u{e0}",
             "the combining grave accent must compose into precomposed à (U+00E0)"
         );
+    }
+}
+
+#[cfg(test)]
+mod check_button_value_tests {
+    use super::*;
+
+    fn field(items: &str) -> XfaNode {
+        let xml = format!(
+            r#"<template><subform name="f"><field name="b"><ui><checkButton/></ui>{items}</field></subform></template>"#
+        );
+        let nodes = XfaNode::parse(xml.as_bytes()).expect("parse");
+        fn find(nodes: &[XfaNode]) -> Option<XfaNode> {
+            nodes.iter().find_map(|n| {
+                (n.name.as_deref() == Some("b")).then(|| n.clone()).or_else(|| find(&n.children))
+            })
+        }
+        find(&nodes).expect("field b")
+    }
+
+    #[test]
+    fn the_items_give_on_off_and_neutral_in_order() {
+        let values = field("<items><text>Y</text><text>N</text><text>?</text></items>").check_button_values();
+        assert_eq!((values.on.as_str(), values.off.as_str(), values.neutral.as_str()), ("Y", "N", "?"));
+        assert!(values.declared);
+    }
+
+    #[test]
+    fn a_missing_off_or_neutral_value_is_the_null_string() {
+        let values = field("<items><integer>1</integer></items>").check_button_values();
+        assert_eq!((values.on.as_str(), values.off.as_str(), values.neutral.as_str()), ("1", "", ""));
+    }
+
+    #[test]
+    fn any_content_element_is_a_value() {
+        let values = field("<items><decimal>2.5</decimal><boolean>0</boolean></items>").check_button_values();
+        assert_eq!((values.on.as_str(), values.off.as_str()), ("2.5", "0"));
+    }
+
+    #[test]
+    fn without_items_the_on_value_is_the_documented_default_not_the_name() {
+        let values = field("").check_button_values();
+        assert_eq!(values.on, "1");
+        assert!(!values.declared);
     }
 }

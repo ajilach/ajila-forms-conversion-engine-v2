@@ -384,6 +384,7 @@ fn clause_symbols(clause: &Clause, locale: &Locale) -> Option<Vec<Sym>> {
         Some(name) => {
             let pattern = match clause.category {
                 Category::Date => locale.date_pattern(name),
+                Category::Num => locale.number_pattern(name),
                 _ => locale.time_pattern(name),
             }?;
             tokenize(clause.category, pattern).ok()
@@ -743,11 +744,11 @@ fn format_num(syms: &[Sym], value: Decimal, locale: &Locale) -> Option<String> {
                     last_kind = kind;
                     match (digit, kind) {
                         (Some(d), _) => {
-                            out.push(d);
+                            out.push(locale.digit(d));
                             leading = false;
                         }
                         (None, DigitKind::Nine) => {
-                            out.push('0');
+                            out.push(locale.zero);
                             leading = false;
                         }
                         (None, DigitKind::UpperZ) => out.push(' '),
@@ -774,8 +775,8 @@ fn format_num(syms: &[Sym], value: Decimal, locale: &Locale) -> Option<String> {
             match sym {
                 Sym::Lit(t) => out.push_str(t),
                 Sym::Letter(c, n) => match digit_kind(*c) {
-                    Some(DigitKind::Eight) => out.extend(digits.by_ref()),
-                    Some(_) => out.extend(digits.next()),
+                    Some(DigitKind::Eight) => out.extend(digits.by_ref().map(|d| locale.digit(d))),
+                    Some(_) => out.extend(digits.next().map(|d| locale.digit(d))),
                     None => out.push_str(&sign_text(*c, *n)),
                 },
             }
@@ -1080,6 +1081,7 @@ mod tests {
             grouping: ".".to_string(),
             month_names: Locale::en_us().month_names.map(|m| m.to_lowercase()),
             date_patterns: vec![("long".to_string(), "DD MMMM YYYY".to_string())],
+            number_patterns: vec![("numeric".to_string(), "z.zzz.zz9,zzz".to_string())],
             ..Locale::en_us()
         }
     }

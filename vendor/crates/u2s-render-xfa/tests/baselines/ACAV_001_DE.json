@@ -1,0 +1,847 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Bankbeziehung\nKonto-Nr.\n.\nName, Vorname und neue Adresse des Kontoinhabers\nAdresse der\nLiegenschaft\nMietobjekt\nVermieter\nvertreten durch\nVerwaltung\nStrasse/Nr.\nPLZ/Ort\nTel.-Nr.\nSachbearbeiter\nAuftrag zur Rückzahlung\nder Mieterkaution\nDas Mietverhältnis ist beendet. UBS Switzerland AG wird beauftragt, das oben erwähnte UBS Mieterkautionssparkonto zu saldieren und die Einlage von CHF                    inkl. Zinsen wie folgt zu vergüten:\n1\nVollsaldierung\n1\nGesamtbetrag inkl. Zinsen zugunsten Vermieter/Verwaltung\nTeilzahlung von CHF zugunsten Vermieter/Verwaltung\nÜberweisung an\nBank/Post\nOrt\nIBAN (Konto-Nr.)\nlautend auf\nZahlungsgrund\nFreigabe der Kaution inkl. Zinsen zugunsten Mieter (Kontoinhaber)\nRestbetrag der Kaution inkl. Zinsen zugunsten Mieter (Kontoinhaber)\nÜberweisung an\nBank/Post\nOrt\nIBAN (Konto-Nr.)\nlautend auf\nZahlungsgrund\n1\nÜbertrag/Mutation\n0\nÜbertrag auf neues UBS Mieterkautionssparkonto-Nr.\nTeilzahlung von CHF zugunsten von:\nVermieter\nMieter\nÜberweisung an\nBank/Post\nOrt\nIBAN (Konto-Nr.)\nlautend auf\nZahlungsgrund\n61189\nD\nV2\n001\n21.01.2022\nN4\nOE-Ref.\n15.01.2026\nSeite 1/2\n0101611890104021501202601020",
+    "Bankbeziehung\nKonto-Nr.\n.\nOrt\nDatum\nUnterschrift des Vermieters/der Verwaltung\nOrt\nDatum\nUnterschrift des Kontoinhabers\nFor internal bank use only\nSignature(s) verified/Signed in my presence\nSignature\n61189\nD\nV2\n001\n21.01.2022\nN4\nOE-Ref.\n15.01.2026\nSeite 2/2\n0101611890104021501202602027"
+  ],
+  "raster": [
+    "b6664ac85f33d6fd",
+    "aee9cfe16dd08c7c"
+  ],
+  "controls": {
+    "Form_61189.Master_Pages.MP1.Footer.BC_Account_Number": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          400.4,
+          35.3,
+          24.300001,
+          12.0
+        ],
+        [
+          2.0,
+          400.4,
+          35.3,
+          24.300001,
+          12.0
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.BC_Account_Number_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          400.4,
+          62.600002,
+          24.300001,
+          12.0
+        ],
+        [
+          2.0,
+          400.4,
+          62.600002,
+          24.300001,
+          12.0
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.Barcode.Code2Of5InterleavedBarCode1": {
+      "value": "0101611890104021501202601013",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          16.1,
+          806.3,
+          269.30002,
+          27.2
+        ],
+        [
+          2.0,
+          16.1,
+          806.3,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.Barcode.MANCode": {
+      "value": "001",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          99.200005,
+          801.10004,
+          19.800001,
+          9.1
+        ],
+        [
+          2.0,
+          99.200005,
+          801.10004,
+          19.800001,
+          9.1
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.Barcode.OE_Ref": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          262.2,
+          800.60004,
+          45.4,
+          9.900001
+        ],
+        [
+          2.0,
+          262.2,
+          800.60004,
+          45.4,
+          9.900001
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.DateSubForm.CD": {
+      "value": "15.01.2026",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Master_Pages.MP1.Footer.MAST_Account_Number": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          431.5,
+          35.3,
+          56.7,
+          12.0
+        ],
+        [
+          2.0,
+          431.5,
+          35.3,
+          56.7,
+          12.0
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.MAST_Account_Number_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          431.5,
+          62.600002,
+          56.7,
+          12.0
+        ],
+        [
+          2.0,
+          431.5,
+          62.600002,
+          56.7,
+          12.0
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.MasterNO_Descriptor": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Master_Pages.MP1.Footer.MasterNO_Descriptor[1]": {
+      "value": "Bankbeziehung",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Master_Pages.MP1.Footer.MasterNO_Descriptor_1": {
+      "value": "Konto-Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Master_Pages.MP1.Footer.MasterNO_Descriptor_1[1]": {
+      "value": "Konto-Nr.",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Master_Pages.MP1.Footer.OBJ_Number_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          494.6,
+          62.600002,
+          25.5,
+          12.0
+        ],
+        [
+          2.0,
+          494.6,
+          62.600002,
+          25.5,
+          12.0
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.Footer.PageNr.PageNumbering": {
+      "value": "Seite 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          487.6,
+          801.10004,
+          56.7,
+          9.1
+        ],
+        [
+          2.0,
+          487.6,
+          801.10004,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "Form_61189.Master_Pages.MP1.MyPresentPageCount": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Master_Pages.MP1.MyTotalPageCount": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_1.Betrag_CHF": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          108.8,
+          361.0,
+          35.7,
+          9.900001
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_2.JF02": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          150.0,
+          408.4,
+          35.7,
+          9.900001
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_2.RB_Group_Account_Type.RB_Full_Account_Closure": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          376.7,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_2.RB_Group_Amount.RB_Partial_Payment_Of_CHF": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          72.3,
+          406.80002,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_2.RB_Group_Amount.RB_Total_Amount": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.8,
+          392.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_3.Bank_Post1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          436.0,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_3.IBAN_Number1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          467.2,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_3.Payment_Reason1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          498.4,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_3.Place_Code1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          451.6,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_3.Reading_To1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          482.80002,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_4.RB_Group_Amount.RB_Release_Deposit": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.8,
+          521.10004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_4.RB_Group_Release_Balance_Remaining_Balance.RB_Remaining_Balance": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.8,
+          537.10004,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_5.Bank_Post2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          566.60004,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_5.IBAN_Number2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          597.8,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_5.Payment_Reason2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          629.0,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_5.Place_Code2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          582.2,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter1.Chapter_1a.STP_5.Reading_To2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          613.4,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP1.CB_Trasfer_To_New_UBS_Rental": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          63.8,
+          674.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP1.New_Rental_CHF": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          150.0,
+          692.0,
+          35.7,
+          9.900001
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP1.New_UBS_Rental_Surety_Account_No": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          263.0,
+          674.9,
+          127.6,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP1.RB_Group_Account_Type.RB_Transfer_Modification": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          658.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP1.RB_Group_Lessor_Lessee.RB_Lessee": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          319.7,
+          690.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP1.RB_Group_Lessor_Lessee.RB_Lessor": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          262.80002,
+          690.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP2.Bank_Post3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          719.9,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP2.IBAN_Number3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          751.0,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP2.Payment_Reason3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          782.2,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP2.Place_Code3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          735.5,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter2.chapter2.STP2.Reading_To3": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          163.0,
+          766.60004,
+          379.80002,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174.yellow.Global_CB_Spare4": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174.yellow.HL_SAVE_Flag": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174.yellow.Highlighter_Text": {
+      "value": "Bitte ergänzen und unterschrieben zurücksenden",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174.yellow.STP_Buttons.StickyButton": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174.yellow.STP_Buttons.StickyControl": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174[1].yellow.Global_CB_Spare4": {
+      "value": "1",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174[1].yellow.HL_SAVE_Flag": {
+      "value": "0",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174[1].yellow.Highlighter_Text": {
+      "value": "Bitte ergänzen und unterschrieben zurücksenden",
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174[1].yellow.STP_Buttons.StickyButton": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Highlighter_18_174[1].yellow.STP_Buttons.StickyControl": {
+      "value": null,
+      "visible": false,
+      "positions": []
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.SGN_Date1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          145.1,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.SGN_Date2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          245.5,
+          70.9,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.SGN_Place1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          145.1,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.SGN_Place2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          245.5,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Signature1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          169.90001,
+          240.90001,
+          9.900001
+        ]
+      ]
+    },
+    "Form_61189.Page1.Chapter3.chapter3.STP.Signature2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          304.7,
+          270.1,
+          240.90001,
+          9.900001
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Administration_Name": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          186.7,
+          172.90001,
+          22.7
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Landlord_Name": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          144.5,
+          172.90001,
+          22.7
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Phone_Number": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          251.90001,
+          172.90001,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Postal_Code_Place": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          233.7,
+          172.90001,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Real_Estate": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          94.1,
+          172.90001,
+          22.7
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Rental_Property": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          125.3,
+          172.90001,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.S1.Address_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          83.6,
+          106.3,
+          194.7,
+          72.0
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Sachbearbeiter": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          269.9,
+          172.90001,
+          11.3
+        ]
+      ]
+    },
+    "Form_61189.Page1.Form_Title.STP.Street_Name": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          369.9,
+          215.7,
+          172.90001,
+          11.3
+        ]
+      ]
+    }
+  },
+  "warning": null
+}

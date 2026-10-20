@@ -1,11 +1,22 @@
 //! The tool schemas and the manifest.
 //!
-//! Schemas are plain `serde_json::Value`, matching the convention the three
-//! other u2s servers already follow: decoupled from any `schemars` or `rmcp`
-//! derive version, and readable in one place because a tool description is
-//! prompt surface.
+//! Each tool's input schema is generated from its argument type, which is
+//! also what its arguments parse into. Tool descriptions stay here; argument
+//! descriptions are the doc comments on those fields. Both are prompt surface.
 
-use serde_json::{Value, json};
+use schemars::JsonSchema;
+use serde::Deserialize;
+use serde_json::{Map, Value, json};
+pub use u2s_mapper_aem::tool_args::{DecodeArgs, FragmentSearchArgs};
+use u2s_schema::tool_input_schema;
+
+/// `encode`'s arguments.
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct EncodeArgs {
+    /// A document conforming to the aem-ubs JSON Schema (`UbsAemDocument`).
+    pub output_json: Map<String, Value>,
+}
 
 /// The output format's key. Not bare `aem`: that is `u2s-aem`'s generic
 /// Adaptive Forms model, while this is the UBS document and its profile, and a
@@ -61,28 +72,7 @@ pub fn tool_specs() -> Vec<Value> {
                  model does not type is kept as passthrough. A package that is not a UBS \
                  adaptive form returns a tool error. The decoded document is returned as a \
                  blob reference, never inlined.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "artifact_blob": {
-                        "type": "string",
-                        "description": "A u2s blob handle naming the FileVault package to decode."
-                    },
-                    "artifact_path": {
-                        "type": "string",
-                        "description": "A filesystem path to the package, for conformance test vectors."
-                    },
-                    "media_type": {
-                        "type": "string",
-                        "description": "A hint; ignored -- this decoder only ever reads a ZIP."
-                    },
-                    "filename": {
-                        "type": "string",
-                        "description": "A hint; ignored."
-                    }
-                },
-                "additionalProperties": false
-            }
+            "input_schema": tool_input_schema::<DecodeArgs>()
         }),
         json!({
             "name": "encode",
@@ -95,17 +85,7 @@ pub fn tool_specs() -> Vec<Value> {
                  (`bound_package`) and the schema (`xsd`) are returned as blob references, never \
                  inlined -- a package is a ZIP archive, always well past the size a prompt \
                  should carry.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "output_json": {
-                        "type": "object",
-                        "description": "A document conforming to the aem-ubs JSON Schema (`UbsAemDocument`)."
-                    }
-                },
-                "required": ["output_json"],
-                "additionalProperties": false
-            }
+            "input_schema": tool_input_schema::<EncodeArgs>()
         }),
         json!({
             "name": "fragment_search",
@@ -117,17 +97,7 @@ pub fn tool_specs() -> Vec<Value> {
                  yourself from the title and preview before referencing a result. Returns no \
                  hits, not an error, when the library is empty or unconfigured for this \
                  deployment.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Keywords to search for in fragment titles and previews."
-                    }
-                },
-                "required": ["query"],
-                "additionalProperties": false
-            }
+            "input_schema": tool_input_schema::<FragmentSearchArgs>()
         }),
     ]
 }
@@ -268,8 +238,10 @@ mod tests {
     fn every_tool_has_a_test_vector() {
         let vectors = manifest()["test_vectors"].clone();
         let vectors = vectors.as_array().expect("an array");
-        let vector_tools: std::collections::BTreeSet<&str> =
-            vectors.iter().map(|v| v["tool"].as_str().expect("a tool name")).collect();
+        let vector_tools: std::collections::BTreeSet<&str> = vectors
+            .iter()
+            .map(|v| v["tool"].as_str().expect("a tool name"))
+            .collect();
         assert_eq!(
             vector_tools,
             std::collections::BTreeSet::from(["decode", "encode", "fragment_search"]),

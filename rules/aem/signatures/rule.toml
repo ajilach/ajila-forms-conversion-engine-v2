@@ -1,0 +1,53 @@
+# The title checks are UBS-WRD-2's Check and UBS-SIG-1's sibling clause; the exclusion check mirrors
+# `find_signature_exclusion.py` (PROBLEM-signature-never-excluded) of the feedback repo, with its
+# internal-bank-use exemption. Roles, bounds, alignment and place and date are judged by
+# ubs-aem-account-holder-cluster.
+id = "ubs-aem-signatures"
+title = "Signatures: titled by their signer, never excluded"
+output_formats = ["aem-ubs"]
+description = """
+A signature block of the source (place, date and name with an empty signing area) is a `Repeatable`
+`RCP_SGN_<stem>` wrapping one `Fragment` of `affrg_SignatureGeneric1` named `PN_SGN_<stem>`, also for
+a single signer (bounds 1 and 1). The fragment has no heading of its own: the Repeatable's `title` is
+the block's heading, row heading and Add label (UBS-SIG-1). Where all its rows share one place and
+date, the fragment has `shared_place_date: true` (UBS-SIG-7); the signer's name of a party's
+signature is filled by the writer (UBS-SIG-4, ubs-aem-account-holder-cluster). Inputs the source adds to a signature
+(the signer's function) are a content `Panel` beside the fragment, inside the Repeatable (types B1).
+
+The title (UBS-SIG-1, UBS-WRD-2, UBS-WRD-3):
+
+- the heading the source gives the block itself ("Erstellt", "Genehmigt"); the heading above the
+  signatures ("Unterschrift(en)", "Firma/e") belongs to the enclosing section, never to a signature;
+- otherwise the signer alone, taken from the signature captions as the form shows them, as a noun
+  in the nominative without article or case ending: "Unterschrift des Vertretungsberechtigten" gives
+  "Vertretungsberechtigter", "Name des Kontoinhabers" "Kontoinhaber", "Firma del cliente"
+  "Cliente". The captions' word wins over the party section's word for the same role;
+- where the captions change per configurator option, the title follows them, one signature per
+  option (UBS-CFG-3);
+- the bank's signature of UBS Europe SE (or another issuing entity) is titled "Responsible person"
+  in English and the same in each other language, and right before it stands a `TitleDraw` with the
+  entity name ("UBS Europe SE") (UBS-SIG-6, UBS-PAGE-2). Other bank signers (client advisor,
+  supervisor) take their title from their captions. In a letter (a form with a `Letterhead`) the
+  bank's officers follow ubs-aem-letter-bank-signature instead.
+
+A signature, its Repeatable and every panel holding it never carry `dor_exclude` or
+`summary_exclude`: only their visibility decides whether a signature shows (backlog "Signatures").
+The internal-bank-use block (`PN_InternalBankUseOnly`, or its fragment) is the one exemption: it
+reaches the PDF alone, `summary_exclude` with `always_in_pdf`, signatures included.
+
+Reported:
+- a signature fragment that is not a child of a Repeatable;
+- a signature Repeatable with no title; a title whose first word, in a language, is a caption word
+  ("Unterschrift", "Signature", "Firma" in Italian and Spanish, "Name", "Nome", "Nombre", "Nom") or
+  an article ("der", "the", "il", "l'", "el", "le"); a title naming UBS outside a letter;
+- two signature Repeatables with one parent and the same title in a language;
+- outside a letter, the bank's signature (named `RCP_SGN_UBS`, or placed right after an entity
+  heading) without the entity heading right before it, or without "Responsible person" as its
+  English title;
+- `dor_exclude` or `summary_exclude` on a signature or on a node holding one (the internal-bank-use
+  block alone may carry `summary_exclude`).
+
+Fix: wrap a bare signature fragment in its Repeatable; rewrite the title as the signer or the
+block's own heading, per language; give the bank's signature its entity heading and title; delete
+the exclusion flags (the nodes stay hidden where their conditions hide them).
+"""

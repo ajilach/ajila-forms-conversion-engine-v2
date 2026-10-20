@@ -30,6 +30,9 @@ path = "src/lib.rs"
 [dependencies.jsonschema]
 version = "0.30"
 
+[dependencies.schemars]
+version = "1"
+
 [dependencies.serde]
 version = "1.0"
 features = ["derive"]

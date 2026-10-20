@@ -101,7 +101,7 @@ pub struct TextSearch {
 /// A rectangle in points with the origin at the page's **top-left**, which is
 /// how a reader describes a region. PDF's own convention is bottom-left, so the
 /// PDF renderer converts once at its boundary; XFA is natively top-left.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct RectPt {
     pub x: f32,
     pub y: f32,

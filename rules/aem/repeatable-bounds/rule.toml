@@ -2,19 +2,36 @@ id = "ubs-aem-repeatable-bounds"
 title = "A repeatable's bounds come from the source"
 output_formats = ["aem-ubs"]
 description = """
-Take `min_occur` and `max_occur` of each Repeatable from the source where it states them (a numbered
-list of rows, "up to four", a fixed number of signature blocks). Where it does not, prefer the
-small bounds the corpus favours (commonly 1 and 4). `max_occur` is never below `min_occur`. A
-conditional repeatable materialises its `min_occur` instances through the show hook (see
-ubs-aem-condition-targets), so a repeatable that renders only one instance is usually a visibility
-problem, not a wrong `min_occur`.
+A section repeats when its subform has an `occur` in the template (`min`, `max`, `initial`;
+xfa_node) AND the form has an add control for it (a button whose `click` adds an instance:
+pressed with `xfa_click` in a session, the new row's fields appear under indexed paths)
+(CNV-SRC-8). Then `min_occur` is its `min` and `max_occur` its `max`; an unbounded `max` (`-1`) is
+20 (backlog "Unbounded repeatables"). A section with bounds but no add control of its own cannot be
+grown by the person: `min_occur` and `max_occur` are both its number of instances (`min = max =
+initial`), and
+so are copies of one block numbered by hand in the source (UBS-REP-3, ubs-aem-signature-family).
 
-How to judge: for each Repeatable (json_search for `"type":"Repeatable"`), read its bounds and look at
-the section in the source (xfa_page_text, xfa_render_pages, xfa_controls: the number of repeated
-rows or instances it shows or allows). Check that `max_occur >= min_occur`.
+The document has no initial count: a repeatable opens with `min_occur` rows, and the writer creates
+them when a conditional panel holding it is shown. A source `initial` above `min` is not a break
+(its mapping is not decided yet). Where the count depends on a choice (rows that appear or
+disappear when xfa_set sets it, a configurator option that shows two legal guardians), each
+variant is its own
+Repeatable in that option's panel, with the bounds that option shows (UBS-CFG-3). A signature
+repeatable that adds and removes rows with its party has the party's bounds (UBS-SIG-3).
 
-A break is a `max_occur` below `min_occur`, or bounds that contradict what the source states for
-that section (fewer rows than the source shows, one signature block where the source has two).
+ubs-aem-repeatable-no-handwritten-rules checks what needs no source: `max_occur` at least
+`min_occur`, and 20 for an unbounded section.
+
+How to judge: for each Repeatable, find its section in the template (xfa_search for its name,
+xfa_node for its `occur`: `min`, `max`, `initial`), count its instances in `xfa_controls` (indexed
+paths), and press its add button with `xfa_click` in a session to see whether it adds a row; look at
+the rendered page (`xfa_render_pages`) for numbered copies.
+
+A break is a `min_occur` or `max_occur` that differs from what the source gives as above: its
+`min` and `max` (20 for unbounded), or its `count` for both where it has no add control.
 
 Fix: replace `min_occur` and `max_occur`.
 """
+
+[judge]
+node_types = ["Repeatable"]

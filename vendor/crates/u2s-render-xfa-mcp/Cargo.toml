@@ -40,6 +40,10 @@ name = "corpus_state_discovery"
 path = "tests/corpus_state_discovery.rs"
 
 [[test]]
+name = "cover_form"
+path = "tests/cover_form.rs"
+
+[[test]]
 name = "cross_server"
 path = "tests/cross_server.rs"
 
@@ -72,6 +76,13 @@ features = [
     "transport-io",
 ]
 
+[dependencies.schemars]
+version = "1"
+
+[dependencies.serde]
+version = "1.0"
+features = ["derive"]
+
 [dependencies.serde_json]
 version = "1.0"
 
@@ -83,8 +94,14 @@ features = [
     "sync",
 ]
 
+[dependencies.u2s-render-core]
+path = "../u2s-render-core"
+
 [dependencies.u2s-render-xfa]
 path = "../u2s-render-xfa"
+
+[dependencies.u2s-schema]
+path = "../u2s-schema"
 
 [dev-dependencies.image]
 version = "0.25"

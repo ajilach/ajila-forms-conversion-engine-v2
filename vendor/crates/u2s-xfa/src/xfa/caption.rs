@@ -21,8 +21,9 @@ pub struct Caption {
 
 impl Caption {
     /// The caption of `node` (a field, draw or exclusion group), when it has
-    /// one with text that takes part in layout: a `hidden` or `inactive`
-    /// caption takes no space (XFA 3.3 "The presence property").
+    /// one that takes part in layout: text to show, or a `reserve` to keep.
+    /// A `hidden` or `inactive` caption takes no space (XFA 3.3 "The
+    /// presence property").
     pub fn of(node: &XfaNode) -> Option<Caption> {
         let caption = node.children.iter().find(
             |c| matches!(&c.kind, XfaNodeKind::Element { tag_name, .. } if tag_name == "caption"),
@@ -31,15 +32,20 @@ impl Caption {
         if matches!(presence, Some("hidden" | "inactive")) {
             return None;
         }
-        let text = caption.template_value()?.trim().to_string();
-        if text.is_empty() {
-            return None;
-        }
+        let text = caption
+            .template_value()
+            .map(|t| t.trim().to_string())
+            .unwrap_or_default();
         let reserve = caption
             .attributes
             .get("reserve")
             .and_then(|r| XfaNode::parse_dimension(r).ok())
             .filter(|r| *r >= Num::ZERO);
+        // A caption with neither text nor a reserve takes no space; one with
+        // a reserve keeps that space even with nothing to show in it.
+        if text.is_empty() && reserve.is_none() {
+            return None;
+        }
         Some(Caption {
             placement: match caption.attributes.get("placement").map(String::as_str) {
                 Some("right") => CaptionPlacement::Right,
@@ -139,9 +145,14 @@ mod tests {
     }
 
     #[test]
-    fn hidden_or_empty_captions_take_no_space() {
+    fn hidden_or_empty_captions_take_no_space_but_a_reserve_is_kept() {
         assert_eq!(caption_of(r#"<caption presence="hidden"><value><text>A</text></value></caption>"#), None);
-        assert_eq!(caption_of(r#"<caption reserve="2mm"><font typeface="X"/></caption>"#), None);
+        assert_eq!(caption_of(r#"<caption><font typeface="X"/></caption>"#), None);
+        // XFA 3.3 "The caption element": `reserve` is the space set aside
+        // for the caption, with or without text in it.
+        let reserved = caption_of(r#"<caption reserve="2mm"><font typeface="X"/></caption>"#).expect("caption");
+        assert_eq!(reserved.text, "");
+        assert!(reserved.reserve.is_some());
         let invisible = caption_of(r#"<caption presence="invisible"><value><text>A</text></value></caption>"#).expect("caption");
         assert!(!invisible.drawn);
     }

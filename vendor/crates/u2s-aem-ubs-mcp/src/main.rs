@@ -38,7 +38,7 @@ use rmcp::model::*;
 use rmcp::service::{RequestContext, RoleServer, ServiceExt};
 use rmcp::{ErrorData as McpError, transport::stdio};
 use serde_json::{Value, json};
-use u2s_blob::BlobStore;
+use u2s_blob::{BlobOrPath, BlobStore, SourceArgs};
 use u2s_mapper_aem::fragment_library::FragmentLibrary;
 
 const MANIFEST_URI: &str = "u2s://manifest";
@@ -65,7 +65,7 @@ impl AemUbsServer {
             Err(_) => FragmentLibrary::empty(),
         };
         Ok(Self {
-            blobs: Arc::new(BlobStore::from_env()),
+            blobs: Arc::new(BlobStore::from_env().map_err(|err| format!("cannot start: {err}"))?),
             fragments: Arc::new(fragments),
         })
     }
@@ -87,23 +87,9 @@ impl AemUbsServer {
     /// this function adds no judgment of its own -- it only moves bytes in
     /// and out of the blob store around that call.
     fn decode(&self, args: &Value) -> Result<CallToolResult, String> {
-        let blob_handle = args.get("artifact_blob").and_then(Value::as_str);
-        let path = args.get("artifact_path").and_then(Value::as_str);
-
-        let bytes = match (blob_handle, path) {
-            (Some(handle), _) => self
-                .blobs
-                .get(handle)
-                .map_err(|err| format!("could not read artifact_blob {handle}: {err}"))?,
-            (None, Some(path)) => std::fs::read(path)
-                .map_err(|err| format!("could not read artifact_path {path}: {err}"))?,
-            (None, None) => {
-                return Err(
-                    "missing required argument: exactly one of artifact_blob or artifact_path"
-                        .to_owned(),
-                );
-            }
-        };
+        let a: specs::DecodeArgs = parse(args)?;
+        let bytes = BlobOrPath::from_parts(a.artifact_blob, a.artifact_path, SourceArgs::ARTIFACT)?
+            .read(&self.blobs)?;
 
         let document = u2s_aem_ubs_mcp::decode(&bytes)
             .map_err(|err| format!("could not decode the package: {err}"))?;
@@ -133,11 +119,8 @@ impl AemUbsServer {
     }
 
     fn encode(&self, args: &Value) -> Result<CallToolResult, String> {
-        let output_json = args
-            .get("output_json")
-            .ok_or_else(|| "missing required argument output_json".to_owned())?;
-
-        let document = u2s_aem_ubs_mcp::UbsAemDocument::from_json(output_json)
+        let specs::EncodeArgs { output_json } = parse(args)?;
+        let document = u2s_aem_ubs_mcp::UbsAemDocument::from_json(&Value::Object(output_json))
             .map_err(|err| format!("output_json is not an aem-ubs document: {err}"))?;
         let build = u2s_aem_ubs_mcp::encode(&document)
             .map_err(|err| format!("could not encode the package: {err}"))?;
@@ -183,14 +166,11 @@ impl AemUbsServer {
     }
 
     fn fragment_search(&self, args: &Value) -> Result<CallToolResult, String> {
-        let query = args
-            .get("query")
-            .and_then(Value::as_str)
-            .ok_or_else(|| "missing required argument query".to_owned())?;
+        let specs::FragmentSearchArgs { query } = parse(args)?;
 
         let hits: Vec<Value> = self
             .fragments
-            .search(query)
+            .search(&query)
             .into_iter()
             .map(|hit| {
                 json!({
@@ -207,6 +187,11 @@ impl AemUbsServer {
 fn with_structured(mut result: CallToolResult, value: Value) -> CallToolResult {
     result.structured_content = Some(value);
     result
+}
+
+/// A call's arguments as the tool's argument type.
+fn parse<T: serde::de::DeserializeOwned>(args: &Value) -> Result<T, String> {
+    u2s_schema::parse_tool_args(args).map_err(|err| format!("invalid arguments: {err}"))
 }
 
 fn to_mcp_tool(spec: &Value) -> Option<Tool> {

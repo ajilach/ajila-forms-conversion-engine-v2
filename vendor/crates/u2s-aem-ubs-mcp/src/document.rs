@@ -272,6 +272,8 @@ pub fn encode(doc: &UbsAemDocument) -> Result<UbsAemBuild, Error> {
     let (node, translations, conflicts) = lower(doc, &config);
     check_header_slots(&node)?;
     check_letterhead(&node)?;
+    check_inputs(&node)?;
+    check_language_gates(&node, &doc.languages)?;
     // The dictionary is keyed by master text, so a text translated two ways
     // would ship only one of them.
     if !conflicts.is_empty() {
@@ -381,18 +383,19 @@ pub fn decode(package: &[u8]) -> Result<UbsAemDocument, Error> {
         &parsed.raw_by_uuid,
     );
     form.visit_mut(&mut |node| {
-        if let AemNodeTranslated::Fragment {
-            uuid,
-            frag_ref,
-            init_hide,
-            init_show,
-            ..
-        } = node
-            && is_partner_generic(frag_ref)
-            && let Some(visibility) = parsed.fragment_init.get(uuid)
+        // What a document keeps of a loaded fragment's Initialize rule: a
+        // partner generic's sub-panels, and a signature block's shared place
+        // and date. The rest is the profile's, which the writer makes again.
+        if let AemNodeTranslated::Fragment { uuid, frag_ref, init, .. } = node
+            && let Some(loaded) = parsed.fragment_init.get(uuid)
         {
-            *init_hide = visibility.hide.clone();
-            *init_show = visibility.show.clone();
+            if is_partner_generic(frag_ref) {
+                init.init_hide = loaded.init_hide.clone();
+                init.init_show = loaded.init_show.clone();
+            }
+            if crate::aem::fragment_init::file_of(frag_ref) == crate::aem::fragment_init::SIGNATURE_GENERIC {
+                init.shared_place_date = loaded.shared_place_date;
+            }
         }
     });
     Ok(UbsAemDocument {
@@ -485,45 +488,47 @@ fn validate(doc: &UbsAemDocument) -> Result<(), Error> {
     Ok(())
 }
 
-/// Every party is one Repeatable around one partner generic, and every
-/// fragment's `init_hide` and `init_show` name sub-panels the fragment
-/// library says it has, as [`partner::init_problems`] requires.
+/// Every party is one Repeatable around its partner generic (several copies of
+/// it when the source splits the party around fields of its own, as
+/// [`partner::split_problems`] requires), and every fragment's Initialize
+/// lists name components the fragment library says it has, as
+/// [`fragment_init::problems`](crate::aem::fragment_init::problems) requires.
 fn check_parties(doc: &UbsAemDocument, library: &[ParsedFragment]) -> Result<(), Error> {
     let mut problems = Vec::new();
+    // A fragment that is a Repeatable's direct child repeats with its rows.
+    let mut in_rows = Vec::new();
+    doc.form.visit(&mut |node| {
+        if let AemNodeTranslated::Repeatable { children, .. } = node {
+            in_rows.extend(children.iter().filter_map(|c| match c {
+                AemNodeTranslated::Fragment { uuid, .. } => Some(*uuid),
+                _ => None,
+            }));
+        }
+    });
     doc.form.visit(&mut |node| match node {
-        AemNodeTranslated::Fragment {
-            name,
-            frag_ref,
-            init_hide,
-            init_show,
-            ..
-        } if !init_hide.is_empty() || !init_show.is_empty() => {
-            if !partner::is_partner_generic(frag_ref) {
-                problems.push(format!(
-                    "`init_hide` and `init_show` set the sub-panels of a UBS partner generic ({}), \
-                     and `{name}` ({frag_ref}) is none",
-                    partner::PARTNER_GENERICS.join(", ")
-                ));
-            } else if let Some(sub_panels) = partner::sub_panels(library, frag_ref) {
-                problems.extend(partner::init_problems(name, sub_panels, init_hide, init_show));
-            } else {
-                problems.push(format!(
-                    "`{name}` references {frag_ref}, which the fragment library does not hold"
-                ));
-            }
+        AemNodeTranslated::Fragment { uuid, name, frag_ref, init, .. } => {
+            problems.extend(crate::aem::fragment_init::problems(
+                name,
+                frag_ref,
+                init,
+                in_rows.contains(uuid),
+                library,
+            ));
         }
         AemNodeTranslated::Repeatable { name, children, .. } => {
-            let parties = children
+            let parts: Vec<partner::PartyPart<'_>> = children
                 .iter()
-                .filter(|c| {
-                    matches!(c, AemNodeTranslated::Fragment { frag_ref, .. } if partner::is_partner_generic(frag_ref))
+                .filter_map(|c| match c {
+                    AemNodeTranslated::Fragment { name, frag_ref, init, .. }
+                        if partner::is_partner_generic(frag_ref) =>
+                    {
+                        Some(partner::PartyPart { name: name.as_str(), frag_ref: frag_ref.as_str(), init })
+                    }
+                    _ => None,
                 })
-                .count();
-            if parties > 1 {
-                problems.push(format!(
-                    "`{name}` holds {parties} partner generics: a party is one Repeatable around one \
-                     partner generic, with at most a content Panel beside it for fields the generic lacks"
-                ));
+                .collect();
+            if parts.len() > 1 {
+                problems.extend(partner::split_problems(name, &parts, library));
             }
         }
         _ => {}
@@ -691,6 +696,161 @@ fn on_first_page_after_preface(root: &AemNode, uuid: uuid::Uuid) -> bool {
 
 /// The DoR header slots a node may print in.
 const HEADER_SLOTS: &[&str] = &["slot1", "slot2", "slot3"];
+
+/// Every input's [`InputProps`](crate::aem::InputProps) names what the form
+/// holds: a choice opens on one of its own options, a copy and a calculation
+/// read inputs of the form other than the input itself, and an input takes
+/// its value from a calculation or from a copy, not from both. Anything else
+/// would be written as a rule that names a field AEM cannot find, or a value
+/// no option shows.
+fn check_inputs(root: &AemNode) -> Result<(), Error> {
+    fn collect<'a>(node: &'a AemNode, inputs: &mut Vec<&'a AemNode>) {
+        if node.input().is_some() {
+            inputs.push(node);
+        }
+        if let AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } = node
+        {
+            for child in children {
+                collect(child, inputs);
+            }
+        }
+    }
+    let mut inputs = Vec::new();
+    collect(root, &mut inputs);
+    let names: Vec<&str> = inputs.iter().filter_map(|node| node.name()).collect();
+    let mut problems = Vec::new();
+    for node in &inputs {
+        let (Some(name), Some(input)) = (node.name(), node.input()) else {
+            continue;
+        };
+        let options = match node {
+            AemNode::RadioButton { options, .. }
+            | AemNode::Dropdown { options, .. }
+            | AemNode::Checkbox { options, .. } => Some(options),
+            _ => None,
+        };
+        if let (Some(options), Some(value)) = (options, input.default_value.as_deref())
+            && !options.iter().any(|option| option.value == value)
+        {
+            let values = options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join(", ");
+            problems.push(format!(
+                "`{name}` opens on `{value}`, which is none of its option values ({values})"
+            ));
+        }
+        let mut sources: Vec<String> = Vec::new();
+        if let Some(source) = &input.copy_from {
+            sources.push(source.as_str().to_owned());
+            if input.calculate.is_some() {
+                problems.push(format!(
+                    "`{name}` both calculates its value and copies `{}`: it takes one or the other",
+                    source.as_str()
+                ));
+            }
+        }
+        if let Some(template) = &input.calculate {
+            match crate::aem::letterhead::subject_references(template) {
+                Ok(references) => sources.extend(references),
+                Err(e) => problems.push(format!("`{name}` calculates its value from {e}")),
+            }
+        }
+        for source in &sources {
+            if source == name {
+                problems.push(format!("`{name}` takes its value from itself"));
+            } else if !names.contains(&source.as_str()) {
+                problems.push(format!(
+                    "`{name}` takes its value from `{source}`, which is no input of the form"
+                ));
+            }
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::InvalidDocument(problems.join("; ")))
+    }
+}
+
+/// Every node shown only in some languages (`only_languages`) names languages
+/// the form ships, and not all of them; it is a node the writer can gate (an
+/// input, a draw, a message box, an HTML block or a Panel that no condition
+/// shows), authored visible: the gate decides when it shows.
+fn check_language_gates(root: &AemNode, languages: &[String]) -> Result<(), Error> {
+    fn walk(node: &AemNode, languages: &[String], problems: &mut Vec<String>) {
+        if let Some(attrs) = node.attrs()
+            && !attrs.only_languages.is_empty()
+        {
+            let name = node.name().unwrap_or("the node");
+            for language in &attrs.only_languages {
+                if !languages.contains(language) {
+                    problems.push(format!(
+                        "`{name}` shows only in `{language}`, which the form does not ship ({languages:?})"
+                    ));
+                }
+            }
+            if languages.iter().all(|l| attrs.only_languages.contains(l)) {
+                problems.push(format!(
+                    "`{name}` shows in every language of the form: leave `only_languages` empty"
+                ));
+            }
+            let gateable = match node {
+                AemNode::Panel { is_conditional, .. } => !is_conditional,
+                AemNode::TextField { .. }
+                | AemNode::NumberField { .. }
+                | AemNode::DatePicker { .. }
+                | AemNode::Dropdown { .. }
+                | AemNode::Checkbox { .. }
+                | AemNode::RadioButton { .. }
+                | AemNode::TextDraw { .. }
+                | AemNode::TitleDraw { .. }
+                | AemNode::MessageBox { .. }
+                | AemNode::HtmlDisplayer { .. } => true,
+                _ => false,
+            };
+            if !gateable {
+                problems.push(format!(
+                    "`{name}` cannot be shown by language: only an input, a draw, a message box, an HTML \
+                     block or a Panel no condition shows can; wrap it in a Panel and gate that"
+                ));
+            }
+            let visible = match node {
+                AemNode::Panel { visible, .. }
+                | AemNode::TextField { visible, .. }
+                | AemNode::NumberField { visible, .. }
+                | AemNode::DatePicker { visible, .. }
+                | AemNode::Dropdown { visible, .. }
+                | AemNode::Checkbox { visible, .. }
+                | AemNode::RadioButton { visible, .. }
+                | AemNode::TextDraw { visible, .. }
+                | AemNode::TitleDraw { visible, .. }
+                | AemNode::MessageBox { visible, .. }
+                | AemNode::HtmlDisplayer { visible, .. } => *visible,
+                _ => true,
+            };
+            if !visible {
+                problems.push(format!(
+                    "`{name}` is shown by language, so it is authored visible: its gate shows and hides it"
+                ));
+            }
+        }
+        if let AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } = node
+        {
+            for child in children {
+                walk(child, languages, problems);
+            }
+        }
+    }
+    let mut problems = Vec::new();
+    walk(root, languages, &mut problems);
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        Err(Error::InvalidDocument(problems.join("; ")))
+    }
+}
 
 /// Every `dorHeaderSlot` names one of the DoR's three header slots, and slot 1
 /// is the banking relationship's: no master-page line takes it, and no field
@@ -880,8 +1040,8 @@ mod tests {
         let decoded = decode(&build.package).unwrap();
         let mut hidden = Vec::new();
         decoded.form.visit(&mut |node| {
-            if let AemNodeTranslated::Fragment { init_hide, .. } = node {
-                hidden.extend(init_hide.iter().map(|n| n.as_str().to_string()));
+            if let AemNodeTranslated::Fragment { init, .. } = node {
+                hidden.extend(init.init_hide.iter().map(|n| n.as_str().to_string()));
             }
         });
         assert_eq!(hidden, ["PN_EntityBasic", "PN_Address"]);
@@ -1052,18 +1212,24 @@ mod tests {
         assert!(first.bound_package == second.bound_package);
     }
 
-    /// Only a partner generic has sub-panels a form hides this way.
+    /// Any fragment hides what it has, by its path inside the fragment, and
+    /// nothing it does not have.
     #[test]
-    fn init_hide_on_another_fragment_is_refused() {
+    fn init_hide_names_a_component_the_fragment_has() {
+        let signature = "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1";
+        let doc = UbsAemDocument::from_json(&fragment_page(signature, json!(["PN_Date"]))).unwrap();
+        let Err(Error::InvalidDocument(message)) = encode(&doc) else {
+            panic!("init_hide of a component the signature fragment does not have must be refused");
+        };
+        assert!(message.contains("which it does not have"), "{message}");
         let doc = UbsAemDocument::from_json(&fragment_page(
-            "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_SignatureGeneric1",
-            json!(["PN_Date"]),
+            signature,
+            json!(["PN_GenericSignature.TXT_Place_Generic"]),
         ))
         .unwrap();
-        let Err(Error::InvalidDocument(message)) = encode(&doc) else {
-            panic!("init_hide on a signature fragment must be refused");
-        };
-        assert!(message.contains("PN_CPGRP"), "{message}");
+        let build = encode(&doc).expect("a component the fragment has can be hidden");
+        let xml = form_xml(&build.package);
+        assert!(xml.contains("hideAFHideDor(this.PN_GenericSignature.TXT_Place_Generic)"), "{xml}");
     }
 
     /// [`fragment_page`] with the fragment also showing `init_show`.
@@ -1113,8 +1279,9 @@ mod tests {
         let decoded = decode(&build.package).unwrap();
         let mut lists = Vec::new();
         decoded.form.visit(&mut |node| {
-            if let AemNodeTranslated::Fragment { init_hide, init_show, .. } = node {
-                let names = |list: &[crate::aem::ComponentName]| {
+            if let AemNodeTranslated::Fragment { init, .. } = node {
+                let (init_hide, init_show) = (&init.init_hide, &init.init_show);
+                let names = |list: &[crate::aem::ComponentPath]| {
                     list.iter().map(|n| n.as_str().to_string()).collect::<Vec<_>>()
                 };
                 lists.push((names(init_hide), names(init_show)));
@@ -1137,7 +1304,7 @@ mod tests {
             json!([]),
             json!(["PN_DOBNationality"]),
         ));
-        assert!(message.contains("PN_CPGRP"), "{message}");
+        assert!(message.contains("which it does not have"), "{message}");
     }
 
     /// Showing a sub-panel the generic already shows, or one it does not
@@ -1198,7 +1365,7 @@ mod tests {
         )) else {
             panic!("a script fragment must not pass as a component name");
         };
-        assert!(message.contains("not a component name"), "{message}");
+        assert!(message.contains("not a component path"), "{message}");
     }
 
     /// The dictionary holds one translation per master text, so a text
@@ -1358,6 +1525,93 @@ mod tests {
             Err(other) => panic!("unexpected error: {other}"),
             Ok(_) => panic!("the document must be refused"),
         }
+    }
+
+    fn text_field(name: &str, extra: serde_json::Value) -> serde_json::Value {
+        let mut field = json!({
+            "type": "TextField", "uuid": uuid::Uuid::new_v4(), "name": name,
+            "label": {"en": name, "de": name}, "mandatory": false, "visible": true,
+            "max_chars": null, "colspan": 6, "dor_colspan": null, "bind_ref": null
+        });
+        for (key, value) in extra.as_object().unwrap() {
+            field[key] = value.clone();
+        }
+        field
+    }
+
+    fn radio(default_value: &str) -> serde_json::Value {
+        json!({
+            "type": "RadioButton", "uuid": uuid::Uuid::new_v4(), "name": "RB_Kind",
+            "label": {"en": "Kind", "de": "Art"},
+            "options": [
+                {"label": {"en": "A", "de": "A"}, "value": "1"},
+                {"label": {"en": "B", "de": "B"}, "value": "2"}
+            ],
+            "alignment": "Vertical", "mandatory": false, "visible": true, "colspan": 12,
+            "dor_colspan": null, "conditions": [], "bind_ref": null,
+            "default_value": default_value
+        })
+    }
+
+    /// A choice opens on one of its own options, and a copy or a calculation
+    /// reads another input the form holds; an input takes one of the two.
+    #[test]
+    fn input_properties_name_what_the_form_holds() {
+        let unknown = encode_refusal(page_document(json!([radio("3")])));
+        assert!(unknown.contains("`RB_Kind` opens on `3`"), "{unknown}");
+
+        let missing = encode_refusal(page_document(json!([
+            text_field("TXT_Copy", json!({"copy_from": "TXT_Gone"}))
+        ])));
+        assert!(missing.contains("`TXT_Gone`, which is no input"), "{missing}");
+
+        let itself = encode_refusal(page_document(json!([
+            text_field("TXT_Header", json!({"calculate": "0319 {TXT_Header}"}))
+        ])));
+        assert!(itself.contains("from itself"), "{itself}");
+
+        let both = encode_refusal(page_document(json!([
+            text_field("TXT_Account", json!({})),
+            text_field("TXT_Header", json!({"calculate": "{TXT_Account}", "copy_from": "TXT_Account"}))
+        ])));
+        assert!(both.contains("one or the other"), "{both}");
+
+        let build = encode(
+            &UbsAemDocument::from_json(&page_document(json!([
+                radio("2"),
+                text_field("TXT_Account", json!({})),
+                text_field("TXT_Header", json!({"calculate": "0319 {TXT_Account}", "read_only": true})),
+                text_field("TXT_Holder", json!({"copy_from": "TXT_Name"})),
+                text_field("TXT_Name", json!({"copy_from": "TXT_Holder"}))
+            ])))
+            .unwrap(),
+        )
+        .expect("the properties name what the form holds");
+        let xml = build_form_xml(&build.package);
+        for expected in [
+            r#"_value="2""#,
+            r#"enabled="{Boolean}false""#,
+            "calculated-value",
+            "copied-value",
+            "fd:calc=",
+            "fd:valueCommit=",
+        ] {
+            assert!(xml.contains(expected), "the form must carry {expected}");
+        }
+    }
+
+    /// The form page of a built package.
+    fn build_form_xml(package: &[u8]) -> String {
+        use std::io::Read;
+        let mut archive = zip::ZipArchive::new(std::io::Cursor::new(package)).unwrap();
+        for i in 0..archive.len() {
+            let mut file = archive.by_index(i).unwrap();
+            let mut text = String::new();
+            if file.read_to_string(&mut text).is_ok() && text.contains("guideContainer") {
+                return text;
+            }
+        }
+        panic!("the package holds the form");
     }
 
     /// Slot 1 is the banking relationship's, and a slot is one of three.

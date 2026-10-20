@@ -539,7 +539,7 @@ Static text / heading display (not an input).
 |-----------|-------------|
 | `_value` | The HTML content to display (XML-escaped) |
 | `text` | Alternative to `_value` in some versions |
-| `headingLevel` | Heading level (`"H1"` through `"H6"`) when used as a heading |
+| `headingLevel` | Heading level as a plain tag number, `"1"` through `"6"` (e.g. `"2"` for an `<h2>`), when used as a heading -- verified against the real `AF_AABF.zip` fixture and the reference engine's own parser; not `"H1"`-`"H6"` as an earlier revision of this doc claimed |
 
 ### 6.10. Scribble (`guideScribble`)
 
@@ -1595,3 +1595,83 @@ autofillFieldKeyword="name"
 autofillFieldKeyword="email"
 autofillFieldKeyword="tel"
 ```
+
+---
+
+## Appendix: Observed Deviations (u2s)
+
+This appendix is maintained by `u2s-mapper-aem` alongside its own
+`catalog.rs` (the stock Foundation-component table this appendix informs),
+and records points where the fixture package
+(`crates/u2s-mapper-aem/tests/fixtures/AF_AABF.zip`, a real,
+human-authored UBS form) diverges from — or settles a question left open
+by — the spec above. Copied into this repo (from
+`ajila-forms-conversion-engine/specs/AEM.md`, upstream commit
+`aee5aef09e47818fe99558aeb96d110be842b570`) specifically so this appendix
+has somewhere to live next to the code it documents; add to it as the
+decoder encounters more.
+
+- **§14 overlay components confirmed in practice.** The fixture's
+  `ajila-forms-customers/ajila-forms-ubs/components/controls/*` resource
+  types are overlays of the foundation `fd/af/components/controls/*`
+  components this spec documents — same semantics, project-specific JCR
+  path. `u2s-mapper-aem`'s decoder treats the prefix as a suffix match
+  against the same stock table (`catalog::FOUNDATION`), not a distinct
+  component family.
+- **§16 submit actions: `fd/af/components/nextitemnav` vs
+  `fd/af/components/actions/nextitemnav`.** The fixture's toolbar action
+  nodes (`nextitemnav`, `submit`, `previtemnav`) sit under
+  `fd/af/components/actions/*`, not the `fd/af/components/*` this spec's
+  §6 component table lists. `guidebutton` stays under
+  `fd/af/components/*`. Follow the fixture.
+- **§7 toolbar layout: `fd/af/layouts/toolbar/defaultToolbarLayout`**, not
+  `fd/af/layouts/toolbarCommonLayout`. Follow the fixture.
+- **`rootPanel`'s own resource type is `fd/af/components/rootPanel`**,
+  settling the choice between this spec's §5.4 (`fd/af/components/panel`)
+  and §14's own table entry in favour of **§14**.
+- **`fd:version="1.1"`** in the fixture, not `"2.1"`, on `guideContainer`.
+- **`guideContainer` has its own `layout` child**,
+  `sling:resourceType="fd/af/layouts/defaultGuideLayout"` — a sibling of
+  `rootPanel`, not folded into it. This crate's own writer does not emit
+  this element at all today; that is a real gap, not a stylistic choice,
+  since nothing else in the tree carries this information.
+- **`rootPanel` itself has *two* children the current writer conflates
+  into one.** The fixture's `rootPanel` carries a `layout` child whose
+  `sling:resourceType` is the UBS wizard layout
+  (`ajila-forms-customers/ajila-forms-ubs/layouts/panel/wizard`), separate
+  from its `items` child, which itself carries
+  `sling:resourceType="fd/af/layouts/gridFluidLayout2"` (the pages live
+  inside `items`, not inside `layout`). This crate's writer currently
+  emits one `layout` element carrying `gridFluidLayout2` plus
+  `toolbarPosition`, and an `items` element with no `sling:resourceType`
+  at all — the two elements' own resource types are effectively swapped,
+  and the wizard-specific layout type is missing entirely. Not yet fixed;
+  flagged here with the exact fixture shape so the correction can be made
+  and verified against a real round-trip rather than guessed.
+- **`toolbar` also wraps its buttons in `items`, plus a separate `layout`
+  child** — both carrying `sling:resourceType="fd/af/layouts/toolbar/
+  defaultToolbarLayout"`. The current writer puts toolbar buttons directly
+  under `toolbar` with no `items` wrapper and no separate `layout` sibling.
+  Not yet fixed, for the same reason as `rootPanel`'s own gap above.
+- **Visibility rules use `fd:rules`/`fd:visible` JSON**, not a synthesized
+  `fd:initialize` script. This spec's §8 does not fully settle the shape;
+  follow the fixture's JSON convention.
+- **A wizard step's title is not `jcr:title`.** The fixture's steps use a
+  sibling `panel_title_*` panel containing a heading-level static text
+  (`titledraw`) — and that sibling panel is not always title-only; one
+  observed instance also carries a radio button. Treat `panel_title_*` as
+  an ordinary authored panel, not a title synthesis target.
+- **DAM `<dictionary>` node list can disagree with the dictionary files
+  actually shipped.** The fixture's DAM asset lists 4 languages
+  (`de, de-ch, en, es`) while 7 dictionary XMLs exist under
+  `assets/dictionary`. Treat this as a warning-level inconsistency to
+  carry faithfully, not an error.
+- **Dictionary entry element names are not fully reconstructable.** Most
+  (255 of 311 in the fixture) are `fd_` + UUIDv5(`NAMESPACE_URL`,
+  `sling:key`), but a meaningful minority are not derivable from any
+  standard scheme — evidence the corpus was assembled by more than one
+  tool over time. A round-trip comparison must key dictionary entries by
+  `(sling:key, sling:message)`, never by element name.
+- **`options="[value=label,...]"` disambiguation.** Confirmed against the
+  fixture: split on the *first* `=` (a label may contain `=`, a value may
+  not), and `,` inside a label is escaped as `\,`.

@@ -1,0 +1,33 @@
+# Replaces guillemet-quotes (PROBLEM-guillemet-quotes of the feedback repo, which only knew «…»)
+# with UBS-TXT-2. The profile's own texts are printed with the same outer pair by the UBS layer
+# (`quote_marks` in `src/aem/quotes.rs`). check.js decides every text; fix.js only the unambiguous
+# case, a text whose only quotation marks are an even number of straight double quotes.
+id = "ubs-aem-quotes"
+title = "Quotation marks follow language and entity"
+output_formats = ["aem-ubs"]
+description = """
+Quotation marks follow the text's language and the country of the issuing entity
+(`variables.formrange_entity`: 019 Germany, 033 Italy, 001 Switzerland), whatever marks the source
+prints (UBS-TXT-2). Outer pair, then the pair for a quotation inside a quotation:
+
+- German: „…“ and ‚…‘; Switzerland «…» and ‹…›
+- Italian: «…» and “…”; Switzerland „…“ and «…»
+- French: « … » (a no-break space inside each mark) and “…”; Switzerland «…» and ‹…›
+- Spanish: «…» and “…”
+- English: “…” and ‘…’
+
+Any other entity takes the language's non-Swiss marks. The form never gets a regional language
+for this (no `de-ch` of its own). `’` is the apostrophe and is always allowed.
+
+Checked: every text that reaches a dictionary, in every language: titles, labels, the content of
+draws and message boxes, option labels. An HtmlDisplayer's markup is not one, and a `"` inside a
+tag delimits an attribute; `&quot;` counts as `"`. Reported: a straight double quote, a straight
+single quote that opens a quotation (`'simple'`), a mark the language does not use, a pair out of
+order or left open, the inner pair opened outside a quotation (Spanish “Datos” for «Datos»), and in
+French outside Switzerland a guillemet without its no-break space.
+
+Fix: the autofix rewrites a text whose only marks are an even number of straight double quotes,
+pairing them by position into the outer pair. Anything else by hand: read the sentence, use the
+inner pair for a quotation inside a quotation, and pair an odd count by meaning. This wins over the
+source's own marks (ubs-aem-verbatim-source-text): the words between the marks stay verbatim.
+"""

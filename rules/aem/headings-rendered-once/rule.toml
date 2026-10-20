@@ -1,26 +1,30 @@
 id = "ubs-aem-headings-rendered-once"
-title = "Each heading of the source is rendered exactly once"
+title = "Headings render once, plain, at unskipped levels"
 output_formats = ["aem-ubs"]
 description = """
-A page Panel (`is_page: true`) renders its heading from its own `title`: the writer wraps it in a
-panel named `<panel name>Title` holding one level-2 TitleDraw (on the first page, as the subtitle
-text under the form title). Give a page its heading as `title` and do not author a TitleDraw or
-TextDraw for it: a drawn copy renders the heading twice. Which pages have a heading at all is
-ubs-aem-structure-matches-source's question. Likewise two
-neighbouring TitleDraws or TextDraws that carry the same text render it twice. Below page level a
-Panel `title` does not render, so a sub-heading is an authored TitleDraw (and never both a titled
-sub-panel and a TitleDraw with the same text next to it as one heading).
+A section heading (UBS-SEC-1, a heading the source draws with a rule above it) is a page's `title`,
+and the writer renders it: a step-title panel `<panel name>Title` holding one level-2 TitleDraw (on
+the first page, the subtitle under the form title). It renders once, so no TitleDraw or TextDraw
+copies it (UBS-SEC-2). Below page level a Panel `title` does not render: a sub-heading is a TitleDraw
+(ubs-aem-sub-headings-are-title-draws), level 3 under the page heading, deeper levels following.
 
-Reported:
+Reported, each repaired by the autofix:
 
-- a TitleDraw or TextDraw among the direct children of a page, or among the direct children of the
-  page's first Panel child, whose text (markup, case and a trailing colon ignored, in the master
-  language) is the page's `title`;
-- two consecutive siblings, each a TitleDraw or TextDraw, with the same non-empty text.
+- a TitleDraw or TextDraw among the direct children of a page, or of the page's first Panel child,
+  whose text (markup, case and a trailing colon ignored, master language) is the page's `title`:
+  deleted;
+- two consecutive TitleDraws or TextDraws with the same text: the second deleted;
+- a TextDraw whose text is the label of the input right before or after it (CNV-TXT-8: the input
+  shows its label): deleted, unless the input hides its label (`hide_title`), whose question that
+  text is. A heading stays even where an input repeats it;
+- a TitleDraw more than one level below the heading before it in its page, the page itself
+  counting as level 2 (UBS-SEC-3): a level-4 heading right under the page heading becomes 3, and
+  the headings after it follow;
+- markup in the `title` of a Panel or Repeatable (it shows no rich text): stripped. A page title
+  keeps a footnote reference, which its step-title draw renders.
 
-A TextDraw carrying the css class `subtitle-after-form-title` is the first page's subtitle and is
-not reported.
-
-Delete the duplicate draw and keep the page `title`. If the heading really belongs in a draw (a
-sub-heading), clear the panel's title instead.
+Not repaired: a footnote reference in the title of a panel below page level. Move it after the word
+that carries it in the panel's first text, or into a TitleDraw. A TextDraw with the css class
+`subtitle-after-form-title` is the first page's subtitle and is never reported. If a drawn heading
+is really a sub-heading, keep the draw and clear the page's title instead.
 """

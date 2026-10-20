@@ -1,9 +1,9 @@
 // The translatable texts of the tree that reach the reader (`for_each_text` of `translated.rs`
-// lists more): the title of a page, which the writer renders as its heading, the labels of the
-// inputs, the content of the draws and the HtmlDisplayer, and each option's label. The title of
-// anything below a page does not render, a Fragment's is never written and a Root's is the form
-// code, so none of those is held to a language; a Repeatable's is judged against the source
-// (ubs-aem-repeatable-add-label).
+// lists more): the title of a page, which the writer renders as its heading, the title of a
+// Repeatable, which names each row and its Add button, the labels of the inputs, the content of
+// the draws and the HtmlDisplayer, and each option's label. The title of a Panel below a page does
+// not render and a Fragment's is never written, so neither is held to a language; the form title
+// is ubs-aem-form-title's.
 const LABEL_TYPES = ["TextField", "NumberField", "DatePicker", "Dropdown", "Checkbox", "RadioButton"];
 const CONTENT_TYPES = ["TextDraw", "MessageBox", "TitleDraw", "HtmlDisplayer"];
 
@@ -48,6 +48,7 @@ function check(output, ctx) {
   function visit(node, pointer) {
     const who = "`" + (node.name || node.type) + "`";
     if (node.type === "Panel" && node.is_page === true) text(node.title, pointer + "/title", who + " page title");
+    if (node.type === "Repeatable") text(node.title, pointer + "/title", who + " title");
     if (LABEL_TYPES.indexOf(node.type) >= 0) text(node.label, pointer + "/label", who + " label");
     if (CONTENT_TYPES.indexOf(node.type) >= 0) text(node.content, pointer + "/content", who + " content");
     const options = node.options || [];

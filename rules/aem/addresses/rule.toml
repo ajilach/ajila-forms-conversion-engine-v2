@@ -1,0 +1,58 @@
+id = "ubs-aem-addresses"
+title = "An address is the address fragment, once"
+output_formats = ["aem-ubs"]
+description = """
+An address of the source is a group of street, number, postal code, city and country inputs (path
+hints `Street_StreetNumber`, `PostalCode_City_Country`), sometimes with an additional address line,
+a canton or state, a district, a post office box or a client ID (UBS-ADR-1).
+
+- Inside a party it is the partner generic's own `PN_Address` (not in `init_hide`).
+- Outside a party it is one `Fragment` of
+  `/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_AddressGeneric1`, under a `TitleDraw`
+  with its source heading where the source gives one (types B6). The market `affrg_Address1` is
+  retired (ubs-aem-retired-market-fragments).
+- Where the persons of a party repeat but one address serves them all (one residence or registered
+  office address), the row hides `PN_Address` and the fragment follows the row, under its source
+  heading (UBS-PTY-4). A name pair with no role, or a single name input, is `TextField`s followed by
+  the fragment where an address follows (UBS-PTY-8).
+
+The fragment shows exactly the fields the source shows (UBS-ADR-1). The writer gives it its
+Initialize rule, which by default hides the fields beyond street, number, postal code, city and
+country and makes city and country optional (the fragment requires them, UBS sources do not).
+Author that default nowhere; change it on the `Fragment` by path inside the fragment (inside a party,
+on the partner generic, with `PN_Address.` in front):
+
+- a further field the source shows goes into `init_show`: the additional address line
+  `PN_AddressBlock.TXT_AdditionalDetails_AddressBlock`, the canton or state
+  `PN_AddressBlock.TXT_State_AddressBlock`, the district `PN_AddressBlock.TXT_District_AddressBlock_APAC`;
+- street and number in one source input are `PN_AddressBlock.TXT_StreetNumber` shown and
+  `PN_AddressBlock.TXT_Street_AddressBlock` and `PN_AddressBlock.TXT_StreetNo_AddressBlock` in
+  `init_hide`; postal code and city in one input are `PN_AddressBlock.TXT_PostalCodeCity` shown and
+  the two separate fields hidden;
+- a city or country the source requires goes into `init_required`
+  (`PN_AddressBlock.TXT_City_AddressBlock`, `PN_AddressBlock.DD_Country_AddressBlock`).
+
+A field the fragment does not have (a post office box, a client ID inside the group) is a
+`TextField` right after the fragment, with the source's caption, in source order, so no input is
+lost (CNV-TXT-2). A free-text country is the fragment's country dropdown (UBS-ADR-2: the fragment
+cannot take free entry).
+
+Not an address fragment:
+- the addressee window, a multi-line "name and address" box under the title (path hint
+  `Reciever_Address`), is a `TextField` with `kind: "Multiline"` named `TXTM_` (UBS-ADR-3); in a
+  letter the receiver is the `Letterhead`'s (ubs-aem-letter-detection);
+- a sender or branch contact block filled from a branch choice (path hints `SenderAddress`,
+  `BranchName`, `BranchPhone`, `ClientAdvisorPhone`) is generic components (UBS-ADR-4): a `Dropdown`
+  of the source's branches, and per branch a conditional `Panel` its `conditions` show, holding what
+  the source fills in for that branch (in a session, xfa_open and xfa_set per option, the fields the
+  result lists as changed) as `TextDraw`s or read-only `TextField`s with `default_value`.
+
+Reported: two entered `TextField`s in one container whose labels name the street and the city
+(the fragment hand-built; read-only and computed fields are a contact block's and pass); an address
+fragment inside a party row. Whether the source has the address, and its fields, is judged by
+ubs-aem-standard-sections-are-fragments.
+
+Fix: replace hand-built street, number, postal code, city and country fields with the fragment,
+keeping only the extra fields after it; move an address out of a party row (after it when one
+address serves all the persons) or show the generic's `PN_Address` instead.
+"""

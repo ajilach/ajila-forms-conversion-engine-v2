@@ -71,6 +71,7 @@ pub mod i18n;
 pub mod jcr;
 pub mod package;
 pub mod script;
+pub mod tool_args;
 pub(crate) mod search;
 pub mod xml_writer;
 pub mod xsd;

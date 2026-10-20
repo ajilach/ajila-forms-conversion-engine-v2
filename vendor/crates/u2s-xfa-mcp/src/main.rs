@@ -9,7 +9,7 @@ use u2s_xfa_mcp::XfaDataServer;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
 
-    let server = XfaDataServer;
+    let server = XfaDataServer::new()?;
     let service = server.serve(stdio()).await?;
     service.waiting().await?;
     Ok(())

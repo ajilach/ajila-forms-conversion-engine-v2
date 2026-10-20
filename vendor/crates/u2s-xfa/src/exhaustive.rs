@@ -8,6 +8,14 @@
 //! control at a time, the way a person would, and never has to enumerate
 //! anything to reach a state. What remains here is just the discovery half
 //! that listing controls was always built on.
+//!
+//! Part of that discovery reads script text without running it:
+//! [`field_affects_layout`] looks up which scripts name a control, and
+//! [`crate::states::click_effect_of_sources`] reads what a button's click
+//! script calls. Both are heuristics for triage only. They guide an agent
+//! to the controls worth trying first and never influence how the form is
+//! laid out or rendered; the scripts themselves run in the engine whatever
+//! these scans conclude.
 
 use crate::xfa::scripting::events::EventActivity;
 use crate::xfa::scripting::som::{child_som_path, sibling_indices};

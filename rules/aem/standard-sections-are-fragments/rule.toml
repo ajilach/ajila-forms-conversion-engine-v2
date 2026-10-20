@@ -1,46 +1,58 @@
 id = "ubs-aem-standard-sections-are-fragments"
-title = "Standard sections are the bank's fragments, none lost and none invented"
+title = "Standard blocks are the bank's fragments"
 output_formats = ["aem-ubs"]
 description = """
-Recurring standard sections that the bank ships as reusable fragments (address, signature, account
-holder, contractual partner, beneficial owner, power of attorney, banking relationship, IBAN,
-individual or entity basics, internal bank use, and the like) are one `Fragment` node each, which
-references the fragment by its JCR path (`frag_ref`) exactly as the reference forms do. Never
-hand-build such a section's inner fields, and never recreate a fragment's fields as children or
-edit inside it: a fragment is OPAQUE, its fields are supplied by AEM at runtime, so recreating them
-duplicates the section. Keep the Fragment's `bind_ref`. For a section repeated per party, emit one
-Fragment per party inside a Repeatable. Never replace a conditional Panel (one with show and hide
-behaviour) with a fragment.
+The blocks whose inputs the UBS profile defines (types section 2) are the bank's fragments wherever
+the source has them, none lost and none invented. What each source block becomes:
 
-A fragment path is `/content/dam/formsanddocuments/<library>/<fragment>` (the banking relationship
-alone is `/content/forms/af/afforms_ubs_fragmentlib/affrg_BankingRelationship1`, which the Preface
-node writes). Pick the library the fragment documentation and the reference packages show for the
-form's entity. A person's address is part of that person's partner generic, never a separate
-fragment; only a loose address that belongs to no person block is its own `affrg_AddressGeneric1`
-or `affrg_Address1` reference, and its "Additional address details" line and Country dropdown are
-standard and stay. Never hand-build Street, No., postcode, City and Country fields. A fragment for
-a block the source does not have is a rule applied out of place. For a form with no configurator, a
-name pair that merely identifies the form's subject (a questionnaire's "Last name / First name(s)")
-is NOT a party section: it stays plain `TXT_` text boxes, unless a reference form of the same kind
-uses a small building-block fragment (`affrg_IndividualBasic1`, `affrg_EntityBasic1`).
+- a party (a person or company in a role) is a partner generic in its row
+  (ubs-aem-account-holder-cluster, ubs-aem-account-holder-wiring); a name pair with no role and a
+  single name input are `TextField`s (UBS-PTY-8);
+- an address is the address fragment, or the party's `PN_Address`; the addressee window and a
+  branch contact block are not addresses (ubs-aem-addresses);
+- a signature block is `affrg_SignatureGeneric1` in its Repeatable (ubs-aem-signatures);
+- an account number with its parts is the account fragment of its kind, or a row of `TextField`s
+  where the source fixes a part; a single account field is a `TextField`; an IBAN is
+  `affrg_IBAN1` or `affrg_IBAN2` for the IBAN of the banking relationship or the custody account,
+  and a `TextField` for one the client enters (ubs-aem-account-numbers);
+- the banking relationship (a "Bankbeziehung", "Banking relationship", "Relazione bancaria" field) is
+  the `Preface`, exactly when the source has one (ubs-aem-page-header);
+- each internal-bank-use block is the global fragment for the standard combination (OU reference,
+  signatures verified, visa) and the content panel `PN_InternalBankUseOnly` with every source field
+  for any other content (ubs-aem-global-internal-bank-use, UBS-IBU-4).
 
-How to judge: compare the Fragment nodes of the document (json_search for `frag_ref`) with the
-sections of the source (xfa_render_pages, xfa_controls), and read the fragment documentation
-(grep_reference_docs "AF Fragments and Common Fields") and a reference package of the same kind
-(get_reference_package). Check each standard-looking region of loose fields (address, signature,
-person block, IBAN) and each Fragment against the source.
+Every fragment (types B1, B3, B6, UBS-WRD-1):
 
-A break is a standard section built from loose fields where a fragment exists, a Fragment (or a
-Fragment's children) for a block the source does not have, a `Preface` in a form whose source has
-no banking relationship or none where it has one, a fragment whose path does not exist in the
-library, or a person block that is not a partner generic in a form with a configurator.
+- is OPAQUE: AEM supplies its fields at runtime with the profile's own labels. It has no children,
+  its fields are never recreated beside it, and its `bind_ref` stays. What it shows, hides and
+  requires is set on the `Fragment` by path inside it (`init_hide`, `init_show`, `init_required`,
+  `init_optional`), which the writer turns into its one Initialize rule: the fields the source
+  shows, its heading where the source's differs, the inputs the source requires. The fields the
+  source adds and the fragment does not have are nodes of their own beside it (a content Panel in a
+  party row, a field after the address fragment, a content Panel inside a signature Repeatable);
+- references `/content/dam/formsanddocuments/<library>/<fragment>`: the UBS generics of
+  `afforms_ubs_fragmentlib` (the Germany and Italy person, address and signature fragments are
+  retired), the global library for internal bank use;
+- takes the source's heading as a `TitleDraw` right before it where the fragment does not print
+  that heading itself, and none where the source shows none;
+- never replaces a conditional Panel (one with show and hide behaviour).
 
-Fix: replace the hand-built section with a Fragment of the matching path; delete a Fragment (or a
-`Preface`) for a block the source does not have, and add the `Preface` where the source has a
-banking relationship and the document none; delete the children a Fragment was given.
+How to judge: list the source's blocks with xfa_render_pages, xfa_page_text, the template (xfa_search
+and xfa_node for headings and master-page text) and xfa_controls (path hints `FamilyName_FirstName`, `Company`,
+`Street_StreetNumber`, `PostalCode_City_Country`, `Reciever_Address`, `BankingRelationship`,
+`CustodyAccount`, `IBAN`, `Signature`, `STP_UP`), with a session (xfa_open, xfa_set) for what a
+configurator option shows. Compare with the document's fragments (json_search
+for `frag_ref`) and loose fields (json_outline).
 
-Precedence: ubs-aem-account-holder-cluster wins over this rule. In a form with NO configurator
-there is no partner generic: a person block (a representative, a person being legitimised) is
-plain fields read from the source, and that is not a break here. The other standard sections
-(signature, a loose address, IBAN, internal bank use) are still fragments.
+A break is a standard block built from loose fields where its fragment applies, or a fragment where
+the source has no such block (a role-less name pair, an addressee window, a branch contact block, a
+single account field, an IBAN the client enters); a fragment or `Preface` for a block the source does
+not have, or none where it has one; a fragment's fields recreated or given children; a fragment path
+the library does not hold; a source field of the block lost (an extra address field, a fixed account
+part, internal-bank-use content beyond the standard combination squeezed into the global fragment);
+a fragment of the wrong kind (a custody account as an account).
+
+Fix: replace the hand-built block with its fragment, or the fragment with the source's fields; add
+or delete the `Preface`; delete a fragment's children and recreated fields; add the source's extra
+fields beside the fragment; correct the fragment path.
 """

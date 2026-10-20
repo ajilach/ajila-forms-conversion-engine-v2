@@ -348,6 +348,7 @@ mod tests {
             shown: None,
             max_chars: None,
             multiline: false,
+            caption: None,
             tooltip: None,
             mandatory: false,
         }

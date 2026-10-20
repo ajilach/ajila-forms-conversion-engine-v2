@@ -2,52 +2,66 @@ id = "ubs-aem-structure-matches-source"
 title = "The tree has the structure of the source pages"
 output_formats = ["aem-ubs"]
 description = """
-For each region of each source page, decide from the PAGE what it is (a table, a list, a
-panel, a heading at some level, a repeatable) and confirm the tree says the
-same: section order, grouping, heading levels, field layout and overall appearance. No tool checks
-this: a table whose cells were authored as loose text carries the same text as the table, so only a
-comparison with the page catches it. Where the tree and the page disagree, the PAGE wins.
+For each region of each source page, decide from the PAGE what it is (a section, a sub-heading, a
+table, a list, a group of fields, a repeatable) and confirm the tree says the same: section order,
+grouping, heading levels, field layout. What a text is (title, heading, notice, paragraph or page
+furniture) follows from how the source sets it in the state being read (its draw's font size,
+weight and colour in the template, whether it is master-page content under `pageSet`, whether it is
+screen-only, `relevant="-print"`) together with the rendered page (CNV-SRC-2). A table whose cells were authored as loose text carries the
+same text as the table, so only a comparison with the page catches it. Where tree and page
+disagree, the PAGE wins.
 
-How to judge: render each source page (xfa_render_pages; xfa_set first for a conditional page) and
-walk the tree section by section (json_outline, json_get). Check the order of the sections, which
-fields share a row (`colspan`), which texts are headings and at what level (`heading_level` of a
-TitleDraw, `title` of a page), where a group opens and closes, and where a repeatable is.
+Sections (UBS-SEC-1..6). A section heading is a bold paragraph (8 pt in UBS sources) with a thin
+rule drawn above it across the body, seen on the rendered page. Each starts a page, a Panel under
+`form`, whose `title` is the heading verbatim with its numbering ("1. ...", "Parte I: ..."). Each
+page is a step of its own. A heading without the rule is a sub-heading, a TitleDraw at level 3 or
+deeper (ubs-aem-sub-headings-are-title-draws), never a page; a bold lead-in is no heading at all
+(ubs-aem-paragraphs). Content before the first section heading (after the title and subtitle)
+belongs to the first section's page and comes before its heading: that page has no `title`, opens
+with that content, and continues with the heading as a level-2 TitleDraw (ubs-aem-step-titles
+places it). A form without section headings is one untitled page. A very small section may share a
+page with the next one (UBS-CFG-2), its heading then a level-2 TitleDraw in that page. Level 2 is
+only for a ruled heading, since it prints with a rule in the Document of Record. A page break makes
+no section by itself (CNV-SRC-11).
 
-Heading levels follow what the page draws. Level 2 (a page's `title`, or a level-2 `TitleDraw`)
-prints in the Document of Record with a rule above it, so it is only for a heading the source draws
-with a rule line above it. A heading without one is level 3 or deeper, by its nesting. Bold text
-that does not open a section is not a heading at all: a "Please note:" lead-in, a label in front
-of a value. Write it as `<b>` inside a `TextDraw`'s paragraph. The line under the form's title is
-the first page's `title`, which the writer prints as the subtitle, not as a step heading; it is
-never also a draw. Any other page takes as its `title` the heading it opens with, ruled in the
-source or not (ubs-aem-step-titles): a page never opens with a `TitleDraw`. A page that opens with
-body text has no `title` (most steps of the reference forms have none), and its headings are
-`TitleDraw`s at level 3 or deeper.
+Annexes (UBS-SEC-6). An annex (its pages print another CDOK in the footer line) is part of the same
+form and starts a new page after the last page of the main document: that page's `title` is the
+annex title, and where the annex opens with a section heading, that heading follows as a level-2
+TitleDraw in a Panel of its own at the start of the page. The annex's other sections are pages as
+usual. Its CDOK is one of the form's documents (ubs-aem-variables), and its corner block adds no
+second page header (ubs-aem-page-header). Nothing sits directly under `form` but
+pages (ubs-aem-empty-panels), and a collapsible section of the source is an ordinary panel
+(CNV-STR-2).
 
-A letter (a source whose FIRST page has a letter top, ubs-aem-letter-detection) prints no form title and no step heading at its top: its letter
-top is the `Letterhead`, its subject line the letterhead's `subject`, and the salutation, the body
-paragraphs, the closing formula, the entity line and the attachments line follow as body text in
-the source's order, with bold only where the source sets it. Its first page has no `title` unless
-the source heads a section below the letter top. A section the source rules further down (a receipt
-for the heir, a declaration) is a page or a TitleDraw as anywhere else. A field the source's master page prints in the page header beside the banking relationship (a
-custody account number, "N. di conto") comes after the `Letterhead` in a letter, which always opens
-the first page after the `Preface` (ubs-aem-letter-letterhead, decision 2026-10-14); that order is not
-a break. A letter top on a LATER page of
-a form whose first page is not one (a mixed form: an order or internal notes first, the letter after)
-is no letter: its receiver lines, date, subject and body are ordinary nodes in the source's order
-(draws, inputs, a bold subject draw), never a `Letterhead`, and that is not a break.
+A letter (a source whose FIRST page has a letter top, ubs-aem-letter-detection) prints no form title
+and no step heading at its top: its letter top is the `Letterhead`, its subject line the
+letterhead's `subject`, and the salutation, the body paragraphs, the closing formula, the entity
+line and the attachments line follow as body text in the source's order, with bold only where the
+source sets it. Its first page has no `title` unless the source heads a section below the letter
+top. A section the source rules further down (a receipt for the heir, a declaration) is a page or a
+TitleDraw as anywhere else. A field the source's master page prints in the page header beside the
+banking relationship (a custody account number, "N. di conto") comes after the `Letterhead` in a
+letter, which always opens the first page after the `Preface` (ubs-aem-letter-letterhead, decision
+2026-10-14); that order is not a break. A letter top on a LATER page of a form whose first page is
+not one (a mixed form: an order or internal notes first, the letter after) is no letter: its
+receiver lines, date, subject and body are ordinary nodes in the source's order, never a
+`Letterhead`, and that is not a break.
 
-A break is a region whose structure in the tree differs from the page: sections in another order,
-a heading at another level, a level-2 heading the source does not rule (other than a page's
-`title`), fields grouped differently,
-a list or table flattened into plain paragraphs, or a repeated block authored once or as copies.
+How to judge: render each source page (xfa_render_pages; in a session, xfa_open and xfa_set first
+for a page a choice reveals), read its text (xfa_page_text) and look up its draws in the template
+for size and weight (xfa_search, xfa_node). Walk the tree section by section (json_outline, json_get): the order of the sections, which
+fields share a row (`colspan`), which texts are headings and at what level, where a group opens and
+closes, and where a repeatable is.
 
-Fix: json_patch the tree to match the page. Tables are covered by the
-ubs-aem-tables-are-html-tables rule. Two arrangements of the page the tree does not copy: text the
-page sets in columns is one column, because AEM has no multi-column text
-(ubs-aem-single-column-text); and in an addressee-driven form the parties sit in the
-configurator's option panels and the signatures on the signature page, wherever the source places
-them (ubs-aem-account-holder-cluster). Neither is a break.
+A break is a region whose structure differs from the page: sections in another order, a section
+heading that is not a page `title` (or a page `title` the source does not rule), a heading at
+another level, fields grouped differently, a list or table flattened into plain paragraphs, or a
+repeated block authored once or as copies.
+
+Fix: json_patch the tree to match the page. Two arrangements of the page the tree does not copy:
+text the page sets in columns is one column (ubs-aem-single-column-text), and in an
+addressee-driven form the parties sit in the configurator's option panels and the signatures on the
+signature page, wherever the source places them (ubs-aem-account-holder-cluster). Neither is a break.
 """
 
 [judge]

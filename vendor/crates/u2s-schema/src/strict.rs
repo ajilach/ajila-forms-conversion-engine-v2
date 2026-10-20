@@ -67,6 +67,12 @@ fn walk(node: &Value, pointer: &str, out: &mut Vec<String>) {
         }
     }
 
+    // Every subschema must name its type unless it defers to a union or a
+    // definition: a bare `{ "const": .. }` or `{ "enum": .. }` is rejected.
+    if !["type", "anyOf", "$ref"].iter().any(|k| obj.contains_key(*k)) {
+        out.push(format!("{pointer}: a schema needs a `type`"));
+    }
+
     if let Some(props) = obj.get("properties").and_then(Value::as_object) {
         match obj.get("additionalProperties") {
             Some(Value::Bool(false)) => {}
@@ -136,6 +142,17 @@ mod tests {
                 .iter()
                 .any(|v| v.contains("`a` must be listed in `required`"))
         );
+    }
+
+    #[test]
+    fn a_typeless_const_is_reported() {
+        let violations = strict_violations(&json!({
+            "type": "object",
+            "properties": { "k": { "const": "x" } },
+            "required": ["k"],
+            "additionalProperties": false
+        }));
+        assert_eq!(violations, vec!["/properties/k: a schema needs a `type`".to_owned()]);
     }
 
     #[test]

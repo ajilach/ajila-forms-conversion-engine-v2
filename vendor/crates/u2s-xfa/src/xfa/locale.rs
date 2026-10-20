@@ -21,12 +21,17 @@ pub struct Locale {
     /// `full`, `long`, `med`, `short` date patterns.
     pub date_patterns: Vec<(String, String)>,
     pub time_patterns: Vec<(String, String)>,
+    /// `numeric`, `currency`, `percent` number patterns.
+    pub number_patterns: Vec<(String, String)>,
     pub decimal: String,
     pub grouping: String,
     pub minus: String,
     pub percent: String,
     pub currency_symbol: String,
     pub currency_iso: String,
+    /// The digit zero; the other digits follow it in code point order
+    /// (XFA 3.3 "The numberSymbol element", `zero`).
+    pub zero: char,
 }
 
 fn strings<const N: usize>(items: [&str; N]) -> [String; N] {
@@ -79,12 +84,18 @@ impl Locale {
                 ("med".to_string(), "h:MM:SS A".to_string()),
                 ("short".to_string(), "h:MM A".to_string()),
             ],
+            number_patterns: vec![
+                ("numeric".to_string(), "z,zzz,zzz,zzz,zzz,zzz,zz9.zzzzzzzz".to_string()),
+                ("currency".to_string(), "$z,zzz,zzz,zzz,zzz,zzz,zz9.99".to_string()),
+                ("percent".to_string(), "z,zzz,zzz,zzz,zzz,zzz,zz9%".to_string()),
+            ],
             decimal: ".".to_string(),
             grouping: ",".to_string(),
             minus: "-".to_string(),
             percent: "%".to_string(),
             currency_symbol: "$".to_string(),
             currency_iso: "USD".to_string(),
+            zero: '0',
         }
     }
 
@@ -102,6 +113,26 @@ impl Locale {
             .iter()
             .find(|(n, _)| n == name)
             .map(|(_, p)| p.as_str())
+    }
+
+    pub fn number_pattern(&self, name: &str) -> Option<&str> {
+        self.number_patterns
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, p)| p.as_str())
+    }
+
+    /// The ASCII digit `d` in this locale's digits.
+    pub fn digit(&self, d: char) -> char {
+        if self.zero == '0' || !d.is_ascii_digit() {
+            return d;
+        }
+        char::from_u32(self.zero as u32 + (d as u32 - '0' as u32)).unwrap_or(d)
+    }
+
+    /// The language part of this locale's name (`de` for `de_CH`).
+    pub fn language(&self) -> &str {
+        language_part(&self.name)
     }
 
     /// A `<locale>` element, every part it leaves out taken from `en_US`.
@@ -127,6 +158,7 @@ impl Locale {
                 }
                 "datePatterns" => locale.date_patterns = named_texts(part),
                 "timePatterns" => locale.time_patterns = named_texts(part),
+                "numberPatterns" => locale.number_patterns = named_texts(part),
                 "numberSymbols" | "currencySymbols" => {
                     let currency = tag(part) == "currencySymbols";
                     for (name, value) in named_texts(part) {
@@ -135,6 +167,13 @@ impl Locale {
                             (false, "grouping") => locale.grouping = value,
                             (false, "minus") => locale.minus = value,
                             (false, "percent") => locale.percent = value,
+                            (false, "zero") => match value.chars().next() {
+                                Some(zero) if value.chars().count() == 1 => locale.zero = zero,
+                                _ => log::warn!(
+                                    "locale {}: numberSymbol zero {value:?} is not one character; using 0",
+                                    locale.name
+                                ),
+                            },
                             (true, "symbol") => locale.currency_symbol = value,
                             (true, "isoname") => locale.currency_iso = value,
                             _ => {}
@@ -218,20 +257,39 @@ impl LocaleSet {
         LocaleSet { locales }
     }
 
-    /// The locale named `name`, or `en_US` when the set does not define it
-    /// (or no name is given).
+    /// The locale named `name`. A locale the set does not define is
+    /// reported and replaced by the set's first locale of the same language
+    /// (`de_DE` for `de_CH`), else by `en_US` (the ambient locale, XFA 3.3
+    /// "Determining the Prevailing Locale").
     pub fn resolve(&self, name: Option<&str>) -> Locale {
-        name.and_then(|n| self.locales.iter().find(|l| l.name == n))
-            .cloned()
-            .unwrap_or_else(|| {
-                if let Some(n) = name
-                    && n != "en_US"
-                {
-                    log::warn!("locale {n} is not in the document's localeSet; using en_US");
-                }
-                Locale::en_us()
-            })
+        let Some(name) = name else {
+            return Locale::en_us();
+        };
+        if let Some(found) = self.locales.iter().find(|l| l.name == name) {
+            return found.clone();
+        }
+        let language = language_part(name);
+        if let Some(same_language) = self
+            .locales
+            .iter()
+            .find(|l| !language.is_empty() && l.language() == language)
+        {
+            log::warn!(
+                "locale {name} is not in the document's localeSet; using {} instead",
+                same_language.name
+            );
+            return same_language.clone();
+        }
+        if name != "en_US" {
+            log::warn!("locale {name} is not in the document's localeSet; using en_US");
+        }
+        Locale::en_us()
     }
+}
+
+/// The language part of a locale tag.
+fn language_part(name: &str) -> &str {
+    name.split(['_', '-']).next().unwrap_or("")
 }
 
 #[cfg(test)]
@@ -239,6 +297,25 @@ mod tests {
     use super::*;
 
     const LOCALE_SET: &str = r#"<xdp><localeSet><locale name="it_IT"><calendarSymbols><monthNames><month>gennaio</month><month>febbraio</month><month>marzo</month><month>aprile</month><month>maggio</month><month>giugno</month><month>luglio</month><month>agosto</month><month>settembre</month><month>ottobre</month><month>novembre</month><month>dicembre</month></monthNames></calendarSymbols><datePatterns><datePattern name="long">DD MMMM YYYY</datePattern></datePatterns><numberSymbols><numberSymbol name="decimal">,</numberSymbol><numberSymbol name="grouping">.</numberSymbol></numberSymbols></locale></localeSet></xdp>"#;
+
+    #[test]
+    fn a_missing_country_falls_back_to_the_same_language_before_en_us() {
+        let set = LocaleSet::from_nodes(&XfaNode::parse(LOCALE_SET.as_bytes()).expect("xml"));
+        assert_eq!(set.resolve(Some("it_CH")).name, "it_IT");
+        assert_eq!(set.resolve(Some("fr_CH")).name, "en_US");
+        assert_eq!(set.resolve(None).name, "en_US");
+    }
+
+    #[test]
+    fn number_patterns_and_the_zero_symbol_are_read() {
+        let xml = r#"<xdp><localeSet><locale name="ar_EG"><numberPatterns><numberPattern name="numeric">z,zz9.zzz</numberPattern></numberPatterns><numberSymbols><numberSymbol name="zero">٠</numberSymbol></numberSymbols></locale></localeSet></xdp>"#;
+        let set = LocaleSet::from_nodes(&XfaNode::parse(xml.as_bytes()).expect("xml"));
+        let ar = set.resolve(Some("ar_EG"));
+        assert_eq!(ar.number_pattern("numeric"), Some("z,zz9.zzz"));
+        assert_eq!(ar.zero, '٠');
+        assert_eq!(ar.digit('3'), '٣');
+        assert_eq!(Locale::en_us().digit('3'), '3');
+    }
 
     #[test]
     fn a_defined_locale_is_read_and_the_rest_comes_from_en_us() {

@@ -206,7 +206,10 @@ pub fn check_revision(handle: &str, current: u64, asked: u64) -> Result<(), Inte
 /// recognises -- `Other` covers everything the inventory still lists
 /// (never dropped, per this module's own doc on why the raw `class_name`
 /// travels alongside the derived kind).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// A variant's `///` would become a description in `verify_controls`' input
+// schema and turn its plain `enum` there into a `oneOf`, so the note below
+// is a plain comment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ControlKind {
     Text,
@@ -216,7 +219,7 @@ pub enum ControlKind {
     Checkbox,
     Dropdown,
     Button,
-    /// A drawn signature (`guideScribble`), XFA's `signature` kind.
+    // A drawn signature (`guideScribble`), XFA's `signature` kind.
     Signature,
     Other,
 }
@@ -1737,7 +1740,7 @@ pub async fn set(
 
 /// One entry of a `verify_set` batch: a control's name and the value to
 /// give it, exactly as a single `verify_set` takes them.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct SetRequest {
     pub field: String,
     pub value: Value,

@@ -1,4 +1,3 @@
-const SUBTITLE_CSS = "subtitle-after-form-title";
 const STEP_TITLE_CSS = "stepTitle";
 // The panels under the root that are not wizard steps, as the guard names them.
 const SPECIAL_NAMES = ["formmetadata", "formMetadata", "FormMetadata", "metadata", "autoSaveInfo",
@@ -75,10 +74,26 @@ function check(output, ctx) {
   const master = masterLanguage(output);
 
   const top = output.form.children || [];
+  // The writer's first page (the first page Panel under the root) prints its title as the
+  // subtitle under the form title, unless it is the configurator band: no step heading.
+  let subtitlePage = -1;
+  for (let i = 0; i < top.length; i++) {
+    if (top[i].type === "Panel" && top[i].is_page === true) {
+      const name = typeof top[i].name === "string" ? top[i].name : "";
+      if (name.indexOf("PN_FormConfigurator") !== 0) subtitlePage = i;
+      break;
+    }
+  }
   for (let i = 0; i < top.length; i++) {
     const page = top[i];
     if (page.type !== "Panel" || isSpecial(page)) continue;
     const pointer = "/form/children/" + i;
+    if (i === subtitlePage) {
+      // Its section heading, after the page header, is a level-2 TitleDraw, which only may
+      // carry the step-title marker; it never moves into the title.
+      markers(page, pointer, false);
+      continue;
+    }
     const titled = plain(masterText(page.title, master)) !== "";
     markers(page, pointer, titled);
     if (!page.is_page) {
@@ -96,9 +111,6 @@ function check(output, ctx) {
     if (titled) continue;
 
     const inside = below(page, pointer);
-    // The first page's subtitle is a static text; a page holding one has no h2 by design.
-    if (inside.some(function (e) { return e.node.type !== "TitleDraw" && tokens(e.node).indexOf(SUBTITLE_CSS) >= 0; })) continue;
-
     const h2 = inside.filter(function (e) { return e.node.type === "TitleDraw" && e.node.heading_level === 2; });
     // A heading is the step title already when it is alone in its panel (the writer's own
     // step-title panel is such a panel) or its panel is named `...Title`.

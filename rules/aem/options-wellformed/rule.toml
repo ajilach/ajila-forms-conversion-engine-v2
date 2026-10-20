@@ -1,17 +1,26 @@
 id = "ubs-aem-options-wellformed"
-title = "Options have real values"
+title = "Options are numbered 1 to n in source order"
 output_formats = ["aem-ubs"]
 description = """
-Every option of a Dropdown, Checkbox or RadioButton carries a label (in every language) and a
-`value` the form submits. A blank `value`, or two options of one control that share a value, make
-the submitted data and every condition on that control ambiguous. An empty label is reported by
-the ubs-aem-text-languages-complete rule.
+Every option of a Dropdown, Checkbox or RadioButton has a `value` that is a number as text, `"1"`
+to `"n"`, in the order the source lists the options (UBS-GEN-3). This holds for every list:
+dependent lists, a single checkbox (`"1"`, not `"true"`), and the lists UBS maintains centrally
+(branch, currency, salutation, legal form, nationality, country), whose options are copied from the
+source and numbered like any other. The source's own values (what `xfa_controls` reports as an
+option's `value`) are never kept; the label is the text the source shows for the option
+(`label`, or `value` where it has none), verbatim in every language.
 
-Every key is a number (UBS owner directive, 2026-09-15). Read the source's values (the XFA item
-values, or the `addItem` and `rawValue` lines of a change script): where they are all numbers,
-keep them exactly as they are, whatever numbers they are; where any of them is text (usually the
-label repeated), number the options by position from 1, in the source's order. The control's
-`conditions` and its preselection use these keys.
+What compares with a choice names one of its option values (CNV-INP-8): its `default_value` (the
+option the source opens on: `xfa_controls` reports it as `default`, in the source's own values, so
+translate it to that option's number) and the `value` of each of its `conditions` (as text; a
+boolean never matches a numbered option, so a ticked single checkbox is `"1"`). The empty first
+entry of a source dropdown only makes it start empty and is no option (CNV-SRC-10). A choice
+without options cannot be answered.
 
-Set each option's `value` to its key, and make duplicates distinct.
+Reported: a choice without options; an option whose label is empty in every language; a choice
+whose values are not `"1"` to `"n"` by position; a `default_value` or a condition value that is
+none of the option values. The fix deletes the blank options, renumbers the rest by position and
+moves `default_value` and the condition values with their option; a value that names no option is
+left for you. Whether the order and the labels are the source's is judged by
+ubs-aem-field-fidelity.
 """

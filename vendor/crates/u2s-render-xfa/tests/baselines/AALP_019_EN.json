@@ -1,0 +1,832 @@
+{
+  "pages": [
+    [
+      595.2756,
+      841.8898
+    ],
+    [
+      595.2756,
+      841.8898
+    ]
+  ],
+  "page_text": [
+    "Banking relationship\n0319 00\nUBS Europe SE\nJanuary 15, 2026\nClassification as retail client\nForm configurator\nBranch\nBucket 1\n0\n0\nEquity (including equity funds and exchange-traded funds)\nBonds (including bond funds and exchange-traded funds)\n0\n0\nLiquidity and money market products\nPrecious metals and commodities (including funds)\n0\nMulti-asset-class funds (including strategy funds)\nBucket 2\n0\n0\n0\nHedge Funds\nPrivate Markets\nReal Estate (including real estate funds)\nBucket 3\n0\n0\nStructured products (protection, optimization, participation)\nOther derivatives (leveraged structured products, ETDs, OTCs)\nDear Sir or Madam\nClient protection enjoys is of the highest importance at UBS. An important step in this direction is an appropriate classification of our clients.\nWithin the context of your existing banking relationship, you were until now classified as \"Professional Client\" for the following asset classes:\nThis classification takes into account the securities transactions you have conducted with us. In the last 12 months the number of your securities transactions has dropped.\nIn order to legitimize this new situation as well as the changes of the products in the capital markets, we will be classifying all your relationships with us as \"Retail Client\". This means that you will be enjoying the highest level of investor protection. Please keep in mind that certain products will no longer be deemed appropriate for you.\nShould you at any point choose to restore your \"Professional Client\" status for certain asset classes, please contact your client advisor.\n0101664870401001501202601028\n66487\nEN\nV0\n019\nAALP\n12.04.2024\nN1\n15.01.2026\nPage 1/2",
+    "Banking relationship\n0319 00\nIf you have any questions we are always at your disposal.\nSincerely\nUBS Europe SE\nCA\nUBS Europe SE is a subsidiary of UBS AG\nCompany seat: Bockenheimer Landstraße 2 - 4, D-60306 Frankfurt am Main, Tel. 069 2179 0, District Court of Frankfurt am Main HRB 107046\nChairman of Supervisory Board: Prof. Dr. Reto Francioni\nManagement Board: Tobias Vogel (Chair), Dr. Denise Bauer-Weiler, Filippo Bianco, Pierre Chavenon, Miriam Godoy Suarez, Georgia Paphiti\n0101664870401001501202602025\n66487\nEN\nV0\n019\nAALP\n12.04.2024\nN1\n15.01.2026\nPage 2/2"
+  ],
+  "raster": [
+    "b05cfed3810878d7",
+    "f00cc554a6483b26"
+  ],
+  "controls": {
+    "UBSForms.MPs.MP.Barcode": {
+      "value": "0101664870401001501202601011",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66487",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AALP",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "EN",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerModDate": {
+      "value": "12.04.2024",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Page 1/1",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.BranchName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.BranchPhone": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.BranchPoBox": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.BranchPoBoxPostalCode_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.BranchPostalCode_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.BranchStreet_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.ClientAdvisorEmail": {
+      "value": "Client advisor's email",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.ClientAdvisorName": {
+      "value": "Client advisor's name",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithPoBox.ClientAdvisorPhone": {
+      "value": "Client advisor's phone no.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchPhone": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchPostalCode_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchStreet_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithoutPoBox.ClientAdvisorEmail": {
+      "value": "Client advisor's email",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithoutPoBox.ClientAdvisorName": {
+      "value": "Client advisor's name",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.STP_Header.Contact.SenderAddress.WithoutPoBox.ClientAdvisorPhone": {
+      "value": "Client advisor's phone no.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.Barcode": {
+      "value": "0101664870401001501202601011",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          14.2,
+          810.7,
+          269.30002,
+          27.2
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerAPPCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          192.8,
+          810.7,
+          24.1,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerCDOK": {
+      "value": "66487",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerELA": {
+      "value": "V0",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          89.3,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerEachParty": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          229.6,
+          810.7,
+          188.5,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerFormCode": {
+      "value": "AALP",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          119.1,
+          810.7,
+          26.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerJVersion": {
+      "value": "N1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          216.90001,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerLanguage": {
+      "value": "EN",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          76.5,
+          810.7,
+          12.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerMandator": {
+      "value": "019",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          102.0,
+          810.7,
+          17.0,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerModDate": {
+      "value": "12.04.2024",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          146.0,
+          810.7,
+          46.8,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPagination": {
+      "value": "Page 1/1",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          489.0,
+          810.7,
+          56.7,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Footer.Footer_Line.footerPrintDate": {
+      "value": "15.01.2026",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          418.1,
+          810.7,
+          70.9,
+          9.1
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.BC_AccountNumber": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          426.6,
+          37.4,
+          119.1,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.BankingRelationship.ffBankingRelation": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.BranchName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.BranchPhone": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.BranchPoBox": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.BranchPoBoxPostalCode_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.BranchPostalCode_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.BranchStreet_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.ClientAdvisorEmail": {
+      "value": "Client advisor's email",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.ClientAdvisorName": {
+      "value": "Client advisor's name",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithPoBox.ClientAdvisorPhone": {
+      "value": "Client advisor's phone no.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchName": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchPhone": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchPostalCode_City": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithoutPoBox.BranchStreet_Number": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithoutPoBox.ClientAdvisorEmail": {
+      "value": "Client advisor's email",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithoutPoBox.ClientAdvisorName": {
+      "value": "Client advisor's name",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.STP_Header.Contact.SenderAddress.WithoutPoBox.ClientAdvisorPhone": {
+      "value": "Client advisor's phone no.",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.MPs.MP_Last.Watermark": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          195.6,
+          314.5,
+          238.8,
+          83.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Address.STP_Address.Address": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          85.0,
+          113.4,
+          167.2,
+          80.8
+        ]
+      ]
+    },
+    "UBSForms.Page.Commission_Payment.STP_Commission_Body.Sender_Date": {
+      "value": "January 15, 2026",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          256.5,
+          127.6,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Content.STP_Content_2.ffClasses": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.FormConfigurator_Branch.LocationShortCode.CL_ShortCode": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          352.6,
+          240.90001,
+          12.3
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.LocationShortCode.ffDesShortCode": {
+      "value": "Branch",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_1.CB_1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          396.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_1.CB_2": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          272.7,
+          396.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_1.CB_3": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          413.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_1.CB_4": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          198.7,
+          413.5,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_1.CB_5": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          430.6,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_2.CB_1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          464.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_2.CB_2": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          117.200005,
+          464.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_2.CB_3": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          195.3,
+          464.4,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_3.CB_1": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          497.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.FormConfigurator_Branch.STP_Bucket_3.CB_2": {
+      "value": "0",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          277.0,
+          497.9,
+          8.5,
+          8.5
+        ]
+      ]
+    },
+    "UBSForms.Page.GlobalFieldSection.ffMandatory": {
+      "value": "",
+      "visible": false,
+      "positions": []
+    },
+    "UBSForms.Page.STP_Classification_2.CA_Name_Sgn_1": {
+      "value": "CA",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          207.6,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.STP_Classification_2.Corporate_Title_1": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          49.600002,
+          220.3,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.STP_Classification_2.Corporate_Title_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          220.3,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.STP_Classification_2.Name_Sgn_2": {
+      "value": "",
+      "visible": true,
+      "positions": [
+        [
+          2.0,
+          219.7,
+          207.6,
+          155.90001,
+          11.3
+        ]
+      ]
+    },
+    "UBSForms.Page.Salutation.Salutation_DYN.LetterSalutationLine.T_Input": {
+      "value": "Dear Sir or Madam",
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          49.600002,
+          533.60004,
+          493.2,
+          10.5
+        ]
+      ]
+    },
+    "UBSForms.Page.Salutation.Salutation_DYN.STP_PlusMinus.Button_Add": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          551.3,
+          533.7,
+          14.7,
+          14.7
+        ]
+      ]
+    },
+    "UBSForms.Page.Salutation.Salutation_DYN.STP_PlusMinus.Button_Minus": {
+      "value": null,
+      "visible": true,
+      "positions": [
+        [
+          1.0,
+          568.4,
+          533.7,
+          14.7,
+          14.7
+        ]
+      ]
+    }
+  },
+  "warning": null
+}
