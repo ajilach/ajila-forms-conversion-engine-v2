@@ -2577,3 +2577,283 @@ async fn a_closed_form_leaves_the_browser_for_the_next_open() {
     }
     client.cancel().await.ok();
 }
+
+/// A one-page UBS form holding `children`, encoded by the real UBS writer
+/// into a package written to a fresh temp path. The robustness tests below
+/// author the smallest form that shows what they test instead of patching a
+/// corpus package.
+fn encode_ubs_form(label: &str, children: serde_json::Value) -> std::path::PathBuf {
+    let document = serde_json::json!({
+        "variables": { "formrange_code": "AAEV", "formrange_entity": "019" },
+        "languages": ["en"],
+        "form": {
+            "type": "Root",
+            "title": { "en": "Robustness test form" },
+            "children": [{
+                "type": "Panel", "uuid": "00000000-0000-4000-8000-0000000000a1",
+                "name": "PN_Details", "title": { "en": "Details" }, "is_page": true,
+                "visible": true, "is_conditional": false, "dor_num_cols": null,
+                "colspan": 12, "dor_colspan": null, "bind_ref": null, "frag_ref": null,
+                "children": children
+            }]
+        }
+    });
+    let document = u2s_aem_ubs_mcp::UbsAemDocument::from_json(&document)
+        .unwrap_or_else(|err| panic!("{label}: the document must parse: {err}"));
+    let package = u2s_aem_ubs_mcp::encode(&document)
+        .unwrap_or_else(|err| panic!("{label}: the document must encode: {err}"))
+        .package;
+    let path = std::env::temp_dir().join(format!(
+        "u2s-aem-ubs-verify-mcp-{label}-{}-{}.zip",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    std::fs::write(&path, package).expect("the package is written");
+    path
+}
+
+/// A heading whose rich text references footnote `fn3` with no footnote
+/// description anywhere on the form: AEM's guide JSON export dereferences
+/// the missing description and the form's page answers 500
+/// (`JsonObjectCreatorImpl.createMapForFootnotes`).
+fn footnote_crash_form() -> std::path::PathBuf {
+    encode_ubs_form(
+        "footnote-crash",
+        serde_json::json!([{
+            "type": "TitleDraw", "uuid": "00000000-0000-4000-8000-0000000000b1",
+            "name": "TTL_Heading",
+            "content": {
+                "en": "<p>Costs<sup><span data-af-footnote-id=\"fn3\">3</span></sup></p>"
+            },
+            "heading_level": 2, "colspan": 12, "dor_colspan": null
+        }]),
+    )
+}
+
+/// A checkbox whose only option `1` shows a sibling panel: the shape the UBS
+/// writer lowers a checkbox condition to (`fd:visible` testing
+/// `CB_DebitCosts.value == "1"`).
+fn checkbox_condition_form() -> std::path::PathBuf {
+    encode_ubs_form(
+        "checkbox-condition",
+        serde_json::json!([
+            {
+                "type": "Checkbox", "uuid": "00000000-0000-4000-8000-0000000000c1",
+                "name": "CB_DebitCosts", "label": { "en": "Costs" },
+                "options": [{ "value": "1", "label": { "en": "Debit the costs to an account" } }],
+                "alignment": "Vertical", "visible": true, "colspan": 12, "dor_colspan": null,
+                "conditions": [{
+                    "target_panel_name": "PN_DebitAccount",
+                    "value": { "type": "text", "value": "1" },
+                    "show": true
+                }],
+                "bind_ref": null
+            },
+            {
+                "type": "Panel", "uuid": "00000000-0000-4000-8000-0000000000c2",
+                "name": "PN_DebitAccount", "title": { "en": "" }, "is_page": false,
+                "visible": false, "is_conditional": true, "dor_num_cols": null,
+                "colspan": 12, "dor_colspan": null, "bind_ref": null, "frag_ref": null,
+                "children": [{
+                    "type": "TextField", "uuid": "00000000-0000-4000-8000-0000000000c3",
+                    "name": "TXT_DebitAccount", "label": { "en": "Account" }, "mandatory": false,
+                    "visible": true, "max_chars": null, "colspan": 12, "dor_colspan": null,
+                    "bind_ref": null, "kind": "Plain"
+                }]
+            }
+        ]),
+    )
+}
+
+/// Both robustness forms encode, so a live failure below is never a
+/// document this file got wrong. With `U2S_AEM_VERIFY_LIVE_PACKAGE_OUT`
+/// set to a directory, the packages are copied there for a manual install.
+#[test]
+fn the_robustness_forms_encode() {
+    for (name, path) in [
+        ("footnote-crash.zip", footnote_crash_form()),
+        ("checkbox-condition.zip", checkbox_condition_form()),
+    ] {
+        let bytes = std::fs::read(&path).expect("the package was written");
+        assert!(bytes.starts_with(b"PK"), "{name} is not a zip");
+        if let Ok(dir) = std::env::var("U2S_AEM_VERIFY_LIVE_PACKAGE_OUT") {
+            std::fs::copy(&path, std::path::Path::new(&dir).join(name)).expect("copied");
+        }
+    }
+}
+
+/// A form AEM crashes on while building its page fails fast as
+/// `form_render_failed` naming the exception from AEM's own error log,
+/// instead of a minute of polling ending in `form_not_found`. The instance
+/// is booted with the in-repo `AF_AABF` first, so the timing measures only
+/// the crashing form. Needs the same live environment as the tests above.
+#[tokio::test]
+#[ignore = "needs a real Docker daemon and the UBS AEM image (U2S_AEM_VERIFY_IMAGE)"]
+async fn a_form_aem_crashes_on_fails_fast_naming_the_exception() {
+    let crashing = footnote_crash_form().display().to_string();
+    let server = live_test_server("footnote-crash");
+    let client = server.connect().await;
+
+    let warm = call_ok(
+        &client,
+        "verify_open",
+        serde_json::json!({ "package_path": af_aabf_zip().display().to_string() }),
+    )
+    .await;
+    let session = warm["session"].as_str().expect("a session handle").to_owned();
+    call_ok(&client, "verify_close", serde_json::json!({ "session": session })).await;
+
+    let started = std::time::Instant::now();
+    let result = client
+        .call_tool(call("verify_open", serde_json::json!({ "package_path": crashing })))
+        .await
+        .expect("verify_open must answer");
+    let elapsed = started.elapsed();
+    assert_eq!(result.is_error, Some(true), "the crashing form must not open: {:?}", result.content);
+    let text: String = result
+        .content
+        .iter()
+        .filter_map(|block| block.as_text())
+        .map(|t| t.text.clone())
+        .collect();
+    eprintln!("verify_open failed after {elapsed:?} with:\n{text}");
+    assert!(text.starts_with("form_render_failed: "), "{text}");
+    assert!(text.contains("answers 500"), "{text}");
+    assert!(text.contains("createMapForFootnotes"), "{text}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(20),
+        "the render failure must be reported within seconds, took {elapsed:?}"
+    );
+    client.cancel().await.ok();
+}
+
+/// Setting a checkbox runs the scripts that depend on it: the panel its
+/// `fd:visible` script shows appears with its field, and disappears again
+/// when the box is cleared, both reported in `appeared`/`disappeared`.
+/// Needs the same live environment as the tests above.
+#[tokio::test]
+#[ignore = "needs a real Docker daemon and the UBS AEM image (U2S_AEM_VERIFY_IMAGE)"]
+async fn setting_a_checkbox_shows_and_hides_its_conditional_panel() {
+    let package_path = checkbox_condition_form().display().to_string();
+    let server = live_test_server("checkbox-condition");
+    let client = server.connect().await;
+
+    let opened = call_ok(&client, "verify_open", serde_json::json!({ "package_path": package_path })).await;
+    let session = opened["session"].as_str().expect("a session handle").to_owned();
+    let controls = controls_of(&client, &session, 0).await;
+    let checkbox = named(&controls, "CB_DebitCosts")["field"].as_str().unwrap().to_owned();
+    let account = named(&controls, "TXT_DebitAccount");
+    assert_eq!(account["visible"], false, "the account field starts hidden: {account}");
+    let account = account["field"].as_str().unwrap().to_owned();
+    let panel = account
+        .rsplit_once('.')
+        .map(|(panel, _)| panel.to_owned())
+        .expect("the field sits in its panel");
+    assert!(panel.ends_with("PN_DebitAccount[0]"), "{panel}");
+
+    let shown = call_ok(
+        &client,
+        "verify_set",
+        serde_json::json!({
+            "session": session, "expected_revision": 0, "field": checkbox, "value": "1"
+        }),
+    )
+    .await;
+    eprintln!("set 1: {shown}");
+    assert_eq!(shown["values_changed"], true, "{shown}");
+    assert_eq!(shown["appeared"], serde_json::json!([panel, account]), "{shown}");
+    assert_eq!(shown["disappeared"], serde_json::json!([]), "{shown}");
+    assert!(shown.get("warning").is_none(), "set through guideBridge: {shown}");
+
+    let hidden = call_ok(
+        &client,
+        "verify_set",
+        serde_json::json!({
+            "session": session, "expected_revision": 1, "field": checkbox, "value": []
+        }),
+    )
+    .await;
+    eprintln!("unset: {hidden}");
+    assert_eq!(hidden["disappeared"], serde_json::json!([panel, account]), "{hidden}");
+    assert_eq!(hidden["appeared"], serde_json::json!([]), "{hidden}");
+
+    call_ok(&client, "verify_close", serde_json::json!({ "session": session })).await;
+    client.cancel().await.ok();
+}
+
+/// `docker` with `args`, its stdout trimmed; panics when it fails.
+fn docker_cli(args: &[&str]) -> String {
+    let output = std::process::Command::new("docker")
+        .args(args)
+        .output()
+        .expect("the docker CLI runs");
+    assert!(output.status.success(), "docker {args:?}: {}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8_lossy(&output.stdout).trim().to_owned()
+}
+
+/// An AEM container that dies while the instance boots fails the open at
+/// once with `aem_not_ready` naming its exit code, rather than after the
+/// whole boot timeout, and the boot leaves no container or network behind.
+/// Uses an instance id of its own, so the only containers it kills are the
+/// ones its own boot created. Needs the same live environment as the tests
+/// above.
+#[tokio::test]
+#[ignore = "needs a real Docker daemon and the UBS AEM image (U2S_AEM_VERIFY_IMAGE)"]
+async fn an_aem_container_dying_during_boot_fails_the_boot_at_once() {
+    let instance_id = format!("dying-boot-{}", std::process::id());
+    let label = format!("label=u2s.verify.instance_id={instance_id}");
+    let server = live_test_server("dying-boot");
+    let client = std::sync::Arc::new(server.connect().await);
+
+    let opening = {
+        let client = std::sync::Arc::clone(&client);
+        let args = serde_json::json!({
+            "package_path": af_aabf_zip().display().to_string(),
+            "instance_id": instance_id,
+        });
+        tokio::spawn(async move { client.call_tool(call("verify_open", args)).await })
+    };
+
+    let aem = loop {
+        let found = docker_cli(&[
+            "ps", "--format", "{{.Names}}", "--filter", &label, "--filter", "name=u2s-verify-aem-",
+        ]);
+        if !found.is_empty() {
+            break found;
+        }
+        assert!(!opening.is_finished(), "the open finished before its AEM container started");
+        tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    };
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    docker_cli(&["kill", &aem]);
+    let killed = std::time::Instant::now();
+
+    let result = opening.await.expect("the open task").expect("verify_open must answer");
+    let elapsed = killed.elapsed();
+    let text: String = result
+        .content
+        .iter()
+        .filter_map(|block| block.as_text())
+        .map(|t| t.text.clone())
+        .collect();
+    eprintln!("verify_open failed {elapsed:?} after the kill with:\n{text}");
+    assert_eq!(result.is_error, Some(true), "{text}");
+    assert!(text.starts_with("aem_not_ready: the AEM container exited with code"), "{text}");
+    assert!(
+        elapsed < std::time::Duration::from_secs(30),
+        "a dead container must fail the boot within one state poll, took {elapsed:?}"
+    );
+
+    let left = docker_cli(&["ps", "-aq", "--filter", &label]);
+    assert!(left.is_empty(), "the failed boot left containers behind: {left}");
+    // The boot's network is named after the same boot id as its containers.
+    let network = aem.replacen("u2s-verify-aem-", "u2s-verify-", 1);
+    let networks = docker_cli(&["network", "ls", "-q", "--filter", &format!("name=^{network}$")]);
+    assert!(networks.is_empty(), "the failed boot left its network {network} behind");
+    if let Ok(client) = std::sync::Arc::try_unwrap(client) {
+        client.cancel().await.ok();
+    }
+}

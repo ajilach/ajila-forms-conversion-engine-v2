@@ -74,6 +74,7 @@ macro_rules! capture_submit_error_js {
 }
 
 pub mod aem_client;
+pub mod aem_log;
 pub mod args;
 pub mod driver;
 pub mod flow;

@@ -796,10 +796,12 @@ mod control_js {
     );
 
     /// Every named leaf as `fields: {som: {value, visible}}`, keyed by SOM so
-    /// two instances of a repeated panel never overwrite each other, plus
-    /// every repeatable group as `instances: {manager som: {count, min,
-    /// max}}` (`max` is -1 when unlimited; `minOccur`/`maxOccur` arrive as
-    /// strings, confirmed live, hence `Number`) --
+    /// two instances of a repeated panel never overwrite each other, every
+    /// panel holding something as `panels: {som: visible}` (shown on screen,
+    /// like a field's `visible`), plus every repeatable group as
+    /// `instances: {manager som: {count, min, max}}` (`max` is -1 when
+    /// unlimited; `minOccur`/`maxOccur` arrive as strings, confirmed live,
+    /// hence `Number`) --
     /// cheaper than [`INVENTORY`] (no options, no position, no DOM
     /// `getBoundingClientRect`) since it exists only to be diffed
     /// before/after an interaction, by [`super::diff_snapshots`].
@@ -808,7 +810,7 @@ mod control_js {
         var root = "#,
         crate::root_panel!(),
         r#";
-        var out = { fields: {}, instances: {} };
+        var out = { fields: {}, instances: {}, panels: {} };
         if (!root) { return out; }
         "#,
         is_container_js!(),
@@ -832,7 +834,15 @@ mod control_js {
                 var node = items[i];
                 if (!node) { continue; }
                 group(node);
-                if (isContainer(node)) { walk(node.items); continue; }
+                if (isContainer(node)) {
+                    if (node.className === 'guidePanel' && node.somExpression) {
+                        var panelEl = domOf(node);
+                        out.panels[node.somExpression] =
+                            node.visible !== false && !!(panelEl && panelEl.offsetParent !== null);
+                    }
+                    walk(node.items);
+                    continue;
+                }
                 if (!isInput(node)) { continue; }
                 var el = domOf(node);
                 out.fields[node.somExpression] = {
@@ -1234,12 +1244,15 @@ pub struct InstanceGroup {
     pub max: i64,
 }
 
-/// [`control_js::SNAPSHOT`]'s result: every named field by SOM, and every
-/// repeatable group by its instance manager's SOM.
+/// [`control_js::SNAPSHOT`]'s result: every named field by SOM, every
+/// panel's on-screen visibility by SOM, and every repeatable group by its
+/// instance manager's SOM.
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub struct Snapshot {
     #[serde(default)]
     pub fields: BTreeMap<String, FieldState>,
+    #[serde(default)]
+    pub panels: BTreeMap<String, bool>,
     #[serde(default)]
     pub instances: BTreeMap<String, InstanceGroup>,
 }
@@ -1249,43 +1262,84 @@ pub struct Snapshot {
 /// field present in one snapshot but not the other (a repeated-section
 /// instance created or destroyed, say) is treated as appearing/
 /// disappearing by its `visible` flag alone in the snapshot it *is*
-/// present in. Pure.
+/// present in. Panels appear and disappear the same way (a conditional
+/// section a choice reveals), listed among the fields by their SOM, but
+/// only the outermost of the panels that flipped together: the panels
+/// nested in a revealed section add nothing its own entry does not say.
+/// Pure.
 pub fn diff_snapshots(
     before: &Snapshot,
     after: &Snapshot,
     set_field: Option<&str>,
 ) -> (Vec<FieldChange>, Vec<String>, Vec<String>) {
     let mut side_effects = Vec::new();
+    for (field, after_state) in &after.fields {
+        if let Some(before_state) = before.fields.get(field)
+            && Some(field.as_str()) != set_field
+            && before_state.value != after_state.value
+        {
+            side_effects.push(FieldChange {
+                field: field.clone(),
+                from: before_state.value.clone(),
+                to: after_state.value.clone(),
+            });
+        }
+    }
+
+    let field_visibility = |snapshot: &Snapshot| -> BTreeMap<String, bool> {
+        snapshot
+            .fields
+            .iter()
+            .map(|(field, state)| (field.clone(), state.visible))
+            .collect()
+    };
+    let (mut appeared, mut disappeared) =
+        visibility_flips(&field_visibility(before), &field_visibility(after));
+    let (panels_appeared, panels_disappeared) = visibility_flips(&before.panels, &after.panels);
+    appeared.extend(outermost(panels_appeared));
+    disappeared.extend(outermost(panels_disappeared));
+    appeared.sort();
+    disappeared.sort();
+    (side_effects, appeared, disappeared)
+}
+
+/// Which keys became visible and which stopped being, between two
+/// `som -> visible` maps; a key in only one map counts by its visibility
+/// there. Pure.
+fn visibility_flips(
+    before: &BTreeMap<String, bool>,
+    after: &BTreeMap<String, bool>,
+) -> (Vec<String>, Vec<String>) {
     let mut appeared = Vec::new();
     let mut disappeared = Vec::new();
-
-    for (field, after_state) in &after.fields {
-        match before.fields.get(field) {
-            Some(before_state) => {
-                if Some(field.as_str()) != set_field && before_state.value != after_state.value {
-                    side_effects.push(FieldChange {
-                        field: field.clone(),
-                        from: before_state.value.clone(),
-                        to: after_state.value.clone(),
-                    });
-                }
-                if !before_state.visible && after_state.visible {
-                    appeared.push(field.clone());
-                } else if before_state.visible && !after_state.visible {
-                    disappeared.push(field.clone());
-                }
-            }
-            None if after_state.visible => appeared.push(field.clone()),
+    for (som, &visible) in after {
+        match before.get(som) {
+            Some(&was) if !was && visible => appeared.push(som.clone()),
+            Some(&was) if was && !visible => disappeared.push(som.clone()),
+            Some(_) => {}
+            None if visible => appeared.push(som.clone()),
             None => {}
         }
     }
-    for (field, before_state) in &before.fields {
-        if !after.fields.contains_key(field) && before_state.visible {
-            disappeared.push(field.clone());
+    for (som, &was) in before {
+        if was && !after.contains_key(som) {
+            disappeared.push(som.clone());
         }
     }
-    // Already ordered by field: both maps are `BTreeMap`s.
-    (side_effects, appeared, disappeared)
+    (appeared, disappeared)
+}
+
+/// `soms` without those nested in another of them (`a.b[0]` is nested in
+/// `a`). Pure.
+fn outermost(soms: Vec<String>) -> Vec<String> {
+    soms.iter()
+        .filter(|som| {
+            !soms
+                .iter()
+                .any(|outer| som.len() > outer.len() && som.starts_with(&format!("{outer}.")))
+        })
+        .cloned()
+        .collect()
 }
 
 /// Every control present in both snapshots whose access changed, the
@@ -1353,13 +1407,29 @@ pub fn instance_limit_warning(button: &str, after: &Snapshot) -> Option<String> 
     ))
 }
 
+/// A failed evaluate as the error the caller can act on: a lost browser
+/// session is `browser_session_lost` (close and reopen), anything else
+/// names what was being read
+/// ([`browser::BrowserError::into_verify_error`]).
+fn evaluate_failed(what: &str, err: browser::BrowserError) -> InteractionError {
+    InteractionError::Verify(err.into_verify_error(what, ErrorKind::FormNotFound))
+}
+
+/// Every control on the page ([`control_js::INVENTORY`]): the one read
+/// every tool that resolves a `field` goes through.
+async fn read_inventory(page: &browser::PageHandle) -> Result<Vec<Control>, InteractionError> {
+    let raw = page
+        .evaluate_string(control_js::INVENTORY)
+        .await
+        .map_err(|err| evaluate_failed("reading the form's controls", err))?;
+    parse_controls(&raw)
+}
+
 async fn snapshot(page: &browser::PageHandle) -> Result<Snapshot, InteractionError> {
     let raw = page
         .evaluate_string(control_js::SNAPSHOT)
         .await
-        .map_err(|err| {
-            InteractionError::Verify(VerifyError::new(ErrorKind::FormNotFound, err.to_string()))
-        })?;
+        .map_err(|err| evaluate_failed("reading the form snapshot", err))?;
     serde_json::from_str(&raw).map_err(|err| {
         InteractionError::Verify(VerifyError::new(
             ErrorKind::FormNotFound,
@@ -1369,9 +1439,9 @@ async fn snapshot(page: &browser::PageHandle) -> Result<Snapshot, InteractionErr
 }
 
 /// Polls until two consecutive snapshots agree, bounded by
-/// [`CLICK_SETTLE_POLLS`]: a click's scripts (adding an instance, then
-/// relabelling its buttons) finish on their own schedule, and nothing
-/// signals when they are done.
+/// [`CLICK_SETTLE_POLLS`]: a click's or a set's scripts (adding an
+/// instance, then relabelling its buttons; showing a conditional panel)
+/// finish on their own schedule, and nothing signals when they are done.
 async fn settled_snapshot(page: &browser::PageHandle) -> Result<Snapshot, InteractionError> {
     let mut previous = snapshot(page).await?;
     for _ in 0..CLICK_SETTLE_POLLS {
@@ -1401,14 +1471,14 @@ async fn interaction_from(
     before: &Snapshot,
     after: &Snapshot,
     set: Option<(&str, Value)>,
-) -> Interaction {
+) -> Result<Interaction, InteractionError> {
     let set_field = set.as_ref().map(|(field, _)| *field);
     let (side_effects, appeared, disappeared) = diff_snapshots(before, after, set_field);
     let values_changed = set_field.is_some_and(|field| {
         before.fields.get(field).map(|state| &state.value)
             != after.fields.get(field).map(|state| &state.value)
     });
-    let panel = current_panel(page).await;
+    let panel = current_panel(page).await?;
     let nav =
         flow::wait_for_navigation_controls(page, &driver.has_next_js(), &driver.terminal_panel_js())
             .await;
@@ -1416,7 +1486,7 @@ async fn interaction_from(
         Some((field, value)) => (Some(field.to_owned()), value),
         None => (None, Value::Null),
     };
-    Interaction {
+    Ok(Interaction {
         revision: 0, // stamped by `mutate_session` once the mutation commits
         kind,
         field,
@@ -1434,22 +1504,28 @@ async fn interaction_from(
         console_errors: page.console_errors(),
         failed_requests: page.failed_requests(),
         dialogs: page.dialogs(),
-    }
+    })
 }
 
 async fn read_panels(page: &browser::PageHandle) -> Result<Vec<PanelInfo>, InteractionError> {
-    let raw = page.evaluate_string(control_js::PANELS).await.map_err(|err| {
-        InteractionError::Verify(VerifyError::new(ErrorKind::FormNotFound, err.to_string()))
-    })?;
+    let raw = page
+        .evaluate_string(control_js::PANELS)
+        .await
+        .map_err(|err| evaluate_failed("reading the form's panels", err))?;
     parse_panels(&raw)
 }
 
-async fn current_panel(page: &browser::PageHandle) -> Value {
+async fn current_panel(page: &browser::PageHandle) -> Result<Value, InteractionError> {
     let raw = page
         .evaluate_string(control_js::CURRENT_PANEL)
         .await
-        .unwrap_or_default();
-    serde_json::from_str(&raw).unwrap_or(Value::Null)
+        .map_err(|err| evaluate_failed("reading the current panel", err))?;
+    serde_json::from_str(&raw).map_err(|err| {
+        InteractionError::Verify(VerifyError::new(
+            ErrorKind::FormNotFound,
+            format!("could not parse the current panel: {err}"),
+        ))
+    })
 }
 
 fn unknown_session(handle: &str) -> InteractionError {
@@ -1580,7 +1656,7 @@ pub async fn open(
     )
     .await?;
 
-    let opened = match flow::open_live_form(profile, driver, &state.containers, package, None).await {
+    let opened = match flow::open_live_form(profile, driver, &docker, &state.containers, package, None).await {
         Ok(opened) => opened,
         Err(err) => {
             release_package(profile, state, &form_path, "a form that failed to open").await;
@@ -1607,9 +1683,12 @@ pub async fn open(
 
     let findings = opened.findings;
     let form_name = opened.form.package.summary.form_name.clone();
-    let panel = current_panel(&opened.form.page).await;
-    let panels = match read_panels(&opened.form.page).await {
-        Ok(panels) => panels,
+    let read = match current_panel(&opened.form.page).await {
+        Ok(panel) => read_panels(&opened.form.page).await.map(|panels| (panel, panels)),
+        Err(err) => Err(err),
+    };
+    let (panel, panels) = match read {
+        Ok(read) => read,
         Err(err) => {
             opened.form.close().await;
             release_package(profile, state, &form_path, "a form whose panels could not be read")
@@ -1678,13 +1757,7 @@ pub async fn field(
 ) -> Result<Control, InteractionError> {
     on_session(pool, instance_id, session, async |open, _| {
         check_revision(&open.handle, open.revision, revision)?;
-        let raw = open
-            .live
-            .page
-            .evaluate_string(control_js::INVENTORY)
-            .await
-            .unwrap_or_default();
-        let controls = parse_controls(&raw)?;
+        let controls = read_inventory(&open.live.page).await?;
         resolve_field(&controls, field).cloned()
     })
     .await
@@ -1698,9 +1771,8 @@ async fn read_controls(
 ) -> Result<ControlsResult, InteractionError> {
     check_revision(&open_form.handle, open_form.revision, revision)?;
     let page = &open_form.live.page;
-    let raw = page.evaluate_string(control_js::INVENTORY).await.unwrap_or_default();
-    let (page_of_controls, total, next_offset) = query.window(parse_controls(&raw)?);
-    let panel = current_panel(page).await;
+    let (page_of_controls, total, next_offset) = query.window(read_inventory(page).await?);
+    let panel = current_panel(page).await?;
     let panels = read_panels(page).await?;
     let nav =
         flow::wait_for_navigation_controls(page, &driver.has_next_js(), &driver.terminal_panel_js())
@@ -1864,20 +1936,23 @@ async fn set_inner(
     check_revision(&open_form.handle, open_form.revision, expected_revision)?;
     let page = &open_form.live.page;
 
-    let raw = page.evaluate_string(control_js::INVENTORY).await.unwrap_or_default();
-    let controls = parse_controls(&raw)?;
+    let controls = read_inventory(page).await?;
     let control = resolve_field(&controls, field)?;
     let normalized = validate_value(control, value)?;
     let field = control.field.as_str();
 
     let before = snapshot(page).await?;
-    let report = flow::set_control(page, flow::FieldRef::Som(field), &normalized).await;
+    let report = flow::set_control(page, flow::FieldRef::Som(field), &normalized)
+        .await
+        .map_err(|err| evaluate_failed(&format!("setting {field}"), err))?;
     if !report.set {
         return Err(InteractionError::SetFailed {
             field: field.to_owned(),
         });
     }
-    let after = snapshot(page).await?;
+    // The form's scripts react to the value on their own schedule (a
+    // conditional panel shows a moment later), like a click's do.
+    let after = settled_snapshot(page).await?;
     let mut interaction = interaction_from(
         page,
         driver,
@@ -1886,15 +1961,34 @@ async fn set_inner(
         &after,
         Some((field, normalized)),
     )
-    .await;
-    interaction.warning = report.view_error.map(|error| {
+    .await?;
+    interaction.warning = set_warning(field, &report);
+    Ok(interaction)
+}
+
+/// What a caller should know about how `field` was set, when anything:
+/// the runtime failing to show a value its model took, or a value that
+/// only a direct model assignment took, which the form's dependent scripts
+/// may not have seen. Pure. Unit-tested.
+fn set_warning(field: &str, report: &flow::SetReport) -> Option<String> {
+    let view = report.view_error.as_ref().map(|error| {
         format!(
             "{field} holds the value in the form's model, which validation and submit read, but \
              the form's runtime raised `{error}` while updating its widget, so the page may still \
              show the old value"
         )
     });
-    Ok(interaction)
+    let direct = (report.via == Some(flow::SetVia::Model)).then(|| {
+        format!(
+            "{field} did not take the value through guideBridge.setProperty, so it was assigned \
+             to the form's model directly: scripts that depend on {field} (a section it shows, a \
+             value it computes) may not have run"
+        )
+    });
+    match (view, direct) {
+        (Some(view), Some(direct)) => Some(format!("{direct}; {view}")),
+        (view, direct) => view.or(direct),
+    }
 }
 
 /// Clicks `click_js` (the driver's own next- or previous-panel control)
@@ -1949,7 +2043,7 @@ async fn advance_inner(
         flow::NavDirection::Prev => InteractionKind::Prev,
         flow::NavDirection::Goto => InteractionKind::Goto,
     };
-    Ok(interaction_from(page, driver, kind, &before, &after, None).await)
+    interaction_from(page, driver, kind, &before, &after, None).await
 }
 
 /// Advances to the next panel via the driver's own `click_next_js`.
@@ -2024,8 +2118,7 @@ async fn click_inner(
     check_revision(&open_form.handle, open_form.revision, expected_revision)?;
     let page = &open_form.live.page;
 
-    let raw = page.evaluate_string(control_js::INVENTORY).await.unwrap_or_default();
-    let controls = parse_controls(&raw)?;
+    let controls = read_inventory(page).await?;
     let control = resolve_field(&controls, field)?;
     let field = control.field.as_str();
     if control.kind != ControlKind::Button {
@@ -2045,14 +2138,18 @@ async fn click_inner(
     }
 
     let before = snapshot(page).await?;
-    if !page.evaluate_bool(&control_js::click(field)).await.unwrap_or(false) {
+    let clicked = page
+        .evaluate_bool(&control_js::click(field))
+        .await
+        .map_err(|err| evaluate_failed(&format!("pressing {field}"), err))?;
+    if !clicked {
         return Err(InteractionError::ClickFailed {
             field: field.to_owned(),
         });
     }
     let after = settled_snapshot(page).await?;
     let mut interaction =
-        interaction_from(page, driver, InteractionKind::Click, &before, &after, None).await;
+        interaction_from(page, driver, InteractionKind::Click, &before, &after, None).await?;
     interaction.field = Some(field.to_owned());
     if control.click == Some(ClickEffect::Instances) && !interaction.instances_changed {
         interaction.warning = instance_limit_warning(field, &after);
@@ -2098,7 +2195,7 @@ async fn goto_inner(
     }
     if target.active {
         let now = snapshot(page).await?;
-        return Ok(interaction_from(page, driver, InteractionKind::Goto, &now, &now, None).await);
+        return interaction_from(page, driver, InteractionKind::Goto, &now, &now, None).await;
     }
     advance_inner(
         open_form,
@@ -2159,7 +2256,7 @@ async fn reset_inner(
     }
     let page = &open_form.live.page;
     let after = snapshot(page).await?;
-    Ok(interaction_from(page, driver, InteractionKind::Reset, &before, &after, None).await)
+    interaction_from(page, driver, InteractionKind::Reset, &before, &after, None).await
 }
 
 /// Screenshots the whole page, or -- when `field` is given -- just that
@@ -2193,8 +2290,7 @@ async fn screenshot_inner(
     let area = match field {
         None => browser::ScreenshotArea::FullPage,
         Some(name) => {
-            let raw = page.evaluate_string(control_js::INVENTORY).await.unwrap_or_default();
-            let controls = parse_controls(&raw)?;
+            let controls = read_inventory(page).await?;
             let control = resolve_field(&controls, name)?;
             let position = control
                 .position
@@ -2218,12 +2314,8 @@ async fn screenshot_inner(
                      h: document.documentElement.scrollHeight})",
                 )
                 .await
-                .unwrap_or_default();
-            let parsed: Value = serde_json::from_str(&raw).unwrap_or(Value::Null);
-            (
-                parsed.get("w").and_then(Value::as_u64).unwrap_or(0) as u32,
-                parsed.get("h").and_then(Value::as_u64).unwrap_or(0) as u32,
-            )
+                .map_err(|err| evaluate_failed("reading the page size", err))?;
+            page_size(&raw)?
         }
         browser::ScreenshotArea::Clip(rect) => {
             (rect.width.round() as u32, rect.height.round() as u32)
@@ -2242,6 +2334,26 @@ async fn screenshot_inner(
         mime: format.mime(),
         ext: format.ext(),
     })
+}
+
+/// The page's `{w, h}` scroll size, as `screenshot_inner` reads it. Pure.
+/// Unit-tested.
+fn page_size(raw: &str) -> Result<(u32, u32), InteractionError> {
+    let unreadable = |detail: String| {
+        InteractionError::Verify(VerifyError::new(
+            ErrorKind::FormNotFound,
+            format!("could not read the page size from {raw:?}: {detail}"),
+        ))
+    };
+    let parsed: Value = serde_json::from_str(raw).map_err(|err| unreadable(err.to_string()))?;
+    let dimension = |key: &str| {
+        parsed
+            .get(key)
+            .and_then(Value::as_u64)
+            .and_then(|n| u32::try_from(n).ok())
+            .ok_or_else(|| unreadable(format!("no {key}")))
+    };
+    Ok((dimension("w")?, dimension("h")?))
 }
 
 /// Submits from the current panel -- refused
@@ -2643,6 +2755,7 @@ mod tests {
     fn from_fields(fields: &Value) -> Snapshot {
         Snapshot {
             fields: serde_json::from_value(fields.clone()).expect("a field map"),
+            panels: BTreeMap::new(),
             instances: BTreeMap::new(),
         }
     }
@@ -2650,6 +2763,7 @@ mod tests {
     fn groups(entries: &[(&str, i64, i64, i64)]) -> Snapshot {
         Snapshot {
             fields: BTreeMap::new(),
+            panels: BTreeMap::new(),
             instances: entries
                 .iter()
                 .map(|(manager, count, min, max)| {
@@ -2887,10 +3001,12 @@ mod tests {
         };
         let before = Snapshot {
             fields: [("a".to_owned(), state(true)), ("b".to_owned(), state(true))].into(),
+            panels: BTreeMap::new(),
             instances: BTreeMap::new(),
         };
         let after = Snapshot {
             fields: [("a".to_owned(), state(false)), ("b".to_owned(), state(true)), ("c".to_owned(), state(false))].into(),
+            panels: BTreeMap::new(),
             instances: BTreeMap::new(),
         };
         assert_eq!(
@@ -2966,5 +3082,89 @@ mod tests {
             assert!(js.contains("if (!isInput(node)) { continue; }"), "{js}");
         }
         assert!(control_js::INVENTORY.contains("(node.jsonModel || {}).multiSelect"));
+    }
+
+    fn with_panels(fields: &[(&str, bool)], panels: &[(&str, bool)]) -> Snapshot {
+        Snapshot {
+            fields: fields
+                .iter()
+                .map(|(som, visible)| {
+                    (
+                        (*som).to_owned(),
+                        FieldState {
+                            value: Value::Null,
+                            visible: *visible,
+                            enabled: true,
+                        },
+                    )
+                })
+                .collect(),
+            panels: panels.iter().map(|(som, visible)| ((*som).to_owned(), *visible)).collect(),
+            instances: BTreeMap::new(),
+        }
+    }
+
+    /// A conditional section a checkbox reveals shows up in `appeared` by
+    /// its own SOM, next to the fields in it; the panels nested inside it
+    /// are not listed again.
+    #[test]
+    fn a_revealed_panel_appears_once_with_its_fields() {
+        let section = "root[0].PN_Details[0].PN_DebitAccount[0]";
+        let nested = "root[0].PN_Details[0].PN_DebitAccount[0].PN_Inner[0]";
+        let field = "root[0].PN_Details[0].PN_DebitAccount[0].TXT_DebitAccount[0]";
+        let hidden = with_panels(
+            &[(field, false)],
+            &[("root[0].PN_Details[0]", true), (section, false), (nested, false)],
+        );
+        let shown = with_panels(
+            &[(field, true)],
+            &[("root[0].PN_Details[0]", true), (section, true), (nested, true)],
+        );
+        let (_, appeared, disappeared) = diff_snapshots(&hidden, &shown, None);
+        assert_eq!(appeared, vec![section.to_owned(), field.to_owned()]);
+        assert!(disappeared.is_empty());
+
+        let (_, appeared, disappeared) = diff_snapshots(&shown, &hidden, None);
+        assert!(appeared.is_empty());
+        assert_eq!(disappeared, vec![section.to_owned(), field.to_owned()]);
+    }
+
+    #[test]
+    fn outermost_keeps_only_panels_not_nested_in_another() {
+        let soms = vec![
+            "a[0].b[0]".to_owned(),
+            "a[0].b[0].c[0]".to_owned(),
+            "a[0].bc[0]".to_owned(),
+        ];
+        assert_eq!(outermost(soms), vec!["a[0].b[0]".to_owned(), "a[0].bc[0]".to_owned()]);
+    }
+
+    #[test]
+    fn the_snapshot_script_records_every_panels_visibility() {
+        assert!(control_js::SNAPSHOT.contains("out.panels[node.somExpression]"));
+        assert!(control_js::SNAPSHOT.contains("node.className === 'guidePanel'"));
+    }
+
+    #[test]
+    fn a_set_warning_says_when_dependent_scripts_may_not_have_run() {
+        let report = |via, view_error: Option<&str>| flow::SetReport {
+            set: true,
+            via: Some(via),
+            view_error: view_error.map(str::to_owned),
+        };
+        assert_eq!(set_warning("CB", &report(flow::SetVia::Bridge, None)), None);
+        let direct = set_warning("CB", &report(flow::SetVia::Model, None)).unwrap();
+        assert!(direct.contains("may not have run"), "{direct}");
+        let view = set_warning("CB", &report(flow::SetVia::Bridge, Some("TypeError"))).unwrap();
+        assert!(view.contains("`TypeError`") && !view.contains("may not have run"), "{view}");
+        let both = set_warning("CB", &report(flow::SetVia::Model, Some("TypeError"))).unwrap();
+        assert!(both.contains("may not have run") && both.contains("`TypeError`"), "{both}");
+    }
+
+    #[test]
+    fn the_page_size_must_be_readable() {
+        assert_eq!(page_size(r#"{"w": 1280, "h": 4000}"#).unwrap(), (1280, 4000));
+        assert!(page_size("").is_err());
+        assert!(page_size(r#"{"w": 1280}"#).is_err());
     }
 }

@@ -10,6 +10,7 @@ use serde_json::{Value, json};
 
 use u2s_aem_verify_core::args::{LanguageArg, PackageCheckArgs, StatusArgs, VerifyRunArgs};
 use u2s_aem_verify_core::profile::Profile;
+use u2s_aem_verify_core::specs_shared::FORM_RENDER_FAILED_NOTE;
 use u2s_schema::tool_input_schema;
 
 pub const CONTRACT_VERSION: &str = "1.0.0";
@@ -45,23 +46,26 @@ pub fn tool_specs() -> Vec<Value> {
         json!({
             "name": "verify_run",
             "description":
-                "Installs the package on this profile's persistent AEM instance (booted from \
-                 this profile's prebuilt image on first use, then reused across calls), opens \
-                 the form with the `mandator`/`afAcceptLang` URL parameters this package's own \
-                 metadata component resolves to (a UBS form otherwise fails server-side with \
-                 \"No metadata information for mandator\"), walks its wizard panel by panel, \
-                 and -- unless `submit: false` -- fills the fields named in `fill` and submits \
-                 via UBS's own `window.forms.ubs.navigation.submit(...)` routine (not a raw \
-                 `guideBridge.submit()`, which would take AEM's native XDP rendering path -- \
-                 unavailable on this workspace's own ARM Docker image), capturing the Redacto \
-                 rendering dependency's PDF as a browser download; the package is uninstalled \
-                 again afterward so the instance stays clean for the next call. Every screenshot \
-                 and artefact travels as a blob, never inline: a real run's images would not \
-                 fit a tool result. `dry_run: true` validates the package and reports Docker \
-                 reachability without starting anything. This tool is side-effecting: it \
-                 installs software on an instance it does not tear down and, unless `dry_run` or \
-                 `submit: false`, submits the rendered form. It is never offered to the \
-                 Conversion Agent.",
+                format!(
+                    "Installs the package on this profile's persistent AEM instance (booted from \
+                     this profile's prebuilt image on first use, then reused across calls), opens \
+                     the form with the `mandator`/`afAcceptLang` URL parameters this package's own \
+                     metadata component resolves to (a UBS form otherwise fails server-side with \
+                     \"No metadata information for mandator\"), walks its wizard panel by panel, \
+                     and -- unless `submit: false` -- fills the fields named in `fill` and submits \
+                     via UBS's own `window.forms.ubs.navigation.submit(...)` routine (not a raw \
+                     `guideBridge.submit()`, which would take AEM's native XDP rendering path -- \
+                     unavailable on this workspace's own ARM Docker image), capturing the Redacto \
+                     rendering dependency's PDF as a browser download; the package is uninstalled \
+                     again afterward so the instance stays clean for the next call. Every screenshot \
+                     and artefact travels as a blob, never inline: a real run's images would not \
+                     fit a tool result. `dry_run: true` validates the package and reports Docker \
+                     reachability without starting anything. This tool is side-effecting: it \
+                     installs software on an instance it does not tear down and, unless `dry_run` or \
+                     `submit: false`, submits the rendered form. It is never offered to the \
+                     Conversion Agent. {}",
+                    FORM_RENDER_FAILED_NOTE
+                ),
             "input_schema": tool_input_schema::<VerifyRunArgs<LanguageArg>>()
         }),
     ];

@@ -6,7 +6,7 @@
 //! other branch, and it lives here — in `u2s-engine`, which is already the
 //! one crate that knows JSON Schema — rather than in `u2s-agent`, so the
 //! same "no format-specific knowledge above this layer" discipline
-//! `adapt`/`restore`/`validate` already hold applies to it too.
+//! `validate` already holds applies to it too.
 //!
 //! Only **required** properties are populated, recursively; an optional
 //! property is left out entirely rather than filled with a placeholder,
@@ -31,7 +31,6 @@
 use serde_json::{Map, Value};
 
 use super::ref_resolve::resolve;
-use super::restore::required_names;
 
 /// A schema this crate cannot turn into a skeleton: not an object at its
 /// root (there is nothing to hang required properties off), or a `$ref`
@@ -52,8 +51,8 @@ const MAX_REF_DEPTH: usize = 64;
 /// Builds a minimal document satisfying `schema`'s required shape.
 ///
 /// Recurses through nested objects and arrays, following local `$ref`s with
-/// [`super::ref_resolve::resolve`] — the same resolver `restore` uses, so a
-/// reference form this crate accepts in one place is accepted in both. Every
+/// [`super::ref_resolve::resolve`], the crate's one resolver, so a
+/// reference form this crate accepts in one place is accepted in all. Every
 /// visited `$ref` is remembered on the current recursion path (not globally)
 /// so a schema that legitimately reuses one definition in two unrelated
 /// branches is not mistaken for a cycle.
@@ -150,6 +149,20 @@ fn build(
         // schema of `{}` (accepts anything) would need anyway.
         _ => Ok(Value::Object(Map::new())),
     }
+}
+
+/// The names an object schema lists under `required`.
+fn required_names(schema: &Value) -> Vec<String> {
+    schema
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|items| {
+            items
+                .iter()
+                .filter_map(|v| v.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 #[cfg(test)]

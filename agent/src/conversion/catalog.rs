@@ -384,6 +384,9 @@ mod catalog_guards {
         // Argument and result names in the u2s document tools' own descriptions.
         "autofix_available",
         "rule_ids",
+        // Error codes the AEM verifier's tool descriptions name.
+        "browser_session_lost",
+        "form_render_failed",
         // AEM / XFA / profile vocabulary appearing verbatim in prose.
         "affrg",
         "affrg_germany",

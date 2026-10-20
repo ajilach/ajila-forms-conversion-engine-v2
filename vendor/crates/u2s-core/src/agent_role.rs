@@ -19,7 +19,8 @@
 
 use serde::{Deserialize, Serialize};
 
-/// One of the agents: the Conversion Agent, the Rule Agent and the Judge.
+/// One of the agents: the Conversion Agent, the Rule Agent, the Judge and
+/// the Reviewer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentRole {
@@ -32,11 +33,16 @@ pub enum AgentRole {
     /// readers over the output, and the Conversion Agent's enabled MCP tools
     /// that neither change anything nor differ between calls.
     Judge,
+    /// Decides what happens to a conversion whose final rule check found
+    /// broken rules: send it back for a fix round, or accept each broken
+    /// rule with a reason. Reads like a judge and changes nothing; may
+    /// propose a rule for a recurring problem no rule covers.
+    Reviewer,
 }
 
 /// A role name that is not one of the agents.
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("unknown agent role {value:?}: expected one of conversion, rule, judge")]
+#[error("unknown agent role {value:?}: expected one of conversion, rule, judge, reviewer")]
 pub struct AgentRoleError {
     pub value: String,
 }
@@ -45,8 +51,12 @@ impl AgentRole {
     /// Every role, including the ones no tool enablement may name. This is
     /// the vocabulary `agent_turns.agent_role` records, because a call by any
     /// of them is still a model call worth auditing and costing.
-    pub const ALL: &'static [AgentRole] =
-        &[AgentRole::Conversion, AgentRole::Rule, AgentRole::Judge];
+    pub const ALL: &'static [AgentRole] = &[
+        AgentRole::Conversion,
+        AgentRole::Rule,
+        AgentRole::Judge,
+        AgentRole::Reviewer,
+    ];
 
     /// The roles a tool enablement may name. Excludes [`AgentRole::Rule`],
     /// which calls no *enableable* (MCP) tool: enabling a tool for it would
@@ -63,6 +73,7 @@ impl AgentRole {
             AgentRole::Conversion => "conversion",
             AgentRole::Rule => "rule",
             AgentRole::Judge => "judge",
+            AgentRole::Reviewer => "reviewer",
         }
     }
 
@@ -92,23 +103,20 @@ impl std::fmt::Display for AgentRole {
     }
 }
 
-/// Which of PLAN.md's two phases a model call belongs to.
+/// What kind of model call a turn was.
 ///
 /// Here rather than in `u2s-store` for the same reason as [`AgentRole`]:
 /// `u2s-store` persists it on `agent_turns.phase` and `u2s-agent` produces
 /// it, and neither crate may depend on the other.
-///
-/// The split is a policy, not an API constraint — rig permits tools and an
-/// output schema together. It buys two things: the large gather transcript
-/// stays out of the schema-constrained call, and `answer_structured`'s
-/// mandatory adapt/restore/validate pipeline remains the single place a
-/// structured answer is produced.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TurnPhase {
-    /// Tools on, no output schema, bounded by the call budget.
+    /// A round of an agent's session: tools on, the agent answering through
+    /// a terminal tool.
     Gather,
-    /// One structured completion over the transcript, no tools.
+    /// A separate structured completion over the transcript, no tools. No
+    /// longer produced: agents answer through a terminal tool in a `Gather`
+    /// turn. Kept so the turns recorded before that read back.
     Answer,
     /// A summary of the turns the context window evicted, written by the
     /// model so a long gather keeps what it learnt. No tools, no schema.

@@ -52,10 +52,6 @@ name = "skeleton"
 path = "tests/skeleton.rs"
 
 [[test]]
-name = "strict_adaptation"
-path = "tests/strict_adaptation.rs"
-
-[[test]]
 name = "validate"
 path = "tests/validate.rs"
 

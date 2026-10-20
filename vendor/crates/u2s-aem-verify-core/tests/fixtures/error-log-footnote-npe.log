@@ -1,0 +1,92 @@
+20.10.2026 13:49:21.810 *INFO* [172.18.0.1 [1792496961796] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.day.cq.wcm.core.impl.designer.SystemDesign Initialized system design at /libs/settings/wcm/designs/default in 5ms
+20.10.2026 13:49:23.002 *INFO* [172.18.0.1 [1792496961796] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] org.apache.sling.i18n.impl.JcrResourceBundle Finding all dictionaries for 'en' (basename: /content/forms/af/afforms_germany_all/af_aa/AF_AAEV/jcr:content/guideContainer/assets/dictionary) ...
+20.10.2026 13:49:23.032 *INFO* [172.18.0.1 [1792496961796] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] org.apache.sling.i18n.impl.JcrResourceBundle Loading sling:Message dictionary: /content/forms/af/afforms_germany_all/af_aa/AF_AAEV/jcr:content/guideContainer/assets/dictionary/en
+20.10.2026 13:49:59.408 *INFO* [172.18.0.3 [1792496999161] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] libs.fd.af.components.guideContainer.guideContainer$jsp Adaptive Form rendering started http://u2s-robust-probe-aem:8080/content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html
+20.10.2026 13:50:52.260 *ERROR* [172.18.0.1 [1792497052189] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aem.formsndocuments.service.impl.FormsRelationServiceImpl Error finding dependency of adaptive form/fragment : /content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV. Invalid document of record path : /content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV/jcr:content/renditions/dorTemplate
+20.10.2026 13:50:52.260 *INFO* [172.18.0.1 [1792497052189] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aem.formsndocuments.service.impl.FormsRelationServiceImpl Finding dependency for Guide : /content/dam/formsanddocuments/afforms_germany_all/af_aa/AF_AAEV. corresponding Theme Asset : /content/dam/formsanddocuments-themes/ajila-forms-ubs/standard-theme
+20.10.2026 13:50:52.328 *INFO* [172.18.0.1 [1792497052189] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] org.apache.sling.scripting.javascript.helper.SlingGlobal [  Envjs/1.6 (Rhino; U; Linux aarch64 7.0.14-linuxkit; en-US; rv:1.7.0.rc2) Resig/20070309 PilotFish/1.2.13  ]
+20.10.2026 13:50:52.523 *ERROR* [172.18.0.1 [1792497052189] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl Could not emit JSON with context
+java.lang.NullPointerException: null
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createMapForFootnotes(JsonObjectCreatorImpl.java:910) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.applyFootnotes(JsonObjectCreatorImpl.java:876) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:788) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+20.10.2026 13:50:52.525 *ERROR* [172.18.0.1 [1792497052189] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl Error in exporting guide json
+java.lang.NullPointerException: null
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:497) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:422) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJson(GuideModelTransformerImpl.java:405) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+20.10.2026 13:50:52.525 *ERROR* [172.18.0.1 [1792497052189] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl Error in getGuideJsonForAllLocales
+com.adobe.aemds.guide.service.GuideException: null
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:503) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:422) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJson(GuideModelTransformerImpl.java:405) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+Caused by: java.lang.NullPointerException: null
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:497) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	... 315 common frames omitted
+20.10.2026 13:50:52.526 *ERROR* [172.18.0.1 [1792497052189] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl syncXfaProps call failed
+java.lang.NullPointerException: null
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.syncXfaProps(GuideModelTransformerImpl.java:1461) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.syncXfaProps(GuideModelTransformerImpl.java:1417) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+20.10.2026 13:50:52.675 *INFO* [172.18.0.1 [1792497052593] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] org.apache.sling.scripting.javascript.helper.SlingGlobal [  Envjs/1.6 (Rhino; U; Linux aarch64 7.0.14-linuxkit; en-US; rv:1.7.0.rc2) Resig/20070309 PilotFish/1.2.13  ]
+20.10.2026 13:50:52.745 *ERROR* [172.18.0.1 [1792497052593] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl Could not emit JSON with context
+java.lang.NullPointerException: null
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createMapForFootnotes(JsonObjectCreatorImpl.java:910) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.applyFootnotes(JsonObjectCreatorImpl.java:876) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:788) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createSingleResource(JsonObjectCreatorImpl.java:1221) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:814) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:235) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:498) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.create(JsonObjectCreatorImpl.java:235) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.JsonObjectCreatorImpl.createWithContext(JsonObjectCreatorImpl.java:255) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:490) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:422) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJson(GuideModelTransformerImpl.java:405) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.getGuideJsonForLocale(GuideModelTransformerImpl.java:1398) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.syncXfaProps(GuideModelTransformerImpl.java:1460) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.syncXfaProps(GuideModelTransformerImpl.java:1417) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.common.GuideContainer.createGuideInitializationState(GuideContainer.java:995) [com.adobe.aemds.guide.aemds-guide-core:6.0.564]
+	at com.adobe.aemds.guide.common.GuideContainer.getGuideInitializationState(GuideContainer.java:1047) [com.adobe.aemds.guide.aemds-guide-core:6.0.564]
+	at org.apache.jsp.libs.fd.af.components.guideContainer.guideContainer_jsp._jspService(guideContainer_jsp.java:960)
+	at org.apache.sling.scripting.jsp.jasper.runtime.HttpJspBase.service(HttpJspBase.java:70) [org.apache.sling.scripting.jsp:2.3.6]
+	at javax.servlet.http.HttpServlet.service(HttpServlet.java:764) [org.apache.felix.http.servlet-api:1.2.0]
+	at org.apache.sling.scripting.jsp.jasper.servlet.JspServletWrapper.service(JspServletWrapper.java:502) [org.apache.sling.scripting.jsp:2.3.6]
+	at org.apache.sling.scripting.jsp.jasper.servlet.JspServletWrapper.service(JspServletWrapper.java:449) [org.apache.sling.scripting.jsp:2.3.6]
+	at org.apache.sling.scripting.jsp.JspScriptEngineFactory.callJsp(JspScriptEngineFactory.java:339) [org.apache.sling.scripting.jsp:2.3.6]
+	at org.apache.sling.scripting.jsp.JspScriptEngineFactory.access$100(JspScriptEngineFactory.java:97) [org.apache.sling.scripting.jsp:2.3.6]
+	at org.apache.sling.scripting.jsp.JspScriptEngineFactory$JspScriptEngine.eval(JspScriptEngineFactory.java:600) [org.apache.sling.scripting.jsp:2.3.6]
+	at org.apache.sling.scripting.core.impl.DefaultSlingScript.call(DefaultSlingScript.java:388) [org.apache.sling.scripting.core:2.3.2]
+	at org.apache.sling.scripting.core.impl.DefaultSlingScript.eval(DefaultSlingScript.java:184) [org.apache.sling.scripting.core:2.3.2]
+	at org.apache.sling.scripting.core.impl.DefaultSlingScript.service(DefaultSlingScript.java:491) [org.apache.sling.scripting.core:2.3.2]
+	at org.apache.sling.engine.impl.request.RequestData.service(RequestData.java:579) [org.apache.sling.engine:2.7.10.B0004]
+	at org.apache.sling.engine.impl.filter.SlingComponentFilterChain.render(SlingComponentFilterChain.java:45) [org.apache.sling.engine:2.7.10.B0004]
+	at org.apache.sling.engine.impl.filter.AbstractSlingFilterChain.doFilter(AbstractSlingFilterChain.java:88) [org.apache.sling.engine:2.7.10.B0004]
+	at com.day.cq.wcm.core.impl.WCMDeveloperModeFilter.doFilter(WCMDeveloperModeFilter.java:119) [com.day.cq.wcm.cq-wcm-core:5.12.230]
+	at org.apache.sling.engine.impl.filter.AbstractSlingFilterChain.doFilter(AbstractSlingFilterChain.java:78) [org.apache.sling.engine:2.7.10.B0004]
+20.10.2026 13:50:52.746 *ERROR* [172.18.0.1 [1792497052593] GET /content/forms/af/afforms_germany_all/af_aa/AF_AAEV.html HTTP/1.1] com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl Error in exporting guide json
+java.lang.NullPointerException: null
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:497) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]
+	at com.adobe.aemds.guide.service.impl.GuideModelTransformerImpl.exportGuideJsonObject(GuideModelTransformerImpl.java:422) [com.adobe.aemds.guide.aemds-guide-core-impl:6.0.564]

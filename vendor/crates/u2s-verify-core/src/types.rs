@@ -205,6 +205,11 @@ pub enum ErrorKind {
     PackageInvalid,
     InstallFailed,
     FormNotFound,
+    /// The form's own page answers a persistent 5xx: AEM crashes building
+    /// it (an authoring defect such as a footnote reference without its
+    /// description). The message names the exception from AEM's error log.
+    /// Retrying cannot help; the document has to change.
+    FormRenderFailed,
     RenderTimeout,
     NoDownload,
     DownloadNotPdf,
@@ -230,6 +235,12 @@ pub enum ErrorKind {
     /// the one other open sessions show for the same form. The caller
     /// closes those sessions first.
     FormOpen,
+    /// The CDP connection to an open form's browser tab is gone (the
+    /// Chromium container restarted, or the websocket dropped). Distinct
+    /// from [`Self::ChromiumNotReady`], which is a boot or connect failure:
+    /// here the session itself is unusable and the caller closes it and
+    /// opens the form again.
+    BrowserSessionLost,
 }
 
 impl ErrorKind {
@@ -242,6 +253,7 @@ impl ErrorKind {
             Self::PackageInvalid => "package_invalid",
             Self::InstallFailed => "install_failed",
             Self::FormNotFound => "form_not_found",
+            Self::FormRenderFailed => "form_render_failed",
             Self::RenderTimeout => "render_timeout",
             Self::NoDownload => "no_download",
             Self::DownloadNotPdf => "download_not_pdf",
@@ -249,6 +261,7 @@ impl ErrorKind {
             Self::StorageFailed => "storage_failed",
             Self::RedactoUnreachable => "redacto_unreachable",
             Self::FormOpen => "form_open",
+            Self::BrowserSessionLost => "browser_session_lost",
         }
     }
 }
@@ -367,12 +380,15 @@ mod tests {
             ErrorKind::PackageInvalid,
             ErrorKind::InstallFailed,
             ErrorKind::FormNotFound,
+            ErrorKind::FormRenderFailed,
             ErrorKind::RenderTimeout,
             ErrorKind::NoDownload,
             ErrorKind::DownloadNotPdf,
             ErrorKind::DownloadBlank,
             ErrorKind::StorageFailed,
             ErrorKind::RedactoUnreachable,
+            ErrorKind::FormOpen,
+            ErrorKind::BrowserSessionLost,
         ];
         let strings: std::collections::BTreeSet<&str> = all.iter().map(|k| k.as_str()).collect();
         assert_eq!(

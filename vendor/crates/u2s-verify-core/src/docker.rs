@@ -137,6 +137,12 @@ pub enum DockerError {
     },
     #[error("container {container:?} has no address on network {network:?}")]
     NoAddress { container: String, network: String },
+    #[error("cannot read the logs of container {id:?}: {source}")]
+    Logs {
+        id: String,
+        #[source]
+        source: bollard::errors::Error,
+    },
     #[error("cannot copy {path:?} out of container {id:?}: {reason}")]
     CopyOut {
         id: String,
@@ -201,6 +207,21 @@ impl RunningContainer {
 pub struct ExecOutput {
     pub exit_code: i64,
     pub output: String,
+}
+
+/// Whether a container is still up, as [`DockerLifecycle::container_state`]
+/// reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ContainerState {
+    Running,
+    /// Created, exited, dead, paused or restarting: anything but running.
+    /// `exit_code` is the daemon's, absent when it reports none.
+    Stopped {
+        status: String,
+        exit_code: Option<i64>,
+    },
+    /// The daemon no longer knows the container (it was removed).
+    Gone,
 }
 
 pub struct DockerLifecycle {
@@ -373,6 +394,59 @@ impl DockerLifecycle {
                 source,
             }),
         }
+    }
+
+    /// Whether `id` is running right now: what a caller waiting on a
+    /// container to become ready polls, so a container that exited is
+    /// noticed at once instead of when the wait times out.
+    pub async fn container_state(&self, id: &str) -> Result<ContainerState, DockerError> {
+        match self
+            .docker
+            .inspect_container(id, None::<InspectContainerOptions>)
+            .await
+        {
+            Ok(inspected) => {
+                let state = inspected.state.unwrap_or_default();
+                if state.running == Some(true) {
+                    return Ok(ContainerState::Running);
+                }
+                Ok(ContainerState::Stopped {
+                    status: state
+                        .status
+                        .map(|status| status.to_string())
+                        .unwrap_or_else(|| "unknown".to_owned()),
+                    exit_code: state.exit_code,
+                })
+            }
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 404, ..
+            }) => Ok(ContainerState::Gone),
+            Err(source) => Err(DockerError::InspectContainer {
+                id: id.to_owned(),
+                source,
+            }),
+        }
+    }
+
+    /// The last `tail` lines `id` wrote to stdout and stderr, interleaved
+    /// the way the daemon stored them. Works on a stopped container too,
+    /// which is when a caller explaining why it stopped needs them.
+    pub async fn container_logs(&self, id: &str, tail: usize) -> Result<String, DockerError> {
+        let options = bollard::query_parameters::LogsOptionsBuilder::new()
+            .stdout(true)
+            .stderr(true)
+            .tail(&tail.to_string())
+            .build();
+        let chunks: Vec<bollard::container::LogOutput> = self
+            .docker
+            .logs(id, Some(options))
+            .try_collect()
+            .await
+            .map_err(|source| DockerError::Logs {
+                id: id.to_owned(),
+                source,
+            })?;
+        Ok(chunks.iter().map(ToString::to_string).collect())
     }
 
     /// `container`'s IPv4 address on `network`.
@@ -678,12 +752,61 @@ impl DockerLifecycle {
     }
 }
 
+/// Why [`wait_for_http`] or [`wait_for_http_until`] stopped waiting.
 #[derive(Debug, thiserror::Error)]
-#[error("{url} did not become ready within {waited:?}: {reason}")]
+#[error("{url} {}: {reason}", self.outcome())]
 pub struct HttpReadyError {
     pub url: String,
+    /// How long it polled: the whole timeout, or less when it gave up.
     pub waited: Duration,
     pub reason: String,
+    /// The status of the last response, `None` when the last attempt got
+    /// no response at all (or none was made).
+    pub last_status: Option<u16>,
+    /// `true` when the give-up rule stopped the wait before the timeout.
+    pub gave_up: bool,
+}
+
+impl HttpReadyError {
+    fn outcome(&self) -> String {
+        if self.gave_up {
+            format!("kept failing for {:?}", self.waited)
+        } else {
+            format!("did not become ready within {:?}", self.waited)
+        }
+    }
+}
+
+/// One poll [`wait_for_http_until`] made: when, counted from its first
+/// attempt, and the status it got (`None`: no response at all).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HttpAttempt {
+    pub elapsed: Duration,
+    pub status: Option<u16>,
+}
+
+/// The give-up rule for a page that keeps failing on the server side: the
+/// most recent `min_consecutive` (or more) attempts all answered 5xx, and
+/// that run of 5xx spans at least `min_span`. Both bounds matter: one 5xx
+/// is a page still warming up, and a quick burst of three is too short to
+/// tell from that. Pure. Unit-tested.
+pub fn persistent_server_error(
+    attempts: &[HttpAttempt],
+    min_consecutive: usize,
+    min_span: Duration,
+) -> bool {
+    assert!(min_consecutive > 0, "a run of zero attempts proves nothing");
+    let run: Vec<&HttpAttempt> = attempts
+        .iter()
+        .rev()
+        .take_while(|attempt| attempt.status.is_some_and(|status| (500..600).contains(&status)))
+        .collect();
+    match (run.first(), run.last()) {
+        (Some(last), Some(first)) if run.len() >= min_consecutive => {
+            last.elapsed.saturating_sub(first.elapsed) >= min_span
+        }
+        _ => false,
+    }
 }
 
 /// Polls `url` until a `GET` returns exactly `expected_status`, or gives up
@@ -706,23 +829,60 @@ pub async fn wait_for_http(
     poll_interval: Duration,
     basic_auth: Option<(&str, &str)>,
 ) -> Result<(), HttpReadyError> {
+    wait_for_http_until(url, expected_status, timeout, poll_interval, basic_auth, |_| false).await
+}
+
+/// [`wait_for_http`], which also stops early once `give_up` says the
+/// attempts so far will not end well ([`persistent_server_error`], say),
+/// with [`HttpReadyError::gave_up`] set. `give_up` sees every attempt made,
+/// oldest first, after each one that did not succeed.
+pub async fn wait_for_http_until(
+    url: &str,
+    expected_status: u16,
+    timeout: Duration,
+    poll_interval: Duration,
+    basic_auth: Option<(&str, &str)>,
+    give_up: impl Fn(&[HttpAttempt]) -> bool,
+) -> Result<(), HttpReadyError> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .expect("a default reqwest client always builds");
 
-    let deadline = tokio::time::Instant::now() + timeout;
+    let started = tokio::time::Instant::now();
+    let deadline = started + timeout;
     let mut last_reason = "never attempted".to_owned();
+    let mut attempts: Vec<HttpAttempt> = Vec::new();
 
     while tokio::time::Instant::now() < deadline {
         let mut request = client.get(url);
         if let Some((user, password)) = basic_auth {
             request = request.basic_auth(user, Some(password));
         }
-        match request.send().await {
+        let status = match request.send().await {
             Ok(response) if response.status().as_u16() == expected_status => return Ok(()),
-            Ok(response) => last_reason = format!("got status {}", response.status().as_u16()),
-            Err(err) => last_reason = err.to_string(),
+            Ok(response) => {
+                let status = response.status().as_u16();
+                last_reason = format!("got status {status}");
+                Some(status)
+            }
+            Err(err) => {
+                last_reason = err.to_string();
+                None
+            }
+        };
+        attempts.push(HttpAttempt {
+            elapsed: started.elapsed(),
+            status,
+        });
+        if give_up(&attempts) {
+            return Err(HttpReadyError {
+                url: url.to_owned(),
+                waited: started.elapsed(),
+                reason: last_reason,
+                last_status: status,
+                gave_up: true,
+            });
         }
         tokio::time::sleep(poll_interval).await;
     }
@@ -731,6 +891,8 @@ pub async fn wait_for_http(
         url: url.to_owned(),
         waited: timeout,
         reason: last_reason,
+        last_status: attempts.last().and_then(|attempt| attempt.status),
+        gave_up: false,
     })
 }
 
@@ -817,6 +979,66 @@ mod tests {
         assert_eq!(running.published_port(9222), None);
     }
 
+    fn attempts(seconds_and_statuses: &[(u64, Option<u16>)]) -> Vec<HttpAttempt> {
+        seconds_and_statuses
+            .iter()
+            .map(|&(seconds, status)| HttpAttempt {
+                elapsed: Duration::from_secs(seconds),
+                status,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_page_gives_up_after_three_5xx_spanning_six_seconds() {
+        let rule = |list: &[(u64, Option<u16>)]| {
+            persistent_server_error(&attempts(list), 3, Duration::from_secs(6))
+        };
+        assert!(!rule(&[]));
+        assert!(!rule(&[(0, Some(500)), (2, Some(500))]), "two are not enough");
+        assert!(
+            !rule(&[(0, Some(500)), (2, Some(500)), (4, Some(500))]),
+            "three within 4s are too quick to tell from a warming page"
+        );
+        assert!(rule(&[(0, Some(500)), (2, Some(503)), (4, Some(500)), (6, Some(500))]));
+        assert!(rule(&[(0, Some(500)), (3, Some(500)), (6, Some(500))]));
+    }
+
+    #[test]
+    fn only_an_unbroken_run_of_5xx_counts() {
+        let rule = |list: &[(u64, Option<u16>)]| {
+            persistent_server_error(&attempts(list), 3, Duration::from_secs(6))
+        };
+        assert!(
+            !rule(&[(0, Some(500)), (2, Some(500)), (4, Some(404)), (6, Some(500)), (8, Some(500))]),
+            "a 404 in between restarts the run"
+        );
+        assert!(
+            !rule(&[(0, Some(500)), (2, None), (4, Some(500)), (6, Some(500))]),
+            "no response at all is not a server error"
+        );
+        assert!(!rule(&[(0, Some(404)), (3, Some(404)), (6, Some(404))]), "404s never give up");
+        assert!(!rule(&[(0, Some(401)), (3, Some(401)), (6, Some(401))]));
+    }
+
+    #[tokio::test]
+    async fn wait_for_http_until_stops_when_told_to_give_up() {
+        let err = wait_for_http_until(
+            "http://127.0.0.1:1/",
+            200,
+            Duration::from_secs(30),
+            Duration::from_millis(10),
+            None,
+            |attempts| attempts.len() >= 2,
+        )
+        .await
+        .expect_err("nothing listens on port 1");
+        assert!(err.gave_up, "{err}");
+        assert!(err.waited < Duration::from_secs(30), "{err}");
+        assert_eq!(err.last_status, None);
+        assert!(err.to_string().contains("kept failing"), "{err}");
+    }
+
     #[tokio::test]
     async fn wait_for_http_times_out_against_a_port_nothing_listens_on() {
         let err = wait_for_http(
@@ -829,6 +1051,8 @@ mod tests {
         .await
         .expect_err("nothing listens on port 1");
         assert!(!err.reason.is_empty(), "a reason must be recorded: {err}");
+        assert!(!err.gave_up);
+        assert!(err.to_string().contains("did not become ready within"), "{err}");
     }
 
     /// Real Docker coverage for [`DockerLifecycle::exec`], run only when

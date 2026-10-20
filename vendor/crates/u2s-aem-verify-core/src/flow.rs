@@ -95,7 +95,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use u2s_blob::{BlobRef, BlobStore};
 use u2s_verify_core::browser::{self, BrowserSession};
-use u2s_verify_core::docker::{DockerLifecycle, wait_for_http};
+use u2s_verify_core::docker::{
+    DockerLifecycle, HttpReadyError, persistent_server_error, wait_for_http_until,
+};
 use u2s_verify_core::pdf_content;
 use u2s_verify_core::types::{
     Artefact, ArtefactKind, BlobDescriptor, ErrorKind, FailedRequest, Finding, Step, VerifyError,
@@ -118,6 +120,16 @@ const READINESS_POLL_INTERVAL: Duration = Duration::from_millis(500);
 // only ever been exercised against one real form on one machine.
 const READINESS_POLL_ATTEMPTS: u32 = 60;
 const SUBMIT_TIMEOUT: Duration = Duration::from_secs(90);
+/// The form page's give-up rule ([`persistent_server_error`]): this many
+/// 5xx in a row, spanning at least [`FORM_PAGE_SERVER_ERROR_SPAN`], mean AEM
+/// fails to build the form, not that it is still starting. Without it a
+/// crashing form was polled for the whole minute, on every open.
+const FORM_PAGE_SERVER_ERRORS: usize = 3;
+const FORM_PAGE_SERVER_ERROR_SPAN: Duration = Duration::from_secs(6);
+/// How much of AEM's error log [`render_failure_cause`] reads: enough for
+/// several failing requests of one form, each logging hundreds of stack
+/// frames.
+const AEM_ERROR_LOG_TAIL_LINES: usize = 20_000;
 /// A hard ceiling against a stuck loop if panel-advance detection
 /// (`wizard_js::panel_fingerprint`) ever false-negatives -- not a real
 /// expected panel count (7 observed live in `AAOV_033`). Untested above
@@ -366,11 +378,25 @@ pub mod wizard_js {
     }
 
     /// Sets one named field the way a person would, returning a JSON
-    /// report of what happened: `{"set": true, "via": "model"}`,
-    /// `{"set": true, "via": "widget"}`, or `{"set": false}`. See
-    /// [`super::fill_current_panel`] and [`super::set_control`] for why
-    /// this goes through the DOM widget rather than a same-named JS
-    /// global, and why the model is tried first.
+    /// report of what happened: `{"set": true, "via": "bridge"}`,
+    /// `{"set": true, "via": "model"}`, `{"set": true, "via": "widget"}`, or
+    /// `{"set": false}`, a set one also carrying `view_error` when the
+    /// runtime threw after taking the value. See [`super::fill_current_panel`]
+    /// and [`super::set_control`] for why this goes through the form's model
+    /// rather than a same-named JS global.
+    ///
+    /// A model node is set through `guideBridge.setProperty([som], 'value',
+    /// [value])`, the documented GuideBridge setter, because it is what runs
+    /// the expressions depending on the field: confirmed live on a checkbox
+    /// whose sibling panel's `fd:visible` script tests its value, a plain
+    /// `node.value = value` changes the value and leaves the panel hidden,
+    /// while `setProperty` (like a visitor's click) shows it, and hides it
+    /// again when the value is cleared. Assigning the model directly stays
+    /// as the fallback for the one case `setProperty` cannot cover: it
+    /// returns nothing and silently skips a node it does not take the value
+    /// for, so when the node's value did not move the assignment is tried,
+    /// and reported as `via: 'model'` so the caller can say dependent
+    /// scripts may not have run.
     ///
     /// `value` is injected as its JSON literal, so it carries its own
     /// quoting and a string value cannot break out of the expression. The
@@ -393,22 +419,45 @@ pub mod wizard_js {
     var name = {name};
     var value = {value};
 
+    // Sets a model node through guideBridge.setProperty, so the expressions
+    // that depend on it run; falls back to assigning the model when
+    // setProperty left the value where it was (see `fill_field`'s doc).
+    //
+    // The runtime can take the value and then fail while updating the
+    // widget (confirmed live on AAQR_033: guideRuntime's `_setOption`
+    // throws, the model holds the value, the input stays empty). The model
+    // is what validation and submit read, so that counts as set, with the
+    // error reported.
+    function setNode(node) {{
+        var before = node.value;
+        var viewError = null;
+        try {{
+            guideBridge.setProperty([node.somExpression], 'value', [value]);
+        }} catch (e) {{
+            viewError = String(e);
+        }}
+        if (node.value == value || node.value !== before) {{
+            return viewError === null
+                ? {{set: true, via: 'bridge'}}
+                : {{set: true, via: 'bridge', view_error: viewError}};
+        }}
+        try {{
+            node.value = value;
+        }} catch (e) {{
+            viewError = String(e);
+        }}
+        if (node.value == value) {{
+            return viewError === null
+                ? {{set: true, via: 'model'}}
+                : {{set: true, via: 'model', view_error: viewError}};
+        }}
+        return {{set: false}};
+    }}
+
     if (som) {{
         var target = null;
-        try {{
-            target = guideBridge.resolveNode(som);
-            if (target) {{ target.value = value; return JSON.stringify({{set: true, via: 'model'}}); }}
-        }} catch (e) {{
-            // The model may take the value and the runtime then fail while
-            // updating the widget (confirmed live on AAQR_033: guideRuntime's
-            // `_setOption` throws, the model holds the value, the input stays
-            // empty). The model is what validation and submit read, so that
-            // counts as set, with the error reported.
-            if (target && target.value == value) {{
-                return JSON.stringify({{set: true, via: 'model', view_error: String(e)}});
-            }}
-        }}
-        return JSON.stringify({{set: false}});
+        try {{ target = guideBridge.resolveNode(som); }} catch (e) {{ target = null; }}
+        return JSON.stringify(target ? setNode(target) : {{set: false}});
     }}
 
     // Preferred: set the value on the *model* node. Assigning to the widget
@@ -422,6 +471,7 @@ pub mod wizard_js {
     // The traversal (resolve the root panel, then walk `.items` recursively)
     // is the same one ajila-forms-ubs's own `getGuideNodeFromElementId`
     // uses, matching on `.name` rather than `.id`.
+    var node = null;
     try {{
         if (typeof guideBridge !== 'undefined') {{
             var root = {root};
@@ -436,10 +486,13 @@ pub mod wizard_js {
                 }}
                 return null;
             }};
-            var node = root && find(root.items);
-            if (node) {{ node.value = value; return JSON.stringify({{set: true, via: 'model'}}); }}
+            node = root && find(root.items);
         }}
-    }} catch (e) {{ /* fall through to the widget */ }}
+    }} catch (e) {{ node = null; /* fall through to the widget */ }}
+    if (node) {{
+        var report = setNode(node);
+        if (report.set) {{ return JSON.stringify(report); }}
+    }}
 
     // Fallback for anything the model walk cannot reach. Only accepted when
     // the widget is actually on the visible panel, since that is the one
@@ -870,6 +923,7 @@ pub async fn run(
         profile,
         driver,
         blobs,
+        &docker,
         &state.containers,
         package,
         &request,
@@ -1035,6 +1089,7 @@ pub(crate) struct OpenedForm {
 pub(crate) async fn open_live_form(
     profile: &Profile,
     driver: &dyn FormDriver,
+    docker: &DockerLifecycle,
     containers: &Containers,
     package: PackageInspection,
     language: Option<&str>,
@@ -1076,7 +1131,7 @@ pub(crate) async fn open_live_form(
         "{}{}.html?{query_string}",
         containers.aem_network_url, summary.form_jcr_path
     );
-    wait_for_http(
+    let ready = wait_for_http_until(
         &form_url,
         200,
         Duration::from_secs(60),
@@ -1087,9 +1142,20 @@ pub(crate) async fn open_live_form(
         // credentials, indistinguishable from "not ready yet" until this
         // wait simply timed out.
         Some((&profile.aem_user, &profile.aem_password)),
+        |attempts| {
+            persistent_server_error(attempts, FORM_PAGE_SERVER_ERRORS, FORM_PAGE_SERVER_ERROR_SPAN)
+        },
     )
-    .await
-    .map_err(|err| VerifyError::new(ErrorKind::FormNotFound, err.to_string()))?;
+    .await;
+    if let Err(err) = ready {
+        let cause = match form_page_failure(&err) {
+            ErrorKind::FormRenderFailed => {
+                Some(render_failure_cause(docker, containers, &summary.form_jcr_path).await)
+            }
+            _ => None,
+        };
+        return Err(form_page_error(&form_url, &err, cause.as_deref()));
+    }
 
     let mut browser_session = BrowserSession::connect(cdp_url)
         .await
@@ -1120,7 +1186,7 @@ pub(crate) async fn open_live_form(
                  })",
             )
             .await
-            .unwrap_or_default();
+            .unwrap_or_else(|err| format!("(unreadable: {err})"));
         findings.push(Finding::warning(
             "guide_bridge_not_detected",
             format!(
@@ -1144,11 +1210,75 @@ pub(crate) async fn open_live_form(
     })
 }
 
+/// What a form page that never answered 200 means: a page that kept
+/// answering 5xx until [`open_live_form`] gave up is a form AEM crashes on
+/// ([`ErrorKind::FormRenderFailed`]), anything else (a 404, a timeout) a form
+/// that is not there ([`ErrorKind::FormNotFound`]). Pure. Unit-tested.
+pub(crate) fn form_page_failure(err: &HttpReadyError) -> ErrorKind {
+    match err.last_status {
+        Some(status) if err.gave_up && (500..600).contains(&status) => ErrorKind::FormRenderFailed,
+        _ => ErrorKind::FormNotFound,
+    }
+}
+
+/// The error [`open_live_form`] fails with for a form page that never
+/// answered 200, `cause` being AEM's own account of a render failure
+/// ([`render_failure_cause`]). Pure. Unit-tested.
+pub(crate) fn form_page_error(form_url: &str, err: &HttpReadyError, cause: Option<&str>) -> VerifyError {
+    match (form_page_failure(err), err.last_status, cause) {
+        (ErrorKind::FormRenderFailed, Some(status), Some(cause)) => VerifyError::new(
+            ErrorKind::FormRenderFailed,
+            format!("{form_url} answers {status}: {cause}"),
+        ),
+        _ => VerifyError::new(ErrorKind::FormNotFound, err.to_string()),
+    }
+}
+
+/// Why AEM fails to render `form_jcr_path`, read from the tail of its error
+/// log inside the AEM container ([`crate::aem_log::render_root_cause`]).
+/// Never empty: a log that cannot be read, or holds nothing for the form,
+/// is said so in place of the cause.
+async fn render_failure_cause(
+    docker: &DockerLifecycle,
+    containers: &Containers,
+    form_jcr_path: &str,
+) -> String {
+    let read = docker
+        .exec(
+            &containers.aem.id,
+            vec![
+                "tail".to_owned(),
+                "-n".to_owned(),
+                AEM_ERROR_LOG_TAIL_LINES.to_string(),
+                instance::AEM_ERROR_LOG.to_owned(),
+            ],
+        )
+        .await;
+    match read {
+        Err(err) => format!("the AEM error log {} could not be read: {err}", instance::AEM_ERROR_LOG),
+        Ok(output) if output.exit_code != 0 => format!(
+            "the AEM error log {} could not be read: tail exited with {}: {}",
+            instance::AEM_ERROR_LOG,
+            output.exit_code,
+            output.output.trim()
+        ),
+        Ok(output) => crate::aem_log::render_root_cause(&output.output, form_jcr_path)
+            .unwrap_or_else(|| {
+                format!(
+                    "the last {AEM_ERROR_LOG_TAIL_LINES} lines of the AEM error log {} hold no \
+                     ERROR entry for GET {form_jcr_path}.html",
+                    instance::AEM_ERROR_LOG
+                )
+            }),
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn execute(
     profile: &Profile,
     driver: &dyn FormDriver,
     blobs: &BlobStore,
+    docker: &DockerLifecycle,
     containers: &Containers,
     package: PackageInspection,
     request: &RunRequest,
@@ -1162,6 +1292,7 @@ async fn execute(
     let opened = open_live_form(
         profile,
         driver,
+        docker,
         containers,
         package,
         request.language.as_deref(),
@@ -1281,7 +1412,7 @@ async fn walk_wizard_and_maybe_submit(
     let click_next_js = driver.click_next_js();
 
     for panel_index in 1..=MAX_WIZARD_PANELS {
-        fill_current_panel(page, fill, &mut filled).await;
+        fill_current_panel(page, fill, &mut filled, findings).await;
 
         // After the caller's own values, never before: an explicitly
         // supplied value must win over an invented one.
@@ -1312,7 +1443,7 @@ async fn walk_wizard_and_maybe_submit(
             let diagnostic = page
                 .evaluate_string(wizard_js::NAVIGATION_DIAGNOSTIC)
                 .await
-                .unwrap_or_default();
+                .unwrap_or_else(|err| format!("(unreadable: {err})"));
             findings.push(Finding::warning(
                 "wizard_navigation_not_found",
                 format!(
@@ -1387,13 +1518,26 @@ async fn fill_current_panel(
     page: &browser::PageHandle,
     fill: &BTreeMap<String, Value>,
     filled: &mut BTreeSet<String>,
+    findings: &mut Vec<Finding>,
 ) {
     for (name, value) in fill {
         if filled.contains(name) {
             continue;
         }
-        if set_control(page, FieldRef::Name(name), value).await.set {
-            filled.insert(name.clone());
+        match set_control(page, FieldRef::Name(name), value).await {
+            Ok(report) if report.set => {
+                filled.insert(name.clone());
+            }
+            Ok(_) => {}
+            // Reported once, here, rather than retried on every later panel
+            // and then again as never filled.
+            Err(err) => {
+                findings.push(Finding::warning(
+                    "fill_failed",
+                    format!("setting {name} failed: {err}"),
+                ));
+                filled.insert(name.clone());
+            }
         }
     }
 }
@@ -1415,6 +1559,11 @@ pub enum FieldRef<'a> {
 /// see it" from "this only reached the widget".
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SetVia {
+    /// `guideBridge.setProperty`: the form's dependent scripts ran.
+    Bridge,
+    /// A direct model assignment, after `setProperty` left the value where
+    /// it was: the value is in the model, but scripts depending on it may
+    /// not have run.
     Model,
     Widget,
 }
@@ -1435,6 +1584,7 @@ fn parse_set_report(raw: &str) -> SetReport {
     };
     let set = parsed.get("set").and_then(Value::as_bool).unwrap_or(false);
     let via = match parsed.get("via").and_then(Value::as_str) {
+        Some("bridge") => Some(SetVia::Bridge),
         Some("model") => Some(SetVia::Model),
         Some("widget") => Some(SetVia::Widget),
         _ => None,
@@ -1451,23 +1601,22 @@ fn parse_set_report(raw: &str) -> SetReport {
 }
 
 /// Sets one field the way a person would ([`wizard_js::fill_field`]),
-/// model-first with a DOM-widget fallback, and reports which strategy
-/// actually worked. The one setter [`fill_current_panel`] (`verify_run`'s
-/// own `fill`) and `crate::interactive::set` (`verify_set`) both call, so
-/// there is exactly one place that knows how to address a field by name.
-/// A CDP evaluation failure (an unreachable page, say) is reported the
-/// same as the field simply not being found -- `SetReport::default()`,
-/// `set: false` -- since either way nothing was set.
+/// through `guideBridge.setProperty` with a model and a DOM-widget
+/// fallback, and reports which strategy actually worked. The one setter
+/// [`fill_current_panel`] (`verify_run`'s own `fill`) and
+/// `crate::interactive::set` (`verify_set`) both call, so there is exactly
+/// one place that knows how to address a field by name. A CDP evaluation
+/// failure is the `Err`, never folded into `set: false`: a lost browser
+/// session must not read as a field that is merely not on this panel.
 pub(crate) async fn set_control(
     page: &browser::PageHandle,
     target: FieldRef<'_>,
     value: &Value,
-) -> SetReport {
+) -> Result<SetReport, browser::BrowserError> {
     let raw = page
         .evaluate_string(&wizard_js::fill_field(target, value))
-        .await
-        .unwrap_or_default();
-    parse_set_report(&raw)
+        .await?;
+    Ok(parse_set_report(&raw))
 }
 
 /// Turns [`wizard_js::AUTO_FILL_REQUIRED`]'s JSON report into the finding
@@ -1900,7 +2049,7 @@ pub(crate) async fn submit_and_capture_artefact(
                 let refusal = page
                     .evaluate_string(wizard_js::SUBMIT_ERROR)
                     .await
-                    .unwrap_or_default();
+                    .unwrap_or_else(|err| format!("(unreadable: {err})"));
                 findings.push(Finding::error(
                     ErrorKind::NoDownload.as_str(),
                     no_download_message(
@@ -2073,6 +2222,43 @@ fn keep_pdf_artefact(
 mod tests {
     use super::*;
 
+    fn page_error(last_status: Option<u16>, gave_up: bool) -> HttpReadyError {
+        HttpReadyError {
+            url: "http://aem/form.html".to_owned(),
+            waited: Duration::from_secs(if gave_up { 6 } else { 60 }),
+            reason: last_status.map_or("connection refused".to_owned(), |s| format!("got status {s}")),
+            last_status,
+            gave_up,
+        }
+    }
+
+    #[test]
+    fn only_a_page_given_up_on_for_5xx_is_a_render_failure() {
+        assert_eq!(form_page_failure(&page_error(Some(500), true)), ErrorKind::FormRenderFailed);
+        assert_eq!(form_page_failure(&page_error(Some(503), true)), ErrorKind::FormRenderFailed);
+        assert_eq!(form_page_failure(&page_error(Some(500), false)), ErrorKind::FormNotFound);
+        assert_eq!(form_page_failure(&page_error(Some(404), false)), ErrorKind::FormNotFound);
+        assert_eq!(form_page_failure(&page_error(None, false)), ErrorKind::FormNotFound);
+    }
+
+    #[test]
+    fn a_render_failure_names_the_status_and_the_cause() {
+        let err = form_page_error(
+            "http://aem/form.html?x=1",
+            &page_error(Some(500), true),
+            Some("java.lang.NullPointerException at createMapForFootnotes"),
+        );
+        assert_eq!(err.kind, ErrorKind::FormRenderFailed);
+        assert_eq!(
+            err.message,
+            "http://aem/form.html?x=1 answers 500: java.lang.NullPointerException at createMapForFootnotes"
+        );
+
+        let missing = form_page_error("http://aem/form.html", &page_error(Some(404), false), None);
+        assert_eq!(missing.kind, ErrorKind::FormNotFound);
+        assert!(missing.message.contains("did not become ready within"), "{}", missing.message);
+    }
+
     /// A download that is a valid PDF of blank pages is the one shape the
     /// `%PDF` check waves through, and the one a person otherwise finds
     /// only by opening the review: it must be an error finding, with the
@@ -2184,6 +2370,79 @@ mod tests {
         assert!(js.contains("item.name === name"), "{js}");
     }
 
+    /// Runs `fill_field`'s script for `som` against a stand-in
+    /// `guideBridge` whose `setProperty` is `set_property` (a JS function of
+    /// `(soms, prop, values)`) and whose one node starts with `before`,
+    /// returning the report and the node's value afterwards.
+    fn run_fill(set_property: &str, before: &str, value: Value) -> (Value, Value) {
+        let som = "guide[0].p[0].CB[0]";
+        let source = format!(
+            "var node = {{ somExpression: {som:?}, value: {before} }};\n\
+             var guideBridge = {{\n\
+               resolveNode: function(s) {{ return s === node.somExpression ? node : null; }},\n\
+               setProperty: {set_property}\n\
+             }};\n\
+             var report = {};\n\
+             JSON.stringify({{ report: JSON.parse(report), value: node.value }});",
+            wizard_js::fill_field(FieldRef::Som(som), &value)
+        );
+        let mut context = boa_engine::Context::default();
+        let result = context
+            .eval(boa_engine::Source::from_bytes(source.as_bytes()))
+            .unwrap_or_else(|e| panic!("the fill script runs: {e}"));
+        let text = result.to_string(&mut context).unwrap().to_std_string_escaped();
+        let parsed: Value = serde_json::from_str(&text).unwrap();
+        (parsed["report"].clone(), parsed["value"].clone())
+    }
+
+    /// Confirmed live: only `guideBridge.setProperty` runs the scripts that
+    /// depend on a field (a checkbox's conditional panel stayed hidden after
+    /// a plain model assignment), so it is what sets the value.
+    #[test]
+    fn fill_field_sets_through_guide_bridge_set_property() {
+        let applied = "function(soms, prop, values) { node[prop] = values[0]; }";
+        let (report, value) = run_fill(applied, "null", serde_json::json!("1"));
+        assert_eq!(report, serde_json::json!({"set": true, "via": "bridge"}));
+        assert_eq!(value, serde_json::json!("1"));
+
+        let (report, value) = run_fill(applied, "\"1\"", Value::Null);
+        assert_eq!(report["via"], "bridge", "clearing a value goes the same way");
+        assert_eq!(value, Value::Null);
+    }
+
+    #[test]
+    fn a_value_set_property_ignored_falls_back_to_the_model() {
+        let ignored = "function() { return undefined; }";
+        let (report, value) = run_fill(ignored, "null", serde_json::json!("1"));
+        assert_eq!(report, serde_json::json!({"set": true, "via": "model"}));
+        assert_eq!(value, serde_json::json!("1"));
+    }
+
+    #[test]
+    fn a_runtime_error_after_the_model_took_the_value_still_counts_as_set() {
+        let throws_after = "function(soms, prop, values) { node[prop] = values[0]; \
+                            throw new TypeError('_setOption'); }";
+        let (report, _) = run_fill(throws_after, "null", serde_json::json!("1"));
+        assert_eq!(report["set"], true);
+        assert_eq!(report["via"], "bridge");
+        assert!(report["view_error"].as_str().unwrap().contains("_setOption"), "{report}");
+    }
+
+    #[test]
+    fn a_som_that_resolves_to_nothing_is_not_set() {
+        let source = format!(
+            "var guideBridge = {{ resolveNode: function() {{ return null; }}, \
+             setProperty: function() {{}} }};\n{}",
+            wizard_js::fill_field(FieldRef::Som("guide[0].nope[0]"), &serde_json::json!("x"))
+        );
+        let mut context = boa_engine::Context::default();
+        let result = context.eval(boa_engine::Source::from_bytes(source.as_bytes())).unwrap();
+        assert_eq!(
+            result.to_string(&mut context).unwrap().to_std_string_escaped(),
+            r#"{"set":false}"#
+        );
+    }
+
     /// A wizard keeps every panel in the DOM, so the widget fallback must
     /// not "succeed" against an unbound widget on a panel the walk has not
     /// reached -- the value would be silently lost.
@@ -2240,23 +2499,30 @@ mod tests {
     #[test]
     fn fill_field_reports_which_strategy_set_the_value() {
         let js = wizard_js::fill_field(FieldRef::Name("TXT_Cognome"), &serde_json::json!("Rossi"));
+        for report in [
+            "{set: true, via: 'bridge'}",
+            "{set: true, via: 'model'}",
+            "JSON.stringify({set: true, via: 'widget'})",
+            "JSON.stringify({set: false})",
+        ] {
+            assert!(js.contains(report), "{report} missing: {js}");
+        }
         assert!(
-            js.contains("JSON.stringify({set: true, via: 'model'})"),
-            "{js}"
-        );
-        assert!(
-            js.contains("JSON.stringify({set: true, via: 'widget'})"),
-            "{js}"
-        );
-        assert!(js.contains("JSON.stringify({set: false})"), "{js}");
-        assert!(
-            js.contains("target.value == value"),
+            js.contains("node.value == value"),
             "a model that took the value counts: {js}"
         );
     }
 
     #[test]
     fn parse_set_report_reads_back_every_shape_fill_field_can_produce() {
+        assert_eq!(
+            parse_set_report(r#"{"set": true, "via": "bridge"}"#),
+            SetReport {
+                set: true,
+                via: Some(SetVia::Bridge),
+                view_error: None
+            }
+        );
         assert_eq!(
             parse_set_report(r#"{"set": true, "via": "model"}"#),
             SetReport {

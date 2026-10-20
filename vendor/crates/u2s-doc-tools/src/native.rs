@@ -54,10 +54,10 @@ use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use u2s_schema::{NoArgs, tool_input_schema};
 use u2s_jsondoc::Document;
 use u2s_rules_host::protocol::CheckRequest;
 use u2s_rules_host::runner::RuleRunner;
+use u2s_schema::{NoArgs, tool_input_schema};
 
 /// One active rule, pre-fetched for `rule_list`/`rule_check` to read.
 /// A scripted rule's `script_js` and `fix_js` are carried only for dispatch
@@ -172,10 +172,23 @@ impl NativeJsonTool {
         NativeJsonTool::Validate,
     ];
 
-    /// What a conversion is always offered: every tool except
-    /// `verify_output`, which is added on top only when the dataset has a
-    /// verifier enabled: offered without one, every call would only report
-    /// that nothing can verify.
+    /// What the Reviewer works with: what a judge reads with, and
+    /// `rule_propose` for a recurring defect no rule covers. It decides on
+    /// the output and changes nothing of it; the only party of a run that
+    /// proposes rules.
+    pub const OFFERED_TO_REVIEWERS: &'static [NativeJsonTool] = &[
+        NativeJsonTool::Outline,
+        NativeJsonTool::Get,
+        NativeJsonTool::Search,
+        NativeJsonTool::Validate,
+        NativeJsonTool::Propose,
+    ];
+
+    /// What a conversion is always offered: the tools that read, edit and
+    /// check its own output, plus `verify_output` on top only when the
+    /// dataset has a verifier enabled: offered without one, every call would
+    /// only report that nothing can verify. Nothing that writes or tries
+    /// rules: authoring rules is not a conversion's concern.
     pub const OFFERED_TO_RUNS: &'static [NativeJsonTool] = &[
         NativeJsonTool::Outline,
         NativeJsonTool::Get,
@@ -185,8 +198,6 @@ impl NativeJsonTool {
         NativeJsonTool::ListRules,
         NativeJsonTool::CheckRules,
         NativeJsonTool::Autofix,
-        NativeJsonTool::Propose,
-        NativeJsonTool::TryRule,
         NativeJsonTool::AdoptReference,
         NativeJsonTool::FlagUnusual,
     ];
@@ -245,14 +256,13 @@ impl NativeJsonTool {
             }
             NativeJsonTool::CheckRules => {
                 "Check the current document against active rules, the same checks that run \
-                 after you finish. Omit rule_ids to run every scripted rule, or name a subset. \
-                 A judged rule is checked only when you name it in rule_ids: its judge reads the \
-                 document and the source and takes a while, so name the judged rules you have \
-                 worked on rather than every one, and only once the document is ready for it. \
-                 Returns each rule's verdict (positive, negative, broken, or unchecked with the \
-                 reason) and violations. Read-only. Every json_patch result already reports the \
-                 scripted rules it changed, so call this for judged rules, or for a check \
-                 without editing anything."
+                 after you finish. Omit rule_ids to check every rule, or name a subset. A \
+                 scripted rule runs its script now. A judged rule is decided by the run's judges \
+                 after you finish, so it shows the verdict they reached only while the document \
+                 is unchanged since then, and otherwise unchecked. Returns each rule's verdict \
+                 (positive, negative, broken, or unchecked with the reason) and violations. \
+                 Read-only. Every json_patch result already reports the scripted rules it \
+                 changed, so call this for a check without editing anything."
             }
             NativeJsonTool::Autofix => {
                 "Apply the mechanical repair of every failing rule that has one. Requires \
@@ -470,7 +480,7 @@ pub struct PatchArgs {
 #[derive(Debug, Clone, Default, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
 pub struct CheckRulesArgs {
-    /// Rule ids to check. Leave out for every scripted rule; a judged rule is checked only when named here
+    /// Rule ids to check. Leave out for every rule
     #[schemars(length(min = 1))]
     pub rule_ids: Option<Vec<String>>,
 }
@@ -628,9 +638,11 @@ pub fn dispatch(
                 depth,
                 limit,
             } = parse_args(args)?;
-            let outline = u2s_jsondoc::outline(doc.value(), &pointer, depth, limit)
-                .map_err(|_| NativeToolError::BadPointer {
-                    pointer: pointer.clone(),
+            let outline =
+                u2s_jsondoc::outline(doc.value(), &pointer, depth, limit).map_err(|_| {
+                    NativeToolError::BadPointer {
+                        pointer: pointer.clone(),
+                    }
                 })?;
             Ok(NativeOutcome {
                 value: serde_json::to_value(&outline).expect("an outline is plain data"),
@@ -644,11 +656,12 @@ pub fn dispatch(
                 offset,
                 limit,
             } = parse_args(args)?;
-            let got = u2s_jsondoc::get(doc.value(), &pointer, depth, offset, limit).map_err(|_| {
-                NativeToolError::BadPointer {
-                    pointer: pointer.clone(),
-                }
-            })?;
+            let got =
+                u2s_jsondoc::get(doc.value(), &pointer, depth, offset, limit).map_err(|_| {
+                    NativeToolError::BadPointer {
+                        pointer: pointer.clone(),
+                    }
+                })?;
             Ok(NativeOutcome {
                 value: serde_json::to_value(&got).expect("a get result is plain data"),
                 mutated: false,
@@ -660,11 +673,12 @@ pub fn dispatch(
                 query,
                 limit,
             } = parse_args(args)?;
-            let found = u2s_jsondoc::search(doc.value(), &pointer, &query, limit).map_err(|_| {
-                NativeToolError::BadPointer {
-                    pointer: pointer.clone(),
-                }
-            })?;
+            let found =
+                u2s_jsondoc::search(doc.value(), &pointer, &query, limit).map_err(|_| {
+                    NativeToolError::BadPointer {
+                        pointer: pointer.clone(),
+                    }
+                })?;
             Ok(NativeOutcome {
                 value: serde_json::to_value(&found).expect("a search result is plain data"),
                 mutated: false,
@@ -1131,14 +1145,17 @@ mod tests {
     }
 
     #[test]
-    fn a_conversion_is_offered_everything_but_the_verifier_and_rule_history() {
-        // The conditionally offered verifier is held back, and so is a
-        // rule's history, which only a Rule Agent working on that one rule
-        // reads.
+    fn a_conversion_is_offered_everything_but_the_verifier_and_rule_authoring() {
+        // The conditionally offered verifier is held back. So is everything
+        // about writing rules -- proposing, trying, reading a rule's history
+        // -- which is not a conversion's concern.
         for tool in NativeJsonTool::ALL {
             assert_eq!(
                 NativeJsonTool::OFFERED_TO_RUNS.contains(tool),
-                !matches!(tool.route(), Route::Verifier | Route::RuleHistory),
+                !matches!(
+                    tool.route(),
+                    Route::Verifier | Route::RuleHistory | Route::Proposer | Route::DryRunner
+                ),
                 "{}",
                 tool.name()
             );
@@ -1369,7 +1386,11 @@ mod tests {
         let mut doc = a_document();
         for (tool, args, field) in [
             (NativeJsonTool::Get, json!({}), "pointer"),
-            (NativeJsonTool::Patch, json!({ "ops": [] }), "expected_revision"),
+            (
+                NativeJsonTool::Patch,
+                json!({ "ops": [] }),
+                "expected_revision",
+            ),
             (NativeJsonTool::Search, json!({ "pointer": "" }), "query"),
         ] {
             match dispatch(tool, &args, &mut doc, None, &[]).expect_err("must fail") {
@@ -1616,9 +1637,15 @@ mod tests {
     async fn rule_check_without_a_schema_says_so_rather_than_passing_vacuously() {
         let doc = a_document();
         assert_eq!(
-            check_rules(&parse_args(&json!({})).unwrap(), doc.value(), None, &[], &test_runner())
-                .await
-                .expect_err("must not silently succeed"),
+            check_rules(
+                &parse_args(&json!({})).unwrap(),
+                doc.value(),
+                None,
+                &[],
+                &test_runner()
+            )
+            .await
+            .expect_err("must not silently succeed"),
             NativeToolError::NoSchema
         );
     }
@@ -1674,15 +1701,9 @@ mod tests {
             REMOVE_VIOLATION_POINTERS_FIX,
         );
         let output = json!({ "title": "nope" });
-        let result = autofix_rules(
-            None,
-            &output,
-            Some(&json!({})),
-            &[rule],
-            &test_runner(),
-        )
-        .await
-        .expect("autofix runs");
+        let result = autofix_rules(None, &output, Some(&json!({})), &[rule], &test_runner())
+            .await
+            .expect("autofix runs");
 
         assert!(result.changed);
         assert_eq!(result.final_output, json!({}));
@@ -1697,15 +1718,9 @@ mod tests {
             REMOVE_VIOLATION_POINTERS_FIX,
         );
         let output = json!({}); // no title, so the check already passes
-        let result = autofix_rules(
-            None,
-            &output,
-            Some(&json!({})),
-            &[rule],
-            &test_runner(),
-        )
-        .await
-        .expect("autofix runs");
+        let result = autofix_rules(None, &output, Some(&json!({})), &[rule], &test_runner())
+            .await
+            .expect("autofix runs");
 
         assert!(!result.changed);
         assert_eq!(result.final_output, output);
@@ -1720,15 +1735,9 @@ mod tests {
             "function fix(output, ctx) { return []; }",
         );
         let output = json!({ "title": "nope" });
-        let result = autofix_rules(
-            None,
-            &output,
-            Some(&json!({})),
-            &[rule],
-            &test_runner(),
-        )
-        .await
-        .expect("autofix runs");
+        let result = autofix_rules(None, &output, Some(&json!({})), &[rule], &test_runner())
+            .await
+            .expect("autofix runs");
 
         assert!(!result.changed, "a broken fix must not change the document");
         assert_eq!(result.final_output, output);
@@ -1845,15 +1854,9 @@ mod tests {
     #[tokio::test]
     async fn autofix_without_a_schema_says_so_rather_than_passing_vacuously() {
         assert_eq!(
-            autofix_rules(
-                None,
-                &a_document().into_value(),
-                None,
-                &[],
-                &test_runner()
-            )
-            .await
-            .expect_err("must not silently succeed"),
+            autofix_rules(None, &a_document().into_value(), None, &[], &test_runner())
+                .await
+                .expect_err("must not silently succeed"),
             NativeToolError::NoSchema
         );
     }

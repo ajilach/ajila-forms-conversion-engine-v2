@@ -16,6 +16,15 @@ use crate::args::{
 };
 use crate::interactive::MAX_SESSIONS_PER_INSTANCE;
 
+/// What a `form_render_failed` tool error means and what to do about it,
+/// worded once for every tool that opens a form (`verify_open` here, each
+/// bin's own `verify_run`).
+pub const FORM_RENDER_FAILED_NOTE: &str = "A form AEM itself crashes on while building its page \
+     (its page keeps answering 5xx) fails with `form_render_failed`, and the message names the \
+     exception from AEM's error log, e.g. a NullPointerException in createMapForFootnotes for a \
+     footnote reference without its footnote text. That is a defect in the document: fix the \
+     document and encode it again; retrying the same package cannot succeed.";
+
 /// Builds one tool spec from its description and generated input schema.
 fn tool(name: &str, description: &str, input_schema: Value) -> Value {
     json!({
@@ -42,8 +51,10 @@ pub fn tool_specs() -> Vec<Value> {
                  Several sessions can be open at once, including several of the same package \
                  (they share its install), up to {MAX_SESSIONS_PER_INSTANCE} per instance. \
                  Refused when another open session shows a different package for the same form. \
-                 Call verify_controls next to see what can be set. Side-effecting: it installs \
-                 the package on the instance."
+                 Call verify_controls next to see what can be set. {FORM_RENDER_FAILED_NOTE} \
+                 Any later call failing with `browser_session_lost` means the session's browser \
+                 tab is gone: close the session and open the form again. Side-effecting: it \
+                 installs the package on the instance."
             ),
             tool_input_schema::<OpenArgs>(),
         ),
@@ -83,9 +94,10 @@ pub fn tool_specs() -> Vec<Value> {
         ),
         tool(
             "verify_set",
-            "Sets one control's value on the form's model, the same place the form's own data \
-             binding writes it. The form's own scripts run in response, so this can reveal a \
-             hidden section, recompute a total, or move content onto another page. `field` is a \
+            "Sets one control's value on the form's model through guideBridge.setProperty, the \
+             way the form's own data binding writes it. The form's own scripts run in response, \
+             so this can reveal a hidden section, recompute a total, or move content onto \
+             another page; the result is read once those scripts settle. `field` is a \
              control's SOM expression from verify_controls (refused for a readOnly control, which \
              only the form's own scripts may change, and for a signature, which is drawn); a \
              name is accepted only while exactly \
@@ -95,7 +107,10 @@ pub fn tool_specs() -> Vec<Value> {
              option values for a multi-select checkbox, or free text/a number for anything else \
              -- a value that is not one of a choice control's own options is refused naming the \
              real ones, never silently coerced. Returns the new `revision` plus what happened: \
-             which other fields changed as a side effect, which controls appeared or disappeared, \
+             which other fields changed as a side effect, which controls and panels appeared or \
+             disappeared (a panel by its SOM expression, only the outermost of those that \
+             flipped together), a `warning` when the value could only be assigned to the model \
+             directly so dependent scripts may not have run, \
              the driver's own navigation signals, and any native dialogs (alert, confirm) the \
              form raised, each already accepted as if OK was clicked. To fill several controls \
              at once, pass `fields` (up to 25 `{field, value}` pairs) instead of `field`/`value`: \

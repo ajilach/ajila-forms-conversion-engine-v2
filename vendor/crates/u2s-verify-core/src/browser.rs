@@ -40,7 +40,7 @@ use chromiumoxide::cdp::browser_protocol::page::CaptureScreenshotFormat;
 use chromiumoxide::page::{Page, ScreenshotParams};
 use futures::StreamExt;
 
-use crate::types::{Dialog, FailedRequest};
+use crate::types::{Dialog, ErrorKind, FailedRequest, VerifyError};
 
 /// The encoded image format a screenshot is captured in -- mirrors the two
 /// formats `u2s-render-core::encode` already standardises on for a
@@ -134,6 +134,95 @@ pub enum BrowserError {
     },
     #[error("no download completed within {0:?}")]
     DownloadTimedOut(Duration),
+    /// The CDP connection itself is gone ([`session_lost`]): nothing sent
+    /// over it will ever answer again.
+    #[error("the browser session was lost: {0}")]
+    SessionLost(#[source] chromiumoxide::error::CdpError),
+    /// The page answered, but evaluating the expression failed (a thrown
+    /// exception, a CDP error, a timeout).
+    #[error("evaluating a script on the page failed: {0}")]
+    Evaluate(#[source] chromiumoxide::error::CdpError),
+    /// The expression evaluated to something other than what the caller
+    /// asked for (`undefined` from a script that never returned, say).
+    #[error("the script evaluated to {got}, not a {expected}")]
+    UnexpectedResult {
+        expected: &'static str,
+        got: String,
+    },
+}
+
+impl BrowserError {
+    /// Whether this error means the CDP connection is gone, so the page
+    /// (and every other page on the same connection) is unusable.
+    pub fn is_session_lost(&self) -> bool {
+        matches!(self, Self::SessionLost(_))
+    }
+
+    /// This error as a tool error a caller can act on: a lost session is
+    /// [`ErrorKind::BrowserSessionLost`] with the remedy, anything else is
+    /// `kind`, naming `what` was being done. Pure. Unit-tested.
+    pub fn into_verify_error(self, what: &str, kind: ErrorKind) -> VerifyError {
+        if self.is_session_lost() {
+            VerifyError::new(
+                ErrorKind::BrowserSessionLost,
+                format!("the browser session was lost: close it and open the form again ({what}: {self})"),
+            )
+        } else {
+            VerifyError::new(kind, format!("{what}: {self}"))
+        }
+    }
+}
+
+/// Whether `err` means the CDP connection is gone rather than that one
+/// command failed: the websocket broke or closed, or `chromiumoxide`'s
+/// handler task (which owns the websocket) stopped, so the command never
+/// reached the browser or its answer can never arrive. A `Timeout` is not
+/// counted: a page busy in a long script also times out, and stays usable.
+/// Pure. Unit-tested.
+pub fn session_lost(err: &chromiumoxide::error::CdpError) -> bool {
+    use chromiumoxide::error::CdpError;
+    matches!(
+        err,
+        CdpError::Ws(_) | CdpError::Io(_) | CdpError::ChannelSendError(_) | CdpError::NoResponse
+    )
+}
+
+fn evaluate_failed(source: chromiumoxide::error::CdpError) -> BrowserError {
+    if session_lost(&source) {
+        BrowserError::SessionLost(source)
+    } else {
+        BrowserError::Evaluate(source)
+    }
+}
+
+/// `value` as the `expected` JSON type `pick` extracts, or
+/// [`BrowserError::UnexpectedResult`] naming what it was instead. `None` is
+/// a result CDP returned no value for (`undefined`). Pure. Unit-tested.
+fn expect_result<T>(
+    value: Option<&serde_json::Value>,
+    expected: &'static str,
+    pick: impl FnOnce(&serde_json::Value) -> Option<T>,
+) -> Result<T, BrowserError> {
+    match value {
+        Some(value) => pick(value).ok_or_else(|| BrowserError::UnexpectedResult {
+            expected,
+            got: describe_value(value),
+        }),
+        None => Err(BrowserError::UnexpectedResult {
+            expected,
+            got: "undefined".to_owned(),
+        }),
+    }
+}
+
+/// A short rendering of an unexpected evaluate result for an error message.
+fn describe_value(value: &serde_json::Value) -> String {
+    let rendered = value.to_string();
+    let mut shown: String = rendered.chars().take(80).collect();
+    if shown.len() < rendered.len() {
+        shown.push_str("...");
+    }
+    shown
 }
 
 /// A live connection to the Chromium container's CDP endpoint. Owns the
@@ -521,36 +610,30 @@ impl PageHandle {
             .map_err(BrowserError::Screenshot)
     }
 
+    /// Evaluates `expression`, which must produce a boolean: anything else
+    /// is [`BrowserError::UnexpectedResult`], never read as `false`.
     pub async fn evaluate_bool(&self, expression: &str) -> Result<bool, BrowserError> {
-        let result =
-            self.page
-                .evaluate(expression)
-                .await
-                .map_err(|source| BrowserError::Listen {
-                    what: "an evaluate result",
-                    source,
-                })?;
-        Ok(result.value().and_then(|v| v.as_bool()).unwrap_or(false))
+        let result = self
+            .page
+            .evaluate(expression)
+            .await
+            .map_err(evaluate_failed)?;
+        expect_result(result.value(), "boolean", serde_json::Value::as_bool)
     }
 
     /// Same as [`Self::evaluate_bool`] but for an expression that returns a
-    /// string -- `flow.rs` uses this for diagnostics (e.g. reporting why a
-    /// readiness signal never appeared) that a caller wants to read, not
-    /// just branch on.
+    /// string (a `JSON.stringify(...)` result, typically). A result that is
+    /// not a string is [`BrowserError::UnexpectedResult`], never `""`: an
+    /// empty string read as "nothing there" hid a script that never ran.
     pub async fn evaluate_string(&self, expression: &str) -> Result<String, BrowserError> {
-        let result =
-            self.page
-                .evaluate(expression)
-                .await
-                .map_err(|source| BrowserError::Listen {
-                    what: "an evaluate result",
-                    source,
-                })?;
-        Ok(result
-            .value()
-            .and_then(|v| v.as_str())
-            .unwrap_or_default()
-            .to_owned())
+        let result = self
+            .page
+            .evaluate(expression)
+            .await
+            .map_err(evaluate_failed)?;
+        expect_result(result.value(), "string", |value| {
+            value.as_str().map(str::to_owned)
+        })
     }
 
     /// Every console-error or uncaught-exception message observed since
@@ -594,6 +677,58 @@ mod tests {
     /// run -- see the crate's module doc and `u2s-aem-verify-core`'s
     /// `#[ignore]`d live tests for the CDP-backed coverage. This only
     /// exercises the pure path composition.
+
+    #[test]
+    fn only_a_broken_connection_counts_as_a_lost_session() {
+        use chromiumoxide::error::CdpError;
+        assert!(session_lost(&CdpError::NoResponse));
+        assert!(session_lost(&CdpError::from(futures::channel::oneshot::Canceled)));
+        assert!(session_lost(&CdpError::Io(std::io::Error::other("broken pipe"))));
+        assert!(!session_lost(&CdpError::Timeout), "a busy page also times out");
+        assert!(!session_lost(&CdpError::msg("Cannot find context with specified id")));
+        assert!(evaluate_failed(CdpError::NoResponse).is_session_lost());
+        assert!(!evaluate_failed(CdpError::Timeout).is_session_lost());
+    }
+
+    #[test]
+    fn a_lost_session_becomes_its_own_actionable_error() {
+        let lost = BrowserError::SessionLost(chromiumoxide::error::CdpError::NoResponse)
+            .into_verify_error("reading the controls", ErrorKind::FormNotFound);
+        assert_eq!(lost.kind, ErrorKind::BrowserSessionLost);
+        assert!(
+            lost.message.starts_with("the browser session was lost: close it and open the form again"),
+            "{}",
+            lost.message
+        );
+
+        let other = BrowserError::UnexpectedResult {
+            expected: "string",
+            got: "undefined".to_owned(),
+        }
+        .into_verify_error("reading the controls", ErrorKind::FormNotFound);
+        assert_eq!(other.kind, ErrorKind::FormNotFound);
+        assert_eq!(
+            other.message,
+            "reading the controls: the script evaluated to undefined, not a string"
+        );
+    }
+
+    #[test]
+    fn an_evaluate_result_of_the_wrong_type_is_an_error_not_a_default() {
+        let string = serde_json::json!("{}");
+        assert_eq!(
+            expect_result(Some(&string), "string", |v| v.as_str().map(str::to_owned)).unwrap(),
+            "{}"
+        );
+        let err = expect_result(None, "string", |v| v.as_str().map(str::to_owned)).unwrap_err();
+        assert_eq!(err.to_string(), "the script evaluated to undefined, not a string");
+        let number = serde_json::json!(3);
+        let err = expect_result(Some(&number), "boolean", serde_json::Value::as_bool).unwrap_err();
+        assert_eq!(err.to_string(), "the script evaluated to 3, not a boolean");
+        let long = serde_json::Value::String("x".repeat(200));
+        let err = expect_result(Some(&long), "boolean", serde_json::Value::as_bool).unwrap_err();
+        assert!(err.to_string().len() < 140, "a long result is shortened: {err}");
+    }
 
     #[test]
     fn image_format_reports_its_own_mime_and_extension() {

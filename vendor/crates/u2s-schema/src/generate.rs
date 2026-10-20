@@ -1,21 +1,14 @@
 //! Schemas generated from Rust types, never written by hand.
 //!
-//! Two kinds, each with one generator, so the settings that make a schema
-//! acceptable to a provider are stated once:
-//!
-//! - [`tool_input_schema`]: the arguments a tool accepts. Tool schemas are
-//!   offered to the model as they are, without [`crate::adapt`], so they must
-//!   already be in the shape every provider accepts for function parameters
-//!   (see [`tool_schema_violations`]). Descriptions are kept: they are what
-//!   the model reads about each argument.
-//! - [`answer_schema`]: a structured answer. These always go through
-//!   [`crate::adapt`], which handles `$defs` and unions. Descriptions are
-//!   removed: on an answer type they are maintainer notes, and the model's
-//!   instructions live in the agent's prompt.
+//! [`tool_input_schema`]: the arguments a tool accepts, an agent's answer
+//! included, since every agent answers through a terminal tool. Tool schemas
+//! are offered to the model as they are, so they must already be in the
+//! shape every provider accepts for function parameters (see
+//! [`tool_schema_violations`]). Descriptions are kept: they are what the
+//! model reads about each argument.
 
 use schemars::JsonSchema;
 use schemars::generate::SchemaSettings;
-use schemars::transform::RecursiveTransform;
 use serde_json::{Map, Value};
 
 /// The input schema of a tool whose arguments deserialize into `T`.
@@ -30,14 +23,29 @@ use serde_json::{Map, Value};
 /// at the `$ref` site, which is why this generates with references and
 /// inlines them itself instead of using `inline_subschemas`.
 pub fn tool_input_schema<T: JsonSchema>() -> Value {
-    let mut settings = SchemaSettings::draft2020_12();
+    let Value::Object(mut root) = inlined_schema::<T>(SchemaSettings::draft2020_12()) else {
+        panic!(
+            "{}: a tool's arguments must be an object",
+            std::any::type_name::<T>()
+        );
+    };
+    // A tool without arguments still declares an (empty) `properties`:
+    // some providers refuse function parameters without one.
+    root.entry("properties")
+        .or_insert_with(|| Value::Object(Map::new()));
+    unwrapped_descriptions(without_optional_null(Value::Object(root)))
+}
+
+/// `T`'s schema, generated with `settings`, with every reference inlined and
+/// no `$schema`, `title` or type-level `description`.
+fn inlined_schema<T: JsonSchema>(mut settings: SchemaSettings) -> Value {
     settings.meta_schema = None;
     let schema = settings.into_generator().into_root_schema_for::<T>();
     let Value::Object(mut root) =
         serde_json::to_value(schema).expect("a generated schema serializes")
     else {
         panic!(
-            "{}: a tool's arguments must be an object",
+            "{}: a boolean schema has nothing to send",
             std::any::type_name::<T>()
         );
     };
@@ -55,12 +63,7 @@ pub fn tool_input_schema<T: JsonSchema>() -> Value {
     };
     root.remove("title");
     root.remove("description");
-    // A tool without arguments still declares an (empty) `properties`:
-    // some providers refuse function parameters without one.
-    root.entry("properties")
-        .or_insert_with(|| Value::Object(Map::new()));
-    let inlined = inline_refs(Value::Object(root), &defs, &mut Vec::new());
-    unwrapped_descriptions(without_optional_null(inlined))
+    inline_refs(Value::Object(root), &defs, &mut Vec::new())
 }
 
 /// The `format`s schemars adds for a Rust number's width. They are not
@@ -159,17 +162,6 @@ fn inline_refs(node: Value, defs: &Map<String, Value>, stack: &mut Vec<String>) 
     }
 }
 
-/// The schema of a structured answer that deserializes into `T`.
-pub fn answer_schema<T: JsonSchema>() -> Value {
-    let schema = SchemaSettings::draft2020_12()
-        .with_transform(RecursiveTransform(|schema: &mut schemars::Schema| {
-            schema.remove("description");
-        }))
-        .into_generator()
-        .into_root_schema_for::<T>();
-    serde_json::to_value(schema).expect("a generated schema serializes")
-}
-
 /// A tool call's arguments read into the tool's argument type `T`, the type
 /// its [`tool_input_schema`] was generated from. The error is serde's text,
 /// which names the argument; each server wraps it in its own error type.
@@ -186,12 +178,20 @@ pub fn parse_tool_args<T: serde::de::DeserializeOwned>(args: &Value) -> Result<T
 pub struct NoArgs {}
 
 /// Reasons a tool input schema would be refused as function parameters,
-/// each naming a JSON Pointer into it. Empty means acceptable.
-///
-/// The top level must be a plain object: OpenAI refuses `anyOf`, `oneOf`,
-/// `allOf`, `enum` and `not` there. A `$ref` anywhere is refused too, since
-/// tool schemas are sent without the `$defs` handling answers get.
+/// each naming a JSON Pointer into it. Empty means acceptable. See
+/// [`provider_shape_violations`].
 pub fn tool_schema_violations(schema: &Value) -> Vec<String> {
+    provider_shape_violations(schema)
+}
+
+/// The shape every provider behind OpenRouter accepts for function
+/// parameters, each violation naming a JSON Pointer into `schema`:
+///
+/// - the top level is a plain object: OpenAI refuses `anyOf`, `oneOf`,
+///   `allOf`, `enum` and `not` there;
+/// - no `$ref`, `$defs` or `definitions` anywhere: Anthropic refuses `$defs`
+///   next to an `anyOf`, and a schema with no references is accepted by all.
+fn provider_shape_violations(schema: &Value) -> Vec<String> {
     let mut out = Vec::new();
     let Some(root) = schema.as_object() else {
         return vec!["the schema must be an object".to_owned()];
@@ -211,8 +211,10 @@ pub fn tool_schema_violations(schema: &Value) -> Vec<String> {
 fn collect_refs(node: &Value, pointer: &str, out: &mut Vec<String>) {
     match node {
         Value::Object(obj) => {
-            if obj.contains_key("$ref") {
-                out.push(format!("{pointer}: `$ref` is not allowed in a tool schema"));
+            for keyword in ["$ref", "$defs", "definitions"] {
+                if obj.contains_key(keyword) {
+                    out.push(format!("{pointer}: `{keyword}` is not allowed"));
+                }
             }
             for (key, sub) in obj {
                 collect_refs(sub, &format!("{pointer}/{key}"), out);
@@ -453,15 +455,6 @@ mod tests {
                 .iter()
                 .any(|v| v.contains("/properties/a: `$ref`")),
             "{violations:?}"
-        );
-    }
-
-    #[test]
-    fn an_answer_schema_has_no_descriptions() {
-        let schema = answer_schema::<Args>();
-        assert!(
-            !schema.to_string().contains("The page to read."),
-            "{schema}"
         );
     }
 }

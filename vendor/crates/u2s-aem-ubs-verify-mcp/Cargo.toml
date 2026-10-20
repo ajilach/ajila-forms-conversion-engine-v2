@@ -92,6 +92,9 @@ features = [
     "time",
 ]
 
+[dev-dependencies.u2s-aem-ubs-mcp]
+path = "../u2s-aem-ubs-mcp"
+
 [dev-dependencies.u2s-mcp]
 path = "../u2s-mcp"
 
