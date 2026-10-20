@@ -1,10 +1,10 @@
 // Repairs what check.js finds, from the same `analyse`: deletes each repeated draw and caption,
-// lifts each skipped heading level, strips the markup from each title. A footnote reference in a
-// title below page level is left: where it goes needs the panel's text read.
+// lifts each skipped heading level, strips the markup from each title. A title with a footnote
+// reference is left to ubs-aem-footnotes: where the reference goes needs the panel's text read.
 const SUBTITLE_CSS = "subtitle-after-form-title";
 const INPUTS = ["TextField", "NumberField", "DatePicker", "Dropdown", "Checkbox", "RadioButton"];
-// A footnote reference as the writer emits it: the one markup a page title may keep, since the
-// step title draw renders it (it is stripped from the panel's own title property only).
+// A footnote reference as the writer emits it. A title carrying one is left to ubs-aem-footnotes,
+// which reports it: stripping it here would drop the marker silently.
 const FOOTNOTE_REF = /<span\b[^>]*data-af-footnote-id[^>]*>\s*<sup>[^<]*<\/sup>\s*<\/span>/gi;
 const MARKUP = /<\/?[A-Za-z][^>]*>/g;
 const HAS_MARKUP = /<\/?[A-Za-z][^>]*>/;
@@ -38,22 +38,12 @@ function isSubtitle(node) {
 }
 
 // A title as plain text: tags out (a break or a block boundary is a space), whitespace collapsed.
-function stripTitle(text, keepFootnotes) {
-  const kept = [];
-  let out = String(text);
-  if (keepFootnotes) {
-    out = out.replace(FOOTNOTE_REF, function (ref) {
-      kept.push(ref);
-      return "\u0000" + (kept.length - 1) + "\u0000";
-    });
-  }
-  out = out.replace(MARKUP, " ").replace(/\s+/g, " ").trim();
-  return out.replace(/\s*\u0000([0-9]+)\u0000/g, function (all, i) { return kept[Number(i)]; });
+function stripTitle(text) {
+  return String(text).replace(MARKUP, " ").replace(/\s+/g, " ").trim();
 }
 
 // Everything the rule finds, with what repairs it: `remove` (node pointers), `levels` (pointer of a
-// `heading_level` to its level), `titles` (pointer of a title text to its plain text) and
-// `references` (a footnote reference in a title that cannot keep one).
+// `heading_level` to its level) and `titles` (pointer of a title text to its plain text).
 function analyse(output) {
   const master = masterLanguage(output);
   const found = { violations: [], remove: [], levels: {}, titles: {} };
@@ -165,23 +155,15 @@ function analyse(output) {
     }
   }
 
-  // Panel and Repeatable titles are plain text; a page's may keep a footnote reference.
-  (function titles(node, pointer, depth) {
+  // Panel and Repeatable titles are plain text. One with a footnote reference is ubs-aem-footnotes'.
+  (function titles(node, pointer) {
     if ((node.type === "Panel" || node.type === "Repeatable") && node.title && typeof node.title === "object") {
-      const isPage = node.type === "Panel" && node.is_page === true && depth === 1;
       for (const lang of Object.keys(node.title)) {
         const text = String(node.title[lang]);
         const at = pointer + "/title/" + lang;
-        if (!isPage && /data-af-footnote-id/.test(text)) {
-          found.violations.push({
-            pointer: at,
-            message: "`" + node.name + "`'s title (" + lang + ") carries a footnote reference, which only a page title " +
-              "keeps: put the reference after the word that carries it in the panel's first text, or in a TitleDraw",
-          });
-          continue;
-        }
-        const stripped = stripTitle(text, isPage);
-        if (stripped !== text && HAS_MARKUP.test(text.replace(FOOTNOTE_REF, ""))) {
+        if (/data-af-footnote-id/.test(text)) continue;
+        const stripped = stripTitle(text);
+        if (stripped !== text && HAS_MARKUP.test(text)) {
           found.titles[at] = stripped;
           found.violations.push({
             pointer: at,
@@ -192,8 +174,8 @@ function analyse(output) {
       }
     }
     const children = node.children || [];
-    for (let i = 0; i < children.length; i++) titles(children[i], pointer + "/children/" + i, depth + 1);
-  })(output.form, "/form", 0);
+    for (let i = 0; i < children.length; i++) titles(children[i], pointer + "/children/" + i);
+  })(output.form, "/form");
 
   return found;
 }

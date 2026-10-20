@@ -1,0 +1,22 @@
+# The writer keys the form's dictionary by the master-language text (`emit_translations` in
+# u2s-aem-ubs-mcp `aem/translated.rs`): two texts that read the same in the master language but are
+# translated differently cannot both be in it, and the package build fails. This rule reports the
+# pair while authoring, with the fix, instead of leaving the Author to change a translation.
+id = "ubs-aem-unique-translation-keys"
+title = "Texts that read the same translate the same"
+output_formats = ["aem-ubs"]
+description = """
+The form's dictionary holds one translation per master-language text: every title, label, static
+text and option label is looked up by its exact master text. Two texts that read the same in the
+master language but differently in another language ("Client": "Kunde" in one place,
+"Vertragspartner" in another) cannot both be translated, and the package build fails.
+
+Keep each language's text as the source has it, and make the master texts differ instead: add a
+space at the end of one of them ("Client "). In a static text put it inside the paragraph
+(`<p>Client </p>`), since a bare static text is trimmed when the writer wraps it in a paragraph.
+A page title also keys its step-title draw (`<p>Title</p>`), so the space there makes both keys
+unique.
+
+Reported: each text whose master text another text already has, with a different translation in
+some language.
+"""

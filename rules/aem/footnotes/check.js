@@ -61,10 +61,32 @@ function check(output, ctx) {
     }
     texts.push(entry);
   }
+  // A Panel or Repeatable title keeps no reference, a page's included: the writer copies a page
+  // title into its step-title draw without the description, and AEM fails to render a text whose
+  // reference has no description in that same text (an NPE in `createMapForFootnotes`).
+  function titleReference(node, pointer) {
+    if (!isText(node.title)) return false;
+    let found = false;
+    for (const lang of Object.keys(node.title)) {
+      const html = typeof node.title[lang] === "string" ? node.title[lang] : "";
+      if (references(html).length === 0) continue;
+      found = true;
+      violations.push({
+        pointer: pointer + "/title/" + lang,
+        message: "`" + node.name + "`'s title (" + lang + ") carries a footnote reference, which a panel title " +
+          "cannot keep: put the reference after the word that carries it in the section's first text, with its " +
+          "hidden description in that same text",
+      });
+    }
+    return found;
+  }
   function visit(node, pointer, page) {
     const what = "`" + (node.name || node.type) + "`";
     if (node.type === "FootnotePlaceholder") page.placeholders.push(pointer);
-    text(node.title, pointer + "/title", what + "'s title", false, page);
+    const panel = node.type === "Panel" || node.type === "Repeatable";
+    if (!(panel && titleReference(node, pointer))) {
+      text(node.title, pointer + "/title", what + "'s title", false, page);
+    }
     text(node.label, pointer + "/label", what + "'s label", false, page);
     text(node.content, pointer + "/content", what, RICH.indexOf(node.type) >= 0, page);
     const options = node.options || [];
@@ -82,8 +104,8 @@ function check(output, ctx) {
     pages.push(page);
   }
 
-  // A reference and its description sit in the same text; one in a title or a label may have its
-  // description in another text of the same language.
+  // A reference and its description sit in the same text; one in a label or an option label may
+  // have its description in another text of the same language.
   const described = {};
   const referenced = {};
   texts.forEach(function (t) {

@@ -28,7 +28,8 @@ a field's `bind`).
 A value the source protects is `read_only` (shown, printed and submitted, not changeable); the
 model has no separate disabled state. A fixed literal is a read-only input with that
 `default_value`. An input the source unlocks by a choice (in the `access_changes` of an xfa_set
-result) stays editable.
+result) stays editable. A choice that locks or copies a whole section has no AEM equivalent: the
+section is hidden under that choice instead (ubs-aem-redundant-sections).
 Precedence: a value a sentence prints is not copied (ubs-aem-floating-fields), and a letter's
 subject names its fields itself.
 

@@ -15,7 +15,9 @@ follows its `kind`: `text` a TextField (`Multiline` when `multiline`), `text_are
 TextField, `numeric` a NumberField, `date` and `date_time` a DatePicker (ubs-aem-dates), `time`
 and `password` a TextField, `dropdown` a Dropdown (a Checkbox list when `multi_select`), `radio`
 one option of a RadioButton (its `group` is the group), `checkbox` a Checkbox or one option of a
-list (ubs-aem-option-fields-after-group). Email and telephone follow ubs-aem-email-phone-kind.
+list (ubs-aem-option-fields-after-group). Email and telephone follow ubs-aem-email-phone-kind. A
+`text` control whose caption or label asks a date ("Date of birth", even where the caption is a
+separate draw or field beside it) is a DatePicker: ubs-aem-dates takes precedence over the kind.
 
 Its properties: options in the source's order with the labels it shows, none missing or invented
 (values: ubs-aem-options-wellformed); `default_value` from `default`; `mandatory` from `mandatory`

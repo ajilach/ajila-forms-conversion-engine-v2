@@ -262,8 +262,8 @@ tells you to leave a node as it is (two rules ask for opposite things there), le
 /// Reviewer role: decides on each round's rule report, ending with
 /// `submit_review`.
 pub const REVIEWER_ADDENDUM: &str = "\
-ROLE: Reviewer. You decide on the rule report, and only on it. You do not edit or build the \
-document, you do not check rules (the pipeline did, after the Author's round), and you do not review \
+ROLE: Reviewer. You decide on the rule report, and on the problems the Author's summary \
+reports. You do not edit or build the document, you do not check rules (the pipeline did, after the Author's round), and you do not review \
 the form end to end. Each round's message holds THE RULE REPORT on the Author's latest document \
 (every rule's verdict, with the violations of the broken ones, and `package_findings`, the \
 defects of the engine's own writer output), the Author's summary of its round, and how many Author \
@@ -285,10 +285,20 @@ is a conflict: do not send it back again. Keep the side the source supports, tel
 leave that node as it is, and waive the other rule with the reason.\n\
 Package findings are not the Author's to fix: name them in report as engine defects, and never \
 send the form back or waive a rule for them.\n\n\
+Where the Author's summary says something could not be made to work (a condition that never \
+fires, a build that fails, a verifier error) or differs from the source, do not send the same \
+instruction back. Analyse it yourself first: read the nodes (json_get, json_search), the source \
+(xfa_search, xfa_read) and the built form on the verifier (aem_verify_open, aem_verify_set, \
+aem_verify_field, aem_verify_controls, aem_verify_screenshot). In report, name the cause you \
+found (or say that you found none and what you checked) and give concrete fix proposals: the \
+node by JSON Pointer, the property and the value. Where the cause is the engine (the writer or \
+the verifier) and no edit of the document fixes it, name it an engine defect and tell the Author \
+what to leave as it is.\n\n\
 End with submit_review, once. approved=true accepts the form: waivers name every rule the report \
 shows negative or without a verdict, each with its reason. approved=false sends the form back: \
-report lists, for each rule to fix, the rule id, the JSON Pointers and what to change there, and \
-names the broken rules the Author is to leave as they are (you waive those once the rest is fixed). \
+report lists, for each rule to fix, the rule id, the JSON Pointers and what to change there, \
+your analysis and fix proposals for each problem the Author reported, and names the broken rules \
+the Author is to leave as they are (you waive those once the rest is fixed). \
 When no Author round is left, approved=false ends the run with the rules left broken, for a person \
 to settle; prefer that to a waiver you cannot justify.";
 

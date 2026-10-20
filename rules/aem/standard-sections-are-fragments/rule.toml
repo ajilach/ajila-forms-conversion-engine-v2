@@ -6,8 +6,11 @@ The blocks whose inputs the UBS profile defines (types section 2) are the bank's
 the source has them, none lost and none invented. What each source block becomes:
 
 - a party (a person or company in a role) is a partner generic in its row
-  (ubs-aem-account-holder-cluster, ubs-aem-account-holder-wiring); a name pair with no role and a
-  single name input are `TextField`s (UBS-PTY-8);
+  (ubs-aem-account-holder-cluster, ubs-aem-account-holder-wiring); a name pair with no role is
+  `TextField`s (UBS-PTY-8);
+- a single name input ("Last name, first name(s) / Company", no separate last and first name) is a
+  `TextField` followed by the address fragment, even under a heading that names a role: it is not a
+  party, and this takes precedence over the bullet above (UBS-PTY-8);
 - an address is the address fragment, or the party's `PN_Address`; the addressee window and a
   branch contact block are not addresses (ubs-aem-addresses);
 - a signature block is `affrg_SignatureGeneric1` in its Repeatable (ubs-aem-signatures);

@@ -20,11 +20,10 @@ Reported, each repaired by the autofix:
 - a TitleDraw more than one level below the heading before it in its page, the page itself
   counting as level 2 (UBS-SEC-3): a level-4 heading right under the page heading becomes 3, and
   the headings after it follow;
-- markup in the `title` of a Panel or Repeatable (it shows no rich text): stripped. A page title
-  keeps a footnote reference, which its step-title draw renders.
+- markup in the `title` of a Panel or Repeatable (it shows no rich text): stripped. A title with a
+  footnote reference is left to ubs-aem-footnotes, which reports it.
 
-Not repaired: a footnote reference in the title of a panel below page level. Move it after the word
-that carries it in the panel's first text, or into a TitleDraw. A TextDraw with the css class
+A TextDraw with the css class
 `subtitle-after-form-title` is the first page's subtitle and is never reported. If a drawn heading
 is really a sub-heading, keep the draw and clear the page's title instead.
 """

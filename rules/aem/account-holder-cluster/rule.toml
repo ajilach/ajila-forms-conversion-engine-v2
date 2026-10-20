@@ -13,7 +13,12 @@ PARTIES (UBS-PTY-1 to 8):
   authorized representative, beneficial owner, ...), as its heading or context shows, is a party:
   a partner generic in its row, with or without a configurator. Typical: last and first name,
   company name, birth and nationality, an address, under "Kundendaten", "Kontoinhaber", "Titolare
-  del conto", "Zeichnungsberechtigte Person".
+  del conto", "Zeichnungsberechtigte Person". A single name input is the exception below.
+- A single input for a name ("Last name, first name(s) / Company"), with no separate inputs for the
+  last and first name, is a `TextField`, followed by the address fragment where an address
+  follows, even where its section's heading names a role ("Contractual partner(s) (Client)",
+  "Beneficial owner"): the role does not make it a party, and this takes precedence over the
+  bullet above (UBS-PTY-8).
 - The role, and with it the generic, comes from, in order: the section's heading, the enclosing
   heading, the signature that belongs to it, the configurator option that shows it, and finally "the
   first party of the form is the contractual partner"; where nothing decides it, the most plausible
@@ -42,9 +47,8 @@ PARTIES (UBS-PTY-1 to 8):
 - A minor taking part is the contractual party (`PN_CPGRP`), not a partner. The legal guardians sign,
   and are parties only where the source captures their data.
 - Client advisor, branch and bank officer blocks are not parties; neither is a name pair whose
-  context gives no role (a questionnaire's "Last name / First name(s)"), nor a single input for a
-  name ("Last name, first name(s) / Company"): those are `TextField`s, followed by the address
-  fragment where an address follows.
+  context gives no role (a questionnaire's "Last name / First name(s)"): those are `TextField`s,
+  followed by the address fragment where an address follows.
 - A party the source introduces in a later section (an authorisation, an annex) stays there.
 
 SIGNATURES (UBS-SIG-1 to 7):
@@ -81,7 +85,8 @@ control with xfa_click to see whether its signature section grows with it. Compa
 per option (json_outline).
 
 A break is a missing or invented party or signature for an option, a party in the wrong role or
-generic, a name pair with a role modelled as plain fields or a role-less one as a party, a minor
+generic, a name pair with a role modelled as plain fields or a role-less one or a single name input
+as a party, a minor
 modelled as a partner, a party's own address or field outside its row or a shared one inside it, a
 signature count, role or bounds that differ from the source, a twin whose bounds differ from its
 party's, or a party or signature named off the convention, which unpairs them.

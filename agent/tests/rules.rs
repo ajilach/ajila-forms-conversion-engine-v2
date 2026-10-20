@@ -878,6 +878,30 @@ fn footnote_references_and_the_placeholder_go_together() {
     assert!(violations("footnotes", &doc).is_empty());
 }
 
+/// BANH_001: a page title with a reference and its description in another text of the page made
+/// AEM answer 500 (the step-title draw got the reference without the description). No Panel or
+/// Repeatable title keeps a reference; a static text keeps it with its description.
+#[test]
+fn footnote_references_stay_out_of_titles() {
+    let marked = "Signature(s)<span data-af-footnote-id=\"a\"><sup>#</sup></span>";
+    let description = "<p id=\"a\" class=\"footnoteDescription\" style=\"display: none;\">\
+        <span class=\"footnoteDescText\">Note</span></p>";
+    let note = || json!({"type": "FootnotePlaceholder", "uuid": UUID, "name": "FN_A", "colspan": 12});
+    let doc = doc_with(vec![page("PN_A", marked, vec![draw("TextDraw", "ST_Note", description), note()])]);
+    let found = violations("footnotes", &doc);
+    assert!(found.contains(&"/form/children/0/title/en".to_string()), "{found:?}");
+    // The headings rule leaves such a title to this one rather than strip the marker.
+    assert!(violations("headings-rendered-once", &doc).is_empty(), "{:?}", violations("headings-rendered-once", &doc));
+
+    let rows = repeatable("RCP_Client", marked, vec![text_field("TXT_Name", "Name", None)]);
+    let doc = doc_with(vec![page("PN_A", "A", vec![rows, draw("TextDraw", "ST_Note", description), note()])]);
+    assert!(violations("footnotes", &doc).contains(&"/form/children/0/children/0/title/en".to_string()));
+
+    let text = format!("<p>{marked}</p>{description}");
+    let doc = doc_with(vec![page("PN_A", "Signature(s)", vec![draw("TextDraw", "ST_Client", &text), note()])]);
+    assert!(violations("footnotes", &doc).is_empty(), "{:?}", violations("footnotes", &doc));
+}
+
 // ---- The rules that stand for what the prompts used to ask for ----
 
 fn repeatable(name: &str, title: &str, children: Vec<Value>) -> Value {
@@ -938,6 +962,40 @@ fn a_text_is_written_in_every_language_of_the_form_and_no_other() {
         violations("text-languages-complete", &untitled),
         vec!["/form/children/0/title".to_string()]
     );
+}
+
+/// BANH_001: "Client" was "Kunde" in one text and "Vertragspartner" in another, which the
+/// dictionary cannot hold, so the build failed. A space at the end of one master text keeps both.
+#[test]
+fn texts_that_read_the_same_translate_the_same() {
+    let doc = |rows_title: &str, draw_de: &str| {
+        let mut name = text_field("TXT_Name", "Client", None);
+        name["label"] = json!({"en": "Client", "de": "Kunde"});
+        let mut rows = repeatable("RCP_SGN_Client", rows_title, vec![]);
+        rows["title"] = json!({"en": rows_title, "de": "Vertragspartner"});
+        let mut note = draw("TextDraw", "ST_Client", "Client");
+        note["content"] = json!({"en": "Client", "de": draw_de});
+        let mut a_page = page("PN_A", "Account", vec![name, rows, note]);
+        a_page["title"] = json!({"en": "Account", "de": "Konto"});
+        let mut doc = doc_with(vec![a_page]);
+        doc["languages"] = json!(["en", "de"]);
+        doc
+    };
+    let p = "/form/children/0/children";
+    // The repeatable's title collides with the label; the static text is keyed `<p>Client</p>`.
+    assert_eq!(
+        violations("unique-translation-keys", &doc("Client", "Vertragspartner")),
+        vec![format!("{p}/1/title/de")]
+    );
+    assert!(violations("unique-translation-keys", &doc("Client ", "Vertragspartner")).is_empty());
+    // Two static texts collide once both are wrapped, a bare text trimmed: the space goes inside.
+    let mut twice = doc("Client ", "Vertragspartner");
+    let mut other = draw("TextDraw", "ST_Other", "Client ");
+    other["content"] = json!({"en": "Client ", "de": "Kunde"});
+    twice["form"]["children"][0]["children"].as_array_mut().unwrap().push(other);
+    assert_eq!(violations("unique-translation-keys", &twice), vec![format!("{p}/3/content/de")]);
+    twice["form"]["children"][0]["children"][3]["content"] = json!({"en": "<p>Client </p>", "de": "Kunde"});
+    assert!(violations("unique-translation-keys", &twice).is_empty());
 }
 
 #[test]

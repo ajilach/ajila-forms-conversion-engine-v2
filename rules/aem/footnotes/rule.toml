@@ -13,18 +13,19 @@ A footnote marker in the source is a digit or symbol set smaller and raised afte
 text (draws under the template's `pageSet`) of the last page, each starting with its marker (CNV-SRC-13, UBS-FN-1). The issuing entity's legal
 registration text is not a footnote.
 
-Each place the source shows a marker, in a text, title, label or option label, carries an inline
+Each place the source shows a marker, in a text, label or option label, carries an inline
 reference in every language, `<span data-af-footnote-id="ID"><sup>#</sup></span>`, followed in the
 same text by its hidden description,
 `<p id="ID" class="footnoteDescription" style="display: none;"><span class="footnoteDescText">TEXT</span></p>`,
 whose TEXT is the footnote without its marker (CNV-FN-1; several footnotes fused in one source
 paragraph are split). The number is never typed. Each page holding a reference has one
 `FootnotePlaceholder` ("The footnotes will appear here"), usually at its end, and a page without
-one has none. A reference in a page `title` stays: its step-title draw renders it, and its
-description may sit in a text of that page; a panel title below page level keeps none
-(ubs-aem-headings-rendered-once).
+one has none. No Panel or Repeatable `title` carries a reference, a page's included: AEM fails to
+render a text whose reference has no description in that same text, and the writer copies a page
+title into its step-title draw without one. Where the source marks a heading, the reference goes
+after the word that carries it in the section's first text, with its description there.
 
-Reported: a page with a reference and no placeholder (at each reference), a placeholder on a page
+Reported: a reference in a Panel or Repeatable title, a page with a reference and no placeholder (at each reference), a placeholder on a page
 without a reference, a second placeholder on a page, a reference with no description (or a
 description no text references), a text whose languages mark different footnotes, and a
 superscript digit typed as a character (`¹`) in rich text: a footnote marker is a reference, any
