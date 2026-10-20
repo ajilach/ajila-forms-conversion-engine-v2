@@ -27,9 +27,9 @@
 //! A stop a hook raises (`submit_review`, the stuck watch) skips only the
 //! calls of that turn that have not started. With several running at once, a
 //! write already waiting for the agent still runs after the stop, though rig
-//! discards the turn's results. The Reviewer, whose verdict ends its stage,
-//! has no tool that edits the document, so what can still run there is a build
-//! or a verifier step.
+//! discards the turn's results. The Reviewer, whose decision ends its stage,
+//! has no tool that edits or builds the document, so what can still run there
+//! is a verifier step.
 
 use std::sync::Arc;
 
@@ -39,7 +39,6 @@ use rig_core::message::ToolResultContent;
 use tokio::sync::Mutex;
 
 use crate::observer::{RunEvent, SharedObserver};
-use crate::substage::SubStageContext;
 use crate::turns::media_media_type;
 
 /// How many of a turn's tool calls a stage runs at once. Only reads overlap
@@ -65,60 +64,20 @@ pub fn dynamic_tools_for(agent: &SharedAgent, specs: &[serde_json::Value]) -> Ve
         .collect()
 }
 
-/// [`dynamic_tools_for`], with `rule_check` dispatching judges for the judged
-/// rules (see [`crate::judge`]) instead of reporting them unchecked, the calls
-/// made as `caller` (see `agent::Caller`).
-pub(crate) fn dynamic_tools_with_sub_stages(
+/// [`dynamic_tools_for`], the calls made as `caller` (see `agent::Caller`).
+/// A stage's calls (not a judge's: it edits nothing) tell `obs` where the
+/// rules stand after every call that may have changed the document.
+pub(crate) fn dynamic_tools_as(
     agent: &SharedAgent,
     specs: &[serde_json::Value],
-    sub_stages: &SubStageContext,
     caller: &Caller,
+    obs: &SharedObserver,
 ) -> Vec<DynamicTool> {
-    // A stage's edits move the rules; a judge's calls edit
-    // nothing, so they report nothing.
-    let rules = (*caller == Caller::Stage).then(|| sub_stages.obs.clone());
+    let rules = (*caller == Caller::Stage).then(|| obs.clone());
     specs
         .iter()
-        .filter_map(|spec| match spec["name"].as_str() {
-            Some("rule_check") => Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
-                Box::pin(async move { crate::judge::rule_check(&agent, &ctx, &args).await })
-            })),
-            // A stage that judges at its hand-over judges in its terminal call.
-            Some("finish_authoring") if sub_stages.defer_judged => {
-                Some(sub_stage_tool(agent, spec, sub_stages, |agent, ctx, args| {
-                    Box::pin(async move { crate::judge::finish_with_judges(&agent, &ctx, &args).await })
-                }))
-            }
-            _ => dynamic_tool_from(agent, spec, caller.clone(), rules.clone()),
-        })
+        .filter_map(|spec| dynamic_tool_from(agent, spec, caller.clone(), rules.clone()))
         .collect()
-}
-
-/// A sub-stage tool's work on one call, which owns everything it touches.
-type SubStageWork = std::pin::Pin<Box<dyn std::future::Future<Output = ToolReply> + Send>>;
-
-/// What a tool that dispatches sub-stages does with one call.
-type SubStageDispatch = fn(SharedAgent, SubStageContext, serde_json::Value) -> SubStageWork;
-
-/// A tool that dispatches sub-stages: it does not hold the agent itself, since
-/// each sub-stage's own calls take it call by call.
-fn sub_stage_tool(
-    agent: &SharedAgent,
-    spec: &serde_json::Value,
-    sub_stages: &SubStageContext,
-    dispatch: SubStageDispatch,
-) -> DynamicTool {
-    let agent = agent.clone();
-    let sub_stages = sub_stages.clone();
-    DynamicTool::new(
-        spec["name"].as_str().unwrap_or_default().to_string(),
-        spec["description"].as_str().unwrap_or_default().to_string(),
-        spec["input_schema"].clone(),
-        move |_ctx, args| {
-            let work = dispatch(agent.clone(), sub_stages.clone(), args);
-            Box::pin(async move { reply_to_tool_output(work.await) })
-        },
-    )
 }
 
 /// `rules`, when given, is told where the rules stand after every call that
@@ -203,7 +162,7 @@ mod tests {
     use super::*;
 
     fn bare_agent() -> SharedAgent {
-        Arc::new(Mutex::new(ConversionAgent::new(None, Vec::new(), "test-tools-bridge".into())
+        Arc::new(Mutex::new(ConversionAgent::new(Vec::new(), "test-tools-bridge".into())
             .expect("an agent without sources starts")))
     }
 
@@ -306,9 +265,9 @@ mod tests {
         let work = agent
             .lock()
             .await
-            .start_read("list_reference_docs", &serde_json::json!({}))
+            .start_read("json_outline", &serde_json::json!({ "pointer": "" }))
             .await
-            .expect("list_reference_docs is a read");
+            .expect("json_outline is a read");
 
         let _held = agent.lock().await;
         let reply = tokio::time::timeout(std::time::Duration::from_secs(10), work)

@@ -317,7 +317,6 @@ fn AddReferenceForm(
                             status.set(Some(Status::Ok("Analysing the inputs…".into())));
 
                             let description = match crate::agent_runner::describe_reference(
-                                    &profile,
                                     pdf_data.clone(),
                                     pkg_bytes.clone(),
                                     endpoint,

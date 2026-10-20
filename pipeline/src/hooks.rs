@@ -772,11 +772,11 @@ impl AgentHook for StageHook {
         // A turn without tool calls ends the stage. An Author that ends it
         // without `finish_authoring` (a terminal call stops the stage before
         // any further turn, so reaching here means it never made one) hands
-        // the Reviewer a form it did not check: it is told so once, and
-        // carries on from there.
+        // over a form it did not verify: it is told so once, and carries on
+        // from there.
         if !had_tool_calls && self.finish_nudge && !self.finish_nudged.swap(true, Ordering::Relaxed) {
             self.obs.emit(RunEvent::Thought(
-                "The author stopped without finish_authoring — asking it to check every rule and \
+                "The author stopped without finish_authoring — asking it to verify the form and \
                  hand over properly."
                     .into(),
             ));
@@ -889,10 +889,9 @@ const AUTHOR: &str = "Author";
 
 /// What an Author that stopped without `finish_authoring` is told, once.
 pub(crate) const FINISH_NUDGE: &str = "\
-You stopped without calling finish_authoring, so the Reviewer would get a form you have not checked. \
-Do not stop yet: hold the document to every rule (rule_list, rule_get), complete the verification \
-finish_authoring asks for, and call finish_authoring. If you stop again without it, the Reviewer \
-takes over as things are.";
+You stopped without calling finish_authoring, so your form would be handed over unverified. Do not \
+stop yet: complete the verification finish_authoring asks for, fix what it shows, and call \
+finish_authoring. If you stop again without it, the rules are checked on the form as it is.";
 
 tokio::task_local! {
     /// Whether the Author stages run inside [`nudging_unfinished`] answer an
@@ -903,8 +902,7 @@ tokio::task_local! {
 /// Runs `stage` (an Author's `run_stage`) with the [`FINISH_NUDGE`] on or off:
 /// the controller's own choice ([`crate::run::RunConfig::finish_nudge`]),
 /// carried to the hook its attempts build without threading it through every
-/// stage driver. Only an Author's hook reads it, so the judges its
-/// `rule_check` runs inside it are unaffected.
+/// stage driver. Only an Author's hook reads it.
 pub(crate) async fn nudging_unfinished<F: std::future::Future>(on: bool, stage: F) -> F::Output {
     FINISH_NUDGE_ON.scope(on, stage).await
 }
@@ -922,7 +920,7 @@ fn finish_nudge_on() -> bool {
 pub(crate) const VERDICT_SENTINEL: &str = "a terminal tool recorded a verdict";
 
 /// The tools whose recorded result ends a stage: the Author's hand-over, the
-/// Reviewer's review and a judge's verdict on its rule. A refused call (the
+/// Reviewer's decision and a judge's verdict on its rule. A refused call (the
 /// evidence gate) is an error and ends nothing.
 const TERMINAL_TOOLS: &[&str] = &["finish_authoring", "submit_review", "submit_rule_verdict"];
 pub(crate) const STUCK_SENTINEL: &str = "stuck: repeated identical result";
@@ -1104,7 +1102,6 @@ mod tests {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
-        judges_at_hand_off: false,
     };
 
     /// A role with no stuck tool, so a test's repeated calls never trip the
@@ -1120,7 +1117,6 @@ mod tests {
         resume: true,
         wrap_up_tool: None,
         max_output_tokens: None,
-        judges_at_hand_off: false,
     };
 
     fn agent_with(model: MockCompletionModel) -> Agent {
@@ -1146,7 +1142,7 @@ mod tests {
 
     fn bare_shared_agent() -> crate::tools::SharedAgent {
         std::sync::Arc::new(tokio::sync::Mutex::new(
-            agent::ConversionAgent::new(None, Vec::new(), "test-hooks".into())
+            agent::ConversionAgent::new(Vec::new(), "test-hooks".into())
                 .expect("an agent without sources starts"),
         ))
     }
@@ -1711,13 +1707,13 @@ mod tests {
         let shared_agent = bare_shared_agent();
         let specs: Vec<serde_json::Value> = agent::tools_for(agent::scope::AUTHOR)
             .into_iter()
-            .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
+            .filter(|t| matches!(t["name"].as_str(), Some("json_outline" | "get_source_info")))
             .collect();
         let tools = crate::tools::dynamic_tools_for(&shared_agent, &specs);
         let turn = || {
             vec![
                 MockStreamEvent::tool_call("watched", "get_source_info", serde_json::json!({})),
-                MockStreamEvent::tool_call("read", "list_reference_docs", serde_json::json!({})),
+                MockStreamEvent::tool_call("read", "json_outline", serde_json::json!({ "pointer": "" })),
                 MockStreamEvent::final_response(rig_core::completion::Usage::new()),
             ]
         };
@@ -1755,18 +1751,18 @@ mod tests {
         let shared_agent = bare_shared_agent();
         let specs: Vec<serde_json::Value> = agent::tools_for(agent::scope::AUTHOR)
             .into_iter()
-            .filter(|t| matches!(t["name"].as_str(), Some("list_reference_docs" | "get_source_info")))
+            .filter(|t| matches!(t["name"].as_str(), Some("json_outline" | "get_source_info")))
             .collect();
         assert_eq!(specs.len(), 2);
-        assert_eq!(agent::access_of("list_reference_docs"), agent::Access::Read);
+        assert_eq!(agent::access_of("json_outline"), agent::Access::Read);
         assert_eq!(agent::access_of("get_source_info"), agent::Access::Write);
         let tools = crate::tools::dynamic_tools_for(&shared_agent, &specs);
 
         let model = MockCompletionModel::from_stream_turns([
             vec![
-                MockStreamEvent::tool_call("read-1", "list_reference_docs", serde_json::json!({})),
+                MockStreamEvent::tool_call("read-1", "json_outline", serde_json::json!({ "pointer": "" })),
                 MockStreamEvent::tool_call("write", "get_source_info", serde_json::json!({})),
-                MockStreamEvent::tool_call("read-2", "list_reference_docs", serde_json::json!({})),
+                MockStreamEvent::tool_call("read-2", "json_outline", serde_json::json!({ "pointer": "" })),
                 MockStreamEvent::final_response(rig_core::completion::Usage::new()),
             ],
             vec![

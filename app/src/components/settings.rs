@@ -243,7 +243,7 @@ pub fn SettingsPage(
                                 }
                                 TextRow {
                                     label: "Judge model",
-                                    desc: "Model id for the judges (one per judged rule, before each review and at the end) at this endpoint. Empty = the run's model.",
+                                    desc: "Model id for the judges (one per judged rule, after each Author round) at this endpoint. Empty = the run's model.",
                                     value: s.judge_model.clone(),
                                     placeholder: "",
                                     secret: false,
@@ -264,7 +264,7 @@ pub fn SettingsPage(
                             } else {
                                 SelectRow {
                                     label: "Reviewer model",
-                                    desc: "The model the Reviewer runs on. It reviews the built form against the source in the browser, so it needs tool calling and images.",
+                                    desc: "The model the Reviewer runs on. It decides on the broken rules after each rule check, sending the form back to the Author or waiving a rule, and confirms its decision against the source and the built form, so it needs tool calling and images.",
                                     value: s.reviewer_model.clone(),
                                     options: role_options(&model_list(), "Same as the main model").0,
                                     labels: role_options(&model_list(), "Same as the main model").1,
@@ -272,7 +272,7 @@ pub fn SettingsPage(
                                 }
                                 SelectRow {
                                     label: "Judge model",
-                                    desc: "The model the judges run on: one per judged rule, before each review and at the end, each reading a part of the document and the source. They are most of a run's model calls, so a cheaper model here saves the most.",
+                                    desc: "The model the judges run on: one per judged rule, after each Author round, all at once, each reading a part of the document and the source. They are most of a run's model calls, so a cheaper model here saves the most.",
                                     value: s.judge_model.clone(),
                                     options: role_options(&model_list(), "Same as the run's model").0,
                                     labels: role_options(&model_list(), "Same as the run's model").1,
@@ -292,7 +292,7 @@ pub fn SettingsPage(
                             h3 { class: "settings-section-title", "Conversion" }
                             NumberRow {
                                 label: "Max review rounds",
-                                desc: "How many Reviewer → Author fix rounds before finalizing with whatever is built. Higher = more self-correction, more tokens.",
+                                desc: "How many times the Reviewer may send the form back to the Author before finalizing with whatever is built. Higher = more self-correction, more tokens.",
                                 value: s.max_review_rounds,
                                 min: 1,
                                 step: 1,

@@ -124,9 +124,9 @@ impl RunEnd {
                 .into();
         }
         let review = match approved {
-            Some(true) => "the Reviewer approved it",
-            Some(false) => "the Reviewer did not approve it",
-            None => "there was no review verdict",
+            Some(true) => "the Reviewer accepted it",
+            Some(false) => "the Reviewer did not accept it",
+            None => "there was no review decision (every rule passed, or the Reviewer gave none)",
         };
         let code = self
             .form_code

@@ -66,16 +66,17 @@ pub enum ReplyBlock {
     },
 }
 
-/// The outcome of the Reviewer role's `submit_review` call: whether the form is
-/// approved, and (if not) a detailed report the controller pins into the Author's
-/// next system prompt, with the rule conflicts no fix round can settle.
+/// The Reviewer's decision on one round's rule report, from `submit_review`:
+/// accept the form (`approved`, every broken rule waived), or send it back
+/// with `report`, which the controller pins into the Author's next system
+/// prompt.
 #[derive(Debug, Clone)]
 pub struct ReviewResult {
     pub approved: bool,
+    /// What the Author is to fix when not approved; notes for a person when
+    /// approved (may be empty then).
     pub report: String,
-    /// Where rules ask for opposite things: for a person, not the Author.
-    pub rule_conflicts: Vec<crate::review::RuleConflict>,
-    /// The rules an approving review leaves broken, one line each with the
+    /// The rules an accepted form leaves broken, one line each with the
     /// Reviewer's reason. Empty unless approved.
     pub waived: Vec<String>,
 }
@@ -275,8 +276,8 @@ type SourceDocument = (String, Option<SourceContext>);
 
 pub struct ConversionAgent {
     current_pdfs: Arc<[(String, Vec<u8>)]>,
-    /// Each read source's documents, by source key (see [`Self::source_key`]).
-    sources: HashMap<String, Vec<SourceDocument>>,
+    /// What each source PDF says about itself, read once at the start.
+    sources: Arc<[SourceDocument]>,
 
     /// The run's output document, and the schema and rules it is held to.
     /// Each is shared with the reads in flight (see [`view::DocumentView`]):
@@ -301,10 +302,6 @@ pub struct ConversionAgent {
 
     built: Option<Built>,
     session: String,
-
-    /// The reference tools, scoped to this run's profile. Its sentence-embedding
-    /// model loads lazily on the first semantic search.
-    references: references_mcp::ReferencesServer,
 
     /// The Reviewer role's latest `submit_review` outcome, drained by the
     /// controller via [`take_review`](Self::take_review).
@@ -350,11 +347,7 @@ impl ConversionAgent {
     /// records nothing: a revision is recorded by each edit, so a resumed run
     /// keeps its seeded document as the latest until it changes it, and a run
     /// that dies before its first edit leaves nothing behind.
-    pub fn new(
-        profile: Option<String>,
-        files: Vec<(String, Vec<u8>)>,
-        session: String,
-    ) -> Result<Self, String> {
+    pub fn new(files: Vec<(String, Vec<u8>)>, session: String) -> Result<Self, String> {
         let pdfs: Vec<(String, Vec<u8>)> = files
             .iter()
             .filter(|(name, _)| is_source_pdf(name))
@@ -366,14 +359,10 @@ impl ConversionAgent {
         let document = starting_aem_document(&contexts, template)?;
         let schema = u2s_aem_ubs_mcp::document_schema();
         let rules = crate::rules::rules()?;
-        let references = references_mcp::ReferencesServer::new(
-            crate::references::store(),
-            profile.clone().unwrap_or_default(),
-        );
         let rule_board = new_rule_board(&rules.scripted, &rules.judged);
         Ok(Self {
             current_pdfs: pdfs.into(),
-            sources: HashMap::from([("current".to_string(), documents)]),
+            sources: documents.into(),
             document: Arc::new(Document::new(document)),
             schema: Arc::new(schema),
             rules: rules.scripted.into(),
@@ -383,7 +372,6 @@ impl ConversionAgent {
             rule_board,
             built: None,
             session,
-            references,
             review: None,
             finish: None,
             evidence: evidence::StageEvidence::default(),
@@ -533,6 +521,14 @@ impl ConversionAgent {
         self.rule_board = new_rule_board(&self.rules, &self.judged);
     }
 
+    /// Drops the scripted rules, for a test of a run whose every rule passes.
+    #[cfg(any(test, feature = "test-utils"))]
+    pub fn drop_scripted_rules(&mut self) {
+        self.rules = Vec::new().into();
+        self.lint = None;
+        self.rule_board = new_rule_board(&self.rules, &self.judged);
+    }
+
     /// Opens a judgement for one judge to record its verdict under, and
     /// returns its id.
     pub fn open_judgement(&mut self) -> String {
@@ -657,35 +653,6 @@ impl ConversionAgent {
         crate::db::insert_edit(&crate::session::document_session(&self.session), label, &json);
     }
 
-    fn source_key(input: &Value) -> String {
-        match input["source"]["reference"].as_str() {
-            Some(id) => format!("reference:{id}"),
-            None => "current".to_string(),
-        }
-    }
-
-    /// The PDFs of the requested source: the uploaded form, or a reference's
-    /// input.
-    fn source_pdfs(&self, input: &Value) -> Result<Vec<(String, Vec<u8>)>, String> {
-        match input["source"]["reference"].as_str() {
-            Some(id) => {
-                let bytes = crate::references::store().get_reference_pdf_bytes(id, 0)?;
-                Ok(vec![(format!("{id}.pdf"), bytes)])
-            }
-            None => Ok(self.current_pdfs.to_vec()),
-        }
-    }
-
-    /// What the requested source's PDFs say about themselves, read once.
-    fn source_contexts(&mut self, input: &Value) -> Result<&[SourceDocument], String> {
-        let key = Self::source_key(input);
-        if !self.sources.contains_key(&key) {
-            let documents = read_sources(&self.source_pdfs(input)?)?;
-            self.sources.insert(key.clone(), documents);
-        }
-        Ok(&self.sources[&key])
-    }
-
     /// The u2s tool servers, created on first use.
     fn u2s_tools(&mut self) -> Result<&mut crate::u2s::U2sTools, String> {
         let tools = match self.u2s.take() {
@@ -695,21 +662,16 @@ impl ConversionAgent {
         Ok(self.u2s.insert(tools))
     }
 
-    /// The requested source's PDFs, written where the u2s tools may read them,
-    /// with what each says about itself: (file name, context, `doc_path`).
-    fn source_documents(
-        &mut self,
-        input: &Value,
-    ) -> Result<Vec<(String, Option<SourceContext>, std::path::PathBuf)>, String> {
-        let pdfs = self.source_pdfs(input)?;
-        let contexts: Vec<Option<SourceContext>> =
-            self.source_contexts(input)?.iter().map(|(_, c)| c.clone()).collect();
-        let group = Self::source_key(input).replace(':', "-");
+    /// The source PDFs, written where the u2s tools may read them, with what
+    /// each says about itself: (file name, context, `doc_path`).
+    fn source_documents(&mut self) -> Result<Vec<(String, Option<SourceContext>, std::path::PathBuf)>, String> {
+        let pdfs = self.current_pdfs.clone();
+        let contexts: Vec<Option<SourceContext>> = self.sources.iter().map(|(_, c)| c.clone()).collect();
         let tools = self.u2s_tools()?;
         pdfs.iter()
             .zip(contexts)
             .map(|((name, bytes), context)| {
-                let path = tools.add_document(&group, name, bytes)?;
+                let path = tools.add_document("current", name, bytes)?;
                 Ok((name.clone(), context, path))
             })
             .collect()
@@ -826,7 +788,7 @@ mod tests {
     fn agent_for(files: Vec<(String, Vec<u8>)>) -> ConversionAgent {
         crate::db::claim_scratch_db_for_test();
         let session = format!("test-{}", uuid::Uuid::new_v4());
-        ConversionAgent::new(Some("ubs".into()), files, session).expect("the agent starts")
+        ConversionAgent::new(files, session).expect("the agent starts")
     }
 
     fn reply_text(reply: ToolReply) -> String {
@@ -988,9 +950,9 @@ mod tests {
         assert!(after.contains("/form/children"), "{after}");
     }
 
-    /// rule_list holds every rule and says which kind each is; the pipeline's
-    /// rule check plans every rule (or the ones named) and runs the scripts;
-    /// an id no rule has is refused.
+    /// rule_list holds every rule and says which kind each is; rule_get
+    /// refuses an id no rule has; the pipeline's rule check covers every
+    /// judged rule and runs the scripts.
     #[tokio::test]
     async fn rule_tools_cover_scripted_and_judged_rules() {
         let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
@@ -1012,16 +974,9 @@ mod tests {
         assert_eq!(got["rules"][0]["description"], "Judge me.");
         assert!(matches!(agent.execute("rule_get", &json!({"ids": ["nope"]})).await, ToolReply::Error(_)));
 
-        let plan = agent.rule_check_plan(&json!({})).unwrap();
-        assert!(plan.judged.iter().any(|r| r.id == "judged-id"), "every judged rule is planned");
-        let checked = agent.check_scripted(&plan).await.unwrap();
+        assert!(agent.judged_rules().iter().any(|r| r.id == "judged-id"), "every judged rule is checked");
+        let checked = agent.check_scripted().await.unwrap();
         assert!(checked["verdicts"].as_array().unwrap().len() > 1, "the scripts' verdicts are reported: {checked}");
-
-        let only = agent.rule_check_plan(&json!({"rule_ids": ["judged-id"]})).unwrap();
-        assert_eq!(only.judged.len(), 1);
-        assert!(agent.check_scripted(&only).await.unwrap()["verdicts"].as_array().unwrap().is_empty());
-
-        assert!(agent.rule_check_plan(&json!({"rule_ids": ["nope"]})).is_err_and(|e| e.contains("nope")));
     }
 
     /// coverage_check compares the run's own source PDFs with its document: a
@@ -1067,8 +1022,7 @@ mod tests {
         // The writer's package is checked against the guard on every build, and
         // the rule check reports the same for the current build.
         assert!(!built.contains("ENGINE DEFECTS"), "{built}");
-        let plan = agent.rule_check_plan(&json!({})).unwrap();
-        let checked = agent.check_scripted(&plan).await.unwrap();
+        let checked = agent.check_scripted().await.unwrap();
         assert_eq!(checked["package_findings"], json!([]), "{checked}");
         let files = references_mcp::unzip_package(&agent.package().unwrap()).unwrap();
         assert!(files.iter().any(|(_, c)| c.contains("TXT_LastName")));
@@ -1091,32 +1045,33 @@ mod tests {
         e.observe_call("pdf_render_pages", &json!({ "doc_path": "/blobs/dor.pdf" }));
     }
 
-    /// The terminal calls are gated on the stage's own verification of the
-    /// current build: refused before it, accepted after it, refused again once
-    /// an edit or a new stage voids it. A rejecting review is never gated.
+    /// The Author's hand-over is gated on its own verification of the current
+    /// build: refused before it, accepted after it, refused again once an edit
+    /// or a new stage voids it. The Reviewer's decision is not gated on
+    /// verification (it decides on the rule report), only on the rules.
     #[tokio::test]
-    async fn terminal_calls_wait_for_the_stages_own_verification() {
+    async fn the_hand_over_waits_for_the_authors_own_verification() {
         let mut agent = agent_for(vec![fixture("AAEV_019_EN.pdf")]);
         patch(&mut agent, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
 
-        let approve = json!({ "approved": true, "report": "" });
-        let refused = agent.execute("submit_review", &approve).await;
+        let refused = agent.execute("finish_authoring", &json!({ "summary": "done" })).await;
         assert!(matches!(&refused, ToolReply::Error(e) if e.contains("aem_verify_submit") && e.contains("build_aem_package")), "{refused:?}");
-        assert!(agent.take_review().is_none(), "a refused approval records nothing");
-        assert!(matches!(agent.execute("finish_authoring", &json!({ "summary": "done" })).await, ToolReply::Error(_)));
-
-        let rejected = agent.execute("submit_review", &json!({ "approved": false, "report": "footer" })).await;
-        assert!(matches!(rejected, ToolReply::Text(_)));
-        assert!(agent.take_review().is_some_and(|r| !r.approved && r.report == "footer"));
+        assert!(agent.take_finish().is_none(), "a refused hand-over records nothing");
 
         reply_text(agent.execute("build_aem_package", &json!({})).await);
         verify_everything(&mut agent);
-        // An approval also needs every rule checked on this document and every
-        // broken one waived (see `execute`'s rule gate).
-        let plan = agent.rule_check_plan(&json!({})).unwrap();
-        agent.check_scripted(&plan).await.unwrap();
+        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done" })).await);
+        assert!(agent.take_finish().is_some_and(|summary| summary == "done"));
+
+        // A new stage earns its own.
+        agent.begin_stage();
+        assert!(matches!(agent.execute("finish_authoring", &json!({ "summary": "done" })).await, ToolReply::Error(_)));
+
+        // The Reviewer verified nothing in its new stage, and still decides:
+        // accepting needs every rule checked and every broken one waived.
+        agent.check_scripted().await.unwrap();
         let revision = agent.revision();
-        let judged: Vec<_> = plan.judged.into_iter().map(|rule| (rule, Err("not run here".to_string()))).collect();
+        let judged: Vec<_> = agent.judged_rules().into_iter().map(|rule| (rule, Err("not run here".to_string()))).collect();
         agent.record_judged(&judged, revision);
         let waivers: Vec<Value> = agent
             .rule_board()
@@ -1124,15 +1079,9 @@ mod tests {
             .filter(|r| matches!(r.state, RuleState::Fail { .. } | RuleState::Unchecked { .. }))
             .map(|r| json!({ "rule": r.rule_id, "why": "not this test's concern" }))
             .collect();
-        let approve_waived = json!({ "approved": true, "report": "", "waivers": waivers });
-        reply_text(agent.execute("submit_review", &approve_waived).await);
+        assert!(!agent.missing_evidence().is_empty());
+        reply_text(agent.execute("submit_review", &json!({ "approved": true, "report": "", "waivers": waivers })).await);
         assert!(agent.take_review().is_some_and(|r| r.approved));
-        reply_text(agent.execute("finish_authoring", &json!({ "summary": "done" })).await);
-        assert!(agent.take_finish().is_some_and(|summary| summary == "done"));
-
-        // A new stage earns its own.
-        agent.begin_stage();
-        assert!(matches!(agent.execute("submit_review", &approve).await, ToolReply::Error(_)));
 
         // An edit voids the verification of the build it replaced.
         verify_everything(&mut agent);
@@ -1402,11 +1351,7 @@ mod tests {
         patch(&mut first, json!([{ "op": "add", "path": "/form/children/-", "value": page("PN_Details") }])).await;
         let authored = first.document().clone();
 
-        let mut resumed = ConversionAgent::new(
-            Some("ubs".into()),
-            vec![fixture("AAEV_019_EN.pdf")],
-            session.clone(),
-        )
+        let mut resumed = ConversionAgent::new(vec![fixture("AAEV_019_EN.pdf")], session.clone())
         .unwrap();
         resumed.seed_document(authored.clone()).unwrap();
         match crate::session::restore(&session).unwrap() {
@@ -1462,18 +1407,6 @@ mod tests {
         assert!(checked.contains("/content/forms/af/"), "{checked}");
     }
 
-    #[test]
-    fn source_key_defaults_to_current() {
-        assert_eq!(
-            ConversionAgent::source_key(&json!({})),
-            "current"
-        );
-        assert_eq!(
-            ConversionAgent::source_key(&json!({"source": {"reference": "abc"}})),
-            "reference:abc"
-        );
-    }
-
     /// The pure windowing behind `read_package_file`: a source
     /// under the window is returned whole and silently, one that reaches past
     /// it says so and names where to continue.
@@ -1524,8 +1457,8 @@ mod tests {
     }
 
     /// `limit == 0`, whether omitted or given explicitly, means the default
-    /// window — not "everything", which is `read_reference_file`'s convention
-    /// but not safe here (see `windowed_text`'s doc for the form that would
+    /// window — not "everything", which the retired reference tools did, and
+    /// which is not safe here (see `windowed_text`'s doc for the form that would
     /// have overflowed the window under that convention).
     #[test]
     fn zero_limit_means_the_default_window_not_everything() {

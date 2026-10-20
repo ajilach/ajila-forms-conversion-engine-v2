@@ -75,7 +75,7 @@ pub async fn run_fresh(
     let Some(session_id) = agent::db::create_session(&doc_hash, opts.profile.as_deref(), session_label) else {
         return Err(NO_SESSION.to_string());
     };
-    let agent = match ConversionAgent::new(opts.profile.clone(), files, session_id.clone())
+    let agent = match ConversionAgent::new(files, session_id.clone())
         .and_then(|agent| agent.with_aem_verify(&verification))
     {
         Ok(agent) => agent,
@@ -145,7 +145,7 @@ pub async fn resume(
         pdfs.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", ")
     };
     let mut agent =
-        ConversionAgent::new(opts.profile.clone(), pdfs, session_id.clone())?.with_aem_verify(&verification)?;
+        ConversionAgent::new(pdfs, session_id.clone())?.with_aem_verify(&verification)?;
     if let agent::session::Restored::Document(document) = prior {
         agent.seed_document(document)?;
     }
@@ -269,8 +269,6 @@ async fn drive(
         judge_model: roles.judge.map(|(_, m)| metered(m.into_stage_model())),
         judge_confirm_model: roles.judge_confirm.map(|(_, m)| metered(m.into_stage_model())),
         capture_review: true,
-        final_rule_check: true,
-        hand_off_judging: true,
         finish_nudge: true,
         warm_up_verifier: true,
     };

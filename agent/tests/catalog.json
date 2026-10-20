@@ -2,17 +2,7 @@
   {
     "description": "The source PDFs: each one's file name, language, XFA template `variables` and the `doc_path` every xfa_* tool takes. Call this first.",
     "input_schema": {
-      "properties": {
-        "source": {
-          "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} for a reference's input.",
-          "properties": {
-            "reference": {
-              "type": "string"
-            }
-          },
-          "type": "object"
-        }
-      },
+      "properties": {},
       "required": [],
       "type": "object"
     },
@@ -89,140 +79,7 @@
     "name": "coverage_check"
   },
   {
-    "description": "List the profile's reference forms (hand-built, known-good worked examples). Consult references BEFORE building: they show the expected JCR structure, dictionary setup and DoR conventions for this profile's forms.",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "list_reference_forms"
-  },
-  {
-    "description": "Semantic search for precedent forms by MEANING, not by name. The query must be a natural-language DESCRIPTION of the input you are building — the form's (or the current section's) purpose, the kinds of fields it contains and how they are grouped — NOT a form name or a single keyword. References are matched by embedding this description against each reference's stored description (a literal substring fallback over descriptions + package XML is folded in). Run this first (before building), section by section; each hit carries a ref_id to pass to get_reference_package / read_reference_file. Optional top_k caps hits per signal (default 3).",
-    "input_schema": {
-      "properties": {
-        "query": {
-          "type": "string"
-        },
-        "top_k": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "query"
-      ],
-      "type": "object"
-    },
-    "name": "search_references"
-  },
-  {
-    "description": "Literal/regex substring search over reference descriptions + AEM package XML — the grep counterpart to search_references. Use it to find a specific string (a field name, label, or AEM resource type) verbatim; use search_references when looking for a form that resembles your input by meaning.",
-    "input_schema": {
-      "properties": {
-        "query": {
-          "type": "string"
-        },
-        "regex": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "query"
-      ],
-      "type": "object"
-    },
-    "name": "grep_references"
-  },
-  {
-    "description": "Read a reference's description ('description') or a package file by path (get the path from get_reference_package). Use it to study how a known-good form was built and mirror its structure.",
-    "input_schema": {
-      "properties": {
-        "limit": {
-          "type": "integer"
-        },
-        "offset": {
-          "type": "integer"
-        },
-        "path": {
-          "type": "string"
-        },
-        "ref_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "ref_id",
-        "path"
-      ],
-      "type": "object"
-    },
-    "name": "read_reference_file"
-  },
-  {
-    "description": "List the package files (known-good output) of a reference by its ref_id (from list_reference_forms / search_references), then read individual files with read_reference_file.",
-    "input_schema": {
-      "properties": {
-        "ref_id": {
-          "type": "string"
-        }
-      },
-      "required": [
-        "ref_id"
-      ],
-      "type": "object"
-    },
-    "name": "get_reference_package"
-  },
-  {
-    "description": "List the profile's reference documentation (.md/.txt).",
-    "input_schema": {
-      "properties": {},
-      "required": [],
-      "type": "object"
-    },
-    "name": "list_reference_docs"
-  },
-  {
-    "description": "Read a reference documentation doc by id.",
-    "input_schema": {
-      "properties": {
-        "doc_id": {
-          "type": "string"
-        },
-        "limit": {
-          "type": "integer"
-        },
-        "offset": {
-          "type": "integer"
-        }
-      },
-      "required": [
-        "doc_id"
-      ],
-      "type": "object"
-    },
-    "name": "read_reference_doc"
-  },
-  {
-    "description": "Regex/substring search over reference documentation.",
-    "input_schema": {
-      "properties": {
-        "query": {
-          "type": "string"
-        },
-        "regex": {
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "query"
-      ],
-      "type": "object"
-    },
-    "name": "grep_reference_docs"
-  },
-  {
-    "description": "Terminal AUTHOR step: call once, last, when the form is complete and you have verified it yourself. Refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read; do those and call it again. Ends your stage: every rule is then checked on the document, judged rules included, and the form goes to the Reviewer with that rule report.",
+    "description": "Terminal AUTHOR step: call once, last, when the form is complete and you have verified it yourself. Refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read; do those and call it again. Ends your stage: the pipeline then checks every rule on the document, judged rules included, and when one is broken a Reviewer decides whether you get the form back with what to fix.",
     "input_schema": {
       "properties": {
         "summary": {
@@ -277,48 +134,18 @@
     "name": "submit_rule_verdict"
   },
   {
-    "description": "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read. approved=true is also refused while a rule of the rule report is negative or has no verdict, unless waivers names it with why it cannot be kept on this form. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry or waivers given with it. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
+    "description": "Terminal REVIEWER step: call once, last, with your decision on the rule report of this round. approved=true accepts the form as it is and ends the run; it is refused while a rule of the report is negative or has no verdict, unless waivers names that rule with why it cannot be kept on this form. approved=false sends the form back to the author with report, which must say for each rule to fix what to change and where; it is refused without a report or with waivers. When no author round is left, approved=false ends the run with the rules left broken and report as the reason.",
     "input_schema": {
       "properties": {
         "approved": {
           "type": "boolean"
         },
         "report": {
-          "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible.",
+          "description": "With approved=false: for each rule the author is to fix, the rule id, the JSON Pointers of the nodes and what to change there, and which broken rules to leave as they are. With approved=true: optional notes for the person reviewing the result.",
           "type": "string"
         },
-        "rule_conflicts": {
-          "description": "Places where the rules contradict each other, so that whatever the author does there one of them breaks. Not issues for the author; only with approved=false.",
-          "items": {
-            "properties": {
-              "path": {
-                "description": "The JSON Pointer of the node they disagree about.",
-                "type": "string"
-              },
-              "rules": {
-                "description": "The ids of the rules involved.",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 2,
-                "type": "array"
-              },
-              "why": {
-                "description": "What each rule asks for there.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "rules",
-              "path",
-              "why"
-            ],
-            "type": "object"
-          },
-          "type": "array"
-        },
         "waivers": {
-          "description": "Only with approved=true: one entry per rule of the rule report that is negative or has no verdict, with why it cannot be kept on this form (for example, it misfires on a structure the source has). They go into the run's result.",
+          "description": "Only with approved=true: one entry per rule of the rule report that is negative or has no verdict, with why it cannot be kept on this form. They go into the run's result.",
           "items": {
             "properties": {
               "rule": {
@@ -326,7 +153,7 @@
                 "type": "string"
               },
               "why": {
-                "description": "Why the rule cannot be kept here.",
+                "description": "Why the rule cannot be kept here: the rule it contradicts and at which node, the structure of the source it misfires on, the user's feedback that overrides it, or why its judge could not check it.",
                 "type": "string"
               }
             },

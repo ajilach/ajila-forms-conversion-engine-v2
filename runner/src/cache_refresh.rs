@@ -1,8 +1,8 @@
 //! Keeping a stage's prompt cache warm while it waits on a slow tool.
 //!
 //! Anthropic's prompt cache of the conversation tail lives five minutes after
-//! its last use. A stage that waits longer on one tool call — a `rule_check`
-//! whose judges took twelve minutes, an AEM boot — comes back to a cold cache
+//! its last use. A stage that waits longer on one tool call — an AEM boot, a
+//! verifier call that runs long — comes back to a cold cache
 //! and pays to write its whole prefix again (USD 1.13 for one turn of a
 //! 265,000-token Author, against USD 0.08 for a warm one). A one-hour TTL on
 //! every write would avoid that, but costs 2x instead of 1.25x on every write

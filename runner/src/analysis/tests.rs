@@ -197,7 +197,7 @@ fn a_recorded_run_leaves_every_file_and_the_report_names_what_repeated() {
 
     let report = read(&dir, "report.md");
     assert!(report.contains("**Outcome:** a result was produced for form AAOS"), "{report}");
-    assert!(report.contains("the Reviewer did not approve it"), "{report}");
+    assert!(report.contains("the Reviewer did not accept it"), "{report}");
     assert!(report.contains("## Stages"), "{report}");
     assert!(report.contains("1. Author"), "{report}");
     assert!(report.contains("## Repetition and possible loops"), "{report}");

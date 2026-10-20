@@ -48,7 +48,6 @@ mod tests {
         crate::db::claim_scratch_db_for_test();
         let pdf = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/../forms/AAEV_019_EN.pdf")).unwrap();
         ConversionAgent::new(
-            Some("ubs".into()),
             vec![("AAEV_019_EN.pdf".into(), pdf)],
             format!("test-outputs-{}", uuid::Uuid::new_v4()),
         )

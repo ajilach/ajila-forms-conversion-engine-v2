@@ -20,7 +20,8 @@ pub mod scope {
     /// document and the source, edits nothing, ends with its verdict.
     pub const JUDGE: Mask = 1 << 3;
 
-    /// The Author and the Reviewer: the stages the pipeline runs in turn.
+    /// The Author and the Reviewer: the stages the pipeline runs in turn,
+    /// with the rule check between them.
     pub const MAIN_STAGES: Mask = AUTHOR | REVIEWER;
     pub const ALL_STAGES: Mask = MAIN_STAGES | JUDGE;
     /// Every caller, the read-only describe pass included.
@@ -173,7 +174,9 @@ const SCOPING: &[(&str, scope::Mask, Access)] = {
         ("build_aem_package",                 AUTHOR, Write),
         ("get_package_info",                  ALL_STAGES | DESCRIBE, Read),
         ("read_package_file",                 ALL_STAGES | DESCRIBE, Read),
-        ("coverage_check",                    ALL_STAGES, Read),
+        // Finding what the source has and the document lacks is authoring
+        // (and judging) work; the Reviewer decides on the rule report only.
+        ("coverage_check",                    AUTHOR | JUDGE, Read),
 
         // §6 verification through the vendored u2s verifier (crate::u2s): the
         // AEM package against a Docker AEM.
@@ -192,16 +195,6 @@ const SCOPING: &[(&str, scope::Mask, Access)] = {
         ("aem_verify_screenshot",             AUTHOR | REVIEWER, Write),
         ("aem_verify_submit",                 AUTHOR | REVIEWER, Write),
         ("aem_verify_close",                  AUTHOR | REVIEWER, Write),
-
-        // §7 references.
-        ("list_reference_forms",              AUTHOR, Read),
-        ("search_references",                 AUTHOR, Read),
-        ("grep_references",                   AUTHOR, Read),
-        ("read_reference_file",               AUTHOR, Read),
-        ("get_reference_package",             AUTHOR, Read),
-        ("list_reference_docs",               AUTHOR, Read),
-        ("read_reference_doc",                AUTHOR, Read),
-        ("grep_reference_docs",               AUTHOR, Read),
 
         // §8 meta.
         ("finish_authoring",                  AUTHOR, Write),
@@ -248,18 +241,6 @@ fn rule_tool_description(tool: u2s_doc_tools::native::NativeJsonTool) -> Option<
 
 fn tool_specs() -> Vec<serde_json::Value> {
     {
-        let source = serde_json::json!({
-            "source": {
-                "type": "object",
-                "description": "Optional: which input to read. Omit for the uploaded form, or {\"reference\": \"<ref_id>\"} for a reference's input.",
-                "properties": { "reference": { "type": "string" } }
-            }
-        });
-        let with_source = |props: serde_json::Value| {
-            let mut m = props.as_object().cloned().unwrap_or_default();
-            m.insert("source".to_string(), source["source"].clone());
-            serde_json::Value::Object(m)
-        };
         let t = |name: &str, desc: &str, props: serde_json::Value, required: serde_json::Value| {
             serde_json::json!({
                 "name": name, "description": desc,
@@ -268,11 +249,11 @@ fn tool_specs() -> Vec<serde_json::Value> {
         };
 
         let mut specs = vec![
-            // §1 extraction (source-parameterized)
+            // §1 extraction
             t(
                 "get_source_info",
                 "The source PDFs: each one's file name, language, XFA template `variables` and the `doc_path` every xfa_* tool takes. Call this first.",
-                with_source(serde_json::json!({})),
+                serde_json::json!({}),
                 serde_json::json!([]),
             ),
             // §2 the rules' full text, which rule_list only indexes.
@@ -322,8 +303,6 @@ fn tool_specs() -> Vec<serde_json::Value> {
                 serde_json::json!([]),
             ),
         ];
-        // §7 references, specified by the references server.
-        specs.extend(references_mcp::specs::tool_specs());
         specs.extend([
             // §8 control
             t(
@@ -332,9 +311,9 @@ fn tool_specs() -> Vec<serde_json::Value> {
                  verified it yourself. Refused, with the list of what is missing, until this stage \
                  has used the current build on its verifier, read the PDF that produced, rendered \
                  the source pages and set every source control the form's scripts read; do \
-                 those and call it again. Ends your stage: every rule is then checked on the \
-                 document, judged rules included, and the form goes to the Reviewer with that \
-                 rule report.",
+                 those and call it again. Ends your stage: the pipeline then checks every rule on \
+                 the document, judged rules included, and when one is broken a Reviewer decides \
+                 whether you get the form back with what to fix.",
                 serde_json::json!({
                     "summary": {"type": "string", "description": "What you compared against the source, what you changed, and what the verification showed."}
                 }),
@@ -362,33 +341,20 @@ fn tool_specs() -> Vec<serde_json::Value> {
             ),
             t(
                 "submit_review",
-                "Terminal REVIEW step (Reviewer role): call once, last, after validating and reviewing. approved=true means the form is fully correct and ends the run; it is refused, with the list of what is missing, until this stage has used the current build on its verifier, read the PDF that produced, rendered the source pages and set every source control the form's scripts read. approved=true is also refused while a rule of the rule report is negative or has no verdict, unless waivers names it with why it cannot be kept on this form. approved=false returns your detailed issue list to the author for a fix round and is never refused, save for a malformed rule_conflicts entry or waivers given with it. rule_conflicts lists the places where rules ask for opposite things, which no fix can settle: the author is told to leave them alone, and when they are all that is left (report empty or only engine defects) the run stops for a person instead of starting another round.",
+                "Terminal REVIEWER step: call once, last, with your decision on the rule report of this round. approved=true accepts the form as it is and ends the run; it is refused while a rule of the report is negative or has no verdict, unless waivers names that rule with why it cannot be kept on this form. approved=false sends the form back to the author with report, which must say for each rule to fix what to change and where; it is refused without a report or with waivers. When no author round is left, approved=false ends the run with the rules left broken and report as the reason.",
                 serde_json::json!({
                     "approved": {"type": "boolean"},
-                    "report": {"type": "string", "description": "When not approved: a detailed, actionable list of every issue, with node paths where possible."},
+                    "report": {"type": "string", "description": "With approved=false: for each rule the author is to fix, the rule id, the JSON Pointers of the nodes and what to change there, and which broken rules to leave as they are. With approved=true: optional notes for the person reviewing the result."},
                     "waivers": {
                         "type": "array",
-                        "description": "Only with approved=true: one entry per rule of the rule report that is negative or has no verdict, with why it cannot be kept on this form (for example, it misfires on a structure the source has). They go into the run's result.",
+                        "description": "Only with approved=true: one entry per rule of the rule report that is negative or has no verdict, with why it cannot be kept on this form. They go into the run's result.",
                         "items": {
                             "type": "object",
                             "properties": {
                                 "rule": {"type": "string", "description": "The rule's id, as the rule report gives it."},
-                                "why": {"type": "string", "description": "Why the rule cannot be kept here."}
+                                "why": {"type": "string", "description": "Why the rule cannot be kept here: the rule it contradicts and at which node, the structure of the source it misfires on, the user's feedback that overrides it, or why its judge could not check it."}
                             },
                             "required": ["rule", "why"]
-                        }
-                    },
-                    "rule_conflicts": {
-                        "type": "array",
-                        "description": "Places where the rules contradict each other, so that whatever the author does there one of them breaks. Not issues for the author; only with approved=false.",
-                        "items": {
-                            "type": "object",
-                            "properties": {
-                                "rules": {"type": "array", "items": {"type": "string"}, "minItems": 2, "description": "The ids of the rules involved."},
-                                "path": {"type": "string", "description": "The JSON Pointer of the node they disagree about."},
-                                "why": {"type": "string", "description": "What each rule asks for there."}
-                            },
-                            "required": ["rules", "path", "why"]
                         }
                     }
                 }),
@@ -418,7 +384,6 @@ mod catalog_guards {
         // Argument and result names in the u2s document tools' own descriptions.
         "autofix_available",
         "rule_ids",
-        "rule_conflicts",
         // AEM / XFA / profile vocabulary appearing verbatim in prose.
         "affrg",
         "affrg_germany",
@@ -486,8 +451,6 @@ mod catalog_guards {
         "aem_verify",
         "xfa",
         "parent_path",
-        "ref_id",
-        "top_k",
         // rule_check's report of the current build's package checks.
         "package_findings",
         // Tool-call protocol vocabulary, not a tool.
@@ -571,8 +534,8 @@ mod catalog_guards {
     /// is not offered spends a turn on a refusal, or silently skips the step.
     /// So every prompt may only name tools its own stage is offered.
     ///
-    /// Regression guard: the Author was told to start with list_reference_docs
-    /// and list_reference_forms, which only the retired Analyst was offered.
+    /// Regression guard: the Author was told to start with the reference
+    /// tools, which only the retired Analyst was offered.
     #[test]
     fn each_stage_prompt_only_names_tools_that_stage_is_offered() {
         let names: BTreeSet<&str> = catalog().iter().map(|t| t.name()).collect();
@@ -651,7 +614,7 @@ mod catalog_guards {
         }
         assert!(has(scope::AUTHOR, "rule_autofix"));
         assert!(has(scope::AUTHOR, "build_aem_package"));
-        // Rules are checked by the pipeline, once per hand-over, not by a
+        // Rules are checked by the pipeline after every Author run, not by a
         // stage: both read the rules, neither runs the checks.
         assert!(
             !catalog().iter().any(|t| t.name() == "rule_check"),
@@ -667,6 +630,19 @@ mod catalog_guards {
         assert!(
             !catalog().iter().any(|t| t.name() == "finish"),
             "the run is ended by the controller, not by a tool"
+        );
+
+        // The Reviewer decides on the rule report, reading the source, the
+        // document, the package and the form on its verifier to confirm it;
+        // reviewing the form end to end is not its job any more.
+        for needed in ["get_source_info", "xfa_page_text", "xfa_render_pages", "pdf_render_pages", "json_get", "get_package_info", "aem_verify_open", "aem_verify_screenshot"] {
+            assert!(has(scope::REVIEWER, needed), "the Reviewer needs {needed}");
+        }
+        assert!(!has(scope::REVIEWER, "coverage_check"));
+        // References are gone: the rules carry the house conventions.
+        assert!(
+            !catalog().iter().any(|t| t.name().contains("reference")),
+            "no stage is offered reference tools"
         );
 
         // Nobody is handed the engine's precomputed states any more: every

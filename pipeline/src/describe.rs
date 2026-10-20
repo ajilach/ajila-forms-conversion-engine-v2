@@ -44,7 +44,6 @@ catalogue description.\". Begin immediately with the form's purpose (e.g. \"This
 /// Returns the description text, or an error if the model never produced one.
 #[allow(clippy::too_many_arguments)]
 pub async fn describe_reference(
-    profile: &str,
     pdfs: Vec<(String, Vec<u8>)>,
     package_zip: Vec<u8>,
     abort: &AbortFlag,
@@ -56,7 +55,7 @@ pub async fn describe_reference(
 ) -> Result<String, String> {
     // A throwaway agent over the same catalog: it reads the source and the
     // uploaded package and edits nothing, so it needs no history session.
-    let mut agent = ConversionAgent::new(Some(profile.to_string()), pdfs, String::new())?;
+    let mut agent = ConversionAgent::new(pdfs, String::new())?;
     agent.seed_package(package_zip);
     let shared_agent: crate::tools::SharedAgent = std::sync::Arc::new(tokio::sync::Mutex::new(agent));
 
@@ -100,5 +99,4 @@ const DESCRIBE: Role = Role {
     resume: true,
     wrap_up_tool: None,
     max_output_tokens: None,
-    judges_at_hand_off: false,
 };

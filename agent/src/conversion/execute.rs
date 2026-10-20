@@ -125,13 +125,6 @@ fn waivers_of(input: &Value) -> Result<Vec<Waiver>, String> {
         .collect()
 }
 
-/// Which rules one `rule_check` covers: the scripted ones (`None` for all of
-/// them), and the judged ones.
-pub struct RuleCheckPlan {
-    scripted: Option<Vec<String>>,
-    pub judged: Vec<crate::rules::JudgedRule>,
-}
-
 /// A read's remaining work, which owns everything it touches.
 pub type ReadWork = std::pin::Pin<Box<dyn std::future::Future<Output = ToolReply> + Send>>;
 
@@ -183,18 +176,6 @@ impl ConversionAgent {
                 }
             }));
         }
-        if references_mcp::specs::is_reference_tool(name) {
-            let server = self.references.clone();
-            let (name, input) = (name.to_string(), input.clone());
-            return Some(Box::pin(async move {
-                let result = tokio::task::spawn_blocking(move || server.dispatch(&name, &input)).await;
-                match result {
-                    Ok(Ok(result)) => crate::mcp_reply::reply_from_result(result, None),
-                    Ok(Err(e)) => ToolReply::Error(e.to_string()),
-                    Err(join) => ToolReply::Error(format!("the reference server failed: {join}")),
-                }
-            }));
-        }
         if caller.records() {
             self.evidence.observe_call(name, input);
         }
@@ -208,53 +189,30 @@ impl ConversionAgent {
         })
     }
 
-    /// Resolves `rule_check`'s `rule_ids` (none or empty: every rule) into the
-    /// scripted and the judged rules. An id no rule has is an error, not a
-    /// silently empty check.
-    pub fn rule_check_plan(&self, input: &Value) -> Result<RuleCheckPlan, String> {
-        let requested: Vec<String> = match input.get("rule_ids") {
-            None | Some(Value::Null) => Vec::new(),
-            Some(Value::Array(ids)) => ids
-                .iter()
-                .map(|id| id.as_str().map(str::to_string).ok_or("rule_ids holds only strings"))
-                .collect::<Result<_, _>>()?,
-            Some(_) => return Err("rule_ids is a list of rule ids from rule_list".into()),
-        };
-        if requested.is_empty() {
-            return Ok(RuleCheckPlan { scripted: None, judged: self.judged.to_vec() });
-        }
-        let scripted: Vec<String> = self
-            .rules
-            .iter()
-            .map(|r| r.id.to_string())
-            .filter(|id| requested.contains(id))
-            .collect();
-        let judged: Vec<_> = self.judged.iter().filter(|r| requested.contains(&r.id)).cloned().collect();
-        let unknown: Vec<&String> = requested
-            .iter()
-            .filter(|id| !scripted.contains(id) && !judged.iter().any(|r| &r.id == *id))
-            .collect();
-        if !unknown.is_empty() {
-            return Err(format!("no rule has the id {unknown:?}; rule_list lists them"));
-        }
-        Ok(RuleCheckPlan { scripted: Some(scripted), judged })
+    /// The judged rules, every one of which a rule check hands to a judge
+    /// (or answers from the verdict cache).
+    pub fn judged_rules(&self) -> Vec<crate::rules::JudgedRule> {
+        self.judged.to_vec()
     }
 
-    /// The scripted part of a `rule_check`: the scripts' verdicts, and the
+    /// The scripted part of a rule check: every script's verdict, and the
     /// package checks of the current build when there is one.
-    pub async fn check_scripted(&mut self, plan: &RuleCheckPlan) -> Result<Value, String> {
-        let nothing_to_run = self.rules.is_empty() || plan.scripted.as_ref().is_some_and(Vec::is_empty);
-        let mut report = if nothing_to_run {
+    pub async fn check_scripted(&mut self) -> Result<Value, String> {
+        let mut report = if self.rules.is_empty() {
             json!({ "verdicts": [] })
         } else {
             self.runner()?;
             let runner = self.runner.as_ref().expect("started above");
-            let input = u2s_doc_tools::native::CheckRulesArgs { rule_ids: plan.scripted.clone() };
-            let report =
-                u2s_doc_tools::native::check_rules(&input, self.document.value(), Some(&self.schema), &self.rules, runner)
-                    .await
-                    .map_err(|e| e.to_string())?
-                    .value;
+            let report = u2s_doc_tools::native::check_rules(
+                &u2s_doc_tools::native::CheckRulesArgs::default(),
+                self.document.value(),
+                Some(&self.schema),
+                &self.rules,
+                runner,
+            )
+            .await
+            .map_err(|e| e.to_string())?
+            .value;
             self.record_scripted(&report);
             report
         };
@@ -278,7 +236,7 @@ impl ConversionAgent {
     pub async fn execute_as(&mut self, name: &str, input: &Value, caller: &Caller) -> ToolReply {
         match name {
             // §1 source
-            "get_source_info" => match self.source_documents(input) {
+            "get_source_info" => match self.source_documents() {
                 Ok(documents) => {
                     let contexts: Vec<&SourceContext> =
                         documents.iter().filter_map(|(_, c, _)| c.as_ref()).collect();
@@ -330,14 +288,6 @@ impl ConversionAgent {
             // §3 building
             "build_aem_package" => self.build_aem_package(),
 
-            // §7 references: typed arguments, validated by the server itself.
-            other if references_mcp::specs::is_reference_tool(other) => {
-                match self.references.dispatch(other, input) {
-                    Ok(result) => crate::mcp_reply::reply_from_result(result, None),
-                    Err(e) => ToolReply::Error(e.to_string()),
-                }
-            }
-
             // §8 control
             "submit_rule_verdict" => {
                 let Some(judgement) = input["judgement"].as_str() else {
@@ -364,32 +314,11 @@ impl ConversionAgent {
             }
             "submit_review" => {
                 let approved = input["approved"].as_bool().unwrap_or(false);
-                let report = input["report"].as_str().unwrap_or_default().to_string();
-                let rule_conflicts = match crate::review::rule_conflicts_of(input) {
-                    Ok(conflicts) => conflicts,
-                    Err(e) => return ToolReply::Error(e),
-                };
-                if approved && !rule_conflicts.is_empty() {
-                    return ToolReply::Error(
-                        "approved=true cannot carry rule_conflicts: a conflict leaves a rule broken. Call \
-                         again with approved=false."
-                            .into(),
-                    );
-                }
+                let report = input["report"].as_str().unwrap_or_default().trim().to_string();
                 let waivers = match waivers_of(input) {
                     Ok(waivers) => waivers,
                     Err(e) => return ToolReply::Error(format!("submit_review refused: {e}")),
                 };
-                if !approved && !waivers.is_empty() {
-                    return ToolReply::Error(
-                        "waivers come only with approved=true: a review that sends the form back \
-                         reports the broken rules for the author to fix. Call again without waivers."
-                            .into(),
-                    );
-                }
-                if approved && let Some(refusal) = self.unverified("submit_review(approved=true)") {
-                    return refusal;
-                }
                 let waived = if approved {
                     match self.unruled(&waivers) {
                         Ok(waived) => waived,
@@ -398,24 +327,30 @@ impl ConversionAgent {
                         }
                     }
                 } else {
+                    if !waivers.is_empty() {
+                        return ToolReply::Error(
+                            "waivers come only with approved=true: a review that sends the form back \
+                             says in report which rules the author fixes and which it leaves. Call again \
+                             without waivers."
+                                .into(),
+                        );
+                    }
+                    if report.is_empty() {
+                        return ToolReply::Error(
+                            "approved=false needs a report: for each rule the author is to fix, the rule \
+                             id, the nodes and what to change there."
+                                .into(),
+                        );
+                    }
                     Vec::new()
                 };
-                let review = ReviewResult { approved, report, rule_conflicts, waived };
                 let reply = if approved {
-                    "Review recorded: approved.".to_string()
-                } else if review.needs_operator() {
-                    "Review recorded: only rule conflicts remain, handing the form to a person.".to_string()
-                } else if review.rule_conflicts.is_empty() {
-                    "Review recorded: changes requested, returning to the author.".to_string()
+                    "Decision recorded: the form is accepted."
                 } else {
-                    format!(
-                        "Review recorded: changes requested, returning to the author; {} rule conflict(s) \
-                         held back for a person.",
-                        review.rule_conflicts.len()
-                    )
+                    "Decision recorded: the form goes back to the author."
                 };
-                self.review = Some(review);
-                ToolReply::Text(reply)
+                self.review = Some(ReviewResult { approved, report, waived });
+                ToolReply::Text(reply.into())
             }
 
             "finish_authoring" => {
@@ -424,8 +359,8 @@ impl ConversionAgent {
                 }
                 self.finish = Some(input["summary"].as_str().unwrap_or_default().to_string());
                 ToolReply::Text(
-                    "Authoring finished: handing the form to the Reviewer, with every rule checked on \
-                     this document."
+                    "Authoring finished: every rule is now checked on this document, and a Reviewer \
+                     decides on any that is broken."
                         .into(),
                 )
             }
@@ -473,7 +408,7 @@ impl ConversionAgent {
     ///
     /// Coverage is read off the rule board, which keeps each rule's latest
     /// verdict and the revision it was given on. The pipeline checks every
-    /// rule before a review starts, and a Reviewer cannot edit, so a rule
+    /// rule before a Reviewer runs, and a Reviewer cannot edit, so a rule
     /// without a verdict here is an engine fault, not the Reviewer's to fix.
     fn unruled(&self, waivers: &[Waiver]) -> Result<Vec<String>, String> {
         let board = self.rule_board.snapshot(self.revision());
@@ -512,8 +447,9 @@ impl ConversionAgent {
         if !unchecked.is_empty() {
             return Err(format!(
                 "ENGINE DEFECT: {} rule(s) have no verdict on the document under review, although every \
-                 rule is checked before a review starts. Call submit_review with approved=false and \
-                 report this under ENGINE DEFECTS. Not covered:\n- {}",
+                 rule is checked before a Reviewer runs. Call submit_review with approved=false, so the \
+                 rules are checked again after the author's round, and name this engine defect in \
+                 report. Not covered:\n- {}",
                 unchecked.len(),
                 unchecked.join("\n- ")
             ));
@@ -521,9 +457,9 @@ impl ConversionAgent {
         if !open.is_empty() {
             return Err(format!(
                 "{} rule(s) are broken on the document under review. Send them back to the author \
-                 (approved=false, with their violations in the report), or, where the rule cannot \
-                 be kept on this form, say why in waivers: [{{\"rule\": \"<rule id>\", \"why\": \"...\"}}] \
-                 and approve again. Not justified:\n- {}",
+                 (approved=false, with what to fix in report), or, where the rule cannot be kept on \
+                 this form, say why in waivers: [{{\"rule\": \"<rule id>\", \"why\": \"...\"}}] and \
+                 accept again. Not justified:\n- {}",
                 open.len(),
                 open.join("\n- ")
             ));
@@ -740,7 +676,7 @@ mod tests {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../forms").join(name);
         let bytes = std::fs::read(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
         let session = format!("test-{}", uuid::Uuid::new_v4());
-        ConversionAgent::new(Some("ubs".into()), vec![(name.to_string(), bytes)], session)
+        ConversionAgent::new(vec![(name.to_string(), bytes)], session)
             .expect("the agent starts")
     }
 
@@ -754,7 +690,7 @@ mod tests {
     }
 
     /// Adds a page, builds it and feeds the evidence gate everything it asks
-    /// for, so only the rule gate stands between the Reviewer and its approval.
+    /// for, so the Author's hand-over is not refused for want of evidence.
     async fn built_and_verified(agent: &mut ConversionAgent, page: &str) {
         let revision = agent.revision();
         let page = json!({
@@ -827,7 +763,7 @@ mod tests {
         agent.record_judged(&[(judged("ja"), verdict(false))], revision);
 
         let reply = agent.execute("finish_authoring", &json!({ "summary": "done" })).await;
-        assert!(matches!(&reply, ToolReply::Text(t) if t.contains("Reviewer")), "{reply:?}");
+        assert!(matches!(&reply, ToolReply::Text(t) if t.contains("every rule is now checked")), "{reply:?}");
         assert_eq!(agent.take_finish().as_deref(), Some("done"));
     }
 
@@ -889,6 +825,9 @@ mod tests {
 
         let rejecting = json!({ "approved": false, "report": "fix ja", "waivers": waivers(&open) });
         assert!(matches!(agent.execute("submit_review", &rejecting).await, ToolReply::Error(e) if e.contains("only with approved=true")));
+        let silent = json!({ "approved": false, "report": "  " });
+        assert!(matches!(agent.execute("submit_review", &silent).await, ToolReply::Error(e) if e.contains("needs a report")));
+        assert!(agent.take_review().is_none(), "a refused decision records nothing");
 
         let accepted = approve(&mut agent, waivers(&open)).await;
         assert!(accepted.is_ok(), "{accepted:?}");
@@ -898,6 +837,32 @@ mod tests {
             "{:?}",
             review.waived
         );
+    }
+
+    /// The Reviewer decides on the rule report and nothing else, so accepting
+    /// asks for no verification of its own: a stage that has used no verifier
+    /// accepts a form whose every rule passes, while the Author's hand-over
+    /// on the same document is refused for want of evidence.
+    #[tokio::test]
+    async fn accepting_needs_the_rules_but_no_verification() {
+        let mut agent = agent();
+        agent.set_judged_rules(vec![judged("ja")]);
+        built_and_verified(&mut agent, "PN_Details").await;
+        let revision = agent.revision();
+        agent.record_judged(&[(judged("ja"), verdict(false))], revision);
+        agent.begin_stage();
+        assert!(!agent.missing_evidence().is_empty(), "a fresh stage has verified nothing");
+
+        let refused = agent.execute("finish_authoring", &json!({ "summary": "done" })).await;
+        assert!(matches!(&refused, ToolReply::Error(e) if e.contains("not verified")), "{refused:?}");
+        let open = broken(&agent);
+        let accepted = approve(&mut agent, waivers(&open)).await;
+        assert!(accepted.is_ok(), "{accepted:?}");
+        assert!(agent.take_review().is_some_and(|r| r.approved && r.waived.len() == open.len()));
+
+        let sent_back = agent.execute("submit_review", &json!({ "approved": false, "report": "fix ja at /form" })).await;
+        assert!(matches!(&sent_back, ToolReply::Text(t) if t.contains("back to the author")), "{sent_back:?}");
+        assert!(agent.take_review().is_some_and(|r| !r.approved && r.report == "fix ja at /form"));
     }
 
     /// Waivers are checked for shape before anything else is said.

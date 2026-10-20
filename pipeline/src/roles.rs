@@ -48,8 +48,7 @@ Keep every individual call small. Proceed now.";
 
 /// A pipeline stage: a name, the subset of the agent's tools it may call, and a
 /// per-stage turn budget. The system prompt and seed message are supplied per
-/// invocation by [`Run::execute`] (so the Reviewer reports can be pinned into
-/// `system`).
+/// invocation by the controller (`crate::run`).
 #[derive(Clone, Copy)]
 pub(crate) struct Role {
     pub(crate) name: &'static str,
@@ -71,8 +70,8 @@ pub(crate) struct Role {
     /// conversation would mix them.
     pub(crate) remember: bool,
     /// Whether a stored conversation is loaded when the stage runs again, so
-    /// it carries on where it left off. The Reviewer's is stored (for a
-    /// diagnosis) but never loaded: every round reviews from scratch.
+    /// it carries on where it left off: the Author's and the Reviewer's are,
+    /// across rounds and across later runs of the session.
     pub(crate) resume: bool,
     /// The terminal tool a stage must end with, when it has one it can be
     /// held to: on its last turn the stage is offered only that tool, and a
@@ -84,12 +83,6 @@ pub(crate) struct Role {
     /// role that only reads and reports never needs the model's full cap,
     /// and a runaway turn there costs the whole cap.
     pub(crate) max_output_tokens: Option<u32>,
-    /// Whether the stage's judges wait for its hand-over: a `rule_check`
-    /// without `rule_ids` checks the scripted rules only, and the terminal
-    /// call (`finish_authoring`) judges the judged ones first. A stage that
-    /// edits as it goes would otherwise pay a full round of judges for every
-    /// check on a document it is still changing (see `crate::judge`).
-    pub(crate) judges_at_hand_off: bool,
 }
 
 pub(crate) const AUTHOR: Role = Role {
@@ -103,35 +96,34 @@ pub(crate) const AUTHOR: Role = Role {
     resume: true,
     wrap_up_tool: None,
     max_output_tokens: None,
-    judges_at_hand_off: true,
 };
 
-/// The Reviewer's budget covers a browser click-through of the deployed form
-/// (one turn per page, per field group, per language) and driving every source
-/// control the form's scripts read, not just the package checks.
+/// The Reviewer decides on each round's rule report: it reads the rules, the
+/// document, the source and the form on its verifier to confirm a verdict
+/// before it sends the form back or waives a rule. That is a few targeted
+/// reads per broken rule, not a click-through of the whole form, hence a
+/// budget well under the Author's.
 ///
 /// It builds nothing and checks no rules (the pipeline hands it the rule
 /// report), so it has no stall watch: its turn budget and the run's spending
-/// limit bound it. It resumes nothing either: every round starts
-/// fresh from the source, unbiased by how an earlier round (or the Author) saw
-/// the form; the prior reports pinned in its system prompt are all it carries
-/// over.
+/// limit bound it. It resumes its conversation, so a round sees what earlier
+/// rounds reported and decided, and a rule that flips back and forth between
+/// rounds shows as the conflict it is.
 pub(crate) const REVIEWER: Role = Role {
     name: "Reviewer",
     scope: agent::scope::REVIEWER,
-    max_iterations: 90,
+    max_iterations: 50,
     stuck_tool: None,
     stuck_activity: "the review",
     max_tokens_nudge: MAX_TOKENS_NUDGE,
     remember: true,
-    resume: false,
+    resume: true,
     wrap_up_tool: None,
     max_output_tokens: None,
-    judges_at_hand_off: false,
 };
 
-/// A judge: checks one rule `rule_check` handed it, reads, edits nothing, and
-/// ends with `submit_rule_verdict`.
+/// A judge: checks one rule the rule check handed it, reads, edits nothing,
+/// and ends with `submit_rule_verdict`.
 ///
 /// Forty turns: a judge gets the part of the document its rule reads in its
 /// prompt when the rule names one (see `agent::rules::JudgeScope`), and reads
@@ -156,7 +148,6 @@ pub(crate) static JUDGE: Role = Role {
     resume: false,
     wrap_up_tool: Some("submit_rule_verdict"),
     max_output_tokens: Some(JUDGE_MAX_OUTPUT_TOKENS),
-    judges_at_hand_off: false,
 };
 
 /// The judge role with `max_turns` instead of the default turn budget when a
@@ -196,29 +187,19 @@ pub(crate) const AUTHOR_CONTINUE_SEED: &str = "The document already holds what a
                                                incomplete, then build_aem_package. \
                                                Do not start over.";
 
-// ── Per-role system-prompt composition (reviews pinned in `system`) ──────────
+// ── Per-role prompt composition ─────────────────────────────────────────────
 
 /// The document's format, pinned into every stage right after its role text
-/// and before the reviews, so the part of the prompt that stays the same across
-/// rounds stays one prefix.
+/// and before anything a run adds, so the part of the prompt that stays the
+/// same across rounds stays one prefix.
 fn format_note() -> String {
     format!("\n\n{}", agent::conversion::document_format())
 }
 
 /// The Author reuses the full [`SYSTEM_PROMPT`] authoring body, then the addendum,
 /// then every accumulated REVIEW FEEDBACK round.
-/// How the Author's rule checks work, it judging at its hand-over (see
-/// [`Role::judges_at_hand_off`]).
-const AUTHOR_JUDGES: &str = "\n\nYOUR RULE CHECKS: rule_check without rule_ids runs the scripted rules \
-only, at once and for nothing, so run it as often as you like. The rules a judge decides are judged \
-when you call finish_authoring: it judges all of them on the form as you hand it over, and is \
-refused with their verdicts when one is broken. Fix those, then call finish_authoring again; it \
-judges again only what your fix changed. To check one judged rule before that, name it in \
-rule_ids. Hold the form to the judged rules' descriptions (rule_list, rule_get) as you build it: a \
-broken one found at the hand-over costs another round.";
-
 pub(crate) fn sys_author(extra: &str, template_note: &str, reviews: &[String]) -> String {
-    let mut s = format!("{SYSTEM_PROMPT}{extra}{template_note}\n\n{AUTHOR_ADDENDUM}{AUTHOR_JUDGES}");
+    let mut s = format!("{SYSTEM_PROMPT}{extra}{template_note}\n\n{AUTHOR_ADDENDUM}");
     s.push_str(&format_note());
     append_reviews(
         &mut s,
@@ -228,21 +209,44 @@ pub(crate) fn sys_author(extra: &str, template_note: &str, reviews: &[String]) -
     s
 }
 
-/// The Reviewer's prompt pins `rule_report`, every rule checked on the build
-/// under review (see `crate::run`), after the format and before the earlier
-/// rounds' reports.
-pub(crate) fn sys_reviewer(extra: &str, rule_report: &str, reviews: &[String]) -> String {
+/// The Reviewer's system prompt: the same in every round, so its
+/// conversation (kept across rounds) reads on one cached prefix. Only what a
+/// run brings with it is added: the user's feedback, which can override a
+/// rule. Each round's rule report comes in that round's message
+/// ([`reviewer_round`]).
+pub(crate) fn sys_reviewer(extra: &str, user_feedback: Option<&str>) -> String {
     let mut s = format!("{SHARED_PREAMBLE}{extra}\n\n{REVIEWER_ADDENDUM}");
     s.push_str(&format_note());
-    s.push_str(&format!(
-        "\n\n## THE RULE REPORT — every rule, checked on the build under review\n{rule_report}"
-    ));
-    append_reviews(
-        &mut s,
-        "## PRIOR REVIEW FEEDBACK (points to re-verify; review the whole form regardless)",
-        reviews,
-    );
+    if let Some(feedback) = user_feedback {
+        s.push_str(&format!(
+            "\n\n## THE USER'S FEEDBACK — what the person asked of this run; where it overrides a \
+             rule, the feedback wins\n{feedback}"
+        ));
+    }
     s
+}
+
+/// One Reviewer round's message: the rule report on the Author's latest
+/// document, the Author's summary of its round (`None` when it ended without
+/// handing over), and how many Author rounds are left to send the form back
+/// to.
+pub(crate) fn reviewer_round(round: usize, rule_report: &str, author_summary: Option<&str>, rounds_left: usize) -> String {
+    let summary = author_summary.map_or_else(
+        || "The Author ended without finish_authoring: it did not verify this form itself.".to_string(),
+        str::to_string,
+    );
+    let left = match rounds_left {
+        0 => "No Author round is left: accept the form with a waiver for every broken rule, or send it \
+              back (approved=false) to end the run with those rules left broken for a person."
+            .to_string(),
+        1 => "1 Author round is left.".to_string(),
+        n => format!("{n} Author rounds are left."),
+    };
+    format!(
+        "# ROUND {round}\n\n## THE RULE REPORT — every rule, checked on the Author's latest document\n\
+         {rule_report}\n\n## THE AUTHOR'S SUMMARY\n{summary}\n\n## ROUNDS\n{left}\n\nDecide on every \
+         rule the report shows negative or without a verdict, then call submit_review."
+    )
 }
 
 /// A judge's system prompt: its preamble, the document format, the one rule
@@ -355,6 +359,43 @@ mod tests {
         assert_eq!(AUTHOR.stuck_tool, Some("build_aem_package"));
     }
 
+    /// A stage held to its terminal call on its last turn must be offered
+    /// that call, or its last turn offers nothing.
+    #[test]
+    fn every_wrap_up_tool_is_one_its_stage_is_offered() {
+        for role in [&AUTHOR, &REVIEWER, &JUDGE] {
+            let Some(tool) = role.wrap_up_tool else {
+                continue;
+            };
+            let offered = agent::tools_for(role.scope);
+            assert!(
+                offered.iter().any(|t| t["name"].as_str() == Some(tool)),
+                "{} wraps up with '{tool}' but is never offered it",
+                role.name
+            );
+        }
+        assert_eq!(JUDGE.wrap_up_tool, Some("submit_rule_verdict"));
+    }
+
+    /// The Reviewer's system prompt is the same every round, so a kept
+    /// conversation reads on one cached prefix: the round's report goes into
+    /// the round's message, and only the user's feedback is pinned.
+    #[test]
+    fn the_reviewer_gets_its_report_per_round_and_the_feedback_pinned() {
+        const { assert!(REVIEWER.remember && REVIEWER.resume, "the Reviewer keeps its conversation") };
+        let plain = sys_reviewer("", None);
+        assert!(!plain.contains("THE RULE REPORT —") && !plain.contains("USER'S FEEDBACK"), "{plain}");
+        let fed = sys_reviewer("", Some("Make IBAN mandatory."));
+        assert!(fed.starts_with(&plain) && fed.contains("## THE USER'S FEEDBACK") && fed.contains("Make IBAN mandatory."));
+
+        let round = reviewer_round(2, "{\"verdicts\":[]}", Some("built page 1"), 3);
+        assert!(round.contains("# ROUND 2") && round.contains("## THE RULE REPORT") && round.contains("{\"verdicts\":[]}"));
+        assert!(round.contains("built page 1") && round.contains("3 Author rounds are left") && round.contains("submit_review"));
+        assert!(reviewer_round(1, "r", None, 1).contains("1 Author round is left"));
+        let last = reviewer_round(4, "r", None, 0);
+        assert!(last.contains("No Author round is left") && last.contains("without finish_authoring"), "{last}");
+    }
+
     /// The stages must be distinct scopes — pointing two stages at the
     /// same scope would silently give one of them the other's tools.
     #[test]
@@ -394,7 +435,7 @@ mod tests {
             description: "d".into(),
             scope: Default::default(),
         };
-        for prompt in [sys_author("", "", &[]), sys_reviewer("", "", &[]), sys_judge()] {
+        for prompt in [sys_author("", "", &[]), sys_reviewer("", None), sys_judge()] {
             assert!(prompt.contains("UBS AEM document"), "{prompt}");
         }
         // Nothing of the rule is in the judges' shared prompt; all of it is

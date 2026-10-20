@@ -74,7 +74,7 @@ started), `stage_index` (1-based position of the stage in the run) and an\n\
 - `tool_started` / `tool_finished` — `name`, `args`, `ok`, `duration_ms`, the full `result` text (images replaced by a placeholder), `result_hash`.\n\
 - `review_verdict` — one review round: `round`, `approved` (`null` when the Reviewer ended without a verdict), `report`.\n\
 - `control` — the controller steering the run: `kind` is one of `output_cap_nudge`, `stuck_stop`, `turn_budget_exhausted`, `transient_retry`, `operator_prompt`, `operator_retried`, `operator_cancelled`, `invalid_tool_call`, `context_budget_failed`, `aborted`, `stage_error`, `cache_refreshed`.\n\
-- `rule_check_started` — a `rule_check` handing its judged rules to judges: `check` (an id that the judges' lines repeat), `partial` (chosen `rule_ids` rather than every rule), `scripted`, `judged`, `revision`.\n\
+- `rule_check_started` — a rule check handing its judged rules to judges: `check` (an id that the judges' lines repeat), `scripted`, `judged`, `revision`.\n\
 - `judge_finished` — one judge: `rule_id`, `rule_name`, `rule_title`, `verdict` (`positive`, `negative`, `unchecked`), `violations`, `unchecked_reason`, `turns`, `duration_ms`, `revision`, and its own `spend`. A judge's own turns and tool calls are not traced.\n\
 - `rule_check_finished` — `duration_ms`, `judges_spend` (all its judges together), `outdated` (the document changed while they judged).\n\
 - `stage_finished` — `ended`, `turns`, `attempts`, `duration_ms`, and the stage's own `spend`, which includes what its judges spent. `ended` is `review_submitted` whenever a terminal tool ended the stage — `finish_authoring` as well as `submit_review`; the report says which.\n\
@@ -102,7 +102,7 @@ Questions that work well:\n\
 - Using `report.md`, where did this run spend its time, and which of it was avoidable?\n\
 - The report lists repeated calls and recurring errors. Using the transcripts, explain why the agent repeated them and propose a prompt change, a deterministic script, or a new tool that would remove the repetition.\n\
 - Which failures in \"Recurring errors\" could be fixed by a post-processing script instead of by the model?\n\
-- Read the Reviewer's verdicts and the Author fix rounds that followed. Which review findings could the Author have avoided in its first pass?\n\
+- Read the rule checks, the Reviewer's decisions and the Author fix rounds that followed. Which broken rules could the Author have avoided in its first pass, and which did the Reviewer waive?\n\
 - Using the edit activity and the Author transcript, which parts of the form were authored independently of each other and could be built by agents in parallel?\n\
 - Which tool results are the largest? Would a narrower tool (an MCP tool that returns only what is needed) have served the agent as well?\n",
         label = meta.label,
@@ -235,7 +235,6 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
         ),
         TraceEvent::RuleCheckStarted {
             check,
-            partial,
             scripted,
             judged,
             revision,
@@ -243,8 +242,7 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
         } => {
             let number = stats.check_number(*check);
             format!(
-                "\n{at} **rule_check {number}** ({}) on revision {revision}: {scripted} scripted rule(s) checked, {judged} judged rule(s) handed to judges.\n",
-                if *partial { "chosen rules" } else { "every rule" },
+                "\n{at} **rule_check {number}** on revision {revision}: {scripted} scripted rule(s) checked, {judged} judged rule(s) handed to judges.\n",
             )
         }
         TraceEvent::JudgeFinished {
@@ -330,9 +328,9 @@ pub fn timeline_entry(seq: u64, clock: &str, stats: &Stats, event: &TraceEvent) 
 
 fn verdict_word(approved: Option<bool>) -> &'static str {
     match approved {
-        Some(true) => "approved",
-        Some(false) => "changes requested",
-        None => "no verdict",
+        Some(true) => "accepted",
+        Some(false) => "sent back",
+        None => "no decision",
     }
 }
 
@@ -751,9 +749,9 @@ fn judges(out: &mut String, stats: &Stats) {
     out.push_str(
         "## Judges\n\n\
          Each judged rule (a rule without a `check.js`) is decided by a judge agent that a rule check \
-         dispatches, several at once. The controller checks every rule before each review and once \
-         after the last stage; those checks have the Stages table's `Rule checks` row, and a check a \
-         stage itself ran (in older runs) is split out of that stage's cost. Their time overlaps, so it is summed here, not wall time. \"By rule\" counts each judge's own \
+         dispatches, all at once. The controller checks every rule after each Author stage; those \
+         checks have the Stages table's `Rule checks` row, and a check a stage itself ran (in older \
+         runs) is split out of that stage's cost. Their time overlaps, so it is summed here, not wall time. \"By rule\" counts each judge's own \
          verdict; a check whose document changed while it judged reports every rule unchecked, which \
          \"By rule_check\" shows.\n\n\
          ### By rule\n\n\
@@ -782,16 +780,15 @@ fn judges(out: &mut String, stats: &Stats) {
     }
     out.push_str(
         "\n### By rule_check\n\n\
-         | Check | Stage | Rules | Scripted | Judged | Revision | Duration | Positive | Negative | Unchecked | Judges' cost | Line |\n\
-         |---|---|---|---|---|---|---|---|---|---|---|---|\n",
+         | Check | Stage | Scripted | Judged | Revision | Duration | Positive | Negative | Unchecked | Judges' cost | Line |\n\
+         |---|---|---|---|---|---|---|---|---|---|---|\n",
     );
     for c in &stats.rule_checks {
         let _ = writeln!(
             out,
-            "| {} | {} | {} | {} | {} | {} | {} | {} | {} | {}{} | {} | #{} |",
+            "| {} | {} | {} | {} | {} | {} | {} | {} | {}{} | {} | #{} |",
             c.check,
             stage_label(c.stage_index, &c.stage),
-            if c.partial { "chosen" } else { "all" },
             c.scripted,
             c.judged,
             c.revision,

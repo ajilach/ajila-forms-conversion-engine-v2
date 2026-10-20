@@ -45,7 +45,7 @@ pub struct ModelInfo {
 /// One table, because these facts used to live in four places that could — and
 /// did — disagree: the default model, the picker's offline fallback list, and
 /// two family tables that described the same families at different
-/// granularities. `KNOWN_MODELS[0]` is the default model.
+/// granularities.
 ///
 /// The picker normally lists what the API reports; this is the fallback when
 /// that call fails, and the authority on limits either way. Models newer than
@@ -98,8 +98,44 @@ pub const KNOWN_MODELS: &[ModelInfo] = &[
     },
 ];
 
-/// The model used when none has been chosen.
-pub const DEFAULT_MODEL: &str = KNOWN_MODELS[0].id;
+/// The model each role of a run uses unless the operator picks another, in
+/// the Anthropic API's spelling ([`openrouter_id`] gives OpenRouter's): a
+/// mid-sized Author that builds, many cheap judges that each check one rule,
+/// and the strongest model for the Reviewer, whose waivers ship rules broken.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RoleModels {
+    pub author: &'static str,
+    pub reviewer: &'static str,
+    pub judge: &'static str,
+}
+
+/// See [`RoleModels`].
+pub const DEFAULT_ROLE_MODELS: RoleModels = RoleModels {
+    author: "claude-sonnet-5-5",
+    reviewer: "claude-opus-5-5",
+    judge: "claude-haiku-5-5",
+};
+
+/// The model used when none has been chosen: the Author's.
+pub const DEFAULT_MODEL: &str = DEFAULT_ROLE_MODELS.author;
+
+/// An Anthropic model id as OpenRouter spells it: a vendor segment, and the
+/// version's numbers joined by dots (`claude-opus-5-5` →
+/// `anthropic/claude-opus-5.5`). The inverse of [`canonical_id`].
+pub fn openrouter_id(anthropic_id: &str) -> String {
+    let parts: Vec<&str> = anthropic_id.split('-').collect();
+    let version = parts
+        .iter()
+        .position(|part| !part.is_empty() && part.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or(parts.len());
+    let name = parts[..version].join("-");
+    let numbers = parts[version..].join(".");
+    if numbers.is_empty() {
+        format!("anthropic/{name}")
+    } else {
+        format!("anthropic/{name}-{numbers}")
+    }
+}
 
 /// Models of other vendors, reached through OpenRouter, that this app knows
 /// the limits of. Kept apart from [`KNOWN_MODELS`] because that table is also
@@ -279,6 +315,27 @@ mod known_models {
             max_output_tokens_for("some-other-vendor-model"),
             DEFAULT_MAX_OUTPUT_TOKENS
         );
+    }
+
+    /// Each role's default model is one the tables know, and its OpenRouter
+    /// spelling resolves back to it.
+    #[test]
+    fn the_role_defaults_are_known_models_in_either_spelling() {
+        let defaults = DEFAULT_ROLE_MODELS;
+        assert_eq!(
+            (defaults.author, defaults.reviewer, defaults.judge),
+            ("claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5")
+        );
+        for id in [defaults.author, defaults.reviewer, defaults.judge] {
+            assert!(known_model(id).is_some(), "{id}");
+            assert_eq!(known_model(&openrouter_id(id)).map(|m| m.id), Some(id));
+        }
+        assert_eq!(openrouter_id("claude-opus-5-5"), "anthropic/claude-opus-5.5");
+        assert_eq!(openrouter_id("claude-opus-5"), "anthropic/claude-opus-5");
+        assert_eq!(openrouter_id("claude-haiku-4-5"), "anthropic/claude-haiku-4.5");
+        for model in KNOWN_MODELS {
+            assert_eq!(canonical_id(&openrouter_id(model.id)), model.id);
+        }
     }
 
     /// OpenRouter's spelling of an Anthropic model resolves to the same

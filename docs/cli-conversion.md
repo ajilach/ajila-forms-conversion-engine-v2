@@ -1,6 +1,6 @@
 # Converting a form from the command line
 
-`blueprint convert` runs the same autonomous conversion the desktop app runs (Author → Reviewer → fix rounds). Progress prints as it happens, and artefacts land in an output directory instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
+`blueprint convert` runs the same autonomous conversion the desktop app runs (Author → rule check → Reviewer → fix rounds). Progress prints as it happens, and artefacts land in an output directory instead of the Downloads folder. A run started here can be reopened in the app, and vice versa.
 
 This guide covers the `convert` subcommand and everything needed to get it running.
 
@@ -60,23 +60,31 @@ If all three are empty the run stops before spending anything, naming the
 environment variable it looked for.
 
 The model resolves the same way minus the environment step: `--model`, else the
-app's setting, else the built-in default `claude-opus-5`.
+app's setting, else the built-in default `claude-sonnet-5-5`.
 
 The Author runs on that model. The Reviewer and the judges (one agent per judged rule in every
-`rule_check`) run on it too unless they have one of their own: `--reviewer-model` and
-`--judge-model`, else the app's settings (AI Model → Models per role). An empty value, or the
-main model again, means no model of their own. A judge without one runs on the model of the
-stage that dispatched it. The model banner names the roles that have their own, e.g.
-`… · model: claude-opus-5-5 · judges: claude-haiku-5-5`, and so does the run analysis.
+rule check) have models of their own: `--reviewer-model` and `--judge-model`, else the app's
+settings (AI Model → Models per role). An empty value, or the main model again, means they run on
+the Author's. The model banner names the roles that have their own, e.g.
+`… · model: claude-sonnet-5-5 · Reviewer: claude-opus-5-5 · judges: claude-haiku-5-5`, and so
+does the run analysis.
+
+The defaults are `claude-sonnet-5-5` for the Author, `claude-opus-5-5` for the Reviewer (its
+waivers ship rules broken, so it gets the strongest model) and `claude-haiku-5-5` for the judges
+(the most calls of a run). Through OpenRouter they are spelled `anthropic/claude-sonnet-5.5` and so
+on. Settings saved before these defaults existed were switched to them once; a model picked after
+that is kept.
 
 When the judges run, and on what:
 
-- **The Author judges at its hand-over.** Its `rule_check` without `rule_ids` runs the scripted
-  rules only, at once and for nothing. `finish_authoring` judges every judged rule first, on the
-  form as it is handed over, and is refused with their verdicts when one is broken; the next call
-  judges again only what the fix changed (a verdict is kept per rule for unchanged content). The
-  Author can still have a rule judged earlier by naming it in `rule_ids`. The Reviewer and the
-  final rule check judge every rule, reusing those verdicts where the content is unchanged.
+- **Only the rule check judges.** After every Author round the pipeline checks every rule: the
+  scripts, and one judge per judged rule, all started at once. The Author sees the scripted rules'
+  verdicts on every edit (and can apply their autofixes) but never runs a judge, and the Reviewer
+  checks no rule. A judged rule whose content did not change since an earlier check keeps that
+  verdict and sends no judge.
+- **How many requests run at once** is the endpoint gate's (`max_concurrent_requests` in the
+  app's settings, default 3), shared by every stage and every form of a batch; raise it where the
+  account allows more.
 - **Every judge shares one cached prefix.** A judge's system prompt and tools are the same for
   every rule (the rule comes in its first message), and on a cold cache the first judge of a check
   runs alone so the others read the prefix it wrote instead of each writing it.
@@ -87,7 +95,8 @@ When the judges run, and on what:
 
 ### 1.4 A profile
 
-A profile supplies the parser fonts and (in `history.db`) the reference library. `ubs` is currently the only one installed, so `--profile` can be omitted — the CLI picks it automatically when exactly one profile exists. It errors rather than guessing if several are installed, and a resumed session inherits the profile it was created with.
+A profile supplies the parser fonts, and in `history.db` the reference library the app's
+References page manages (a conversion does not read it). `ubs` is currently the only one installed, so `--profile` can be omitted — the CLI picks it automatically when exactly one profile exists. It errors rather than guessing if several are installed, and a resumed session inherits the profile it was created with.
 
 ### 1.5 Verification setup (required)
 
@@ -96,8 +105,8 @@ Every conversion requires verification. Verification uses the vendored u2s verif
 starts and refuses to run if it is not. There is no switch to skip it.
 
 The verifier boots its own AEM Forms instance plus a headless
-Chromium, both in Docker, installs the built package, and lets the Author and
-Reviewer drive the form interactively using `aem_verify_*` tools (open, control
+Chromium, both in Docker, installs the built package, and lets the Author (and the
+Reviewer, to confirm a decision) drive the form interactively using `aem_verify_*` tools (open, control
 interaction, set values, advance pages, submit, screenshot). The submitted form's
 PDF is read with `pdf_*` tools. The source PDF is read with `xfa_*` tools.
 
@@ -164,10 +173,17 @@ by file extension, so the `.pdf` suffix matters.
    session behind and spends no tokens.
 2. **Open the session.** Sources are hashed and stored content-addressed, a
    session row is created and an empty initial edit is recorded.
-3. **Author → (Reviewer → Author fix)\*.** The review rounds are capped
-   by `--max-review-rounds` (default 3). The Author and Reviewer drive the built
-   form using the `aem_verify_*` verification tools to
-   interact with it, submit it, and verify the output.
+3. **Author → rule check → (Reviewer → Author fix → rule check)\*.** The Author
+   builds the form and verifies it with the `aem_verify_*` tools. The pipeline
+   then checks every rule, judged ones included. When every rule passes, the run
+   finalizes. Otherwise the Reviewer decides on the broken rules: it sends the
+   form back with what to fix, or accepts it by waiving each rule that cannot be
+   kept on this form (two rules contradicting each other, a rule misfiring on the
+   source, the user's feedback overriding it), with a reason that goes into the
+   result's warnings. It keeps its conversation across rounds, so it sees a rule
+   that flips back and forth. `--max-review-rounds` (default 3) caps how often it
+   sends the form back; after the last Author round it can only accept or leave
+   the rules broken.
 4. **Finalize.** The envelope, packages and XSD are assembled and
    recorded back into the history. There is no upload: the built package is the
    final artefact.
@@ -245,7 +261,7 @@ cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID>
 ```
 
 **Refine** — give the agent something specific to apply. The feedback becomes the
-first pinned review:
+first pinned review, and the Reviewer is told it too (it may override a rule):
 
 ```sh
 cargo run --release -p blueprint-cli -- convert path/to/form.pdf --session <ID> \
@@ -269,11 +285,11 @@ nothing.
 | `--provider <anthropic\|openai>` | the app's setting | `openai` means any OpenAI-compatible endpoint |
 | `--base-url <URL>` | `https://openrouter.ai/api/v1` | Implies `--provider openai` |
 | `--api-key <KEY>` | `$ANTHROPIC_API_KEY` / `$OPENAI_API_KEY`, then the app | |
-| `--model <ID>` | the app's setting, then `claude-opus-5` | The Author's, and the other roles' unless they have their own |
-| `--reviewer-model <ID>` | the app's setting, else `--model` | Same provider and key as `--model` |
-| `--judge-model <ID>` | the app's setting, else the dispatching stage's | Same provider and key as `--model` |
+| `--model <ID>` | the app's setting, then `claude-sonnet-5-5` | The Author's, and the other roles' when theirs is empty |
+| `--reviewer-model <ID>` | the app's setting (`claude-opus-5-5`), empty = `--model` | Same provider and key as `--model` |
+| `--judge-model <ID>` | the app's setting (`claude-haiku-5-5`), empty = `--model` | Same provider and key as `--model` |
 | `--judge-confirm-model <ID>` | the app's setting, else none | Judges every negative verdict again; its verdict stands. Pair with a cheap `--judge-model` |
-| `--max-review-rounds <N>` | 3 | Reviewer → Author-fix rounds before finalizing |
+| `--max-review-rounds <N>` | 3 | How often the Reviewer may send the form back to the Author before finalizing |
 | `--instructions <TEXT>` | the app's setting | Appended to every role's system prompt |
 | `--instructions-file <PATH>` | — | Conflicts with `--instructions` |
 | `--retries <N>` | 2 | Operator-level retries after the controller's own |

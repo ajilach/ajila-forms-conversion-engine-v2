@@ -1,5 +1,5 @@
 //! The `blueprint` command line: the AI conversion the desktop app runs, headless
-//! (Author → Reviewer, over the `pipeline` controller and the shared
+//! (Author → rule check → Reviewer, over the `pipeline` controller and the shared
 //! `runner` transport, which is why the app and this binary cannot drift apart),
 //! the sessions it can resume, and the verifiers it checks its output with.
 
@@ -40,8 +40,8 @@ enum Command {
     /// List the conversion sessions a `convert --feedback` run can resume.
     Sessions,
 
-    /// The Docker-hosted AEM Forms instance the Author and Reviewer check
-    /// their output with.
+    /// The Docker-hosted AEM Forms instance the Author verifies its output on,
+    /// and the Reviewer confirms its decisions on.
     Verify(VerifyArgs),
 
     /// Render every page of source PDFs as the review shows them (XFA forms
