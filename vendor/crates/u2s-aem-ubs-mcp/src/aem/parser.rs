@@ -163,6 +163,7 @@ pub fn parse_aem_zip(bytes: &[u8]) -> Result<ParsedAemPackage, String> {
     let mut parse_ctx = ParseContext::new(&zip_files);
     let (mut root, form_title, language) = parse_form_xml(&xml_str, &mut parse_ctx)?;
     attach_show_conditions(&mut root, &parse_ctx.show_triggers);
+    attach_signature_twins(&mut root, &signature_twins(&xml_str));
     let metadata = form_metadata(&parse_jcr_xml(&xml_str)?);
 
     // Extract translations from dictionary files in the ZIP
@@ -1027,14 +1028,15 @@ fn convert_dropdown(node: &JcrNode, ctx: &mut ParseContext) -> AemNode {
 }
 
 /// What a loaded input opens with (`_value`) and whether it is read-only
-/// (`enabled` false). Its copy and calculate rules are not read back: they
-/// are the field's `fd:scripts`, which a load keeps as the field's own.
+/// (`enabled` false). Its copy, calculate and lock rules are not read back:
+/// they are the field's `fd:scripts`, which a load keeps as the field's own.
 fn parse_input(node: &JcrNode) -> InputProps {
     InputProps {
         default_value: node.attr("_value").map(str::to_owned),
         read_only: is_disabled(node),
         calculate: None,
         copy_from: None,
+        enable_conditions: Vec::new(),
     }
 }
 
@@ -1374,6 +1376,7 @@ fn convert_panel(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<AemNod
                 max_occur,
                 bind_ref: node.attr("bindRef").map(|s| s.to_string()),
                 frag_ref: Some(frag_ref_for_repeat),
+                twin_of: None,
             }));
         }
         return Ok(fragment_result);
@@ -1403,6 +1406,7 @@ fn convert_panel(node: &JcrNode, ctx: &mut ParseContext) -> Result<Option<AemNod
             max_occur,
             bind_ref: node.attr("bindRef").map(|s| s.to_string()),
             frag_ref: None,
+            twin_of: None,
         }))
     } else {
         // A panel hidden by an authored rule rather than the writer's may
@@ -1801,6 +1805,49 @@ fn show_triggers(node: &JcrNode) -> Result<Option<Vec<(String, String)>>, String
 
 /// Give each trigger field the conditions the show rules test it for, in the
 /// order the rules list them, so the writer regenerates the same rules.
+/// The signature twins a package's repeatables drive: the repeating-panel
+/// archetype's Add on a party's row panel `X_repeat` also adds a row to its
+/// twin (`window.forms.ubs.addInstance(Y_repeat)`), so each such pair is
+/// `Y` repeating with `X`, as `(twin, party)`. Read from the form's text since
+/// the buttons that carry the script are not part of the tree.
+fn signature_twins(form_xml: &str) -> Vec<(String, String)> {
+    let pattern = regex_lite::Regex::new(
+        r"addInstance\(this\.parent\.([A-Za-z_][A-Za-z0-9_]*)_repeat\);[\\n]*window\.forms\.ubs\.addInstance\(([A-Za-z_][A-Za-z0-9_]*)_repeat\);",
+    )
+    .expect("the pattern is valid");
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for captures in pattern.captures_iter(form_xml) {
+        let pair = (captures[2].to_owned(), captures[1].to_owned());
+        if !pairs.contains(&pair) {
+            pairs.push(pair);
+        }
+    }
+    pairs
+}
+
+/// Mark each twin's instance-managed panel (`Y_repeat`) with the party it
+/// repeats with; folding the repeatable back (`unexpand`) carries it to `Y`.
+fn attach_signature_twins(node: &mut AemNode, twins: &[(String, String)]) {
+    if let AemNode::Repeatable { name, twin_of, .. } = node
+        && let Some((_, party)) = twins.iter().find(|(twin, _)| super::xml_writer::repeat_panel_name(twin) == *name)
+    {
+        // The pattern captures identifiers only, which every component name accepts.
+        *twin_of = Some(
+            super::ComponentName::try_from(party.clone()).expect("a captured identifier is a name"),
+        );
+    }
+    match node {
+        AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } => {
+            for child in children {
+                attach_signature_twins(child, twins);
+            }
+        }
+        _ => {}
+    }
+}
+
 fn attach_show_conditions(node: &mut AemNode, triggers: &[(String, Vec<(String, String)>)]) {
     match node {
         AemNode::RadioButton {

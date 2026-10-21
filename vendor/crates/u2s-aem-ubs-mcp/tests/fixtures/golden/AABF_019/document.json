@@ -3352,6 +3352,7 @@
                     "max_occur": 4,
                     "min_occur": 1,
                     "name": "RCP_SGN_CPGRP",
+                    "twin_of": "PN_CPGRP",
                     "title": {
                       "en": "Account holder"
                     },
@@ -3394,6 +3395,7 @@
                     "max_occur": 4,
                     "min_occur": 2,
                     "name": "RCP_Sign_AHGRP",
+                    "twin_of": "PN_AHGRP",
                     "title": {
                       "en": "Legal guardian"
                     },
@@ -3436,6 +3438,7 @@
                     "max_occur": 4,
                     "min_occur": 1,
                     "name": "RCP_Sign_AHGRP_AR",
+                    "twin_of": "PN_AHGRP_AR",
                     "title": {
                       "en": "Authorized representative"
                     },

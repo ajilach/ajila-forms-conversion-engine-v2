@@ -386,6 +386,11 @@ pub enum AemNodeTranslated {
         /// `fragRef` and its content was inlined.
         #[serde(default)]
         frag_ref: Option<String>,
+        /// On a signature Repeatable that repeats with a party: the party's
+        /// Repeatable, or the party fragment it wraps. See
+        /// [`AemNode::Repeatable`]'s `twin_of`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        twin_of: Option<super::ComponentName>,
     },
     Fragment {
         uuid: Uuid,
@@ -1062,6 +1067,7 @@ impl AemNodeTranslated {
                 frag_ref,
                 attrs,
                 visible,
+                twin_of,
                 ..
             } => AemNode::Repeatable {
                 attrs: attrs.clone(),
@@ -1074,6 +1080,7 @@ impl AemNodeTranslated {
                 max_occur: *max_occur,
                 bind_ref: bind_ref.clone(),
                 frag_ref: frag_ref.clone(),
+                twin_of: twin_of.clone(),
             },
             AemNodeTranslated::Fragment {
                 uuid,

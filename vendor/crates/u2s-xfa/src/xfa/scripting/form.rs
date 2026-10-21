@@ -1297,6 +1297,21 @@ impl XfaForm {
             }
         }
 
+        // A person changes a radio button or a checkbox by pressing it, and
+        // forms hang scripts off the press (`mouseUp`, `click`: a checkbox
+        // that opens a protected field on click), so a set that a press
+        // reaches is that press. A value the button already holds needs no
+        // press; one no press reaches is assigned below.
+        let is_checkbox = self.resolve(field_path).is_some_and(|n| n.is_checkbox());
+        if is_radio || is_checkbox {
+            let CheckButtonValues { on, off, .. } = self.check_button_values(&resolved_path)?;
+            let current = self.script_engine.get_field_value(&resolved_path).unwrap_or_default();
+            if value != current && (value == on || (is_checkbox && value == off)) {
+                self.instance_report = InstanceReport::default();
+                return self.press_check_button(field_path, is_radio);
+            }
+        }
+
         self.instance_report = InstanceReport::default();
         let mut result = self.enter(field_path)?;
 

@@ -460,6 +460,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             frag_ref,
             attrs,
             visible,
+            twin_of,
         } => AemNodeTranslated::Repeatable {
             attrs: attrs.clone(),
             visible: *visible,
@@ -472,6 +473,7 @@ fn lift_node(node: &AemNode, ctx: &LiftContext) -> AemNodeTranslated {
             max_occur: *max_occur,
             bind_ref: bind_ref.clone(),
             frag_ref: frag_ref.clone(),
+            twin_of: twin_of.clone(),
         },
         AemNode::Fragment {
             uuid,

@@ -32,6 +32,7 @@ pub mod translated;
 mod unexpand;
 pub mod xml_validation;
 mod xml_writer;
+pub(crate) use xml_writer::condition_value_str;
 
 pub use fragment_parser::{ParsedFragment, parse_fragment_content};
 pub use package_writer::{
@@ -590,6 +591,24 @@ pub struct ConditionRule {
     pub show: bool,
 }
 
+/// A choice that locks or unlocks another component (`InputProps::enable_conditions`).
+///
+/// While the choice holds `value`, the component named `target_name` is
+/// enabled when `enable` is `true` and disabled when it is `false`; under any
+/// other value it is the opposite. A disabled component is still shown and
+/// printed but cannot be changed, and loses what was entered in it, as the
+/// source clears a field it protects again. The target is an input, a Panel, a
+/// Repeatable or a Fragment: disabling a container disables everything in it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, schemars::JsonSchema)]
+pub struct EnableRule {
+    /// AEM `name` of the component locked or unlocked.
+    pub target_name: ComponentName,
+    /// The choice's value this rule tests for.
+    pub value: InputValue,
+    /// `true`: enabled while the choice holds `value`; `false`: disabled.
+    pub enable: bool,
+}
+
 /// Fidelity passthrough for a node loaded from an existing AEM package: the raw
 /// attributes and child elements the typed model does NOT represent, captured on
 /// load so a load→edit→save round-trip preserves them. Empty for engine-built
@@ -767,6 +786,13 @@ pub struct InputProps {
     /// value, whichever of them is filled in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub copy_from: Option<ComponentName>,
+    /// Only on a radio button group, a drop-down or a checkbox: the components
+    /// this choice locks or unlocks, as the source protects and opens them
+    /// (a field opened by ticking a box, a section locked by a "same as"
+    /// answer). The writer generates the choice's Value Commit and Initialize
+    /// rules from them. See [`EnableRule`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub enable_conditions: Vec<EnableRule>,
 }
 
 impl InputProps {
@@ -1222,6 +1248,14 @@ pub enum AemNode {
         /// so the reference has to survive the unwrapping.
         #[serde(default)]
         frag_ref: Option<String>,
+        /// On a signature Repeatable that gains and loses a row whenever a
+        /// party's does (the source's party Add also adds a signature): the
+        /// party's Repeatable, or the party fragment it wraps (`PN_CPGRP`).
+        /// The party's Add and Remove then drive both, and this one has no
+        /// buttons of its own. `None`, the default, is a block that repeats on
+        /// its own, whatever its name.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        twin_of: Option<ComponentName>,
     },
 
     /// Fragment reference — replaces a panel whose XSD type matches a

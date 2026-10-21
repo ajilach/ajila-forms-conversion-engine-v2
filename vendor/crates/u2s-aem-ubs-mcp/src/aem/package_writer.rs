@@ -1451,6 +1451,7 @@ mod tests {
                     max_occur: 5,
                     bind_ref: None,
                     frag_ref: None,
+                    twin_of: None,
                 }],
                 is_page: false,
                 attrs: crate::aem::AemAttrs::default(),

@@ -717,9 +717,24 @@ fn check_inputs(root: &AemNode) -> Result<(), Error> {
             }
         }
     }
+    fn collect_names<'a>(node: &'a AemNode, names: &mut Vec<&'a str>) {
+        if let Some(name) = node.name() {
+            names.push(name);
+        }
+        if let AemNode::Root { children, .. }
+        | AemNode::Panel { children, .. }
+        | AemNode::Repeatable { children, .. } = node
+        {
+            for child in children {
+                collect_names(child, names);
+            }
+        }
+    }
     let mut inputs = Vec::new();
     collect(root, &mut inputs);
     let names: Vec<&str> = inputs.iter().filter_map(|node| node.name()).collect();
+    let mut all_names = Vec::new();
+    collect_names(root, &mut all_names);
     let mut problems = Vec::new();
     for node in &inputs {
         let (Some(name), Some(input)) = (node.name(), node.input()) else {
@@ -738,6 +753,35 @@ fn check_inputs(root: &AemNode) -> Result<(), Error> {
             problems.push(format!(
                 "`{name}` opens on `{value}`, which is none of its option values ({values})"
             ));
+        }
+        if !input.enable_conditions.is_empty() && options.is_none() {
+            problems.push(format!(
+                "`{name}` locks or unlocks other components, which only a radio button group, a \
+                 drop-down or a checkbox can"
+            ));
+        }
+        for rule in &input.enable_conditions {
+            let target = rule.target_name.as_str();
+            let count = all_names.iter().filter(|n| **n == target).count();
+            if target == name {
+                problems.push(format!("`{name}` locks or unlocks itself"));
+            } else if count != 1 {
+                problems.push(format!(
+                    "`{name}` locks or unlocks `{target}`, which names {count} components of the \
+                     form rather than one"
+                ));
+            }
+            let value = crate::aem::condition_value_str(&rule.value);
+            if let Some(options) = options
+                && !options.iter().any(|option| option.value == value)
+            {
+                let values =
+                    options.iter().map(|o| o.value.as_str()).collect::<Vec<_>>().join(", ");
+                problems.push(format!(
+                    "`{name}` locks or unlocks `{target}` on `{value}`, which is none of its \
+                     option values ({values})"
+                ));
+            }
         }
         let mut sources: Vec<String> = Vec::new();
         if let Some(source) = &input.copy_from {
@@ -1598,6 +1642,87 @@ mod tests {
         ] {
             assert!(xml.contains(expected), "the form must carry {expected}");
         }
+    }
+
+    fn enable(target: &str, value: &str, enable: bool) -> serde_json::Value {
+        json!({"target_name": target, "value": {"type": "text", "value": value}, "enable": enable})
+    }
+
+    fn with_locks(mut choice: serde_json::Value, locks: serde_json::Value) -> serde_json::Value {
+        choice["enable_conditions"] = locks;
+        choice
+    }
+
+    /// A choice locks and unlocks what the source protects and opens: a
+    /// checkbox opening a field, a radio button locking another. The writer
+    /// generates the choice's Value Commit and Initialize rules, emptying a
+    /// field it disables.
+    #[test]
+    fn a_choice_locks_and_unlocks_its_targets() {
+        let checkbox = json!({
+            "type": "Checkbox", "uuid": uuid::Uuid::new_v4(), "name": "CB_DebitCosts",
+            "label": {"en": "", "de": ""},
+            "options": [{"label": {"en": "Debit the costs", "de": "Kosten belasten"}, "value": "1"}],
+            "alignment": "Vertical", "visible": true, "colspan": 12, "dor_colspan": null,
+            "conditions": [], "bind_ref": null,
+            "enable_conditions": [enable("TXT_DebitAccount", "1", true)]
+        });
+        let build = encode(
+            &UbsAemDocument::from_json(&page_document(json!([
+                checkbox,
+                text_field("TXT_DebitAccount", json!({})),
+                with_locks(radio("2"), json!([enable("TXT_Owner", "1", false)])),
+                text_field("TXT_Owner", json!({}))
+            ])))
+            .unwrap(),
+        )
+        .expect("a choice may lock and unlock other components");
+        let xml = build_form_xml(&build.package);
+        assert_eq!(xml.matches("[conditional-access]").count(), 4, "two choices, two events each");
+        for expected in [
+            "TXT_DebitAccount.enabled = this.value !== null &amp;&amp; (String(this.value).split(",
+            "TXT_DebitAccount.resetData();",
+            "TXT_Owner.enabled = !(this.value !== null &amp;&amp; (this.value == ",
+            "fd:init=",
+        ] {
+            assert!(xml.contains(expected), "the form must carry {expected}:\n{xml}");
+        }
+    }
+
+    /// A lock names one component of the form by one of the choice's values,
+    /// and only a choice locks.
+    #[test]
+    fn a_lock_names_what_the_form_holds() {
+        let missing = encode_refusal(page_document(json!([with_locks(
+            radio("2"),
+            json!([enable("TXT_Gone", "1", true)])
+        )])));
+        assert!(missing.contains("`TXT_Gone`, which names 0 components"), "{missing}");
+
+        let value = encode_refusal(page_document(json!([
+            with_locks(radio("2"), json!([enable("TXT_Owner", "3", true)])),
+            text_field("TXT_Owner", json!({}))
+        ])));
+        assert!(value.contains("on `3`, which is none of its option values"), "{value}");
+
+        let not_a_choice = encode_refusal(page_document(json!([
+            text_field("TXT_A", json!({"enable_conditions": [enable("TXT_B", "1", true)]})),
+            text_field("TXT_B", json!({}))
+        ])));
+        assert!(not_a_choice.contains("only a radio button group"), "{not_a_choice}");
+
+        let both = UbsAemDocument::from_json(&page_document(json!([
+            with_locks(
+                radio("2"),
+                json!([enable("TXT_Owner", "1", true), enable("TXT_Owner", "2", false)])
+            ),
+            text_field("TXT_Owner", json!({}))
+        ])))
+        .unwrap();
+        let Err(error) = encode(&both) else {
+            panic!("a target enabled and disabled by one choice must be refused");
+        };
+        assert!(error.to_string().contains("both enables and disables"), "{error}");
     }
 
     /// The form page of a built package.

@@ -243,6 +243,7 @@ fn fold_children(node: AemNode) -> AemNode {
             visible,
             bind_ref,
             frag_ref,
+            twin_of,
         } => AemNode::Repeatable {
             uuid,
             name,
@@ -254,6 +255,7 @@ fn fold_children(node: AemNode) -> AemNode {
             visible,
             bind_ref,
             frag_ref,
+            twin_of,
         },
         other => other,
     }
@@ -289,6 +291,7 @@ fn repeatable(panel: &AemNode) -> Option<AemNode> {
             min_occur,
             max_occur,
             bind_ref,
+            twin_of,
             ..
         },
     ] = children.as_slice()
@@ -319,5 +322,6 @@ fn repeatable(panel: &AemNode) -> Option<AemNode> {
         visible: *visible,
         bind_ref: bind_ref.clone(),
         frag_ref: None,
+        twin_of: twin_of.clone(),
     })
 }

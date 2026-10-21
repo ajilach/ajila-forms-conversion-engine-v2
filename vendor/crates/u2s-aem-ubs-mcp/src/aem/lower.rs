@@ -406,10 +406,21 @@ impl Lower<'_> {
             .is_some_and(|pt| pt.raw_children.iter().any(|c| c.contains("<fd:rules")))
     }
 
-    /// The node's own CSS classes, or the profile's for its kind when it has
-    /// none (an empty class list is none, as a loaded `css=""` is).
+    /// The CSS classes of a component whose kind has a widget class in the
+    /// profile: that class, followed by the node's own (a margin such as
+    /// `ubs-margin-20`), so a class authored for spacing never takes the
+    /// widget's styling away. A class list that already names a widget class
+    /// (`widget_…`, as a loaded form's does) is written as it is, and an empty
+    /// one is none, as a loaded `css=""` is.
     fn css(&self, attrs: &AemAttrs, fallback: &str) -> String {
-        attrs.css.clone().filter(|css| !css.is_empty()).unwrap_or_else(|| self.var(fallback))
+        let widget = self.var(fallback);
+        match attrs.css.as_deref().map(str::trim).filter(|css| !css.is_empty()) {
+            None => widget,
+            Some(own) if own.split_whitespace().any(|class| class.starts_with("widget_")) => {
+                own.to_owned()
+            }
+            Some(own) => format!("{widget} {own}"),
+        }
     }
 
     /// A panel's children. The DoR header slot draws right after the banking
@@ -456,6 +467,7 @@ impl Lower<'_> {
                 let mut el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
+                    .attr_if(label.contains('<'), "isTitleRichText", "true")
                     .attr("sling:resourceType", self.controls(resource))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
                     .attr_opt("_value", input.default_value.clone());
@@ -466,7 +478,8 @@ impl Lower<'_> {
                     K::Multiline => el.attr("css", self.css(attrs, "css_textbox_multiline")),
                     K::Email => el
                         .attr("assistPriority", "label")
-                        .attr("autofillFieldKeyword", "email"),
+                        .attr("autofillFieldKeyword", "email")
+                        .attr_opt("css", nonempty(&attrs.css)),
                     K::Telephone => el
                         .attr("assistPriority", "label")
                         .attr("autofillFieldKeyword", "tel")
@@ -511,6 +524,7 @@ impl Lower<'_> {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
+                    .attr_if(label.contains('<'), "isTitleRichText", "true")
                     .attr("sling:resourceType", self.controls("numericbox"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
                     .attr_opt("_value", input.default_value.clone())
@@ -534,6 +548,7 @@ impl Lower<'_> {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
+                    .attr_if(label.contains('<'), "isTitleRichText", "true")
                     .attr("sling:resourceType", self.controls("datepicker"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
                     .attr_opt("_value", input.default_value.clone())
@@ -561,6 +576,7 @@ impl Lower<'_> {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
+                    .attr_if(label.contains('<'), "isTitleRichText", "true")
                     .attr("sling:resourceType", self.controls("dropdownlist"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
                     .attr_opt("_value", input.default_value.clone())
@@ -588,6 +604,7 @@ impl Lower<'_> {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.trim().is_empty(), "jcr:title", label.as_str())
+                    .attr_if(label.contains('<'), "isTitleRichText", "true")
                     .attr("sling:resourceType", self.controls("checkbox"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
                     .attr_opt("_value", input.default_value.clone())
@@ -614,6 +631,7 @@ impl Lower<'_> {
                 let el = self
                     .stamped(El::new(&tag, name), CREATED)
                     .attr_if(!label.is_empty(), "jcr:title", label.as_str())
+                    .attr_if(label.contains('<'), "isTitleRichText", "true")
                     .attr("sling:resourceType", self.controls("radiobutton"))
                     .attr_if(attrs.always_in_pdf, "alwaysInPdf", "true")
                     .attr_opt("_value", input.default_value.clone())
@@ -762,6 +780,13 @@ impl Lower<'_> {
         }
         if let Some(targets) = self.index.copies.get(name) {
             rules.push(scripts::copied_value(name, targets));
+        }
+        if let Some(input) = node.input()
+            && !input.enable_conditions.is_empty()
+        {
+            let targets = access_targets(name, &input.enable_conditions)?;
+            let checkbox = matches!(node, AemNode::Checkbox { .. });
+            rules.extend(scripts::conditional_access(name, &targets, checkbox));
         }
         if let Some(template) = node.input().and_then(|input| input.calculate.as_deref()) {
             let references = super::letterhead::subject_references(template)
@@ -2084,6 +2109,35 @@ fn nonempty(value: &Option<String>) -> Option<String> {
     value.clone().filter(|v| !v.is_empty())
 }
 
+/// A choice's `enable_conditions` grouped by the component they lock or
+/// unlock, in the order the targets first appear: several values deciding one
+/// target are one test. A target that one value enables and another disables
+/// has no single state, so it is refused.
+fn access_targets(
+    choice: &str,
+    rules: &[super::EnableRule],
+) -> Result<Vec<super::scripts::AccessTarget>, LowerError> {
+    let mut targets: Vec<super::scripts::AccessTarget> = Vec::new();
+    for rule in rules {
+        let value = condition_value_str(&rule.value);
+        let name = rule.target_name.as_str();
+        match targets.iter_mut().find(|t| t.target == name) {
+            Some(target) if target.enable != rule.enable => {
+                return Err(format!(
+                    "`{choice}` both enables and disables `{name}`: give each target one direction"
+                ));
+            }
+            Some(target) => target.values.push(value),
+            None => targets.push(super::scripts::AccessTarget {
+                target: name.to_owned(),
+                values: vec![value],
+                enable: rule.enable,
+            }),
+        }
+    }
+    Ok(targets)
+}
+
 /// A choice's `options`, `[value=label,...]`.
 fn options_attr(options: &[AemOption]) -> String {
     multi_value(options.iter().map(|o| option_pair(&o.value, &o.label)))
@@ -2138,21 +2192,21 @@ mod owned {
     pub const TEXTBOX: &[&str] = &[
         "_value", "alwaysInPdf", "assistPriority", "bindRef", "css",
         "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
-        "guideNodeClass", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy",
+        "guideNodeClass", "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy",
         "jcr:primaryType", "jcr:title", "mandatory", "maxChars", "name",
         "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich", "visible",
     ];
     pub const TEXTBOX_MULTILINE: &[&str] = &[
         "_value", "alwaysInPdf", "bindRef", "css", "dorColspan",
         "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
-        "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
+        "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
         "jcr:title", "mandatory", "multiLine", "name", "showIfHidden",
         "sling:resourceType", "summaryExclusion", "visible",
     ];
     pub const EMAIL: &[&str] = &[
         "_value", "alwaysInPdf", "assistPriority", "autofillFieldKeyword", "bindRef",
-        "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
-        "guideNodeClass", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy",
+        "css", "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
+        "guideNodeClass", "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy",
         "jcr:primaryType", "jcr:title", "mandatory", "maxChars", "name",
         "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich", "validatePictureClause",
         "validatePictureClauseMessage", "validationPatternType", "visible",
@@ -2161,7 +2215,7 @@ mod owned {
         "_value", "alwaysInPdf", "assistPriority", "autofillFieldKeyword", "bindRef",
         "css", "displayIsSameAsValidate", "displayPatternType", "displayPictureClause", "dorColspan",
         "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
-        "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
+        "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
         "jcr:title", "mandatory", "maxChars", "name", "showIfHidden",
         "sling:resourceType", "summaryExclusion", "textIsRich", "validatePictureClause", "validatePictureClauseMessage",
         "validationPatternType", "visible",
@@ -2169,7 +2223,7 @@ mod owned {
     pub const NUMERICBOX: &[&str] = &[
         "_value", "alwaysInPdf", "assistPriority", "bindRef", "css",
         "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
-        "fracDigits", "guideNodeClass", "jcr:created", "jcr:createdBy", "jcr:lastModified",
+        "fracDigits", "guideNodeClass", "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified",
         "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title", "leadDigits", "mandatory",
         "name", "showIfHidden", "sling:resourceType", "summaryExclusion", "textIsRich",
         "visible",
@@ -2177,7 +2231,7 @@ mod owned {
     pub const DATEPICKER: &[&str] = &[
         "_value", "alwaysInPdf", "bindRef", "css", "dorColspan",
         "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
-        "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
+        "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
         "jcr:title", "mandatory", "name", "placeholderText", "showIfHidden",
         "sling:resourceType", "summaryExclusion", "textIsRich", "validatePictureClause", "validatePictureClauseMessage",
         "validationPatternType", "visible", "yearRangeFrom", "yearRangeTo",
@@ -2185,14 +2239,14 @@ mod owned {
     pub const DROPDOWNLIST: &[&str] = &[
         "_value", "alwaysInPdf", "bindRef", "css", "dorColspan",
         "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot", "guideNodeClass",
-        "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
+        "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType",
         "jcr:title", "mandatory", "name", "options", "showIfHidden",
         "sling:resourceType", "summaryExclusion", "textIsRich", "visible",
     ];
     pub const CHECKBOX: &[&str] = &[
         "_value", "alignment", "alwaysInPdf", "assistPriority", "bindRef",
         "css", "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling",
-        "dorHeaderSlot", "guideNodeClass", "hideTitle", "jcr:created", "jcr:createdBy",
+        "dorHeaderSlot", "guideNodeClass", "hideTitle", "isTitleRichText", "jcr:created", "jcr:createdBy",
         "jcr:lastModified", "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title", "mandatory",
         "name", "options", "richTextOptions", "showIfHidden", "sling:resourceType",
         "summaryExclusion", "textIsRich", "visible",
@@ -2200,7 +2254,7 @@ mod owned {
     pub const RADIOBUTTON: &[&str] = &[
         "_value", "alignment", "alwaysInPdf", "bindRef", "css",
         "dorColspan", "dorExcludeTitle", "dorExclusion", "dorFieldStyling", "dorHeaderSlot",
-        "guideNodeClass", "hideTitle", "jcr:created", "jcr:createdBy", "jcr:lastModified",
+        "guideNodeClass", "hideTitle", "isTitleRichText", "jcr:created", "jcr:createdBy", "jcr:lastModified",
         "jcr:lastModifiedBy", "jcr:primaryType", "jcr:title", "mandatory", "name",
         "options", "richTextOptions", "showIfHidden", "sling:resourceType", "summaryExclusion",
         "textIsRich", "visible",

@@ -998,6 +998,7 @@ fn input_properties_survive_a_load_and_save() {
             read_only: true,
             calculate: Some("0319 {TXT_Account}".into()),
             copy_from: None,
+            enable_conditions: Vec::new(),
         };
     }
     let account = text_field("TXT_Account", "Account");
@@ -1082,6 +1083,45 @@ fn input_properties_survive_a_load_and_save() {
             .expect("the loaded form is written again");
     assert_eq!(again.matches("calculated-value").count(), xml.matches("calculated-value").count());
     assert_eq!(again.matches("copied-value").count(), xml.matches("copied-value").count());
+}
+
+/// A label carrying a footnote reference is rich text, as the issued forms
+/// mark it (`isTitleRichText`), and a plain label is not. A margin authored on
+/// an input follows its widget class instead of replacing it.
+#[test]
+fn a_rich_label_and_an_input_margin_are_written_as_ubs_does() {
+    let mut name = text_field(
+        "TXT_ClientName",
+        "Last name / Company<span data-af-footnote-id=\"fn1\"><sup>#</sup></span>\
+         <p id=\"fn1\" class=\"footnoteDescription\" style=\"display: none;\">\
+         <span class=\"footnoteDescText\">As registered.</span></p>",
+    );
+    if let AemNode::TextField { attrs, .. } = &mut name {
+        attrs.css = Some("ubs-margin-20".into());
+    }
+    let mut kept = text_field("TXT_Kept", "Kept");
+    if let AemNode::TextField { attrs, .. } = &mut kept {
+        attrs.css = Some("widget_ajila-forms-ubs-textbox ubs-margin-20".into());
+    }
+    let plain = text_field("TXT_Plain", "Plain");
+    let config = support::ubs_config("de", "AABF", "019");
+    let root = AemNode::Root { title: "AABF".into(), children: vec![name, kept, plain] };
+    let xml = generate_aem_xml(&root, &config).expect("the form is written");
+    let tag = |field: &str| {
+        let at = xml.find(&format!("name=\"{field}\"")).expect("the field is written");
+        let start = xml[..at].rfind('<').unwrap();
+        xml[start..start + xml[start..].find('>').unwrap()].to_owned()
+    };
+    let rich = tag("TXT_ClientName");
+    assert!(rich.contains(r#"isTitleRichText="true""#), "{rich}");
+    assert!(rich.contains(r#"css="widget_ajila-forms-ubs-textbox ubs-margin-20""#), "{rich}");
+    assert!(
+        tag("TXT_Kept").contains(r#"css="widget_ajila-forms-ubs-textbox ubs-margin-20""#),
+        "a class list naming its widget class is written as it is"
+    );
+    let plain = tag("TXT_Plain");
+    assert!(!plain.contains("isTitleRichText"), "{plain}");
+    assert!(plain.contains(r#"css="widget_ajila-forms-ubs-textbox""#), "{plain}");
 }
 
 fn text_field(name: &str, label: &str) -> AemNode {

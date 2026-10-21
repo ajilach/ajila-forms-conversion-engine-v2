@@ -882,6 +882,7 @@
                     "max_occur": 4,
                     "min_occur": 1,
                     "name": "RCP_SGN_CPGRP",
+                    "twin_of": "PN_CPGRP",
                     "title": {
                       "it": "Cliente"
                     },
@@ -924,6 +925,7 @@
                     "max_occur": 4,
                     "min_occur": 1,
                     "name": "RCP_Sign_AHGRP",
+                    "twin_of": "PN_AHGRP",
                     "title": {
                       "it": "Legale/i rappresentante/i"
                     },

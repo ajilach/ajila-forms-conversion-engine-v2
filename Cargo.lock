@@ -7910,7 +7910,7 @@ checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
 [[package]]
 name = "u2s-aem"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "regex",
  "schemars",
@@ -7922,7 +7922,7 @@ dependencies = [
 [[package]]
 name = "u2s-aem-ubs-mcp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "base64 0.22.1",
  "boa_engine",
@@ -7951,7 +7951,7 @@ dependencies = [
 [[package]]
 name = "u2s-aem-ubs-verify-mcp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "env_logger",
  "rmcp",
@@ -7967,7 +7967,7 @@ dependencies = [
 [[package]]
 name = "u2s-aem-verify-core"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "base64 0.22.1",
  "bollard",
@@ -7991,7 +7991,7 @@ dependencies = [
 [[package]]
 name = "u2s-blob"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.18",
@@ -8000,7 +8000,7 @@ dependencies = [
 [[package]]
 name = "u2s-core"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "regex",
  "schemars",
@@ -8012,7 +8012,7 @@ dependencies = [
 [[package]]
 name = "u2s-doc-tools"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "schemars",
  "serde",
@@ -8030,7 +8030,7 @@ dependencies = [
 [[package]]
 name = "u2s-jsondoc"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "json-patch",
  "jsonptr",
@@ -8043,7 +8043,7 @@ dependencies = [
 [[package]]
 name = "u2s-mapper-aem"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "quick-xml",
  "schemars",
@@ -8057,7 +8057,7 @@ dependencies = [
 [[package]]
 name = "u2s-render-core"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "image",
  "schemars",
@@ -8072,7 +8072,7 @@ dependencies = [
 [[package]]
 name = "u2s-render-pdf"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "image",
  "log",
@@ -8086,7 +8086,7 @@ dependencies = [
 [[package]]
 name = "u2s-render-pdf-mcp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -8105,7 +8105,7 @@ dependencies = [
 [[package]]
 name = "u2s-render-xfa"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "image",
  "log",
@@ -8117,7 +8117,7 @@ dependencies = [
 [[package]]
 name = "u2s-render-xfa-mcp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -8136,7 +8136,7 @@ dependencies = [
 [[package]]
 name = "u2s-rules"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "boa_engine",
  "json-patch",
@@ -8150,7 +8150,7 @@ dependencies = [
 [[package]]
 name = "u2s-rules-host"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "libc",
  "serde",
@@ -8164,7 +8164,7 @@ dependencies = [
 [[package]]
 name = "u2s-schema"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "jsonschema",
  "schemars",
@@ -8176,7 +8176,7 @@ dependencies = [
 [[package]]
 name = "u2s-verify-core"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "base64 0.22.1",
  "bollard",
@@ -8198,7 +8198,7 @@ dependencies = [
 [[package]]
 name = "u2s-xfa"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "ab_glyph",
  "base64 0.22.1",
@@ -8221,7 +8221,7 @@ dependencies = [
 [[package]]
 name = "u2s-xfa-mcp"
 version = "0.1.0"
-source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a1b9248f1dc2a41bee323340e30b82b7da157b55#a1b9248f1dc2a41bee323340e30b82b7da157b55"
+source = "git+ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git?rev=a37be1b13f78a80e23ed9a8ce687c2403d6c2be5#a37be1b13f78a80e23ed9a8ce687c2403d6c2be5"
 dependencies = [
  "anyhow",
  "env_logger",

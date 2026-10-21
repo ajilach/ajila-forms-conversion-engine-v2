@@ -329,3 +329,29 @@ fn a_master_page_access_change_lands_on_its_own_page_area_copy() {
         ]
     );
 }
+
+/// The BANH pattern: the costs checkbox opens the protected account field in
+/// its `click` script, and closes and empties it again. A set simulates a
+/// person, who changes a checkbox by pressing it, so the click script runs
+/// and its access change is reported, as a press of the box would.
+#[test]
+fn setting_a_checkbox_runs_its_click_script() {
+    let mut form = XfaForm::new(template(&format!(
+        r#"<field name="Costs" w="200pt" h="20pt"><ui><checkButton/></ui><items><text>1</text><text>0</text></items>{}</field>{}"#,
+        script(
+            "click",
+            r#"if (this.rawValue == 1) { Body.Account.access = "open"; } else { Body.Account.access = "protected"; Body.Account.rawValue = ""; }"#
+        ),
+        text_field("Account", r#"access="protected""#, "")
+    )))
+    .expect("form");
+    assert_eq!(access_of(&form, "Root.Body.Account").0, FieldAccess::Protected);
+
+    let ticked = form.interact("Root.Body.Costs", "1").expect("tick");
+    assert!(ticked.access_changed, "ticking must report the field it opens");
+    assert_eq!(access_of(&form, "Root.Body.Account").0, FieldAccess::Open);
+
+    form.interact("Root.Body.Account", "12345").expect("the opened field takes a value");
+    form.interact("Root.Body.Costs", "0").expect("untick");
+    assert_eq!(access_of(&form, "Root.Body.Account").0, FieldAccess::Protected);
+}

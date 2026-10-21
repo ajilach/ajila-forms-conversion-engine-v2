@@ -48,7 +48,7 @@ pub fn generate_aem_xml_with_passthrough(
     // for one built from an XFA source. See `super::normalize`.
     let mut root = root.clone();
     super::normalize::normalize(&mut root);
-    let index = RenderIndex::build(&root);
+    let index = RenderIndex::build(&root)?;
     super::lower::form_xml(&root, config, &index, pass)
 }
 
@@ -103,9 +103,9 @@ pub(super) struct RenderIndex {
 }
 
 impl RenderIndex {
-    pub(super) fn build(root: &AemNode) -> Self {
-        let twins = collect_signature_twins(root);
-        Self {
+    pub(super) fn build(root: &AemNode) -> Result<Self, String> {
+        let twins = collect_signature_twins(root)?;
+        Ok(Self {
             visibility: collect_panel_visibility(root),
             guide_paths: collect_guide_paths(root),
             resets: collect_configurator_resets(root),
@@ -116,7 +116,7 @@ impl RenderIndex {
             twin_data_panels: twins.1,
             jump_to_field_repeatables: collect_jump_to_field_repeatables(root),
             first_page: first_page(root),
-        }
+        })
     }
 }
 
@@ -333,62 +333,48 @@ fn node_children(node: &AemNode) -> &[AemNode] {
     }
 }
 
+/// The twin pairs: data Repeatable → its twin's repeat panel, and twin → data Repeatable.
+type TwinPairs = (HashMap<String, String>, HashMap<String, String>);
+
 /// Which signature panel repeats in step with which data panel.
 ///
 /// A party's signature block is a panel of its own, on the signature step, that
 /// has to gain and lose a row whenever the party's data panel does. It has no Add
-/// and no Remove of its own — one there would let the two desync — so the data
+/// and no Remove of its own (one there would let the two desync), so the data
 /// panel's buttons drive both, naming the twin globally because it lives on
 /// another step (PROBLEM-repeating-panel §8).
 ///
-/// The pairing is by name, the convention the UBS fragment catalogue fixes:
-/// `PN_CPGRP` is signed by `PN_SGN_CPGRP`, `PN_AHGRP` by `PN_Sign_AHGRP`. So it is
-/// resolved here rather than left to whoever authored the tree, and only when the
-/// form really holds that panel: an `addInstance` naming a panel that is not there
-/// throws and takes the rest of the click with it.
-fn collect_signature_twins(root: &AemNode) -> (HashMap<String, String>, HashMap<String, String>) {
-    // Every name in the tree, and the node that repeats under it: a
-    // repeatable's rows live in the inner panel the writer emits, not in the
-    // node the tree names.
-    let mut repeating_names: HashMap<String, Repeats> = HashMap::new();
+/// The pairing is authored, never guessed from names: a signature Repeatable
+/// names its party in `twin_of`, the party's Repeatable or the fragment that
+/// Repeatable wraps. A signature block that repeats on its own keeps its own
+/// buttons whatever it is called. A `twin_of` naming nothing that repeats is
+/// refused: an `addInstance` naming a panel that is not there throws and takes
+/// the rest of the click with it.
+fn collect_signature_twins(root: &AemNode) -> Result<TwinPairs, String> {
+    // Each repeatable by its own name and by the names of the fragments it
+    // wraps (`RCP_CPGRP` wraps `PN_CPGRP`): its rows live in the inner panel
+    // the writer emits, not in the node the tree names.
+    let mut repeating_names: HashMap<String, String> = HashMap::new();
     collect_repeating_names(root, &mut repeating_names);
 
     let mut twins = HashMap::new();
     let mut data_panels = HashMap::new();
-    collect_signature_twins_rec(root, &repeating_names, &mut twins, &mut data_panels);
-    (twins, data_panels)
+    let mut problems = Vec::new();
+    collect_signature_twins_rec(root, &repeating_names, &mut twins, &mut data_panels, &mut problems);
+    if problems.is_empty() {
+        Ok((twins, data_panels))
+    } else {
+        Err(problems.join("; "))
+    }
 }
 
-/// What repeats under a name: the tree node that owns the rows, and the AEM
-/// name of the panel an `addInstance` has to be given.
-struct Repeats {
-    node: String,
-    panel: String,
-}
-
-fn collect_repeating_names(node: &AemNode, out: &mut HashMap<String, Repeats>) {
-    match node {
-        AemNode::Repeatable { name, children, .. } => {
-            let repeats = || Repeats {
-                node: name.clone(),
-                panel: repeat_panel_name(name),
-            };
-            out.insert(name.clone(), repeats());
-            // A fragment the repeatable wraps goes by the name the fragment
-            // catalogue gives the block (`RCP_SGN_CPGRP` wraps `PN_SGN_CPGRP`),
-            // and it is the repeatable's rows that repeat under it.
-            for fragment in children.iter().filter(|c| matches!(c, AemNode::Fragment { .. })) {
-                if let Some(fragment_name) = fragment.name() {
-                    out.insert(fragment_name.to_string(), repeats());
-                }
-            }
-        }
-        _ => {
-            if let Some(name) = node.name() {
-                out.entry(name.to_string()).or_insert_with(|| Repeats {
-                    node: name.to_string(),
-                    panel: name.to_string(),
-                });
+/// Each Repeatable's name, and each fragment it wraps, → the Repeatable.
+fn collect_repeating_names(node: &AemNode, out: &mut HashMap<String, String>) {
+    if let AemNode::Repeatable { name, children, .. } = node {
+        out.insert(name.clone(), name.clone());
+        for fragment in children.iter().filter(|c| matches!(c, AemNode::Fragment { .. })) {
+            if let Some(fragment_name) = fragment.name() {
+                out.insert(fragment_name.to_string(), name.clone());
             }
         }
     }
@@ -399,65 +385,33 @@ fn collect_repeating_names(node: &AemNode, out: &mut HashMap<String, Repeats>) {
 
 fn collect_signature_twins_rec(
     node: &AemNode,
-    names: &HashMap<String, Repeats>,
+    names: &HashMap<String, String>,
     twins: &mut HashMap<String, String>,
     data_panels: &mut HashMap<String, String>,
+    problems: &mut Vec<String>,
 ) {
-    if let AemNode::Repeatable { name, children, .. } = node {
-        // The data panel the convention names the twin after is the party's own
-        // fragment where the repeatable wraps one, and the repeatable itself
-        // otherwise.
-        let sources = std::iter::once(name.as_str()).chain(
-            children
-                .iter()
-                .filter(|c| matches!(c, AemNode::Fragment { .. }))
-                .filter_map(AemNode::name),
-        );
-        if let Some(twin) = sources
-            .flat_map(|source| signature_twin_candidates(source).into_iter())
-            .find(|candidate| names.contains_key(candidate))
-        {
-            twins.insert(name.clone(), names[&twin].panel.clone());
-            data_panels.insert(names[&twin].node.clone(), name.clone());
+    if let AemNode::Repeatable { name, twin_of: Some(party), .. } = node {
+        match names.get(party.as_str()) {
+            None => problems.push(format!(
+                "`{name}` repeats with `{}`, which is no Repeatable of the form nor a fragment \
+                 one wraps",
+                party.as_str()
+            )),
+            Some(data) if data == name => {
+                problems.push(format!("`{name}` repeats with itself"));
+            }
+            Some(data) if twins.contains_key(data) => problems.push(format!(
+                "`{data}` drives more than one signature twin; a party has one"
+            )),
+            Some(data) => {
+                twins.insert(data.clone(), repeat_panel_name(name));
+                data_panels.insert(name.clone(), data.clone());
+            }
         }
     }
     for child in node_children(node) {
-        collect_signature_twins_rec(child, names, twins, data_panels);
+        collect_signature_twins_rec(child, names, twins, data_panels, problems);
     }
-}
-
-/// The names a data panel's signature twin can go by, most specific first.
-///
-/// Two conventions are in play. The UBS fragment catalogue fixes the names for a
-/// party generic — `PN_CPGRP` is signed by `PN_SGN_CPGRP` — while a hand-built
-/// party block keeps its own component prefix and marks the twin with `Sign`
-/// before or after the stem: `RCP_LR` / `RCP_Sign_LR`, `RCP_LRP` /
-/// `RCP_LRP_Sign`, both shapes measured in engine output.
-fn signature_twin_candidates(data_panel: &str) -> Vec<String> {
-    // The stem is what follows the component-type prefix: `PN_CPGRP` and
-    // `RCP_CPGRP` both name the party `CPGRP`.
-    let (prefix, stem) = match data_panel.split_once('_') {
-        Some((prefix, stem)) => (Some(prefix), stem),
-        None => (None, data_panel),
-    };
-    if stem.is_empty() {
-        return vec![];
-    }
-    // A twin is never its own data panel: `RCP_Sign_LR` must not pair with
-    // itself through the stem `Sign_LR`.
-    if stem.starts_with("Sign") || stem.starts_with("SGN") {
-        return vec![];
-    }
-    let mut names = vec![format!("PN_SGN_{stem}"), format!("PN_Sign_{stem}")];
-    if let Some(prefix) = prefix {
-        names.extend([
-            format!("{prefix}_SGN_{stem}"),
-            format!("{prefix}_Sign_{stem}"),
-            format!("{prefix}_{stem}_SGN"),
-            format!("{prefix}_{stem}_Sign"),
-        ]);
-    }
-    names
 }
 
 
@@ -900,7 +854,7 @@ fn collect_guide_paths(root: &AemNode) -> HashMap<Uuid, String> {
 // trigger value into its string form for the `==` comparison.
 
 /// Render a single `InputValue` as the string used in a `==` comparison.
-pub(super) fn condition_value_str(value: &InputValue) -> String {
+pub(crate) fn condition_value_str(value: &InputValue) -> String {
     match value {
         InputValue::Text(s) => s.clone(),
         InputValue::Number(n) => n.to_string(),
@@ -1528,6 +1482,7 @@ mod tests {
                 max_occur: 10,
                 bind_ref: None,
                 frag_ref: None,
+                twin_of: None,
             }],
         };
         let xml = generate_aem_xml(&root, &test_config()).expect("the form is written");
@@ -2346,6 +2301,7 @@ mod tests {
             max_occur: 5,
             bind_ref: None,
             frag_ref: None,
+            twin_of: None,
         };
         let xml = render_one(&node, &config);
 
@@ -2432,6 +2388,7 @@ mod tests {
             max_occur: 5,
             bind_ref: None,
             frag_ref: None,
+            twin_of: None,
         };
         let heading = |content: &str| AemNode::TitleDraw {
             attrs: AemAttrs::default(),
@@ -2516,6 +2473,7 @@ mod tests {
             max_occur: 5,
             bind_ref: None,
             frag_ref: None,
+            twin_of: None,
         };
         let xml = render_one(&node, &config);
 
@@ -2582,6 +2540,7 @@ mod tests {
                 max_occur,
                 bind_ref: None,
                 frag_ref: None,
+                twin_of: None,
             }],
             is_page: false,
             attrs: AemAttrs::default(),
@@ -2686,6 +2645,7 @@ mod tests {
                     max_occur: 5,
                     bind_ref: None,
                     frag_ref: None,
+                    twin_of: None,
                 });
                 all
             },
@@ -2826,6 +2786,7 @@ mod tests {
             max_occur: 5,
             bind_ref: None,
             frag_ref: None,
+            twin_of: None,
         };
 
         // The page holds a repeatable: the row carries the button, the title
@@ -2890,6 +2851,7 @@ mod tests {
                     max_occur: 5,
                     bind_ref: None,
                     frag_ref: None,
+                    twin_of: None,
                 }],
             )],
         };
@@ -2949,6 +2911,7 @@ mod tests {
             max_occur: 5,
             bind_ref: None,
             frag_ref: None,
+            twin_of: None,
         };
         let root = AemNode::Root {
             title: "Form".into(),
@@ -2991,10 +2954,9 @@ mod tests {
     /// party's own buttons: it has no Add and no Remove of its own, because one
     /// there would let the two desync (PROBLEM-repeating-panel §8).
     ///
-    /// The pairing is the name convention the UBS fragment catalogue fixes, so
-    /// the engine resolves it from the tree — and only when the form really holds
-    /// that panel. It is named globally, since it lives on another step, and it
-    /// is the panel that repeats that has to be named: the rows are instances of
+    /// The pairing is the twin's `twin_of`, here naming the party's fragment.
+    /// The twin is named globally, since it lives on another step, and it is
+    /// the panel that repeats that has to be named: the rows are instances of
     /// the inner panel, not of the node the tree names.
     #[test]
     fn a_party_drives_its_signature_twin() {
@@ -3023,7 +2985,7 @@ mod tests {
             attrs: AemAttrs::default(),
             visible: true,
         };
-        let party = |name: &str, child: AemNode| AemNode::Repeatable {
+        let party = |name: &str, child: AemNode, twin_of: Option<&str>| AemNode::Repeatable {
             attrs: AemAttrs::default(),
             visible: true,
             uuid: fixed_uuid(),
@@ -3034,6 +2996,7 @@ mod tests {
             max_occur: 5,
             bind_ref: None,
             frag_ref: None,
+            twin_of: twin_of.map(|t| t.to_owned().try_into().unwrap()),
         };
 
         // The party is named after the fragment it repeats, and its twin is a
@@ -3042,10 +3005,12 @@ mod tests {
             party(
                 "RCP_1",
                 fragment("PN_CPGRP", "affrg_ContractualPartnerGeneric1"),
+                None,
             ),
             signature_step(party(
                 "PN_SGN_CPGRP",
                 fragment("PN_GenericSignature", "affrg_SignatureGeneric1"),
+                Some("PN_CPGRP"),
             )),
         ]);
         assert!(
@@ -3073,6 +3038,7 @@ mod tests {
         let alone = render_tree(vec![party(
             "RCP_1",
             fragment("PN_CPGRP", "affrg_ContractualPartnerGeneric1"),
+            None,
         )]);
         assert!(
             !alone.contains("PN_SGN_CPGRP") && !alone.contains("RCP_SGN_CPGRP"),
@@ -3081,11 +3047,10 @@ mod tests {
         );
     }
 
-    /// The naming convention wants a repeatable prefixed `RCP_` and the fragment
-    /// catalogue names the signature panel `PN_SGN_CPGRP`, so a twin is a
-    /// repeatable `RCP_SGN_CPGRP` wrapping the signature fragment `PN_SGN_CPGRP`.
-    /// The fragment's name is the one the convention looks up, and it has to
-    /// lead to the panel that repeats, and mark the repeatable as the twin.
+    /// A twin that wraps the signature fragment (`RCP_SGN_CPGRP` around
+    /// `PN_SGN_CPGRP`) names its party by the party's fragment (`PN_CPGRP`),
+    /// which leads to the party's repeatable; the Add drives the twin's
+    /// repeating panel, never its fragment.
     #[test]
     fn a_signature_fragment_names_the_repeatable_that_wraps_it() {
         let fragment = |name: &str, frag_ref: &str| AemNode::Fragment {
@@ -3098,7 +3063,7 @@ mod tests {
             attrs: AemAttrs::default(),
             visible: true,
         };
-        let repeatable = |name: &str, child: AemNode| AemNode::Repeatable {
+        let repeatable = |name: &str, child: AemNode, twin_of: Option<&str>| AemNode::Repeatable {
             attrs: AemAttrs::default(),
             visible: true,
             uuid: uuid_of(name),
@@ -3109,15 +3074,18 @@ mod tests {
             max_occur: 4,
             bind_ref: None,
             frag_ref: None,
+            twin_of: twin_of.map(|t| t.to_owned().try_into().unwrap()),
         };
         let xml = render_tree(vec![
             repeatable(
                 "RCP_CPGRP",
                 fragment("PN_CPGRP", "affrg_ContractualPartnerGeneric1"),
+                None,
             ),
             repeatable(
                 "RCP_SGN_CPGRP",
                 fragment("PN_SGN_CPGRP", "affrg_SignatureGeneric1"),
+                Some("PN_CPGRP"),
             ),
         ]);
         assert!(
@@ -3132,14 +3100,13 @@ mod tests {
         );
     }
 
-    /// A hand-built party block marks its twin with `Sign` around the stem, and
-    /// keeps its own component prefix: `RCP_LR` is signed by `RCP_Sign_LR`,
-    /// `RCP_LRP` by `RCP_LRP_Sign`. Both shapes are engine output (AAOS), and
-    /// both twins used to carry an Add and a Remove of their own, which is what
-    /// lets the two panels desync.
+    /// A twin of a hand-built party block names the party's repeatable, and
+    /// gives up its own Add and Remove, which is what would let the two panels
+    /// desync. Whatever either is called: `RCP_LR` with `RCP_Sign_LR`, and two
+    /// names that share nothing.
     #[test]
-    fn a_hand_built_signature_twin_is_recognised_and_gives_up_its_buttons() {
-        let party = |name: &str, title: &str| AemNode::Repeatable {
+    fn a_twin_names_its_party_and_gives_up_its_buttons() {
+        let party = |name: &str, title: &str, twin_of: Option<&str>| AemNode::Repeatable {
             attrs: AemAttrs::default(),
             visible: true,
             uuid: uuid_of(name),
@@ -3150,15 +3117,16 @@ mod tests {
             max_occur: 4,
             bind_ref: None,
             frag_ref: None,
+            twin_of: twin_of.map(|t| t.to_owned().try_into().unwrap()),
         };
 
         for (data, twin, twin_repeat) in [
             ("RCP_LR", "RCP_Sign_LR", "RCP_Sign_LR_repeat"),
-            ("RCP_LRP", "RCP_LRP_Sign", "RCP_LRP_Sign_repeat"),
+            ("RCP_Holders", "RCP_Signatures", "RCP_Signatures_repeat"),
         ] {
             let xml = render_tree(vec![
-                party(data, "Legal representative"),
-                party(twin, "Signature"),
+                party(data, "Legal representative", None),
+                party(twin, "Signature", Some(data)),
             ]);
 
             // The data panel drives both.
@@ -3196,6 +3164,54 @@ mod tests {
                 xml
             );
         }
+    }
+
+    /// A signature block is a twin only when it says so: one named like a
+    /// party's twin (`RCP_SGN_Client` beside `RCP_Client`) but without
+    /// `twin_of` repeats on its own, with its own Add and Remove.
+    #[test]
+    fn a_signature_named_like_a_twin_repeats_on_its_own() {
+        let repeatable = |name: &str| AemNode::Repeatable {
+            attrs: AemAttrs::default(),
+            visible: true,
+            uuid: uuid_of(name),
+            name: name.into(),
+            title: "Client".into(),
+            children: vec![],
+            min_occur: 1,
+            max_occur: 5,
+            bind_ref: None,
+            frag_ref: None,
+            twin_of: None,
+        };
+        let xml = render_tree(vec![repeatable("RCP_Client"), repeatable("RCP_SGN_Client")]);
+        assert!(
+            !xml.contains("window.forms.ubs.addInstance(RCP_SGN_Client_repeat);"),
+            "the client's Add must not drive the signature. Got:\n{xml}"
+        );
+        assert_eq!(xml.matches("name=\"BT_Add\"").count(), 2, "each keeps its Add. Got:\n{xml}");
+    }
+
+    /// A `twin_of` that names no repeatable is refused: the party's Add would
+    /// name a panel that is not there.
+    #[test]
+    fn a_twin_of_nothing_that_repeats_is_refused() {
+        let twin = AemNode::Repeatable {
+            attrs: AemAttrs::default(),
+            visible: true,
+            uuid: uuid_of("RCP_SGN_Client"),
+            name: "RCP_SGN_Client".into(),
+            title: "Client".into(),
+            children: vec![],
+            min_occur: 1,
+            max_occur: 5,
+            bind_ref: None,
+            frag_ref: None,
+            twin_of: Some("RCP_Gone".to_owned().try_into().unwrap()),
+        };
+        let root = AemNode::Root { title: "Form".into(), children: vec![twin] };
+        let error = generate_aem_xml(&root, &test_config()).expect_err("an unknown party is refused");
+        assert!(error.contains("`RCP_SGN_Client` repeats with `RCP_Gone`"), "{error}");
     }
 
     /// All six rule documents, byte for byte.
@@ -3324,6 +3340,7 @@ mod tests {
                     visible: true,
                     bind_ref: None,
                     frag_ref: None,
+                    twin_of: None,
                 }],
                 is_page: true,
                 attrs: AemAttrs::default(),

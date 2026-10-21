@@ -1,5 +1,5 @@
-//! [`FlagReason`]: why the Conversion Agent stopped a conversion as
-//! unusual. The one place the model's free text becomes a value that cannot
+//! [`FlagReason`]: why the Reviewer flagged a conversion for a person to
+//! look at. The one place the model's free text becomes a value that cannot
 //! be blank or over-long.
 //!
 //! The bounds match the `runs_flag_reason_bounded` `CHECK` constraint in

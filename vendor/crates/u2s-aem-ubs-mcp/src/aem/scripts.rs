@@ -325,6 +325,54 @@ pub fn copied_value(field: &str, targets: &[String]) -> EventScript {
     }
 }
 
+const CONDITIONAL_ACCESS: &str = "conditional-access";
+
+/// One component a choice locks or unlocks: its name, the choice's values
+/// that decide it, and whether those values enable it (`true`) or disable it.
+pub struct AccessTarget {
+    pub target: String,
+    pub values: Vec<String>,
+    pub enable: bool,
+}
+
+/// A choice's rules locking and unlocking `targets` (`InputProps::enable_conditions`),
+/// the shape the issued forms write by hand: on Value Commit each target's
+/// `enabled` follows the choice, and a target it disables is emptied
+/// (`resetData`); on Initialize the targets take their opening state without
+/// being emptied, so a restored draft keeps its values. A checkbox list holds
+/// its ticked values comma-separated, so each value is looked for in that list
+/// (`checkbox`); a radio button group or a drop-down holds one value.
+pub fn conditional_access(field: &str, targets: &[AccessTarget], checkbox: bool) -> [EventScript; 2] {
+    let test = |value: &str| {
+        if checkbox {
+            format!("String(this.value).split(\",\").indexOf({}) !== -1", js_string(value))
+        } else {
+            format!("this.value == {}", js_string(value))
+        }
+    };
+    let body = |reset: bool| {
+        let mut content = generated(CONDITIONAL_ACCESS);
+        for target in targets {
+            let matched = target.values.iter().map(|v| test(v)).collect::<Vec<_>>().join(" || ");
+            let state = if target.enable {
+                format!("this.value !== null && ({matched})")
+            } else {
+                format!("!(this.value !== null && ({matched}))")
+            };
+            let name = &target.target;
+            content.push_str(&format!("\n{name}.enabled = {state};"));
+            if reset {
+                content.push_str(&format!("\nif (!{name}.enabled) {{\n  {name}.resetData();\n}}"));
+            }
+        }
+        content
+    };
+    [ScriptEvent::ValueCommit, ScriptEvent::Initialize].map(|event| EventScript {
+        archetype: Some(CONDITIONAL_ACCESS.into()),
+        ..EventScript::event(field, event, body(event == ScriptEvent::ValueCommit))
+    })
+}
+
 const CALCULATED_VALUE: &str = "calculated-value";
 
 /// An input's Calculate rule (`InputProps::calculate`): it always holds

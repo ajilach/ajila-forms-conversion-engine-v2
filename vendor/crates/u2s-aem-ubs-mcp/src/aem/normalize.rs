@@ -1221,6 +1221,7 @@ mod tests {
                 visible: true,
                 bind_ref: None,
                 frag_ref: None,
+                twin_of: None,
             }],
         )]);
         headings_leave_table_mode(&mut tree);

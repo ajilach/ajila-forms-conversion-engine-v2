@@ -97,7 +97,6 @@ pub enum NativeJsonTool {
     RuleHistory,
     Verify,
     AdoptReference,
-    FlagUnusual,
 }
 
 /// Where a native tool's body actually runs.
@@ -138,9 +137,6 @@ pub enum Route {
     /// target system, which takes the encoder, the verifier server and the
     /// blob store.
     Verifier,
-    /// Answered by `u2s_agent`'s run state, which records the flag and ends
-    /// the conversion after the current round. Touches no document.
-    Flag,
 }
 
 impl NativeJsonTool {
@@ -158,7 +154,6 @@ impl NativeJsonTool {
         NativeJsonTool::RuleHistory,
         NativeJsonTool::Verify,
         NativeJsonTool::AdoptReference,
-        NativeJsonTool::FlagUnusual,
     ];
 
     /// What a judge reads the output with: the readers and nothing that
@@ -199,7 +194,6 @@ impl NativeJsonTool {
         NativeJsonTool::CheckRules,
         NativeJsonTool::Autofix,
         NativeJsonTool::AdoptReference,
-        NativeJsonTool::FlagUnusual,
     ];
 
     pub fn name(self) -> &'static str {
@@ -217,7 +211,6 @@ impl NativeJsonTool {
             NativeJsonTool::RuleHistory => "rule_history",
             NativeJsonTool::Verify => "verify_output",
             NativeJsonTool::AdoptReference => "reference_adopt",
-            NativeJsonTool::FlagUnusual => "flag_unusual",
         }
     }
 
@@ -316,16 +309,6 @@ impl NativeJsonTool {
                  from your source. Discards every edit made so far. Returns the new revision \
                  and the rules the reference is known to fail, which you must fix."
             }
-            NativeJsonTool::FlagUnusual => {
-                "Stop this conversion as unusual, because it is obvious that the source does not \
-                 match what the rules, the output schema or the dataset instructions expect: for \
-                 example a different kind of document, a different form, or a source with no \
-                 readable content. Ends the run without an output once this turn is over: no \
-                 further tool call is answered, and a person reads your reason. The reason must \
-                 name what the requirements expect and what the source actually is. Not for a \
-                 single value you cannot find or read: convert the document and say so in your \
-                 summary instead. Can be called once per run."
-            }
         }
     }
 
@@ -348,7 +331,6 @@ impl NativeJsonTool {
                 | NativeJsonTool::Propose
                 | NativeJsonTool::Verify
                 | NativeJsonTool::AdoptReference
-                | NativeJsonTool::FlagUnusual
         )
     }
 
@@ -363,7 +345,6 @@ impl NativeJsonTool {
             NativeJsonTool::RuleHistory => Route::RuleHistory,
             NativeJsonTool::Verify => Route::Verifier,
             NativeJsonTool::AdoptReference => Route::ReferenceAdopter,
-            NativeJsonTool::FlagUnusual => Route::Flag,
             NativeJsonTool::Outline
             | NativeJsonTool::Get
             | NativeJsonTool::Search
@@ -387,7 +368,6 @@ impl NativeJsonTool {
             NativeJsonTool::CheckRules => tool_input_schema::<CheckRulesArgs>(),
             NativeJsonTool::Autofix => tool_input_schema::<AutofixArgs>(),
             NativeJsonTool::AdoptReference => tool_input_schema::<AdoptReferenceArgs>(),
-            NativeJsonTool::FlagUnusual => tool_input_schema::<FlagUnusualArgs>(),
             NativeJsonTool::Propose => tool_input_schema::<ProposeArgs>(),
             NativeJsonTool::RuleHistory => tool_input_schema::<RuleHistoryArgs>(),
             NativeJsonTool::TryRule => tool_input_schema::<TryRuleArgs>(),
@@ -503,15 +483,6 @@ pub struct AdoptReferenceArgs {
     pub reference_id: String,
 }
 
-/// `flag_unusual`'s arguments.
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-#[schemars(deny_unknown_fields)]
-pub struct FlagUnusualArgs {
-    /// What the requirements expect, and what the source actually is
-    #[schemars(length(min = 1, max = u2s_core::MAX_FLAG_REASON_CHARS))]
-    pub reason: String,
-}
-
 /// `rule_propose`'s arguments.
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 #[schemars(deny_unknown_fields)]
@@ -600,8 +571,6 @@ pub enum NativeToolError {
     NoRuleHistory,
     #[error("the rule's history could not be read: {detail}")]
     RuleHistoryFailed { detail: String },
-    #[error("the conversion was not flagged: {detail}")]
-    FlagRefused { detail: String },
     #[error(
         "reference_adopt is unavailable because this agent has no reference adopter wired; \
          the document was not changed"
@@ -790,9 +759,6 @@ pub fn dispatch(
         NativeJsonTool::AdoptReference => Err(NativeToolError::PatchRejected {
             detail: "reference_adopt is dispatched through the reference adopter, not here"
                 .to_owned(),
-        }),
-        NativeJsonTool::FlagUnusual => Err(NativeToolError::PatchRejected {
-            detail: "flag_unusual is recorded by the run, not here".to_owned(),
         }),
     }
 }
@@ -1172,7 +1138,6 @@ mod tests {
                     | NativeJsonTool::Propose
                     | NativeJsonTool::Verify
                     | NativeJsonTool::AdoptReference
-                    | NativeJsonTool::FlagUnusual
             );
             assert_eq!(tool.is_idempotent(), !mutates, "{}", tool.name());
         }
