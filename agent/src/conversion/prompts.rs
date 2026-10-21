@@ -186,6 +186,13 @@ visibility hook for it (a Visibility script and an Initialize script calling \
 are materialised by the same hook. These two verbs are how UBS shows or hides something in the form \
 and the Document of Record together; you reach them through `is_conditional` and `conditions`, or \
 through a partner generic's `init_hide` and `init_show`, never by writing a script. \
+LOCKS: a choice that protects or opens inputs in the source (a field opened by ticking a box, a \
+section locked by a \"same as\" answer; xfa_click each value and read `access_changes`) carries \
+`enable_conditions` (`target_name`, `value`, `enable`), from which the writer generates the \
+choice's rules; the target stays shown and is not `read_only`. \
+SIGNATURE TWINS: a signature Repeatable repeats with a party's rows only when it names the party \
+in `twin_of`, which you set where pressing the party's Add in the source also adds a signature; a \
+signature with an Add of its own has none, whatever it is called. \
 WHERE A NODE SHOWS UP is four separate switches, ordinary fields on every node (a json_patch \
 `replace` or `add` on the node), next to `css`, `jump_to_field`, `dor_header_slot` and \
 `show_if_hidden`: the UBS Document of Record is rendered by Redacto from the SUMMARY data, so \
@@ -253,9 +260,8 @@ review procedure and fix what it shows before you hand over: do not leave a stru
 dropped condition or a page that will not advance when you could see it yourself. End with \
 finish_authoring; it is refused until the procedure's gated steps are done on your last build. Say \
 in its summary which sections you compared against the source pages, what you changed, the \
-BEHAVIOUR PARITY you checked, and what the verification showed. List the party and signature pairs \
-that need the signer-name fill, which is not generated (a person adds it in AEM), and, on a form \
-that ships no English, the party titles the feedback guard may relabel. \
+BEHAVIOUR PARITY you checked, and what the verification showed. On a form that ships no English, \
+list the party titles the feedback guard may relabel. \
 If REVIEW FEEDBACK appears below, address EVERY point from every round, then rebuild; where it \
 tells you to leave a node as it is (two rules ask for opposite things there), leave it.";
 

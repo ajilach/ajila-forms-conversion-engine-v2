@@ -34,12 +34,14 @@ the copies bind to one schema element, so AEM keeps their fields in one party.
 A signature is a Repeatable wrapping `affrg_SignatureGeneric1`, both named after the party:
 `RCP_SGN_CPGRP` around `PN_SGN_CPGRP` for `PN_CPGRP`; `RCP_Sign_AHGRP` around `PN_Sign_AHGRP` for
 `PN_AHGRP` (`RCP_Sign_AHGRP_AR` and `PN_Sign_AHGRP_AR` for `PN_AHGRP_AR`); `RCP_SGN_BOGRP` and
-`PN_SGN_BOGRP`; `RCP_SGN_PAGRP` and `PN_SGN_PAGRP`. The name is the pairing: the writer makes the
-party's Add and Remove add and remove the signature row too (UBS-SIG-3), and gives the signature
-repeatable no buttons of its own, so a misspelled name silently unpairs them. A signature that pairs
-with no party (the bank's, `RCP_SGN_UBS` around `PN_SGN_UBS`; a signer whose data the source does
-not capture, `RCP_SGN_<stem>` with a stem none of `CPGRP`, `AHGRP`, `AHGRP_AR`, `BOGRP`, `PAGRP`)
-keeps its own Add and Remove.
+`PN_SGN_BOGRP`; `RCP_SGN_PAGRP` and `PN_SGN_PAGRP`. The names pair nothing. A signature that gains
+a row whenever the party does, because pressing the party's Add in the source also adds a
+signature, names the party in `twin_of` (the party's fragment, `PN_CPGRP`, or its Repeatable): the
+writer then makes the party's Add and Remove add and remove the signature row too (UBS-SIG-3) and
+gives the signature repeatable no buttons of its own. Every other signature (the bank's,
+`RCP_SGN_UBS` around `PN_SGN_UBS`; one the source adds and removes with its own buttons; a signer
+whose data the source does not capture) has no `twin_of` and keeps its own Add and Remove
+(ubs-aem-account-holder-cluster).
 
 Reported: a partner generic that is not a child of a Repeatable; partner generics of two roles in
 one Repeatable; two copies in one row that both show a sub-panel; a sub-panel in `init_hide` or

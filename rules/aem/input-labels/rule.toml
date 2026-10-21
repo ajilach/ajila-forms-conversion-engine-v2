@@ -3,9 +3,12 @@ title = "Every input has a usable label"
 output_formats = ["aem-ubs"]
 description = """
 Each text, number and date field, dropdown, checkbox and radio button has its own label, in each
-of the form's languages: the question it asks, plain text (CNV-INP-1). A label is not usable when
-it is empty, only a parenthetical hint such as `(optional)`, marked up, a placeholder of filler
-characters (`____`, `...`), or a technical field name (`RB_Rb31`). Inputs may share a label where
+of the form's languages: the question it asks (CNV-INP-1). A label may carry markup: rich text
+where the source formats its caption, and a footnote reference where the source marks the caption,
+with its hidden description in the same label (ubs-aem-footnotes); the writer marks such a label
+rich text. What counts is the text it shows: a label is not usable when that is empty, only a
+parenthetical hint such as `(optional)`, a placeholder of filler characters (`____`, `...`), or a
+technical field name (`RB_Rb31`). Inputs may share a label where
 the source gives them the same caption; only their names are unique. They stay distinguishable by
 their group: inputs under a common heading text (a column or block of a grid, "Issued by" over
 "OU ref." and "Date") form a Panel opened by a TitleDraw with that text, groups read left to right,

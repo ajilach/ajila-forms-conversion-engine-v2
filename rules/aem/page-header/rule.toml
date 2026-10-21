@@ -27,7 +27,8 @@ The first page (the first `Panel` under `form` with `is_page: true`) opens with 
    `/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_CustodyAccount1`, kept in the
    Document of Record. The issued forms also copy its number into a header slot through a hidden
    text box reading the fragment's own field; a `calculate` cannot name that field, so no such
-   copy is authored.
+   copy is authored. A text or heading follows it, so it carries `css: "ubs-margin-20"`
+   (ubs-aem-margin-before-text).
 4. The page-furniture notices, each a `MessageBox` in the source's order: the red master-page text
    of page 1 (a red `color` on the draw's `font`, UBS-PAGE-3), then other master-page header text particular
    to the form (UBS-PAGE-4). Header text that describes the issuer is a further line of the `slot2`

@@ -25,11 +25,12 @@ a field's `bind`).
   relationship (UBS-VAL-1) is not authored again: it is the banking relationship's, which prints
   in the Document of Record's header.
 
-A value the source protects is `read_only` (shown, printed and submitted, not changeable); the
-model has no separate disabled state. A fixed literal is a read-only input with that
-`default_value`. An input the source unlocks by a choice (in the `access_changes` of an xfa_set
-result) stays editable. A choice that locks or copies a whole section has no AEM equivalent: the
-section is hidden under that choice instead (ubs-aem-redundant-sections).
+A value the source protects for good is `read_only` (shown, printed and submitted, not
+changeable). A fixed literal is a read-only input with that `default_value`. An input a choice
+locks or unlocks (in the `access_changes` of an xfa_set or xfa_click result, or a script setting
+`access`) is not `read_only`: the choice's `enable_conditions` lock and unlock it, and a choice
+that locks a whole section locks the section's Panel the same way (ubs-aem-conditional-access).
+AEM has no choice-dependent copy, so a section the source copies another into is only locked.
 Precedence: a value a sentence prints is not copied (ubs-aem-floating-fields), and a letter's
 subject names its fields itself.
 

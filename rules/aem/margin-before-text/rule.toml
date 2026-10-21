@@ -1,0 +1,24 @@
+id = "ubs-aem-margin-before-text"
+title = "An input before a text keeps its distance"
+output_formats = ["aem-ubs"]
+description = """
+Where an input is followed by a text or a heading, the component holding the input carries the
+margin class `ubs-margin-20` in its `css`, so the text does not stick to the field above it (AF
+design guidelines 28: the margin classes set `margin-bottom`). The component is the one directly
+before the text, a sibling of it:
+
+- an input (TextField, NumberField, DatePicker, Dropdown, Checkbox, RadioButton): the writer keeps
+  its widget class and adds the margin after it;
+- a Fragment whose last item is an input, as the bank's fragments open: the custody account, an
+  account, an address, a party, a signature (not an internal-bank-use block);
+- a Panel or a Repeatable whose last item ends in an input, by the same measure.
+
+The text is a TextDraw, TitleDraw, HtmlDisplayer or MessageBox, or a Panel that starts with one,
+in the same page: the pages are wizard steps, each a screen of its own.
+The `Preface` writes its own `ubs-margin-20` and needs none.
+
+Reported: each such component without `ubs-margin-20`, at its `css` (at the node where it has none).
+
+Fix: add `ubs-margin-20` to that node's `css` (append it, separated by a space, to any class
+already there).
+"""

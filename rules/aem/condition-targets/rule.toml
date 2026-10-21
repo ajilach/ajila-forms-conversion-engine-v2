@@ -18,8 +18,8 @@ and hide the panel in the form and the Document of Record together); a Panel lef
 it yields a panel that is invisible forever (and a repeatable inside it renders one instance). A
 field, a text or a repeatable that the source shows or hides is wrapped in a conditional Panel.
 Renaming a panel without renaming the conditions that name it leaves a rule that looks right in
-the editor and never fires. A choice that locks or copies a whole section hides that section
-(ubs-aem-redundant-sections).
+the editor and never fires. A choice that locks rather than hides inputs or a section uses
+`enable_conditions`, not a condition (ubs-aem-conditional-access).
 
 Reported:
 

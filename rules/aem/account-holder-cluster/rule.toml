@@ -61,12 +61,15 @@ SIGNATURES (UBS-SIG-1 to 7):
   option (client for private persons, authorized representative for companies, legal guardian for
   minors, signatory where the form says so). Signatures whose role, bounds or alignment differ per
   option are one per option, in that option's conditional Panel.
-- A signature repeated per party (pressing the party's add control also adds a signature) is the
-  party's twin: the same `min_occur` and `max_occur` as the party row, and as many signatures as
-  parties. A single signer is 1 and 1; legal guardians signing for a minor take the source's bounds.
+- A signature is the party's twin only where the source ties them: pressing the party's add control
+  also adds a signature row (xfa_click on the party's Add, then count the signature rows). The twin
+  names the party in `twin_of` and takes the party row's `min_occur` and `max_occur`. A signature
+  block with an add control of its own repeats on its own: no `twin_of`, whatever its or the
+  party's name, and its own bounds from the source. A single signer is 1 and 1; legal guardians
+  signing for a minor take the source's bounds.
 - The bank's signatures pair with no party; UBS Europe SE signs as ubs-aem-signatures says.
 - The signer's name is filled from the party's first and last name (UBS-SIG-4): the writer does it
-  for every signature Repeatable paired with a party whose partner generic shows
+  for every twin (`twin_of`) of a party whose partner generic shows
   `PN_IndividualBasic`, on a hidden field beside the rows, as the names change and when a form opens
   with a party but no signer's name. Nothing is authored for it; a signature of the bank, of legal
   guardians or of anyone else the form captures no data for gets none.
@@ -88,10 +91,12 @@ A break is a missing or invented party or signature for an option, a party in th
 generic, a name pair with a role modelled as plain fields or a role-less one or a single name input
 as a party, a minor
 modelled as a partner, a party's own address or field outside its row or a shared one inside it, a
-signature count, role or bounds that differ from the source, a twin whose bounds differ from its
-party's, or a party or signature named off the convention, which unpairs them.
+signature count, role or bounds that differ from the source, a `twin_of` on a signature the source
+adds with its own buttons, a signature the source adds with the party's that has none, or a twin
+whose bounds differ from its party's.
 
 Fix: add, remove or move the party or signature Repeatable in the option's panel; change its
-generic and its names to the role's; set the twin's bounds to the party's; turn a role-less name
+generic and its names to the role's; set or remove `twin_of` as the source ties the rows; set
+the twin's bounds to the party's; turn a role-less name
 pair into `TextField`s and a party section into a partner generic.
 """

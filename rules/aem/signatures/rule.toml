@@ -10,8 +10,10 @@ A signature block of the source (place, date and name with an empty signing area
 `RCP_SGN_<stem>` wrapping one `Fragment` of `affrg_SignatureGeneric1` named `PN_SGN_<stem>`, also for
 a single signer (bounds 1 and 1). The fragment has no heading of its own: the Repeatable's `title` is
 the block's heading, row heading and Add label (UBS-SIG-1). Where all its rows share one place and
-date, the fragment has `shared_place_date: true` (UBS-SIG-7); the signer's name of a party's
-signature is filled by the writer (UBS-SIG-4, ubs-aem-account-holder-cluster). Inputs the source adds to a signature
+date, the fragment has `shared_place_date: true` (UBS-SIG-7). A signature that repeats with a
+party's rows names that party in `twin_of`, and only then (ubs-aem-account-holder-cluster); the
+signer's name of a twin is filled by the writer (UBS-SIG-4). A `twin_of` names a party Repeatable
+or the partner fragment it wraps, and the twin's bounds are the party's. Inputs the source adds to a signature
 (the signer's function) are a content `Panel` beside the fragment, inside the Repeatable (types B1).
 
 The title (UBS-SIG-1, UBS-WRD-2, UBS-WRD-3):
@@ -45,9 +47,12 @@ Reported:
   heading) without the entity heading right before it, or without "Responsible person" as its
   English title;
 - `dor_exclude` or `summary_exclude` on a signature or on a node holding one (the internal-bank-use
-  block alone may carry `summary_exclude`).
+  block alone may carry `summary_exclude`);
+- a `twin_of` that names no party Repeatable nor a fragment one wraps, and a twin whose bounds
+  differ from its party's.
 
 Fix: wrap a bare signature fragment in its Repeatable; rewrite the title as the signer or the
 block's own heading, per language; give the bank's signature its entity heading and title; delete
-the exclusion flags (the nodes stay hidden where their conditions hide them).
+the exclusion flags (the nodes stay hidden where their conditions hide them); point `twin_of` at
+the party, or remove it, and give a twin its party's bounds.
 """

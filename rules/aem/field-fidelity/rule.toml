@@ -22,7 +22,8 @@ separate draw or field beside it) is a DatePicker: ubs-aem-dates takes precedenc
 Its properties: options in the source's order with the labels it shows, none missing or invented
 (values: ubs-aem-options-wellformed); `default_value` from `default`; `mandatory` from `mandatory`
 (a Checkbox too, where a confirmation must be ticked); `read_only` where `access` is not `open`
-(ubs-aem-copied-values); a TextField's `max_chars` from `max_chars` (a Multiline field takes no
+and no choice opens it (ubs-aem-copied-values; one a choice locks or opens has `enable_conditions`
+on that choice instead, ubs-aem-conditional-access); a TextField's `max_chars` from `max_chars` (a Multiline field takes no
 limit); a NumberField's `lead_digits` and `frac_digits` from its `format` picture or `max_chars`
 (`frac_digits` 0 for whole numbers); `visible`; `colspan` from `positions` and the page (12 full
 width, 6 where two fields share a row; ubs-aem-grid-widths).

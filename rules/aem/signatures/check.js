@@ -209,5 +209,33 @@ function check(output, ctx) {
     }
   }
   visit(output.form, "/form", []);
+
+  // A twin (`twin_of`) names a party Repeatable, or the fragment one wraps, and repeats with its
+  // bounds: the party's Add and Remove are the only ones it has.
+  const parties = {};
+  const twins = [];
+  function collect(node, pointer) {
+    if (node.type === "Repeatable") {
+      parties[node.name] = node;
+      (node.children || []).forEach(function (c) {
+        if (c.type === "Fragment") parties[c.name] = node;
+      });
+      if (typeof node.twin_of === "string") twins.push({ node: node, pointer: pointer });
+    }
+    (node.children || []).forEach(function (c, i) { collect(c, pointer + "/children/" + i); });
+  }
+  collect(output.form, "/form");
+  twins.forEach(function (twin) {
+    const party = parties[twin.node.twin_of];
+    if (!party || party === twin.node) {
+      report(twin.pointer + "/twin_of", "`" + twin.node.name + "` repeats with `" + twin.node.twin_of + "`, which is " +
+        "no party Repeatable of the form nor a fragment one wraps: name the party's Repeatable or its fragment, " +
+        "or remove twin_of where the source's signature has an Add of its own");
+    } else if (party.min_occur !== twin.node.min_occur || party.max_occur !== twin.node.max_occur) {
+      report(twin.pointer + "/min_occur", "`" + twin.node.name + "` repeats with `" + party.name + "` but has bounds " +
+        twin.node.min_occur + ".." + twin.node.max_occur + " where the party has " + party.min_occur + ".." +
+        party.max_occur + ": a twin has as many rows as its party, so take the party's bounds");
+    }
+  });
   return { pass: violations.length === 0, violations: violations };
 }

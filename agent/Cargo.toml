@@ -60,6 +60,8 @@ test-utils = []
 [dev-dependencies]
 # The tool executor is async; the tests drive it directly.
 tokio = { version = "1", features = ["macros", "rt"] }
+# Reads the fragment library's content XML, to derive what a rule embeds about the fragments.
+u2s-mapper-aem = { workspace = true }
 # Runs a rule's check script directly, for the rule tests.
 u2s-rules = { workspace = true }
 # Opens a built package, to see what a rule's shape becomes in it.

@@ -68,7 +68,10 @@ fn the_golden_documents_pass_every_rule_but_the_defects_they_carry() {
     // - `label-visibility`: AAOS_033_IT's radio groups labelled with a 339-character sentence;
     // - `quotes`: AAEV_019_EN quoting 'grantor' and 'simple' with straight single quotes;
     // - `dates`: AABF_019's month-and-year date pickers;
-    // - `signatures`: AABF_019's signature fragments outside a Repeatable.
+    // - `signatures`: AABF_019's signature fragments outside a Repeatable, and its `RCP_Sign_AHGRP`
+    //   twin opening with two rows where its party opens with one;
+    // - `margin-before-text`: inputs, party rows and account blocks followed by a text or heading
+    //   with no `ubs-margin-20`, which the retired engine never wrote.
     let known = |form: &str, rule: &str| match (form, rule) {
         ("AAOS_033_IT", "configurator-panels") => 1,
         ("AAOS_033_IT", "grid-widths") => 2,
@@ -76,6 +79,7 @@ fn the_golden_documents_pass_every_rule_but_the_defects_they_carry() {
         ("AAOS_033_IT", "input-labels") => 7,
         ("AAOS_033_IT", "issuer-information") => 1,
         ("AAOS_033_IT", "label-visibility") => 2,
+        ("AAOS_033_IT", "margin-before-text") => 2,
         ("AAOS_033_IT", "options-wellformed") => 11,
         ("AAOS_033_IT", "repeatable-title") => 2,
         ("AAEV_019_EN", "quotes") => 1,
@@ -85,9 +89,10 @@ fn the_golden_documents_pass_every_rule_but_the_defects_they_carry() {
         ("AABF_019", "grid-widths") => 1,
         ("AABF_019", "headings-rendered-once") => 5,
         ("AABF_019", "input-labels") => 63,
+        ("AABF_019", "margin-before-text") => 14,
         ("AABF_019", "options-wellformed") => 25,
         ("AABF_019", "repeatable-title") => 1,
-        ("AABF_019", "signatures") => 3,
+        ("AABF_019", "signatures") => 4,
         ("AABF_019", "text-languages-complete") => 16,
         _ => 0,
     };
@@ -102,6 +107,86 @@ fn the_golden_documents_pass_every_rule_but_the_defects_they_carry() {
             );
         }
     }
+}
+
+/// `margin-before-text` embeds which of the bank's fragments end in an input,
+/// since a check cannot read the fragment library. This derives the same list
+/// from the profile's fragment content: the root panel's last visible item,
+/// following nested fragments.
+#[test]
+fn the_margin_rule_knows_which_fragments_end_in_an_input() {
+    use u2s_mapper_aem::jcr::tree::{JcrNode, parse_jcr_xml};
+
+    const INPUTS: [&str; 8] = [
+        "guideTextBox", "guideDatePicker", "guideCheckBox", "guideRadioButton",
+        "guideDropDownList", "guideNumericBox", "guideTelephone", "guideEmail",
+    ];
+    let library = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../vendor/crates/u2s-aem-ubs-mcp/profiles/ubs/aem/fragments");
+    let load = |lib: &str, name: &str| -> Option<JcrNode> {
+        let xml = std::fs::read_to_string(library.join(lib).join(name).join(".content.xml")).ok()?;
+        Some(parse_jcr_xml(&xml).unwrap_or_else(|e| panic!("{lib}/{name}: {e:?}")))
+    };
+    fn root_panel(node: &JcrNode) -> Option<&JcrNode> {
+        if node.tag_name == "rootPanel" || node.attr("guideNodeClass") == Some("rootPanelNode") {
+            return Some(node);
+        }
+        node.children.iter().find_map(root_panel)
+    }
+    // Some(true): ends in an input; Some(false): in something else; None: shows nothing.
+    fn last(node: &JcrNode, load: &dyn Fn(&str, &str) -> Option<JcrNode>) -> Option<bool> {
+        if matches!(node.attr("visible"), Some("false" | "{Boolean}false")) {
+            return None;
+        }
+        if let Some(frag_ref) = node.attr("fragRef") {
+            let parts: Vec<&str> = frag_ref.trim_end_matches('/').rsplit('/').take(2).collect();
+            return Some(
+                load(parts[1], parts[0])
+                    .and_then(|fragment| root_panel(&fragment).and_then(|root| last(root, load)))
+                    == Some(true),
+            );
+        }
+        let class = node.attr("guideNodeClass");
+        if class.is_some_and(|c| INPUTS.contains(&c)) {
+            return Some(true);
+        }
+        if let Some(items) = node.children.iter().find(|c| c.tag_name == "items") {
+            return items.children.iter().rev().find_map(|child| last(child, load));
+        }
+        class.map(|_| false)
+    }
+
+    let mut derived = Vec::new();
+    let mut libs: Vec<_> = std::fs::read_dir(&library).unwrap().map(|e| e.unwrap().file_name()).collect();
+    libs.sort();
+    for lib in libs {
+        let lib = lib.to_string_lossy().into_owned();
+        let mut names: Vec<_> =
+            std::fs::read_dir(library.join(&lib)).unwrap().map(|e| e.unwrap().file_name()).collect();
+        names.sort();
+        for name in names {
+            let name = name.to_string_lossy().into_owned();
+            let ends = load(&lib, &name)
+                .and_then(|fragment| root_panel(&fragment).and_then(|root| last(root, &load)));
+            if ends == Some(true) {
+                derived.push(format!("{lib}/{name}"));
+            }
+        }
+    }
+
+    let script =
+        std::fs::read_to_string(rules_dir().join("margin-before-text").join("check.js")).unwrap();
+    let list = script
+        .split("const ENDS_IN_INPUT = [")
+        .nth(1)
+        .and_then(|rest| rest.split("];").next())
+        .expect("the check embeds ENDS_IN_INPUT");
+    let embedded: Vec<String> = list
+        .split(',')
+        .map(|entry| entry.trim().trim_matches('"').to_owned())
+        .filter(|entry| !entry.is_empty())
+        .collect();
+    assert_eq!(embedded, derived, "regenerate ENDS_IN_INPUT in margin-before-text/check.js");
 }
 
 /// AAEV_019_EN with one edit applied at a JSON pointer.
@@ -174,7 +259,7 @@ fn a_field_with_another_types_prefix_is_named_wrong() {
 }
 
 #[test]
-fn a_parenthetical_or_marked_up_label_is_not_a_label() {
+fn a_parenthetical_or_markup_only_label_is_not_a_label() {
     let field = |label: &str| {
         json!({
             "type": "TextField", "uuid": "00000000-0000-0000-0000-000000000001", "name": "TXT_A",
@@ -184,13 +269,41 @@ fn a_parenthetical_or_marked_up_label_is_not_a_label() {
     };
     let base = golden("AAEV_019_EN");
     let page = first_panel(&base);
-    for label in ["(optional)", "<b>Name</b>"] {
+    for label in [
+        "(optional)",
+        "<p></p>",
+        "<span data-af-footnote-id=\"fn1\"><sup>#</sup></span>",
+    ] {
         let doc = aaev_with(&format!("{page}/children"), json!([field(label)]));
         assert_eq!(
             violations("input-labels", &doc),
             vec![format!("{page}/children/0/label/en")],
             "{label}"
         );
+    }
+}
+
+/// A label may be rich text and carry a footnote reference with its hidden
+/// description, as the issued forms' labels do: what it shows is judged.
+#[test]
+fn a_label_with_markup_or_a_footnote_is_a_label() {
+    let field = |label: &str| {
+        json!({
+            "type": "TextField", "uuid": "00000000-0000-0000-0000-000000000001", "name": "TXT_A",
+            "label": {"en": label}, "mandatory": false, "visible": true, "max_chars": null,
+            "colspan": 12, "dor_colspan": null, "bind_ref": null, "kind": "Plain"
+        })
+    };
+    let base = golden("AAEV_019_EN");
+    let page = first_panel(&base);
+    for label in [
+        "<b>Name</b>",
+        "Last name, first name(s) / Company<span data-af-footnote-id=\"fn1\"><sup>#</sup></span>\
+         <p id=\"fn1\" class=\"footnoteDescription\" style=\"display: none;\">\
+         <span class=\"footnoteDescText\">As registered with UBS.</span></p>",
+    ] {
+        let doc = aaev_with(&format!("{page}/children"), json!([field(label)]));
+        assert!(violations("input-labels", &doc).is_empty(), "{label}");
     }
 }
 
@@ -1977,5 +2090,101 @@ fn a_partner_generic_reaches_inside_its_sub_panels_by_path() {
     assert_eq!(
         violations("account-holder-wiring", &doc),
         vec!["/form/children/0/children/0/children/0/init_hide".to_string()]
+    );
+}
+
+/// The custody account block, an input, or a row that ends in one, keeps its
+/// distance from a text or heading after it; text after text, and a text on
+/// the next page, need none.
+#[test]
+fn an_input_before_a_text_carries_the_margin() {
+    let custody = |css: Option<&str>| {
+        let mut node = json!({
+            "type": "Fragment", "uuid": "00000000-0000-0000-0000-000000000001",
+            "name": "PN_CustodyAccount", "visible": true, "bind_ref": null,
+            "frag_ref": "/content/dam/formsanddocuments/afforms_ubs_fragmentlib/affrg_CustodyAccount1"
+        });
+        if let Some(css) = css {
+            node["css"] = json!(css);
+        }
+        node
+    };
+    let title = json!({
+        "type": "TitleDraw", "uuid": "00000000-0000-0000-0000-000000000002", "name": "TTL_Client",
+        "content": {"en": "Client"}, "colspan": 12, "heading_level": 2
+    });
+    let field = json!({
+        "type": "TextField", "uuid": "00000000-0000-0000-0000-000000000003", "name": "TXT_A",
+        "label": {"en": "Name"}, "mandatory": false, "visible": true, "max_chars": null,
+        "colspan": 12, "dor_colspan": null, "bind_ref": null, "kind": "Plain"
+    });
+    let base = golden("AAEV_019_EN");
+    let page = first_panel(&base);
+    let at = format!("{page}/children");
+
+    let bare = aaev_with(&at, json!([custody(None), title.clone()]));
+    assert_eq!(violations("margin-before-text", &bare), vec![format!("{page}/children/0")]);
+    let other = aaev_with(&at, json!([custody(Some("other")), title.clone()]));
+    assert_eq!(violations("margin-before-text", &other), vec![format!("{page}/children/0/css")]);
+    let kept = aaev_with(&at, json!([custody(Some("ubs-margin-20")), title.clone()]));
+    assert!(violations("margin-before-text", &kept).is_empty());
+
+    let input = aaev_with(&at, json!([field.clone(), title.clone()]));
+    assert_eq!(violations("margin-before-text", &input), vec![format!("{page}/children/0")]);
+    let last = aaev_with(&at, json!([title.clone(), field]));
+    assert!(violations("margin-before-text", &last).is_empty(), "nothing follows the input");
+    let texts = aaev_with(&at, json!([title.clone(), title]));
+    assert!(violations("margin-before-text", &texts).is_empty(), "text after text");
+}
+
+/// A twin names a party the form holds and repeats with its bounds.
+#[test]
+fn a_signature_twin_names_its_party_and_takes_its_bounds() {
+    let twin = "/form/children/6/children/0/children/0/children/0";
+    let base = golden("AAOS_033_IT");
+    assert_eq!(base.pointer(twin).unwrap()["twin_of"], "PN_CPGRP");
+    assert!(violations("signatures", &base).is_empty());
+
+    let mut unknown = base.clone();
+    unknown.pointer_mut(twin).unwrap()["twin_of"] = json!("PN_Gone");
+    assert_eq!(violations("signatures", &unknown), vec![format!("{twin}/twin_of")]);
+
+    let mut bounds = base;
+    bounds.pointer_mut(twin).unwrap()["min_occur"] = json!(2);
+    assert_eq!(violations("signatures", &bounds), vec![format!("{twin}/min_occur")]);
+}
+
+/// A choice locks and unlocks components the form holds, by its own values;
+/// the document model takes `enable_conditions`, so the edited documents
+/// still read.
+#[test]
+fn a_lock_names_a_component_and_a_value_of_its_choice() {
+    let lock = |target: &str, value: &str| {
+        json!([{"target_name": target, "value": {"type": "text", "value": value}, "enable": false}])
+    };
+    let choice = "/form/children/0/children/0";
+    let base = doc_with(vec![page(
+        "PN_Owner",
+        "Owner",
+        vec![radio("RB_SameOwner", &["Yes", "No"], &[]), text_field("TXT_Owner", "Owner", None)],
+    )]);
+    let fine = set(base.clone(), choice, "enable_conditions", lock("TXT_Owner", "0"));
+    assert!(violations("conditional-access", &fine).is_empty());
+
+    let missing = set(base.clone(), choice, "enable_conditions", lock("TXT_Gone", "0"));
+    assert_eq!(
+        violations("conditional-access", &missing),
+        vec![format!("{choice}/enable_conditions/0/target_name")]
+    );
+    let value = set(base.clone(), choice, "enable_conditions", lock("TXT_Owner", "7"));
+    assert_eq!(
+        violations("conditional-access", &value),
+        vec![format!("{choice}/enable_conditions/0/value")]
+    );
+    let field = "/form/children/0/children/1";
+    let not_a_choice = set(base, field, "enable_conditions", lock("RB_SameOwner", "0"));
+    assert_eq!(
+        violations("conditional-access", &not_a_choice),
+        vec![format!("{field}/enable_conditions")]
     );
 }

@@ -1,0 +1,46 @@
+id = "ubs-aem-conditional-access"
+title = "A choice locks and unlocks what the source locks and unlocks"
+output_formats = ["aem-ubs"]
+description = """
+Where a choice of the source protects or opens other inputs, the choice carries `enable_conditions`
+that do the same in AEM: each names the component it locks or unlocks (`target_name`), the
+choice's value that decides it (`value`, one of its option values) and whether that value enables
+(`enable: true`) or disables (`enable: false`) it. Under any other value the target is the opposite.
+A disabled target is still shown and printed, cannot be changed, and loses what was entered in it,
+as the source empties a field it protects again. The writer generates the choice's rules; nothing
+is written by hand, and the target is not `read_only`.
+
+Two shapes, both in the source's scripts:
+
+- a choice that opens an input: a field protected until a box is ticked ("debit the costs to UBS
+  account no. ____" opens the account number). The checkbox carries
+  `{"target_name": "TXT_DebitAccountNo", "value": {"type": "text", "value": "1"}, "enable": true}`;
+- a choice that locks a section: "Contractual partner(s) and beneficial owner(s) are the same" set to
+  Yes protects every beneficial-owner field and removes its add and remove buttons. The radio button
+  carries `{"target_name": "PN_BeneficialOwner", "value": {"type": "text", "value": "1"},
+  "enable": false}` on the section's Panel or Repeatable: disabling a container disables everything
+  in it, its buttons included. Where the source copies the client into the locked section, the
+  section is still only locked: AEM has no choice-dependent copy.
+
+Find them in a session (xfa_open): xfa_set or xfa_click each value of each radio button group,
+checkbox and drop-down, and read the result's `access_changes` (a field going from `open` to
+`protected` or back) and `disappeared` (add and remove buttons). Read the choice's scripts in the
+template too (xfa_search for `.access =` near its name, xfa_read of its `click`, `change` and
+`mouseUp` events): a script can lock on a click a set does not show. The inputs a choice changes
+name the target: the smallest Panel, Repeatable or page holding all of them, or the input itself
+when it is one.
+
+How to judge: compare each choice's access changes in the source with its `enable_conditions`.
+
+A break is a choice that protects or opens inputs in the source without `enable_conditions` for
+them, a target the source does not lock under that value, a target made `read_only` or hidden
+instead of locked, and a scripted fault reported below.
+
+Reported (scripted): an `enable_conditions` entry whose `target_name` names no component, or more
+than one, or the choice itself; a `value` that is none of the choice's option values; and
+`enable_conditions` on anything but a radio button group, a checkbox or a drop-down.
+
+Fix: add the `enable_conditions` entry on the choice with the target, value and direction the
+source shows; remove `read_only` from a target a choice unlocks; correct the target's name or the
+value.
+"""

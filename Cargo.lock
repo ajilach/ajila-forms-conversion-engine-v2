@@ -63,6 +63,7 @@ dependencies = [
  "u2s-blob",
  "u2s-doc-tools",
  "u2s-jsondoc",
+ "u2s-mapper-aem",
  "u2s-render-core",
  "u2s-render-pdf",
  "u2s-render-pdf-mcp",

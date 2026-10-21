@@ -23,7 +23,10 @@ paragraph are split). The number is never typed. Each page holding a reference h
 one has none. No Panel or Repeatable `title` carries a reference, a page's included: AEM fails to
 render a text whose reference has no description in that same text, and the writer copies a page
 title into its step-title draw without one. Where the source marks a heading, the reference goes
-after the word that carries it in the section's first text, with its description there.
+after the word that carries it in the section's first text, with its description there. Where it
+marks an input's caption ("Last name, first name(s) / Company¹"), the reference goes into that
+input's `label` after the marked word, with its description in the same label: never onto a
+heading above it instead (ubs-aem-input-labels lets a label carry both).
 
 Reported: a reference in a Panel or Repeatable title, a page with a reference and no placeholder (at each reference), a placeholder on a page
 without a reference, a second placeholder on a page, a reference with no description (or a

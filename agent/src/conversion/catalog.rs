@@ -414,6 +414,10 @@ mod catalog_guards {
         "textbox",
         "init_hide",
         "init_show",
+        "enable_conditions",
+        "read_only",
+        "target_name",
+        "twin_of",
         // u2s tool arguments and reply fields.
         "affects_layout",
         "side_effects",

@@ -59,6 +59,7 @@ u2s-aem-verify-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversi
 u2s-blob = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "a1b9248f1dc2a41bee323340e30b82b7da157b55" }
 u2s-doc-tools = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "a1b9248f1dc2a41bee323340e30b82b7da157b55" }
 u2s-jsondoc = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "a1b9248f1dc2a41bee323340e30b82b7da157b55" }
+u2s-mapper-aem = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "a1b9248f1dc2a41bee323340e30b82b7da157b55" }
 u2s-render-core = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "a1b9248f1dc2a41bee323340e30b82b7da157b55" }
 u2s-render-pdf = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "a1b9248f1dc2a41bee323340e30b82b7da157b55" }
 u2s-render-pdf-mcp = { git = "ssh://git@github.com/ajilach/ajila-forms-conversion-engine-v3.git", rev = "a1b9248f1dc2a41bee323340e30b82b7da157b55" }

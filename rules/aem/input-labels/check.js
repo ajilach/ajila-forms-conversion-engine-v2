@@ -6,11 +6,21 @@ const NO_CAPTION = "; where the source gives it no caption, use the nearest sour
   "(then its group's caption, its option's text, or a readable field name), verbatim and without " +
   "surrounding brackets";
 
+// The text a label shows: without the hidden footnote descriptions, the footnote references and
+// the rest of its markup. A label may carry all of these (ubs-aem-footnotes).
+function shown(text) {
+  return String(text)
+    .replace(/<p\b[^>]*class="[^"]*footnoteDescription[^"]*"[^>]*>[\s\S]*?<\/p>/g, "")
+    .replace(/<span\b[^>]*data-af-footnote-id[^>]*>[\s\S]*?<\/span>/g, "")
+    .replace(/<[^<>]*>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .trim();
+}
+
 function problem(text) {
-  const t = String(text).trim();
+  const t = shown(text);
   if (t === "") return "is empty";
   if (t.startsWith("(") && t.endsWith(")")) return "is only a parenthetical hint";
-  if (/<\/?[A-Za-z][^<>]*>/.test(t)) return "carries markup";
   if (/^[\s._…\-]+$/.test(t) && /[._…\-]{3}/.test(t.replace(/\s+/g, ""))) return "is only a placeholder of filler characters";
   if (/^[A-Za-z]+_[A-Za-z0-9_]*$/.test(t)) return "is a technical field name, not words";
   return null;
