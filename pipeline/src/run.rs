@@ -1832,7 +1832,10 @@ mod controller {
         fn emit(&mut self, event: RunEvent) {
             self.events.push(event);
         }
-        fn retry_prompt(&mut self, _role: &str, _error: &str) {
+        fn retry_prompt(&mut self, role: &str, error: &str) {
+            // Without an answer the controller would poll for one forever, and
+            // the test would hang rather than fail.
+            assert!(self.answer.is_some(), "the {role} paused on a failed turn no test answers: {error}");
             self.prompts += 1;
         }
         fn poll_retry(&mut self) -> Option<RetryAction> {
@@ -2030,7 +2033,7 @@ mod controller {
             .rule_board()
             .into_iter()
             .filter(|r| matches!(r.state, agent::RuleState::Fail { .. } | agent::RuleState::Unchecked { .. }))
-            .map(|r| r.title)
+            .map(|r| r.rule_id)
             .collect()
     }
 

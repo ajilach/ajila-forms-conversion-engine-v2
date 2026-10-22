@@ -57,7 +57,10 @@ jobs:
     # `--workspace`. It must sit at target/release/u2s-rules-worker.
     - name: Build rule sandbox worker
       run: cargo build --verbose --release --locked -p u2s-rules-host --bin u2s-rules-worker
+    # The suite takes well under a minute; a stuck test should fail the run
+    # here rather than at the runner's 6h limit.
     - name: Run tests
+      timeout-minutes: 30
       run: cargo test --verbose --release --locked --workspace
 
     - name: Tag commit as tested
